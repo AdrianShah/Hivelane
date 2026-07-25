@@ -17,17 +17,30 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
-from .gemini import classify_conflict, generate_caption
-from .models import (
-    ActivityMessage,
-    ActivityUpdate,
-    JoinMessage,
-    NameRejected,
-    UserJoined,
-    UserLeft,
-)
-from .room import FileOverlap, Room
-from .sanitize import sanitize_name
+try:
+    from .gemini import classify_conflict, generate_caption
+    from .models import (
+        ActivityMessage,
+        ActivityUpdate,
+        JoinMessage,
+        NameRejected,
+        UserJoined,
+        UserLeft,
+    )
+    from .room import FileOverlap, Room
+    from .sanitize import sanitize_name
+except ImportError:  # Render runs with rootDir=server as a flat module tree
+    from gemini import classify_conflict, generate_caption
+    from models import (
+        ActivityMessage,
+        ActivityUpdate,
+        JoinMessage,
+        NameRejected,
+        UserJoined,
+        UserLeft,
+    )
+    from room import FileOverlap, Room
+    from sanitize import sanitize_name
 
 load_dotenv()
 
@@ -142,15 +155,21 @@ async def handle_activity(user_id: str, raw: dict) -> None:
         log.warning("Caption path crashed; using empty caption: %s", exc)
         caption = None
 
-    await room.broadcast(
-        ActivityUpdate(
-            user_id=message.user_id,
-            timestamp=message.timestamp,
-            prompt=message.prompt,
-            changes=message.changes,
-            caption=caption,
-        )
+    update = ActivityUpdate(
+        user_id=message.user_id,
+        timestamp=message.timestamp,
+        prompt=message.prompt,
+        changes=message.changes,
+        caption=caption,
     )
+    room.remember_update(update)
+    log.info(
+        "activity from %s (%d file(s), prompt=%s)",
+        user_id,
+        len(message.changes),
+        "yes" if message.prompt else "no",
+    )
+    await room.broadcast(update)
 
     try:
         await evaluate_and_broadcast_conflicts(user_id, message, overlaps)
@@ -170,8 +189,11 @@ async def websocket_endpoint(socket: WebSocket) -> None:
     if user_id is None:
         room.add_spectator(socket)
         log.info("Spectator connected")
+        # Catch up: current lanes + each user's most recent activity snapshot.
         for existing in room.member_ids:
             await room.send(socket, UserJoined(user_id=existing))
+        for update in room.latest_updates():
+            await room.send(socket, update)
         try:
             while True:
                 await socket.receive_json()

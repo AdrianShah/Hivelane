@@ -3,5 +3,4 @@ uvicorn[standard]==0.34.0
 websockets==15.0.1
 pydantic==2.10.4
 python-dotenv==1.0.1
-# Unused until the Gemini captioning step; pinned now so no install is needed mid-build.
 google-genai==2.14.0
