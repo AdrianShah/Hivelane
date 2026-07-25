@@ -23,67 +23,6 @@ const SPECTATOR_JOIN: JoinMessage = {
   role: 'spectator',
 };
 
-/** Mockup preview when no live watchers are connected. */
-const DEMO_USERS: Record<string, LaneState> = {
-  Adrian: {
-    prompt: 'Refactor FastAPI WebSocket handler to broadcast conflict alerts',
-    caption:
-      'Updated main.py: Added in-memory file timestamp tracking to detect concurrent mutations across distributed nodes.',
-    timestamp: Date.now() / 1000 - 120,
-    agent: 'cursor',
-    changes: [
-      {
-        file_path: 'server/main.py',
-        diff: `@@ -40,7 +40,12 @@
- def broadcast(room, message):
--    for ws in room.connections:
--        await ws.send_json(message)
-+    now = time.time()
-+    room.file_activity[path] = now
-+    for ws in room.connections:
-+        await ws.send_json(message)
-+    if conflict_detected(room, path):
-+        raise ConflictError(path)
-`,
-      },
-    ],
-  },
-  Hossein: {
-    prompt: 'Implement session-based locking for file writes',
-    caption:
-      'Modified main.py: Adding write-lock logic to prevent race conditions during high-concurrency WebSocket updates.',
-    timestamp: Date.now() / 1000 - 90,
-    agent: 'claude-code',
-    changes: [
-      {
-        file_path: 'server/main.py',
-        diff: `@@ -12,6 +12,14 @@
- class Room:
-     def __init__(self):
-         self.connections = {}
-+        self.write_locks = {}
-+
-+    async def acquire_lock(self, path, user_id):
-+        if path in self.write_locks:
-+            return False
-+        self.write_locks[path] = user_id
-+        return True
-`,
-      },
-    ],
-  },
-};
-
-const DEMO_CONFLICT: ConflictAlert = {
-  type: 'conflict_alert',
-  users: ['Adrian', 'Hossein'],
-  file_path: 'server/main.py',
-  verdict: 'overlapping',
-  explanation:
-    'Both agents are mutating the same WebSocket broadcast path within the conflict window.',
-  timestamp: Date.now() / 1000 - 25,
-};
-
 function isActionableConflict(alert: ConflictAlert): boolean {
   return alert.verdict === 'overlapping' || alert.verdict === 'related';
 }
@@ -151,7 +90,6 @@ export default function App() {
   const [view, setView] = useState<AppView>('agents');
   const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Cluster');
   const [highlightFile, setHighlightFile] = useState<string | null>(null);
-  const [demoDismissed, setDemoDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
@@ -169,14 +107,8 @@ export default function App() {
     if (mapped) setTopNav(mapped);
   };
 
-  const liveUserIds = Object.keys(users);
-  const usingDemo = liveUserIds.length === 0 && !demoDismissed;
-  const displayUsers = usingDemo ? DEMO_USERS : users;
-  const displayConflicts = usingDemo
-    ? conflicts.length > 0
-      ? conflicts
-      : [DEMO_CONFLICT]
-    : conflicts;
+  const displayUsers = users;
+  const displayConflicts = conflicts;
   const displayUserIds = Object.keys(displayUsers);
 
   useEffect(() => {
@@ -359,6 +291,8 @@ export default function App() {
     [displayUsers],
   );
 
+  const hasLiveAgents = displayUserIds.length > 0;
+
   const serverLabel =
     status === 'connected'
       ? 'SERVER: CONNECTED'
@@ -383,20 +317,11 @@ export default function App() {
   };
 
   const handleResolve = (filePath: string) => {
-    if (usingDemo) {
-      setDemoDismissed(true);
-      showToast('Preview conflict dismissed');
-      return;
-    }
     setConflicts((prev) => prev.filter((c) => c.file_path !== filePath));
     showToast('Conflict resolved');
   };
 
-  const historyRows = usingDemo
-    ? conflictHistory.length > 0
-      ? conflictHistory
-      : [DEMO_CONFLICT]
-    : conflictHistory;
+  const historyRows = conflictHistory;
 
   const showAgentGrid = view === 'agents';
   const activeConflictCount = displayConflicts.length;
@@ -635,27 +560,40 @@ export default function App() {
                     cluster.
                   </p>
                 </div>
-                {usingDemo ? (
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber bg-amber/10 border border-amber/25 rounded-full px-2.5 py-1 shrink-0">
-                    Preview
-                  </span>
-                ) : null}
               </div>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-[1400px]">
-                {displayUserIds.map((id, index) => (
-                  <Lane
-                    key={id}
-                    userId={id}
-                    state={displayUsers[id]}
-                    inConflict={conflictedUsers.has(id)}
-                    highlightFile={
-                      conflictedUsers.has(id) ? highlightFile : null
-                    }
-                    showArchitectureMap={index === 1}
-                    index={index}
-                  />
-                ))}
-              </div>
+              {hasLiveAgents ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-[1400px]">
+                  {displayUserIds.map((id, index) => (
+                    <Lane
+                      key={id}
+                      userId={id}
+                      state={displayUsers[id]}
+                      inConflict={conflictedUsers.has(id)}
+                      highlightFile={
+                        conflictedUsers.has(id) ? highlightFile : null
+                      }
+                      showArchitectureMap={index === 1}
+                      index={index}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="lane-shell rounded-2xl p-8 max-w-[1400px] text-center">
+                  <p className="text-[14px] text-on-surface font-medium m-0">
+                    No agents connected yet
+                  </p>
+                  <p className="text-[13px] text-on-muted mt-2 mb-5">
+                    Deploy a watcher to stream IDE activity into this room.
+                  </p>
+                  <button
+                    type="button"
+                    className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
+                    onClick={() => setDeployOpen(true)}
+                  >
+                    Deploy Agent
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
 
