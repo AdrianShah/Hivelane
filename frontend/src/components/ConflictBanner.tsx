@@ -2,8 +2,8 @@ import type { ConflictAlert } from '../types';
 
 interface ConflictBannerProps {
   conflicts: ConflictAlert[];
-  onDismiss: (filePath: string) => void;
-  onDismissAll: () => void;
+  onResolve: (filePath: string) => void;
+  onViewOverlap: (filePath: string) => void;
 }
 
 function formatUsers(users: string[]): string {
@@ -13,57 +13,70 @@ function formatUsers(users: string[]): string {
   return `${users.slice(0, -1).join(', ')}, and ${users[users.length - 1]}`;
 }
 
+function secondsAgo(timestamp: number): number {
+  return Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+}
+
 export default function ConflictBanner({
   conflicts,
-  onDismiss,
-  onDismissAll,
+  onResolve,
+  onViewOverlap,
 }: ConflictBannerProps) {
   if (conflicts.length === 0) return null;
 
   const primary = conflicts[0];
+  const ago = secondsAgo(primary.timestamp);
+  const windowLabel = ago <= 60 ? 'within the last 60s' : `${ago}s ago`;
 
   return (
     <div
-      className="bg-error-container/20 border-b border-error/20 px-8 py-2.5 flex items-center justify-between neon-border-error relative z-40"
-      aria-live="polite"
+      className="conflict-banner px-5 py-3 z-40 animate-fade-up"
+      aria-live="assertive"
+      role="alert"
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <span
-          className="material-symbols-outlined text-error text-xl shrink-0"
-          style={{ fontVariationSettings: "'FILL' 1" }}
-        >
-          report
-        </span>
-        <p className="text-sm font-medium text-on-surface/90 truncate">
-          <span className="text-error font-bold uppercase tracking-wider text-xs mr-2">
-            Conflict{conflicts.length > 1 ? ` (${conflicts.length})` : ''}:
-          </span>
-          {formatUsers(primary.users)} are modifying{' '}
-          <code className="bg-surface-container-highest/60 px-1.5 py-0.5 rounded font-mono text-xs text-primary">
-            {primary.file_path}
-          </code>
-          {primary.explanation ? (
-            <span className="text-on-surface-variant ml-2 hidden lg:inline">
-              — {primary.explanation}
+      <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+          <div className="w-8 h-8 rounded-lg bg-amber/15 border border-amber/30 flex items-center justify-center shrink-0">
+            <span
+              className="material-symbols-outlined text-amber text-[18px]"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+              aria-hidden
+            >
+              warning
             </span>
-          ) : null}
-        </p>
-      </div>
-      <div className="flex gap-3 shrink-0">
-        <button
-          type="button"
-          className="bg-error text-on-error px-5 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-widest hover:brightness-125 transition-all shadow-lg shadow-error/20"
-          onClick={() => onDismiss(primary.file_path)}
-        >
-          Dismiss
-        </button>
-        <button
-          type="button"
-          className="border border-error/30 text-error px-5 py-1.5 rounded-lg font-bold text-[10px] uppercase tracking-widest hover:bg-error/10 transition-colors"
-          onClick={onDismissAll}
-        >
-          Dismiss all
-        </button>
+          </div>
+          <p className="text-[13px] text-on-surface/95 leading-relaxed min-w-0">
+            <span className="font-semibold tracking-tight">Edit Conflict Detected:</span>{' '}
+            <span className="text-rose-100/90">{formatUsers(primary.users)}</span> are
+            simultaneously modifying{' '}
+            <code className="font-mono text-[12px] text-primary bg-black/35 px-1.5 py-0.5 rounded-md border border-white/5">
+              {primary.file_path}
+            </code>{' '}
+            <span className="text-on-muted">{windowLabel}.</span>
+            {conflicts.length > 1 ? (
+              <span className="text-on-muted ml-2 text-xs">
+                (+{conflicts.length - 1} more)
+              </span>
+            ) : null}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            className="rounded-lg bg-white text-error-deep px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] hover:bg-lavender-bright transition-colors shadow-sm"
+            onClick={() => onResolve(primary.file_path)}
+          >
+            Resolve
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-white/30 text-white/95 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] hover:bg-white/10 hover:border-white/50 transition-colors"
+            onClick={() => onViewOverlap(primary.file_path)}
+          >
+            View Overlap
+          </button>
+        </div>
       </div>
     </div>
   );

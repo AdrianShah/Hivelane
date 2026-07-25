@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import ConflictBanner from './components/ConflictBanner';
 import Lane from './components/Lane';
+import Sidebar, { type AppView } from './components/Sidebar';
 import { normalizeRoomCode, roomWsUrl } from './relayUrl';
 import type {
   ConflictAlert,
@@ -18,6 +19,67 @@ const SPECTATOR_JOIN: JoinMessage = {
   type: 'join',
   name: null,
   role: 'spectator',
+};
+
+/** Mockup preview when no live watchers are connected. */
+const DEMO_USERS: Record<string, LaneState> = {
+  Adrian: {
+    prompt: 'Refactor FastAPI WebSocket handler to broadcast conflict alerts',
+    caption:
+      'Updated main.py: Added in-memory file timestamp tracking to detect concurrent mutations across distributed nodes.',
+    timestamp: Date.now() / 1000 - 120,
+    agent: 'cursor',
+    changes: [
+      {
+        file_path: 'server/main.py',
+        diff: `@@ -40,7 +40,12 @@
+ def broadcast(room, message):
+-    for ws in room.connections:
+-        await ws.send_json(message)
++    now = time.time()
++    room.file_activity[path] = now
++    for ws in room.connections:
++        await ws.send_json(message)
++    if conflict_detected(room, path):
++        raise ConflictError(path)
+`,
+      },
+    ],
+  },
+  Hossein: {
+    prompt: 'Implement session-based locking for file writes',
+    caption:
+      'Modified main.py: Adding write-lock logic to prevent race conditions during high-concurrency WebSocket updates.',
+    timestamp: Date.now() / 1000 - 90,
+    agent: 'claude-code',
+    changes: [
+      {
+        file_path: 'server/main.py',
+        diff: `@@ -12,6 +12,14 @@
+ class Room:
+     def __init__(self):
+         self.connections = {}
++        self.write_locks = {}
++
++    async def acquire_lock(self, path, user_id):
++        if path in self.write_locks:
++            return False
++        self.write_locks[path] = user_id
++        return True
+`,
+      },
+    ],
+  },
+};
+
+const DEMO_CONFLICT: ConflictAlert = {
+  type: 'conflict_alert',
+  users: ['Adrian', 'Hossein'],
+  file_path: 'server/main.py',
+  verdict: 'overlapping',
+  explanation:
+    'Both agents are mutating the same WebSocket broadcast path within the conflict window.',
+  timestamp: Date.now() / 1000 - 25,
 };
 
 function isActionableConflict(alert: ConflictAlert): boolean {
@@ -45,13 +107,6 @@ function upsertConflict(
   return [...without, next].sort((a, b) => b.timestamp - a.timestamp);
 }
 
-function formatElapsed(seconds: number): string {
-  const h = String(Math.floor(seconds / 3600)).padStart(2, '0');
-  const m = String(Math.floor((seconds % 3600) / 60)).padStart(2, '0');
-  const s = String(seconds % 60).padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
 function relativeTime(ts: number): string {
   const delta = Math.max(0, Math.floor(Date.now() / 1000 - ts));
   if (delta < 60) return `${delta}s ago`;
@@ -60,6 +115,8 @@ function relativeTime(ts: number): string {
 }
 
 type ConnStatus = 'connecting' | 'connected' | 'disconnected';
+
+const TOP_NAV = ['Cluster', 'Logs', 'Analytics', 'Config'] as const;
 
 export default function App() {
   const { roomId: rawRoomId } = useParams<{ roomId: string }>();
@@ -71,9 +128,22 @@ export default function App() {
   const [conflictHistory, setConflictHistory] = useState<ConflictAlert[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [elapsed, setElapsed] = useState(0);
-  const [view, setView] = useState<'agents' | 'history'>('agents');
+  const [view, setView] = useState<AppView>('agents');
+  const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Logs');
+  const [highlightFile, setHighlightFile] = useState<string | null>(null);
+  const [demoDismissed, setDemoDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const liveUserIds = Object.keys(users);
+  const usingDemo = liveUserIds.length === 0 && !demoDismissed;
+  const displayUsers = usingDemo ? DEMO_USERS : users;
+  const displayConflicts = usingDemo
+    ? conflicts.length > 0
+      ? conflicts
+      : [DEMO_CONFLICT]
+    : conflicts;
+  const displayUserIds = Object.keys(displayUsers);
 
   useEffect(() => {
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -139,6 +209,7 @@ export default function App() {
                   caption: null,
                   changes: [],
                   prompt: null,
+                  timestamp: null,
                   agent: msg.agent ?? 'unknown',
                 },
               };
@@ -163,6 +234,7 @@ export default function App() {
                 caption: msg.caption,
                 changes: msg.changes,
                 prompt: msg.prompt,
+                timestamp: msg.timestamp,
                 agent: msg.agent ?? prev[msg.user_id]?.agent ?? 'unknown',
               },
             }));
@@ -214,341 +286,340 @@ export default function App() {
 
   const conflictedUsers = useMemo(() => {
     const ids = new Set<string>();
-    for (const c of conflicts) {
+    for (const c of displayConflicts) {
       for (const u of c.users) ids.add(u);
     }
     return ids;
-  }, [conflicts]);
+  }, [displayConflicts]);
 
-  const userIds = Object.keys(users);
   const totalDiffs = useMemo(
-    () => Object.values(users).reduce((sum, u) => sum + u.changes.length, 0),
-    [users],
+    () =>
+      Object.values(displayUsers).reduce((sum, u) => sum + u.changes.length, 0),
+    [displayUsers],
   );
 
-  const statusLabel =
+  const serverLabel =
     status === 'connected'
-      ? 'Cluster Live'
+      ? 'SERVER: CONNECTED'
       : status === 'connecting'
-        ? 'Connecting'
-        : 'Offline';
+        ? 'SERVER: CONNECTING'
+        : 'SERVER: OFFLINE';
+
+  const handleViewOverlap = (filePath: string) => {
+    setView('agents');
+    setHighlightFile(filePath);
+    const conflict = displayConflicts.find((c) => c.file_path === filePath);
+    const firstUser = conflict?.users[0];
+    window.setTimeout(() => {
+      if (firstUser) {
+        document.getElementById(`lane-${firstUser}`)?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'nearest',
+        });
+      }
+    }, 50);
+    window.setTimeout(() => setHighlightFile(null), 8000);
+  };
+
+  const handleResolve = (filePath: string) => {
+    if (usingDemo) {
+      setDemoDismissed(true);
+      return;
+    }
+    setConflicts((prev) => prev.filter((c) => c.file_path !== filePath));
+  };
+
+  const historyRows = usingDemo
+    ? conflictHistory.length > 0
+      ? conflictHistory
+      : [DEMO_CONFLICT]
+    : conflictHistory;
+
+  const showAgentGrid = view === 'agents' || view === 'dashboard';
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col font-body text-on-surface">
-      <header className="glass-panel flex justify-between items-center w-full px-8 h-16 shrink-0 z-50 sticky top-0 border-b border-outline-variant/30">
-        <div className="flex items-center gap-6">
-          <span className="font-headline text-xl font-black text-primary tracking-tighter uppercase italic">
-            AGI_HACK_24
-          </span>
-          <div className="h-6 w-px bg-outline-variant/50" />
-          <div className="flex items-center gap-2.5" title={wsUrl}>
-            <div
-              className={`w-1.5 h-1.5 rounded-full ${
-                status === 'connected'
-                  ? 'bg-tertiary animate-pulse status-glow'
-                  : status === 'connecting'
-                    ? 'bg-secondary animate-pulse'
-                    : 'bg-error'
-              }`}
-            />
-            <span className="text-[11px] font-semibold text-on-surface-variant tracking-[0.1em] uppercase">
-              {statusLabel}
+    <div className="h-screen overflow-hidden flex flex-col bg-background">
+      <header className="glass-header shrink-0 z-50">
+        <div className="flex items-center justify-between gap-4 px-5 h-[56px]">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <span className="font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap">
+              AGI_HACK_2024
             </span>
-          </div>
-        </div>
-
-        <nav className="hidden md:flex items-center gap-10">
-          <div className="flex gap-8">
-            <button
-              type="button"
-              className={
-                view === 'agents'
-                  ? 'text-primary text-sm font-bold border-b-2 border-primary pb-1'
-                  : 'text-on-surface-variant/80 text-sm font-medium hover:text-primary transition-all duration-300'
-              }
-              onClick={() => setView('agents')}
+            <div
+              className="hidden sm:inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1"
+              title={wsUrl}
             >
-              Agents
-            </button>
-            <button
-              type="button"
-              className={
-                view === 'history'
-                  ? 'text-primary text-sm font-bold border-b-2 border-primary pb-1'
-                  : 'text-on-surface-variant/80 text-sm font-medium hover:text-primary transition-all duration-300'
-              }
-              onClick={() => setView('history')}
-            >
-              History
-            </button>
-          </div>
-          <div className="flex items-center gap-4 px-4 py-2 bg-surface-container-low/40 rounded-lg border border-outline-variant/20">
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] text-on-surface-variant leading-none uppercase font-bold tracking-wider mb-0.5">
-                Active
-              </span>
-              <span className="font-mono text-sm text-secondary font-bold">
-                {String(userIds.length).padStart(2, '0')}
-              </span>
-            </div>
-            <div className="w-px h-4 bg-outline-variant/30" />
-            <div className="flex flex-col items-center">
-              <span className="text-[9px] text-on-surface-variant leading-none uppercase font-bold tracking-wider mb-0.5">
-                Diffs
-              </span>
-              <span className="font-mono text-sm text-primary font-bold">
-                {String(totalDiffs).padStart(2, '0')}
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  status === 'connected'
+                    ? 'bg-emerald shadow-live'
+                    : status === 'connecting'
+                      ? 'bg-amber animate-pulse-dot'
+                      : 'bg-error'
+                }`}
+              />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
+                {serverLabel}
               </span>
             </div>
           </div>
-        </nav>
 
-        <div className="flex items-center gap-6">
-          <div className="hidden sm:flex items-center gap-4">
+          <nav className="hidden lg:flex items-center gap-1">
+            {TOP_NAV.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setTopNav(item)}
+                className={`relative text-[12px] font-medium transition-colors px-3 py-1.5 rounded-md ${
+                  topNav === item
+                    ? 'text-on-surface'
+                    : 'text-on-muted hover:text-on-surface hover:bg-white/[0.03]'
+                }`}
+              >
+                {item}
+                {topNav === item ? (
+                  <span className="absolute left-3 right-3 -bottom-[11px] h-[2px] rounded-full bg-lavender" />
+                ) : null}
+              </button>
+            ))}
+          </nav>
+
+          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <div className="hidden md:flex items-center gap-2">
+              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
+                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
+                  Agents
+                </span>
+                <span className="font-mono text-[12px] font-bold text-primary tabular-nums">
+                  {String(displayUserIds.length).padStart(2, '0')}
+                </span>
+              </div>
+              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
+                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
+                  Diffs
+                </span>
+                <span className="font-mono text-[12px] font-bold text-on-surface tabular-nums">
+                  {String(totalDiffs).padStart(2, '0')}
+                </span>
+              </div>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-0.5 ml-0.5">
+              <button
+                type="button"
+                className="icon-btn p-1.5"
+                title={copied ? 'Link copied' : 'Share session'}
+                onClick={copyShareUrl}
+              >
+                <span className="material-symbols-outlined text-[20px]">
+                  {copied ? 'check' : 'screen_share'}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="icon-btn p-1.5 relative"
+                title="Notifications"
+                onClick={() => setView('conflicts')}
+              >
+                <span className="material-symbols-outlined text-[20px]">notifications</span>
+                {displayConflicts.length > 0 ? (
+                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-surface" />
+                ) : null}
+              </button>
+              <button
+                type="button"
+                className="icon-btn p-1.5"
+                title="Settings"
+                onClick={() => setView('settings')}
+              >
+                <span className="material-symbols-outlined text-[20px]">settings</span>
+              </button>
+            </div>
+
             <button
               type="button"
-              className="p-1.5 text-on-surface-variant hover:text-primary hover:scale-110 transition-all duration-200"
-              title="Terminal"
+              className="deploy-btn rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
             >
-              <span className="material-symbols-outlined text-xl">terminal</span>
-            </button>
-            <button
-              type="button"
-              className="p-1.5 text-on-surface-variant hover:text-primary hover:scale-110 transition-all duration-200 relative"
-              title="Conflicts"
-              onClick={() => setView('history')}
-            >
-              <span className="material-symbols-outlined text-xl">notifications</span>
-              {conflicts.length > 0 ? (
-                <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-surface" />
-              ) : null}
+              Deploy Agent
             </button>
           </div>
-          <span className="bg-primary/90 text-on-primary font-bold px-5 py-2 rounded-full shadow-[0_0_20px_rgba(125,211,252,0.2)] text-xs uppercase tracking-widest">
-            Spectator
-          </span>
         </div>
       </header>
 
       <ConflictBanner
-        conflicts={conflicts}
-        onDismiss={(filePath) =>
-          setConflicts((prev) => prev.filter((c) => c.file_path !== filePath))
-        }
-        onDismissAll={() => setConflicts([])}
+        conflicts={displayConflicts}
+        onResolve={handleResolve}
+        onViewOverlap={handleViewOverlap}
       />
 
-      <main className="flex-1 flex overflow-hidden">
-        <aside className="hidden md:flex flex-col h-full w-64 glass-sidebar px-4 py-8 shrink-0">
-          <div className="flex items-center gap-3 px-2 mb-10">
-            <div className="w-10 h-10 rounded-xl bg-primary-container/40 flex items-center justify-center border border-primary/20">
-              <span className="material-symbols-outlined text-primary text-2xl">
-                grid_view
-              </span>
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          view={view}
+          onNavigate={setView}
+          conflictCount={displayConflicts.length}
+          elapsedSeconds={elapsed}
+          roomId={roomId}
+          onCopyRoom={copyShareUrl}
+          copied={copied}
+        />
+
+        <main className="flex-1 overflow-y-auto custom-scrollbar relative workspace-canvas">
+          {showAgentGrid ? (
+            <div className="p-6 lg:p-8">
+              <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
+                    Live Agents
+                  </h1>
+                  <p className="text-[13px] text-on-muted mt-1 mb-0">
+                    Real-time prompts, captions, and file diffs across the cluster.
+                  </p>
+                </div>
+                {usingDemo ? (
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-amber bg-amber/10 border border-amber/25 rounded-full px-2.5 py-1 shrink-0">
+                    Preview
+                  </span>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-[1400px]">
+                {displayUserIds.map((id, index) => (
+                  <Lane
+                    key={id}
+                    userId={id}
+                    state={displayUsers[id]}
+                    inConflict={conflictedUsers.has(id)}
+                    highlightFile={
+                      conflictedUsers.has(id) ? highlightFile : null
+                    }
+                    showArchitectureMap={index === 1}
+                    index={index}
+                  />
+                ))}
+              </div>
             </div>
-            <div>
-              <button
-                type="button"
-                className="text-sm font-bold text-on-surface leading-tight tracking-tight font-mono hover:text-primary transition-colors"
-                onClick={copyShareUrl}
-                title="Copy shareable link"
-              >
-                {roomId || 'ROOM'}
-              </button>
-              <p className="text-[10px] text-on-surface-variant font-mono uppercase tracking-widest mt-0.5">
-                {copied ? 'Link copied' : `${formatElapsed(elapsed)} Active`}
+          ) : null}
+
+          {view === 'conflicts' || view === 'history' ? (
+            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+              <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+                {view === 'conflicts' ? 'Active Conflicts' : 'Conflict History'}
+              </h1>
+              <p className="text-[13px] text-on-muted mb-6">
+                Overlaps across the agent cluster for this session.
               </p>
-            </div>
-          </div>
-
-          <nav className="flex-1 space-y-1">
-            <button
-              type="button"
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
-                view === 'agents'
-                  ? 'text-primary active-nav-glow'
-                  : 'text-on-surface-variant ethereal-hover'
-              }`}
-              onClick={() => setView('agents')}
-            >
-              <span className="material-symbols-outlined text-lg">smart_toy</span>
-              <span className="text-[11px] font-bold tracking-widest uppercase">
-                Agents
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all ${
-                view === 'history'
-                  ? 'text-primary active-nav-glow'
-                  : 'text-on-surface-variant ethereal-hover'
-              }`}
-              onClick={() => setView('history')}
-            >
-              <span className="material-symbols-outlined text-lg">warning</span>
-              <span className="text-[11px] font-bold tracking-widest uppercase">
-                Conflicts
-              </span>
-              {conflicts.length > 0 ? (
-                <span className="ml-auto bg-error/20 text-error text-[10px] px-2 py-0.5 rounded-full font-bold border border-error/30">
-                  {conflicts.length}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className="w-full flex items-center gap-4 px-4 py-3 text-on-surface-variant ethereal-hover rounded-xl transition-all"
-              onClick={() => setView('history')}
-            >
-              <span className="material-symbols-outlined text-lg opacity-70">history</span>
-              <span className="text-[11px] font-bold tracking-widest uppercase">
-                History
-              </span>
-            </button>
-          </nav>
-        </aside>
-
-        <section className="flex-1 flex flex-col overflow-hidden">
-          {view === 'agents' ? (
-            <>
-              <div className="px-10 py-8 border-b border-outline-variant/10 glass-panel">
-                <h1 className="text-3xl font-black text-on-surface tracking-tight mb-2">
-                  Live Agents
-                </h1>
-                <p className="text-on-surface-variant text-sm font-medium max-w-2xl">
-                  Real-time lanes for every connected watcher — captions, prompts, and
-                  expandable file diffs.
-                </p>
-              </div>
-              <div className="flex-1 overflow-y-auto p-10 custom-scrollbar">
-                {userIds.length === 0 ? (
-                  <div className="glass-panel rounded-2xl px-8 py-16 text-center">
-                    <span className="material-symbols-outlined text-4xl text-primary/40 mb-3">
-                      hourglass_empty
-                    </span>
-                    <p className="text-on-surface-variant text-sm">
-                      No agents connected yet. Waiting for watchers to join…
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {userIds.map((id) => (
-                      <Lane
-                        key={id}
-                        userId={id}
-                        state={users[id]}
-                        inConflict={conflictedUsers.has(id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="px-10 py-8 border-b border-outline-variant/10 glass-panel">
-                <h1 className="text-3xl font-black text-on-surface tracking-tight mb-2">
-                  Conflict History
-                </h1>
-                <p className="text-on-surface-variant text-sm font-medium max-w-2xl">
-                  Global synchronization ledger. Review operational conflicts across the
-                  distributed cluster.
-                </p>
-              </div>
-              <div className="flex-1 overflow-y-auto p-10 custom-scrollbar">
-                <div className="glass-panel rounded-2xl overflow-hidden shadow-2xl">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-surface-container-high/40 border-b border-outline-variant/30">
-                        <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-[0.2em]">
-                          Timestamp
-                        </th>
-                        <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-[0.2em]">
-                          Participants
-                        </th>
-                        <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-[0.2em]">
-                          Resource
-                        </th>
-                        <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-[0.2em]">
-                          Status
-                        </th>
-                        <th className="px-8 py-5 text-[10px] font-black text-on-surface-variant uppercase tracking-[0.2em] text-right">
-                          Verdict
-                        </th>
+              <div className="lane-shell rounded-2xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-outline-soft bg-black/25">
+                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
+                        When
+                      </th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
+                        Agents
+                      </th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
+                        File
+                      </th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
+                        Verdict
+                      </th>
+                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim text-right">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-outline-soft/50">
+                    {(view === 'conflicts' ? displayConflicts : historyRows)
+                      .length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="px-5 py-12 text-center text-sm text-on-muted"
+                        >
+                          No conflicts recorded yet.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-outline-variant/10">
-                      {conflictHistory.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-8 py-12 text-center text-sm text-on-surface-variant"
+                    ) : (
+                      (view === 'conflicts' ? displayConflicts : historyRows).map(
+                        (c) => (
+                          <tr
+                            key={`${c.file_path}-${c.timestamp}`}
+                            className="hover:bg-white/[0.025] transition-colors"
                           >
-                            No conflicts recorded yet.
-                          </td>
-                        </tr>
-                      ) : (
-                        conflictHistory.map((c) => {
-                          const active = conflicts.some(
-                            (a) => a.file_path === c.file_path,
-                          );
-                          return (
-                            <tr
-                              key={`${c.file_path}-${c.timestamp}`}
-                              className="hover:bg-primary/5 transition-colors group"
-                            >
-                              <td className="px-8 py-6 text-sm font-medium text-on-surface-variant/80 group-hover:text-on-surface transition-colors">
-                                {relativeTime(c.timestamp)}
-                              </td>
-                              <td className="px-8 py-6">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {c.users.map((u, i) => (
-                                    <span key={u} className="flex items-center gap-2">
-                                      {i > 0 ? (
-                                        <span className="material-symbols-outlined text-primary/40 text-sm">
-                                          swap_horiz
-                                        </span>
-                                      ) : null}
-                                      <span className="text-on-surface font-bold text-sm">
-                                        {u}
-                                      </span>
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-                              <td className="px-8 py-6">
-                                <code className="font-mono text-xs text-primary bg-primary/5 px-2.5 py-1 rounded-md border border-primary/10">
-                                  {c.file_path}
-                                </code>
-                              </td>
-                              <td className="px-8 py-6">
-                                <span
-                                  className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                                    active
-                                      ? 'bg-error/10 text-error border-error/20'
-                                      : 'bg-tertiary/10 text-tertiary border-tertiary/20'
-                                  }`}
-                                >
-                                  {active ? 'Active' : 'Resolved'}
-                                </span>
-                              </td>
-                              <td className="px-8 py-6 text-right">
-                                <span className="text-primary font-black text-[10px] uppercase tracking-widest">
-                                  {c.verdict}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                            <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
+                              {relativeTime(c.timestamp)}
+                            </td>
+                            <td className="px-5 py-4 text-[13px] font-medium text-on-surface">
+                              {c.users.join(' · ')}
+                            </td>
+                            <td className="px-5 py-4">
+                              <code className="font-mono text-[12px] text-primary bg-primary/5 border border-primary/15 px-2 py-0.5 rounded-md">
+                                {c.file_path}
+                              </code>
+                            </td>
+                            <td className="px-5 py-4">
+                              <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-lavender bg-lavender/10 border border-lavender/20 px-2 py-0.5 rounded-md">
+                                {c.verdict}
+                              </span>
+                            </td>
+                            <td className="px-5 py-4 text-right">
+                              <button
+                                type="button"
+                                className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary hover:text-primary/80 transition-colors"
+                                onClick={() => handleViewOverlap(c.file_path)}
+                              >
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        ),
+                      )
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
+          {view === 'settings' ? (
+            <div className="p-6 lg:p-8 max-w-xl animate-fade-up">
+              <h1 className="text-xl font-bold tracking-tight mb-1">Settings</h1>
+              <p className="text-[13px] text-on-muted mb-6">
+                Spectator relay connection for this dashboard.
+              </p>
+              <div className="lane-shell rounded-2xl p-5 space-y-4">
+                <div>
+                  <label className="section-label">Room</label>
+                  <p className="font-mono text-[13px] text-primary mt-2 mb-0">
+                    {roomId || '—'}
+                  </p>
+                </div>
+                <div className="h-px bg-outline-soft" />
+                <div>
+                  <label className="section-label">WebSocket URL</label>
+                  <p className="font-mono text-[13px] text-primary mt-2 break-all mb-0">
+                    {wsUrl}
+                  </p>
+                </div>
+                <div className="h-px bg-outline-soft" />
+                <div>
+                  <label className="section-label">Status</label>
+                  <p className="text-[13px] text-on-surface mt-2 mb-0">{serverLabel}</p>
                 </div>
               </div>
-            </>
-          )}
-        </section>
-      </main>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
+            title="Quick action"
+            onClick={() => setView('agents')}
+          >
+            <span className="material-symbols-outlined text-[26px]">add</span>
+          </button>
+        </main>
+      </div>
     </div>
   );
 }
