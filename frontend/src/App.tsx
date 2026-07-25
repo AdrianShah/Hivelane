@@ -55,7 +55,7 @@ function relativeTime(ts: number): string {
   return `${Math.floor(delta / 3600)} hours ago`;
 }
 
-type ConnStatus = 'connecting' | 'connected' | 'disconnected';
+type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'room_missing';
 
 const TOP_NAV = ['Cluster', 'Logs', 'Analytics', 'Config'] as const;
 
@@ -128,12 +128,14 @@ export default function App() {
     setUsers({});
     setConflicts([]);
     setConflictHistory([]);
+    setStatus('connecting');
 
     let cancelled = false;
+    let roomMissing = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const connect = () => {
-      if (cancelled) return;
+      if (cancelled || roomMissing) return;
 
       setStatus('connecting');
       const ws = new WebSocket(wsUrl);
@@ -158,6 +160,13 @@ export default function App() {
         }
 
         switch (msg.type) {
+          case 'room_rejected':
+            roomMissing = true;
+            setStatus('room_missing');
+            showToast(msg.reason);
+            ws.close();
+            break;
+
           case 'user_joined':
             setUsers((prev) => {
               if (prev[msg.user_id]) {
@@ -222,10 +231,15 @@ export default function App() {
         }
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         if (cancelled) return;
-        setStatus('disconnected');
         wsRef.current = null;
+        if (roomMissing || event.code === 4404 || event.code === 4004) {
+          roomMissing = true;
+          setStatus('room_missing');
+          return;
+        }
+        setStatus('disconnected');
         retryTimer = setTimeout(connect, 2000);
       };
 
@@ -298,7 +312,9 @@ export default function App() {
       ? 'SERVER: CONNECTED'
       : status === 'connecting'
         ? 'SERVER: CONNECTING'
-        : 'SERVER: OFFLINE';
+        : status === 'room_missing'
+          ? 'SERVER: ROOM GONE'
+          : 'SERVER: OFFLINE';
 
   const handleViewOverlap = (filePath: string) => {
     navigateTo('agents');
@@ -454,6 +470,26 @@ export default function App() {
         onResolve={handleResolve}
         onViewOverlap={handleViewOverlap}
       />
+
+      {status === 'room_missing' ? (
+        <div className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40">
+          <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+            <p className="text-[13px] text-on-surface m-0">
+              Room <span className="font-mono text-primary">{roomId}</span> is
+              gone on the relay (expired or redeployed). Create a new workspace
+              and update your watcher --room code.
+            </p>
+            <button
+              type="button"
+              className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold shrink-0"
+              onClick={() => void createNewRoom()}
+              disabled={creatingRoom}
+            >
+              {creatingRoom ? 'Creating…' : 'New workspace'}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex-1 flex overflow-hidden">
         <Sidebar

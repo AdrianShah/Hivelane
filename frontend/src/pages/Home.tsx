@@ -17,8 +17,11 @@ export default function Home() {
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       const data = (await response.json()) as { room_id: string };
       navigate(`/room/${data.room_id}`);
-    } catch {
-      setError('Could not reach the relay. Is the server running?');
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'unknown error';
+      setError(
+        `Could not create a workspace (${detail}). Check that the relay is up and CORS allows this site.`,
+      );
       setCreating(false);
     }
   };

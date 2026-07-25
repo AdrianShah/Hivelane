@@ -49,18 +49,13 @@ def _folder_from_uri(uri: str) -> Optional[str]:
     return raw.replace("\\", "/").lower()
 
 
-def resolve_workspace_id(project_root: Path) -> Optional[str]:
-    """Match the watched folder to a Cursor workspaceStorage hash."""
-    try:
-        target = project_root.resolve()
-    except OSError:
-        return None
-
+def _workspace_folder_map() -> dict[str, str]:
+    """Map normalized workspace folder path -> workspaceStorage hash."""
     storage = _cursor_user_dir() / "workspaceStorage"
     if not storage.is_dir():
-        return None
+        return {}
 
-    target_norm = _normalize_folder(target)
+    mapping: dict[str, str] = {}
     for entry in storage.iterdir():
         meta = entry / "workspace.json"
         if not meta.is_file():
@@ -68,12 +63,38 @@ def resolve_workspace_id(project_root: Path) -> Optional[str]:
         try:
             data = json.loads(meta.read_text(encoding="utf-8"))
             folder = _folder_from_uri(data.get("folder", ""))
-            if not folder:
-                continue
-            if folder == target_norm or Path(folder).resolve() == target:
-                return entry.name
+            if folder:
+                mapping[folder] = entry.name
         except (OSError, json.JSONDecodeError, ValueError):
             continue
+    return mapping
+
+
+def resolve_workspace_id(project_root: Path) -> Optional[str]:
+    """Match the watched folder to a Cursor workspaceStorage hash.
+
+    Tries the path itself, then each parent directory. That way watching a
+    subfolder (e.g. ``demo_proj``) still finds the Cursor window opened on
+    the repo root (``Hack Day``).
+    """
+    try:
+        target = project_root.resolve()
+    except OSError:
+        return None
+
+    mapping = _workspace_folder_map()
+    if not mapping:
+        return None
+
+    current: Optional[Path] = target
+    while current is not None:
+        norm = _normalize_folder(current)
+        hit = mapping.get(norm)
+        if hit:
+            return hit
+        if current.parent == current:
+            break
+        current = current.parent
     return None
 
 

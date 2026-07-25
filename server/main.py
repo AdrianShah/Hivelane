@@ -27,6 +27,7 @@ try:
         ActivityUpdate,
         JoinMessage,
         NameRejected,
+        RoomRejected,
         UserJoined,
         UserLeft,
     )
@@ -40,6 +41,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         ActivityUpdate,
         JoinMessage,
         NameRejected,
+        RoomRejected,
         UserJoined,
         UserLeft,
     )
@@ -54,15 +56,22 @@ log = logging.getLogger("relay")
 
 app = FastAPI(title="Multiplayer AI Agent Viewer relay")
 
-ALLOWED_ORIGINS = os.getenv(
-    "CORS_ORIGINS", "https://your-app.vercel.app,http://localhost:5173"
-).split(",")
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "https://hackday-agent-viewer.vercel.app,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    # Preview deploys use https://hackday-agent-viewer-*.vercel.app
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
 
@@ -70,6 +79,21 @@ room_manager = RoomManager()
 
 # Drop activity spam: same user must wait this long between accepted updates.
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
+
+# Keep empty rooms around so a shared Vercel link / watcher reconnect still
+# works after a brief disconnect (Render free-tier blips, laptop sleep, etc.).
+EMPTY_ROOM_GRACE_SECONDS = 30 * 60
+
+# Private-use close code: room code unknown / expired.
+WS_CLOSE_ROOM_NOT_FOUND = 4404
+
+
+def _schedule_empty_room_cleanup(room_id: str) -> None:
+    async def _cleanup_later() -> None:
+        await asyncio.sleep(EMPTY_ROOM_GRACE_SECONDS)
+        room_manager.cleanup_if_empty(room_id)
+
+    asyncio.create_task(_cleanup_later())
 
 
 def _log_conflict_task_error(task: asyncio.Task) -> None:
@@ -228,12 +252,26 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     room = room_manager.get(room_id)
     await socket.accept()
     if room is None:
-        await socket.close(code=4004, reason="Room not found")
+        # Accept + JSON reject (then close) so browsers and the watcher get a
+        # clear signal. Closing before accept becomes an opaque 1006 in Chrome;
+        # closing after accept without a body often arrives as "no close frame"
+        # through Render's proxy.
+        log.info("Rejecting unknown room %s", room_id)
+        await socket.send_json(
+            RoomRejected(
+                reason=(
+                    "Room not found. It may have expired after the relay "
+                    "restarted — create a new workspace on the dashboard."
+                )
+            ).model_dump()
+        )
+        await socket.close(code=WS_CLOSE_ROOM_NOT_FOUND, reason="Room not found")
         return
 
     try:
         joined = await handshake(socket, room)
     except (WebSocketDisconnect, RuntimeError):
+        _schedule_empty_room_cleanup(room_id)
         return
 
     if joined is None:
@@ -253,7 +291,7 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         except (WebSocketDisconnect, RuntimeError):
             room.remove_spectator(socket)
             log.info("Spectator disconnected from room %s", room_id)
-            room_manager.cleanup_if_empty(room_id)
+            _schedule_empty_room_cleanup(room_id)
         return
 
     user_id, agent = joined
@@ -280,4 +318,4 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         room.remove_member(user_id)
         log.info("%s left room %s (%d in room)", user_id, room_id, len(room.member_ids))
         await room.broadcast(UserLeft(user_id=user_id))
-        room_manager.cleanup_if_empty(room_id)
+        _schedule_empty_room_cleanup(room_id)
