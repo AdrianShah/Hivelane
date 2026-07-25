@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import ConflictBanner from './components/ConflictBanner';
+import DeployModal from './components/DeployModal';
 import Lane from './components/Lane';
 import Sidebar, { type AppView } from './components/Sidebar';
-import { normalizeRoomCode, roomWsUrl } from './relayUrl';
+import { normalizeRoomCode, relayHttpOrigin, roomWsUrl } from './relayUrl';
 import type {
   ConflictAlert,
   JoinMessage,
@@ -118,7 +119,25 @@ type ConnStatus = 'connecting' | 'connected' | 'disconnected';
 
 const TOP_NAV = ['Cluster', 'Logs', 'Analytics', 'Config'] as const;
 
+const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
+  Cluster: 'dashboard',
+  Logs: 'history',
+  Analytics: 'analytics',
+  Config: 'settings',
+};
+
+const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
+  dashboard: 'Cluster',
+  agents: 'Cluster',
+  history: 'Logs',
+  conflicts: 'Logs',
+  analytics: 'Analytics',
+  settings: 'Config',
+  docs: 'Config',
+};
+
 export default function App() {
+  const navigate = useNavigate();
   const { roomId: rawRoomId } = useParams<{ roomId: string }>();
   const roomId = normalizeRoomCode(rawRoomId ?? '');
   const wsUrl = useMemo(() => roomWsUrl(roomId), [roomId]);
@@ -129,11 +148,25 @@ export default function App() {
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [elapsed, setElapsed] = useState(0);
   const [view, setView] = useState<AppView>('agents');
-  const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Logs');
+  const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Cluster');
   const [highlightFile, setHighlightFile] = useState<string | null>(null);
   const [demoDismissed, setDemoDismissed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deployOpen, setDeployOpen] = useState(false);
+  const [creatingRoom, setCreatingRoom] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const showToast = (message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast(null), 1800);
+  };
+
+  const navigateTo = (next: AppView) => {
+    setView(next);
+    const mapped = VIEW_TO_TOP_NAV[next];
+    if (mapped) setTopNav(mapped);
+  };
 
   const liveUserIds = Object.keys(users);
   const usingDemo = liveUserIds.length === 0 && !demoDismissed;
@@ -278,10 +311,37 @@ export default function App() {
     };
   }, [wsUrl]);
 
-  const copyShareUrl = () => {
-    void navigator.clipboard.writeText(window.location.href);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const copyShareUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setCopied(true);
+      showToast('Share link copied');
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      showToast('Could not copy link');
+    }
+  };
+
+  const createNewRoom = async () => {
+    if (
+      !window.confirm(
+        'Create a new room and leave this session? Teammates will need the new code.',
+      )
+    ) {
+      return;
+    }
+    setCreatingRoom(true);
+    try {
+      const response = await fetch(`${relayHttpOrigin()}/rooms`, {
+        method: 'POST',
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = (await response.json()) as { room_id: string };
+      navigate(`/room/${data.room_id}`);
+    } catch {
+      showToast('Could not create room');
+      setCreatingRoom(false);
+    }
   };
 
   const conflictedUsers = useMemo(() => {
@@ -306,7 +366,7 @@ export default function App() {
         : 'SERVER: OFFLINE';
 
   const handleViewOverlap = (filePath: string) => {
-    setView('agents');
+    navigateTo('agents');
     setHighlightFile(filePath);
     const conflict = displayConflicts.find((c) => c.file_path === filePath);
     const firstUser = conflict?.users[0];
@@ -324,9 +384,11 @@ export default function App() {
   const handleResolve = (filePath: string) => {
     if (usingDemo) {
       setDemoDismissed(true);
+      showToast('Preview conflict dismissed');
       return;
     }
     setConflicts((prev) => prev.filter((c) => c.file_path !== filePath));
+    showToast('Conflict resolved');
   };
 
   const historyRows = usingDemo
@@ -335,16 +397,23 @@ export default function App() {
       : [DEMO_CONFLICT]
     : conflictHistory;
 
-  const showAgentGrid = view === 'agents' || view === 'dashboard';
+  const showAgentGrid = view === 'agents';
+  const activeConflictCount = displayConflicts.length;
+  const historyCount = historyRows.length;
 
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-background">
       <header className="glass-header shrink-0 z-50">
         <div className="flex items-center justify-between gap-4 px-5 h-[56px]">
           <div className="flex items-center gap-3.5 min-w-0">
-            <span className="font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap">
+            <button
+              type="button"
+              className="font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
+              onClick={() => navigate('/')}
+              title="Back to home"
+            >
               AGI_HACK_2024
-            </span>
+            </button>
             <div
               className="hidden sm:inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1"
               title={wsUrl}
@@ -369,7 +438,10 @@ export default function App() {
               <button
                 key={item}
                 type="button"
-                onClick={() => setTopNav(item)}
+                onClick={() => {
+                  setTopNav(item);
+                  navigateTo(TOP_NAV_TO_VIEW[item]);
+                }}
                 className={`relative text-[12px] font-medium transition-colors px-3 py-1.5 rounded-md ${
                   topNav === item
                     ? 'text-on-surface'
@@ -409,7 +481,7 @@ export default function App() {
                 type="button"
                 className="icon-btn p-1.5"
                 title={copied ? 'Link copied' : 'Share session'}
-                onClick={copyShareUrl}
+                onClick={() => void copyShareUrl()}
               >
                 <span className="material-symbols-outlined text-[20px]">
                   {copied ? 'check' : 'screen_share'}
@@ -419,9 +491,11 @@ export default function App() {
                 type="button"
                 className="icon-btn p-1.5 relative"
                 title="Notifications"
-                onClick={() => setView('conflicts')}
+                onClick={() => navigateTo('conflicts')}
               >
-                <span className="material-symbols-outlined text-[20px]">notifications</span>
+                <span className="material-symbols-outlined text-[20px]">
+                  notifications
+                </span>
                 {displayConflicts.length > 0 ? (
                   <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-surface" />
                 ) : null}
@@ -430,15 +504,18 @@ export default function App() {
                 type="button"
                 className="icon-btn p-1.5"
                 title="Settings"
-                onClick={() => setView('settings')}
+                onClick={() => navigateTo('settings')}
               >
-                <span className="material-symbols-outlined text-[20px]">settings</span>
+                <span className="material-symbols-outlined text-[20px]">
+                  settings
+                </span>
               </button>
             </div>
 
             <button
               type="button"
               className="deploy-btn rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
+              onClick={() => setDeployOpen(true)}
             >
               Deploy Agent
             </button>
@@ -455,15 +532,96 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         <Sidebar
           view={view}
-          onNavigate={setView}
+          onNavigate={navigateTo}
           conflictCount={displayConflicts.length}
           elapsedSeconds={elapsed}
           roomId={roomId}
-          onCopyRoom={copyShareUrl}
+          onCopyRoom={() => void copyShareUrl()}
           copied={copied}
+          onDeployAgent={() => setDeployOpen(true)}
+          onNewRoom={() => void createNewRoom()}
+          creatingRoom={creatingRoom}
         />
 
         <main className="flex-1 overflow-y-auto custom-scrollbar relative workspace-canvas">
+          {view === 'dashboard' ? (
+            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+              <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+                Dashboard
+              </h1>
+              <p className="text-[13px] text-on-muted mb-6">
+                Room overview for{' '}
+                <span className="font-mono text-primary">{roomId}</span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+                {[
+                  {
+                    label: 'Active agents',
+                    value: String(displayUserIds.length).padStart(2, '0'),
+                    action: () => navigateTo('agents'),
+                    cta: 'View agents',
+                  },
+                  {
+                    label: 'Total diffs',
+                    value: String(totalDiffs).padStart(2, '0'),
+                    action: () => navigateTo('agents'),
+                    cta: 'Open lanes',
+                  },
+                  {
+                    label: 'Active conflicts',
+                    value: String(activeConflictCount).padStart(2, '0'),
+                    action: () => navigateTo('conflicts'),
+                    cta: 'Review',
+                  },
+                  {
+                    label: 'Relay',
+                    value: status === 'connected' ? 'Live' : status,
+                    action: () => navigateTo('settings'),
+                    cta: 'Settings',
+                  },
+                ].map((card) => (
+                  <button
+                    key={card.label}
+                    type="button"
+                    onClick={card.action}
+                    className="lane-shell rounded-2xl p-5 text-left hover:border-primary/30 transition-colors"
+                  >
+                    <p className="section-label m-0">{card.label}</p>
+                    <p className="font-mono text-2xl font-bold text-on-surface mt-3 mb-1 capitalize">
+                      {card.value}
+                    </p>
+                    <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
+                      {card.cta} →
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
+                  onClick={() => setDeployOpen(true)}
+                >
+                  Deploy Agent
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  onClick={() => void copyShareUrl()}
+                >
+                  Copy share link
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  onClick={() => navigateTo('agents')}
+                >
+                  Open live agents
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {showAgentGrid ? (
             <div className="p-6 lg:p-8">
               <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
@@ -472,7 +630,8 @@ export default function App() {
                     Live Agents
                   </h1>
                   <p className="text-[13px] text-on-muted mt-1 mb-0">
-                    Real-time prompts, captions, and file diffs across the cluster.
+                    Real-time prompts, captions, and file diffs across the
+                    cluster.
                   </p>
                 </div>
                 {usingDemo ? (
@@ -495,6 +654,88 @@ export default function App() {
                     index={index}
                   />
                 ))}
+              </div>
+            </div>
+          ) : null}
+
+          {view === 'analytics' ? (
+            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+              <h1 className="text-xl font-bold tracking-tight mb-1">Analytics</h1>
+              <p className="text-[13px] text-on-muted mb-6">
+                Session metrics for this room.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div className="lane-shell rounded-2xl p-5">
+                  <p className="section-label m-0">Agents online</p>
+                  <p className="font-mono text-3xl font-bold mt-3 mb-0 text-primary">
+                    {displayUserIds.length}
+                  </p>
+                </div>
+                <div className="lane-shell rounded-2xl p-5">
+                  <p className="section-label m-0">Files changed</p>
+                  <p className="font-mono text-3xl font-bold mt-3 mb-0">
+                    {totalDiffs}
+                  </p>
+                </div>
+                <div className="lane-shell rounded-2xl p-5">
+                  <p className="section-label m-0">Conflicts logged</p>
+                  <p className="font-mono text-3xl font-bold mt-3 mb-0 text-error">
+                    {historyCount}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                onClick={() => navigateTo('history')}
+              >
+                Open conflict history
+              </button>
+            </div>
+          ) : null}
+
+          {view === 'docs' ? (
+            <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
+              <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
+              <p className="text-[13px] text-on-muted mb-6">
+                How to connect watchers to this room.
+              </p>
+              <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
+                <p className="m-0">
+                  1. Share this room link or code{' '}
+                  <code className="text-primary font-mono">{roomId}</code> with
+                  teammates.
+                </p>
+                <p className="m-0">
+                  2. On each machine, run the watcher against the same room
+                  (Deploy Agent copies the command).
+                </p>
+                <p className="m-0">
+                  3. Edit files under the watched path — activity and conflicts
+                  appear on this board.
+                </p>
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="deploy-btn rounded-xl px-4 py-2 text-[11px] font-bold"
+                    onClick={() => setDeployOpen(true)}
+                  >
+                    Deploy Agent
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    onClick={() =>
+                      window.open(
+                        `${relayHttpOrigin()}/docs`,
+                        '_blank',
+                        'noopener,noreferrer',
+                      )
+                    }
+                  >
+                    API reference
+                  </button>
+                </div>
               </div>
             </div>
           ) : null}
@@ -540,40 +781,41 @@ export default function App() {
                         </td>
                       </tr>
                     ) : (
-                      (view === 'conflicts' ? displayConflicts : historyRows).map(
-                        (c) => (
-                          <tr
-                            key={`${c.file_path}-${c.timestamp}`}
-                            className="hover:bg-white/[0.025] transition-colors"
-                          >
-                            <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
-                              {relativeTime(c.timestamp)}
-                            </td>
-                            <td className="px-5 py-4 text-[13px] font-medium text-on-surface">
-                              {c.users.join(' · ')}
-                            </td>
-                            <td className="px-5 py-4">
-                              <code className="font-mono text-[12px] text-primary bg-primary/5 border border-primary/15 px-2 py-0.5 rounded-md">
-                                {c.file_path}
-                              </code>
-                            </td>
-                            <td className="px-5 py-4">
-                              <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-lavender bg-lavender/10 border border-lavender/20 px-2 py-0.5 rounded-md">
-                                {c.verdict}
-                              </span>
-                            </td>
-                            <td className="px-5 py-4 text-right">
-                              <button
-                                type="button"
-                                className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary hover:text-primary/80 transition-colors"
-                                onClick={() => handleViewOverlap(c.file_path)}
-                              >
-                                View
-                              </button>
-                            </td>
-                          </tr>
-                        ),
-                      )
+                      (view === 'conflicts'
+                        ? displayConflicts
+                        : historyRows
+                      ).map((c) => (
+                        <tr
+                          key={`${c.file_path}-${c.timestamp}`}
+                          className="hover:bg-white/[0.025] transition-colors"
+                        >
+                          <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
+                            {relativeTime(c.timestamp)}
+                          </td>
+                          <td className="px-5 py-4 text-[13px] font-medium text-on-surface">
+                            {c.users.join(' · ')}
+                          </td>
+                          <td className="px-5 py-4">
+                            <code className="font-mono text-[12px] text-primary bg-primary/5 border border-primary/15 px-2 py-0.5 rounded-md">
+                              {c.file_path}
+                            </code>
+                          </td>
+                          <td className="px-5 py-4">
+                            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-lavender bg-lavender/10 border border-lavender/20 px-2 py-0.5 rounded-md">
+                              {c.verdict}
+                            </span>
+                          </td>
+                          <td className="px-5 py-4 text-right">
+                            <button
+                              type="button"
+                              className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary hover:text-primary/80 transition-colors"
+                              onClick={() => handleViewOverlap(c.file_path)}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
@@ -604,7 +846,41 @@ export default function App() {
                 <div className="h-px bg-outline-soft" />
                 <div>
                   <label className="section-label">Status</label>
-                  <p className="text-[13px] text-on-surface mt-2 mb-0">{serverLabel}</p>
+                  <p className="text-[13px] text-on-surface mt-2 mb-0">
+                    {serverLabel}
+                  </p>
+                </div>
+                <div className="h-px bg-outline-soft" />
+                <div className="flex flex-wrap gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    onClick={() => void copyShareUrl()}
+                  >
+                    Copy share link
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    onClick={() => setDeployOpen(true)}
+                  >
+                    Deploy Agent
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    onClick={() => void createNewRoom()}
+                    disabled={creatingRoom}
+                  >
+                    {creatingRoom ? 'Creating…' : 'New room'}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    onClick={() => navigate('/')}
+                  >
+                    Leave room
+                  </button>
                 </div>
               </div>
             </div>
@@ -613,13 +889,26 @@ export default function App() {
           <button
             type="button"
             className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
-            title="Quick action"
-            onClick={() => setView('agents')}
+            title="Deploy agent"
+            onClick={() => setDeployOpen(true)}
           >
             <span className="material-symbols-outlined text-[26px]">add</span>
           </button>
         </main>
       </div>
+
+      <DeployModal
+        open={deployOpen}
+        roomId={roomId}
+        wsUrl={wsUrl}
+        onClose={() => setDeployOpen(false)}
+      />
+
+      {toast ? (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] rounded-full bg-surface-raised border border-outline-soft px-4 py-2 text-[12px] font-semibold text-on-surface shadow-card animate-fade-up">
+          {toast}
+        </div>
+      ) : null}
     </div>
   );
 }
