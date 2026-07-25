@@ -1,4 +1,14 @@
-export type AppView = 'dashboard' | 'agents' | 'conflicts' | 'history' | 'settings';
+import { useNavigate } from 'react-router-dom';
+import { relayHttpOrigin } from '../relayUrl';
+
+export type AppView =
+  | 'dashboard'
+  | 'agents'
+  | 'conflicts'
+  | 'history'
+  | 'analytics'
+  | 'settings'
+  | 'docs';
 
 interface SidebarProps {
   view: AppView;
@@ -8,6 +18,9 @@ interface SidebarProps {
   roomId?: string;
   onCopyRoom?: () => void;
   copied?: boolean;
+  onDeployAgent?: () => void;
+  onNewRoom?: () => void;
+  creatingRoom?: boolean;
 }
 
 function formatElapsed(seconds: number): string {
@@ -22,6 +35,7 @@ const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'agents', label: 'Agents', icon: 'smart_toy' },
   { id: 'conflicts', label: 'Conflicts', icon: 'warning' },
   { id: 'history', label: 'History', icon: 'history' },
+  { id: 'analytics', label: 'Analytics', icon: 'monitoring' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -33,13 +47,25 @@ export default function Sidebar({
   roomId,
   onCopyRoom,
   copied = false,
+  onDeployAgent,
+  onNewRoom,
+  creatingRoom = false,
 }: SidebarProps) {
+  const navigate = useNavigate();
+
   return (
     <aside className="hidden md:flex flex-col w-[232px] shrink-0 glass-sidebar h-full py-6 px-3">
       <div className="flex items-center gap-3 px-2.5 mb-8">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-          <span className="material-symbols-outlined text-lavender text-[20px]">deployed_code</span>
-        </div>
+        <button
+          type="button"
+          className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-lavender/40 transition-colors"
+          title="Back to home"
+          onClick={() => navigate('/')}
+        >
+          <span className="material-symbols-outlined text-lavender text-[20px]">
+            deployed_code
+          </span>
+        </button>
         <div className="min-w-0">
           <button
             type="button"
@@ -57,8 +83,7 @@ export default function Sidebar({
 
       <nav className="flex-1 space-y-1">
         {NAV.map((item) => {
-          const active =
-            view === item.id || (item.id === 'agents' && view === 'dashboard');
+          const active = view === item.id;
           return (
             <button
               key={item.id}
@@ -89,21 +114,42 @@ export default function Sidebar({
       <div className="mt-auto space-y-3 pt-5 border-t border-outline-soft/70 px-1">
         <button
           type="button"
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-outline-soft bg-surface-raised/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-on-muted hover:text-lavender-bright hover:border-lavender/35 hover:bg-lavender/5 transition-all duration-150"
+          className="w-full flex items-center justify-center gap-2 rounded-lg border border-outline-soft bg-surface-raised/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-on-muted hover:text-lavender-bright hover:border-lavender/35 hover:bg-lavender/5 transition-all duration-150 disabled:opacity-50"
+          onClick={onNewRoom}
+          disabled={creatingRoom}
         >
           <span className="material-symbols-outlined text-base">account_tree</span>
-          New Branch
+          {creatingRoom ? 'Creating…' : 'New Room'}
         </button>
+        {onDeployAgent ? (
+          <button
+            type="button"
+            className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-primary hover:bg-primary/10 transition-all duration-150"
+            onClick={onDeployAgent}
+          >
+            <span className="material-symbols-outlined text-base">rocket_launch</span>
+            Deploy Agent
+          </button>
+        ) : null}
         <div className="flex items-center justify-between px-1.5">
           <button
             type="button"
             className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            onClick={() => onNavigate('docs')}
           >
             Docs
           </button>
           <button
             type="button"
             className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            onClick={() =>
+              window.open(
+                `${relayHttpOrigin()}/docs`,
+                '_blank',
+                'noopener,noreferrer',
+              )
+            }
+            title="Open relay API docs"
           >
             Support
           </button>

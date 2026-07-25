@@ -41,7 +41,12 @@ export default function Home() {
         </p>
 
         <div className="home__actions">
-          <button className="home__create" onClick={createWorkspace} disabled={creating}>
+          <button
+            type="button"
+            className="home__create"
+            onClick={createWorkspace}
+            disabled={creating}
+          >
             {creating ? 'Creating…' : 'Create workspace'}
           </button>
 
