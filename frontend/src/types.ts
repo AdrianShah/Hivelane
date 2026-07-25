@@ -82,3 +82,52 @@ export interface LaneState {
   agent: AgentKind;
   timestamp: number | null;
 }
+
+/* --- Local companion service (http://localhost:4500) ---------------------- */
+
+/** Tools the companion can detect; a superset of the relay's AgentKind. */
+export type ToolId = 'cursor' | 'claude-code' | 'codex' | 'antigravity' | 'unknown';
+
+/** One row of GET /detect. `running` is null when psutil is unavailable. */
+export interface DetectedTool {
+  id: ToolId;
+  label: string;
+  installed: boolean;
+  install_path: string | null;
+  running: boolean | null;
+}
+
+export interface DetectResponse {
+  platform: string;
+  tools: DetectedTool[];
+}
+
+export type WatcherStatus = 'running' | 'stopped' | 'errored';
+
+/** One entry of GET /watchers. */
+export interface WatcherInfo {
+  watcher_id: string;
+  path: string;
+  agent: ToolId;
+  room_id: string;
+  name: string;
+  server_url: string;
+  status: WatcherStatus;
+  pid: number | null;
+  exit_code: number | null;
+  started_at: number;
+  logs: string[];
+}
+
+/** POST /watchers body. */
+export interface CreateWatcherRequest {
+  path: string;
+  room_id: string;
+  name: string;
+  agent: ToolId;
+  server_url: string;
+}
+
+export interface CreateWatcherResponse {
+  watcher_id: string;
+}

@@ -9,11 +9,14 @@ Then expose it with:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
@@ -51,24 +54,41 @@ log = logging.getLogger("relay")
 
 app = FastAPI(title="Multiplayer AI Agent Viewer relay")
 
-# Dev/hackathon setting: the dashboard and watchers arrive from localhost, LAN
-# addresses, and rotating ngrok hostnames.
+ALLOWED_ORIGINS = os.getenv(
+    "CORS_ORIGINS", "https://your-app.vercel.app,http://localhost:5173"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 room_manager = RoomManager()
+
+# Drop activity spam: same user must wait this long between accepted updates.
+ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
+
+
+def _log_conflict_task_error(task: asyncio.Task) -> None:
+    try:
+        exc = task.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        log.warning("Conflict broadcast phase failed: %s", exc)
 
 
 @app.post("/rooms")
 async def create_room() -> dict[str, str]:
     """Generate a fresh room code. The room code is the shared secret —
     whoever has it can join, same trust model as a Google Docs share link."""
-    room_id = room_manager.create_room()
+    try:
+        room_id = room_manager.create_room()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"room_id": room_id}
 
 
@@ -159,6 +179,12 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     # The connection owns its identity; never trust a client-supplied user_id.
     # agent is labeling-only and is taken from the client (validated by Pydantic).
     message.user_id = user_id
+    # Server time is authoritative — ignore client-supplied timestamps.
+    message.timestamp = time.time()
+
+    if room.is_activity_rate_limited(user_id, ACTIVITY_MIN_INTERVAL_SECONDS):
+        log.debug("Rate-limiting activity from %s", user_id)
+        return
 
     # Detect same-file overlaps against active peers BEFORE recording this batch.
     overlaps = room.find_overlaps(message)
@@ -188,16 +214,22 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     )
     await room.broadcast(update)
 
-    try:
-        await evaluate_and_broadcast_conflicts(room, user_id, message, overlaps)
-    except Exception as exc:
-        log.warning("Conflict broadcast phase failed for %s: %s", user_id, exc)
+    # Conflict Gemini calls can take several seconds each — run them in the
+    # background so this socket's receive loop stays free for keepalive frames.
+    if overlaps:
+        task = asyncio.create_task(
+            evaluate_and_broadcast_conflicts(room, user_id, message, overlaps)
+        )
+        task.add_done_callback(_log_conflict_task_error)
 
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
-    room = room_manager.get_or_create(room_id)
+    room = room_manager.get(room_id)
     await socket.accept()
+    if room is None:
+        await socket.close(code=4004, reason="Room not found")
+        return
 
     try:
         joined = await handshake(socket, room)
