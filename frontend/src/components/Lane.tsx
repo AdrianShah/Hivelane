@@ -4,20 +4,29 @@ import './Lane.css';
 interface LaneProps {
   userId: string;
   state: LaneState;
+  inConflict?: boolean;
 }
 
-export default function Lane({ userId, state }: LaneProps) {
-  const { caption, changes } = state;
+export default function Lane({ userId, state, inConflict = false }: LaneProps) {
+  const { caption, changes, prompt } = state;
 
   return (
-    <article className="lane">
+    <article className={`lane${inConflict ? ' lane--conflict' : ''}`}>
       <header className="lane__header">
         <h2 className="lane__username">{userId}</h2>
+        {inConflict && <span className="lane__badge">conflict</span>}
       </header>
 
       <p className="lane__caption">
         {caption ?? 'Waiting for activity…'}
       </p>
+
+      {prompt ? (
+        <div className="lane__prompt">
+          <span className="lane__prompt-label">Prompt</span>
+          <p className="lane__prompt-text">{prompt}</p>
+        </div>
+      ) : null}
 
       {changes.length === 0 ? (
         <p className="lane__empty">No file changes yet.</p>

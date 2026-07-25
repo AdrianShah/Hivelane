@@ -1,35 +1,39 @@
 /** Mirrors server/models.py message schema (shared contract). */
 
+export type Verdict = 'overlapping' | 'related' | 'unrelated';
+
 export interface FileChange {
   file_path: string;
   diff: string;
 }
 
-/** Watcher → server activity payload (echoed into ActivityUpdate). */
+/** Watcher → server activity payload. */
 export interface Activity {
   type: 'activity';
   user_id: string;
-  changes: FileChange[];
+  timestamp: number;
   prompt: string | null;
+  changes: FileChange[];
 }
 
 /** Server → clients broadcast after an activity message. */
 export interface ActivityUpdate {
   type: 'activity_update';
   user_id: string;
-  caption: string | null;
-  changes: FileChange[];
+  timestamp: number;
   prompt: string | null;
+  changes: FileChange[];
+  caption: string | null;
 }
 
-export interface ConflictItem {
-  file_path: string;
-  users: string[];
-}
-
+/** One conflict alert per overlapping/related file pair (server → clients). */
 export interface ConflictAlert {
   type: 'conflict_alert';
-  conflicts: ConflictItem[];
+  users: string[];
+  file_path: string;
+  verdict: Verdict;
+  explanation: string;
+  timestamp: number;
 }
 
 export interface UserJoined {
