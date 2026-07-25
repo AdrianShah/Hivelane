@@ -12,10 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
+from .gemini import classify_conflict, generate_caption
 from .models import (
     ActivityMessage,
     ActivityUpdate,
@@ -23,10 +25,11 @@ from .models import (
     NameRejected,
     UserJoined,
     UserLeft,
-    placeholder_caption,
 )
-from .room import Room
+from .room import FileTouch, Room
 from .sanitize import sanitize_name
+
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("relay")
@@ -87,11 +90,21 @@ async def handle_activity(user_id: str, raw: dict) -> None:
 
     # The connection owns its identity; never trust a client-supplied user_id.
     message.user_id = user_id
+
+    # Snapshot other users' recent touches BEFORE recording this batch, so we
+    # compare against peers only (record would also refresh this user's entry).
+    conflict_candidates: list[tuple[str, str, FileTouch]] = []
+    for change in message.changes:
+        others = room.recent_other_touches(change.file_path, user_id, message.timestamp)
+        if not others:
+            continue
+        # One Gemini call per overlapping file: compare against the newest peer.
+        other = max(others, key=lambda touch: touch.timestamp)
+        conflict_candidates.append((change.file_path, change.diff, other))
+
     room.record_activity(message)
 
-    # Swapped for a Gemini call later; the message shape does not change.
-    caption = placeholder_caption(message)
-
+    caption = await generate_caption(message)
     await room.broadcast(
         ActivityUpdate(
             user_id=message.user_id,
@@ -101,6 +114,23 @@ async def handle_activity(user_id: str, raw: dict) -> None:
             caption=caption,
         )
     )
+
+    for file_path, current_diff, other in conflict_candidates:
+        alert = await classify_conflict(
+            file_path=file_path,
+            current_user=user_id,
+            current_diff=current_diff,
+            current_prompt=message.prompt,
+            other=other,
+        )
+        if alert is not None:
+            log.info(
+                "Conflict %s on %s between %s",
+                alert.verdict,
+                alert.file_path,
+                alert.users,
+            )
+            await room.broadcast(alert)
 
 
 @app.websocket("/ws")

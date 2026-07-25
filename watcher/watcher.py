@@ -23,6 +23,8 @@ import websockets
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from prompt_capture import capture_latest_prompt
+
 DEBOUNCE_SECONDS = 1.5
 MAX_FILE_BYTES = 512_000
 
@@ -111,10 +113,17 @@ class SaveHandler(FileSystemEventHandler):
 class Batcher:
     """Rolling debounce: flushes once no change has arrived for DEBOUNCE_SECONDS."""
 
-    def __init__(self, root: Path, user_id: str, socket) -> None:
+    def __init__(
+        self,
+        root: Path,
+        user_id: str,
+        socket,
+        prompt_override: Optional[str] = None,
+    ) -> None:
         self._root = root
         self._user_id = user_id
         self._socket = socket
+        self._prompt_override = prompt_override
         self._tracker = DiffTracker()
         self._pending: dict[str, str] = {}
         self._deadline: Optional[float] = None
@@ -143,6 +152,12 @@ class Batcher:
             return None
         return max(0.0, self._deadline - time.monotonic())
 
+    def _resolve_prompt(self) -> Optional[str]:
+        if self._prompt_override is not None:
+            return self._prompt_override or None
+        # Best-effort Cursor capture; None is a valid, supported outcome.
+        return capture_latest_prompt(self._root)
+
     async def flush(self) -> None:
         if not self._pending:
             self._deadline = None
@@ -152,21 +167,23 @@ class Batcher:
         ]
         self._pending.clear()
         self._deadline = None
+        prompt = self._resolve_prompt()
         await self._socket.send(
             json.dumps(
                 {
                     "type": "activity",
                     "user_id": self._user_id,
                     "timestamp": time.time(),
-                    # Cursor prompt capture is a later step; the server and
-                    # dashboard already handle a null prompt.
-                    "prompt": None,
+                    "prompt": prompt,
                     "changes": changes,
                 }
             )
         )
         summary = ", ".join(c["file_path"] for c in changes)
-        print(f"-> sent {len(changes)} change(s): {summary}", flush=True)
+        prompt_note = f' prompt="{prompt[:60]}…"' if prompt and len(prompt) > 60 else (
+            f' prompt="{prompt}"' if prompt else " prompt=null"
+        )
+        print(f"-> sent {len(changes)} change(s): {summary}{prompt_note}", flush=True)
 
 
 def prime_existing_files(batcher: Batcher, root: Path) -> None:
@@ -199,19 +216,26 @@ async def join(socket, initial_name: Optional[str]) -> str:
         return cleaned
 
 
-async def run(root: Path, server_url: str, name: Optional[str]) -> None:
+async def run(
+    root: Path,
+    server_url: str,
+    name: Optional[str],
+    prompt_override: Optional[str],
+) -> None:
     async with websockets.connect(server_url, max_size=None) as socket:
         user_id = await join(socket, name)
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[Path] = asyncio.Queue()
-        batcher = Batcher(root, user_id, socket)
+        batcher = Batcher(root, user_id, socket, prompt_override=prompt_override)
         prime_existing_files(batcher, root)
 
         observer = Observer()
         observer.schedule(SaveHandler(root, loop, queue), str(root), recursive=True)
         observer.start()
-        print(f"Watching {root} (debounce {DEBOUNCE_SECONDS}s). Ctrl+C to stop.", flush=True)
+        capture_mode = "cli --prompt" if prompt_override is not None else "Cursor state.vscdb (best-effort)"
+        print(f"Watching {root} (debounce {DEBOUNCE_SECONDS}s). Prompt source: {capture_mode}", flush=True)
+        print("Ctrl+C to stop.", flush=True)
 
         try:
             while True:
@@ -234,6 +258,12 @@ def parse_args() -> argparse.Namespace:
         "--server", default="ws://localhost:8000/ws", help="Relay WebSocket URL"
     )
     parser.add_argument("--name", default=None, help="Display name (prompted if omitted)")
+    parser.add_argument(
+        "--prompt",
+        default=None,
+        help="Override prompt text for every batch (skips Cursor capture). "
+        "Pass an empty string to force prompt:null.",
+    )
     return parser.parse_args()
 
 
@@ -242,8 +272,10 @@ def main() -> None:
     root = Path(os.path.expanduser(args.path)).resolve()
     if not root.is_dir():
         sys.exit(f"Not a directory: {root}")
+    # Distinguish "flag omitted" from "flag passed as empty" via argparse default None.
+    prompt_override = args.prompt  # may be None (capture) or str (including "")
     try:
-        asyncio.run(run(root, args.server, args.name))
+        asyncio.run(run(root, args.server, args.name, prompt_override))
     except KeyboardInterrupt:
         print("\nStopped.")
 
