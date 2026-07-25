@@ -26,7 +26,7 @@ from .models import (
     UserJoined,
     UserLeft,
 )
-from .room import FileTouch, Room
+from .room import FileOverlap, Room
 from .sanitize import sanitize_name
 
 load_dotenv()
@@ -81,6 +81,46 @@ async def handshake(socket: WebSocket) -> Optional[str]:
         return user_id
 
 
+async def evaluate_and_broadcast_conflicts(
+    user_id: str,
+    message: ActivityMessage,
+    overlaps: list[FileOverlap],
+) -> None:
+    """Classify each overlapping file and broadcast conflict_alert when warranted.
+
+    Fully isolated from the activity_update path — any failure here is logged
+    and swallowed so the main broadcast loop keeps working.
+    """
+    if not overlaps:
+        return
+
+    for overlap in overlaps:
+        try:
+            alert = await classify_conflict(
+                file_path=overlap.file_path,
+                current_user=user_id,
+                current_diff=overlap.current_diff,
+                current_prompt=message.prompt,
+                other=overlap.other,
+            )
+            if alert is None:
+                continue
+            log.info(
+                "Conflict %s on %s between %s",
+                alert.verdict,
+                alert.file_path,
+                alert.users,
+            )
+            await room.broadcast(alert)
+        except Exception as exc:
+            log.warning(
+                "Conflict evaluation failed for %s on %s: %s",
+                user_id,
+                overlap.file_path,
+                exc,
+            )
+
+
 async def handle_activity(user_id: str, raw: dict) -> None:
     try:
         message = ActivityMessage.model_validate(raw)
@@ -91,20 +131,17 @@ async def handle_activity(user_id: str, raw: dict) -> None:
     # The connection owns its identity; never trust a client-supplied user_id.
     message.user_id = user_id
 
-    # Snapshot other users' recent touches BEFORE recording this batch, so we
-    # compare against peers only (record would also refresh this user's entry).
-    conflict_candidates: list[tuple[str, str, FileTouch]] = []
-    for change in message.changes:
-        others = room.recent_other_touches(change.file_path, user_id, message.timestamp)
-        if not others:
-            continue
-        # One Gemini call per overlapping file: compare against the newest peer.
-        other = max(others, key=lambda touch: touch.timestamp)
-        conflict_candidates.append((change.file_path, change.diff, other))
-
+    # Detect same-file overlaps against active peers BEFORE recording this batch.
+    overlaps = room.find_overlaps(message)
     room.record_activity(message)
 
-    caption = await generate_caption(message)
+    # Always broadcast the activity update first — conflict work is best-effort.
+    try:
+        caption = await generate_caption(message)
+    except Exception as exc:
+        log.warning("Caption path crashed; using empty caption: %s", exc)
+        caption = None
+
     await room.broadcast(
         ActivityUpdate(
             user_id=message.user_id,
@@ -115,22 +152,10 @@ async def handle_activity(user_id: str, raw: dict) -> None:
         )
     )
 
-    for file_path, current_diff, other in conflict_candidates:
-        alert = await classify_conflict(
-            file_path=file_path,
-            current_user=user_id,
-            current_diff=current_diff,
-            current_prompt=message.prompt,
-            other=other,
-        )
-        if alert is not None:
-            log.info(
-                "Conflict %s on %s between %s",
-                alert.verdict,
-                alert.file_path,
-                alert.users,
-            )
-            await room.broadcast(alert)
+    try:
+        await evaluate_and_broadcast_conflicts(user_id, message, overlaps)
+    except Exception as exc:
+        log.warning("Conflict broadcast phase failed for %s: %s", user_id, exc)
 
 
 @app.websocket("/ws")

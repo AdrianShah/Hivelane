@@ -101,6 +101,27 @@ _CONFLICT_SCHEMA = {
 }
 
 
+def heuristic_conflict_alert(
+    file_path: str,
+    current_user: str,
+    other: FileTouch,
+) -> ConflictAlert:
+    """Deterministic alert used when Gemini is unavailable or fails.
+
+    Same-file + recent-window overlap is enough to surface a live warning;
+    Gemini only upgrades the verdict/explanation when it can.
+    """
+    return ConflictAlert(
+        users=[current_user, other.user_id],
+        file_path=file_path,
+        verdict="related",
+        explanation=(
+            f"{current_user} and {other.user_id} both edited {file_path} "
+            "within the last minute."
+        ),
+    )
+
+
 async def classify_conflict(
     file_path: str,
     current_user: str,
@@ -108,14 +129,17 @@ async def classify_conflict(
     current_prompt: Optional[str],
     other: FileTouch,
 ) -> Optional[ConflictAlert]:
-    """Ask Gemini whether two users' edits to the same file conflict.
+    """Classify a known same-file overlap.
 
-    Returns a ConflictAlert for overlapping/related, or None for unrelated /
-    missing key / any failure (so we never emit false alarms on errors).
+    Returns a ConflictAlert for overlapping/related, None for unrelated.
+    On missing API key or any Gemini failure, falls back to a heuristic
+    "related" alert so the demo still surfaces conflicts from file overlap alone.
     """
+    fallback = heuristic_conflict_alert(file_path, current_user, other)
     client = _get_client()
     if client is None:
-        return None
+        log.debug("GEMINI_API_KEY missing; using heuristic conflict alert for %s", file_path)
+        return fallback
 
     contents = (
         "Two teammates' AI coding agents edited the SAME file recently. "
@@ -149,9 +173,14 @@ async def classify_conflict(
         data = json.loads(raw)
         verdict: Verdict = data.get("verdict", "unrelated")
         if verdict not in ("overlapping", "related", "unrelated"):
-            return None
+            return fallback
         if verdict == "unrelated":
-            log.info("Conflict check %s vs %s on %s: unrelated", current_user, other.user_id, file_path)
+            log.info(
+                "Conflict check %s vs %s on %s: unrelated",
+                current_user,
+                other.user_id,
+                file_path,
+            )
             return None
         explanation = str(data.get("explanation") or "Potential conflict detected.").strip()
         return ConflictAlert(
@@ -162,10 +191,10 @@ async def classify_conflict(
         )
     except Exception as exc:
         log.warning(
-            "Conflict classification failed for %s (%s vs %s): %s",
+            "Conflict classification failed for %s (%s vs %s); using heuristic: %s",
             file_path,
             current_user,
             other.user_id,
             exc,
         )
-        return None
+        return fallback
