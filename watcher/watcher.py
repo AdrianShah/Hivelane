@@ -3,7 +3,14 @@
 Watches a project directory for saves, coalesces a burst of changes into one
 batch, and ships it to the relay as a single `activity` message.
 
-    python watcher/watcher.py --path ../my-project --server ws://localhost:8000/ws
+    # Room-based relay (after deploy):
+    python watcher/watcher.py --path ../my-project --room K7M2PQ --server ws://localhost:8000/ws
+
+    # Legacy single-room relay (current Render deploy):
+    python watcher/watcher.py --path ../my-project --name adrian --server wss://HOST/ws
+
+--room is the workspace code shared by whoever created the room (see
+POST /rooms). Omit it to talk to an older /ws-only relay.
 """
 
 from __future__ import annotations
@@ -32,6 +39,8 @@ IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", 
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".log", ".lock", ".swp", ".tmp"}
 
 _UNSAFE_NAME = re.compile(r"[^a-z0-9_-]")
+
+ALLOWED_AGENTS = ("cursor", "claude-code", "codex", "unknown")
 
 
 def prevalidate_name(raw: str) -> Optional[str]:
@@ -132,11 +141,13 @@ class Batcher:
         user_id: str,
         socket,
         prompt_override: Optional[str] = None,
+        agent: str = "unknown",
     ) -> None:
         self._root = root
         self._user_id = user_id
         self._socket = socket
         self._prompt_override = prompt_override
+        self._agent = agent
         self._tracker = DiffTracker()
         self._pending: dict[str, str] = {}
         self._deadline: Optional[float] = None
@@ -196,6 +207,7 @@ class Batcher:
                     "timestamp": time.time(),
                     "prompt": prompt,
                     "changes": changes,
+                    "agent": self._agent,
                 }
             )
         )
@@ -212,7 +224,7 @@ def prime_existing_files(batcher: Batcher, root: Path) -> None:
             batcher.prime(path.resolve())
 
 
-async def join(socket, initial_name: Optional[str]) -> str:
+async def join(socket, initial_name: Optional[str], agent: str) -> str:
     """Negotiate a display name, re-prompting locally on rejection."""
     candidate = initial_name
     while True:
@@ -224,7 +236,7 @@ async def join(socket, initial_name: Optional[str]) -> str:
             candidate = None
             continue
 
-        await socket.send(json.dumps({"type": "join", "name": cleaned}))
+        await socket.send(json.dumps({"type": "join", "name": cleaned, "agent": agent}))
         message = json.loads(await socket.recv())
 
         if message.get("type") == "name_rejected":
@@ -236,48 +248,163 @@ async def join(socket, initial_name: Optional[str]) -> str:
         return cleaned
 
 
+def room_ws_url(server_url: str, room_id: str) -> str:
+    """Append the room code to the relay's base WS URL, e.g.
+    ws://localhost:8000/ws + K7M2PQ -> ws://localhost:8000/ws/K7M2PQ."""
+    return f"{server_url.rstrip('/')}/{room_id.strip().upper()}"
+
+
+def resolve_ws_url(server_url: str, room_id: Optional[str]) -> str:
+    """Build the WebSocket URL.
+
+    Prefer room-scoped URLs (`/ws/{ROOM}`) when --room is set. If omitted,
+    fall back to the bare `/ws` path so this client still works against an
+    older single-room relay that hasn't been redeployed yet.
+    """
+    base = server_url.rstrip("/")
+    if room_id:
+        return room_ws_url(base, room_id)
+    return base
+
+
+async def watch_session(
+    socket,
+    root: Path,
+    user_id: str,
+    queue: asyncio.Queue,
+    prompt_override: Optional[str],
+    agent: str,
+    need_prime: bool,
+) -> None:
+    """Pump file events into the relay until the socket drops."""
+    batcher = Batcher(
+        root, user_id, socket, prompt_override=prompt_override, agent=agent
+    )
+    if need_prime:
+        prime_existing_files(batcher, root)
+
+    while True:
+        timeout = batcher.seconds_until_flush
+        # Wake periodically even with no file events so we can flush and so
+        # the websockets client keeps its keepalive ping/pong cycle healthy
+        # (Render free-tier connections otherwise die with ping timeouts).
+        wait_timeout = 20.0 if timeout is None else min(timeout, 20.0)
+        try:
+            path = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
+        except asyncio.TimeoutError:
+            if batcher.seconds_until_flush == 0.0:
+                await batcher.flush()
+            continue
+        batcher.add(path)
+
+
 async def run(
     root: Path,
     server_url: str,
+    room_id: Optional[str],
     name: Optional[str],
     prompt_override: Optional[str],
+    agent: str,
 ) -> None:
-    async with websockets.connect(server_url, max_size=None) as socket:
-        user_id = await join(socket, name)
+    url = resolve_ws_url(server_url, room_id)
+    if not room_id:
+        print(
+            "No --room set; using legacy /ws. "
+            "Pass --room CODE once the room-based relay is deployed.",
+            flush=True,
+        )
 
-        loop = asyncio.get_running_loop()
-        queue: asyncio.Queue[Path] = asyncio.Queue()
-        batcher = Batcher(root, user_id, socket, prompt_override=prompt_override)
-        prime_existing_files(batcher, root)
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue[Path] = asyncio.Queue()
+    observer = Observer()
+    observer.schedule(SaveHandler(root, loop, queue), str(root), recursive=True)
+    observer.start()
 
-        observer = Observer()
-        observer.schedule(SaveHandler(root, loop, queue), str(root), recursive=True)
-        observer.start()
-        capture_mode = "cli --prompt" if prompt_override is not None else "Cursor state.vscdb (best-effort)"
-        print(f"Watching {root} (debounce {DEBOUNCE_SECONDS}s). Prompt source: {capture_mode}", flush=True)
-        print("Ctrl+C to stop.", flush=True)
+    capture_mode = (
+        "cli --prompt" if prompt_override is not None else "Cursor state.vscdb (best-effort)"
+    )
+    print(
+        f"Watching {root} (debounce {DEBOUNCE_SECONDS}s). "
+        f"Prompt source: {capture_mode}. Agent: {agent}",
+        flush=True,
+    )
+    print("Ctrl+C to stop.", flush=True)
 
-        try:
-            while True:
-                timeout = batcher.seconds_until_flush
-                try:
-                    path = await asyncio.wait_for(queue.get(), timeout=timeout)
-                except asyncio.TimeoutError:
-                    await batcher.flush()
-                    continue
-                batcher.add(path)
-        finally:
-            observer.stop()
-            observer.join()
+    primed = False
+    display_name = name
+    backoff = 1.0
+    try:
+        while True:
+            print(f"Connecting to {url}", flush=True)
+            try:
+                async with websockets.connect(
+                    url,
+                    max_size=None,
+                    ping_interval=20,
+                    ping_timeout=20,
+                ) as socket:
+                    user_id = await join(socket, display_name, agent)
+                    display_name = user_id  # reuse accepted name on reconnect
+                    backoff = 1.0
+                    need_prime = not primed
+                    primed = True
+                    await watch_session(
+                        socket,
+                        root,
+                        user_id,
+                        queue,
+                        prompt_override,
+                        agent,
+                        need_prime,
+                    )
+            except websockets.exceptions.InvalidStatus as exc:
+                response = getattr(exc, "response", None)
+                status = getattr(exc, "status_code", None) or getattr(
+                    response, "status_code", None
+                )
+                if room_id and status in (403, 404):
+                    sys.exit(
+                        f"Server rejected {url} (HTTP {status}). "
+                        "The live relay may still be the old single-room build — "
+                        "omit --room, or deploy the room-based server, then retry."
+                    )
+                raise
+            except (
+                websockets.exceptions.ConnectionClosed,
+                OSError,
+                asyncio.TimeoutError,
+            ) as exc:
+                print(
+                    f"Disconnected ({exc}). Reconnecting in {backoff:.0f}s…",
+                    flush=True,
+                )
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 30.0)
+    finally:
+        observer.stop()
+        observer.join()
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Stream local file changes to the relay.")
     parser.add_argument("--path", default=".", help="Project directory to watch")
     parser.add_argument(
-        "--server", default="ws://localhost:8000/ws", help="Relay WebSocket URL"
+        "--server", default="ws://localhost:8000/ws", help="Relay WebSocket base URL (without room code)"
+    )
+    parser.add_argument(
+        "--room",
+        default=None,
+        help="Workspace room code (required once the room-based relay is live). "
+        "Omit to use legacy single-room /ws.",
     )
     parser.add_argument("--name", default=None, help="Display name (prompted if omitted)")
+    parser.add_argument(
+        "--agent",
+        default="unknown",
+        choices=ALLOWED_AGENTS,
+        help="AI coding tool this watcher is reporting for "
+        f"(one of: {', '.join(ALLOWED_AGENTS)}; default: unknown)",
+    )
     parser.add_argument(
         "--prompt",
         default=None,
@@ -295,7 +422,9 @@ def main() -> None:
     # Distinguish "flag omitted" from "flag passed as empty" via argparse default None.
     prompt_override = args.prompt  # may be None (capture) or str (including "")
     try:
-        asyncio.run(run(root, args.server, args.name, prompt_override))
+        asyncio.run(
+            run(root, args.server, args.room, args.name, prompt_override, args.agent)
+        )
     except KeyboardInterrupt:
         print("\nStopped.")
 

@@ -7,8 +7,9 @@ interface LaneProps {
 }
 
 export default function Lane({ userId, state, inConflict = false }: LaneProps) {
-  const { caption, changes, prompt } = state;
+  const { caption, changes, prompt, agent } = state;
   const activePrompt = prompt?.trim() ? prompt.trim() : null;
+  const showAgent = agent && agent !== 'unknown';
 
   return (
     <article
@@ -22,9 +23,16 @@ export default function Lane({ userId, state, inConflict = false }: LaneProps) {
         <div className="w-8 h-8 rounded-lg bg-primary-container/40 border border-primary/20 flex items-center justify-center">
           <span className="material-symbols-outlined text-primary text-lg">smart_toy</span>
         </div>
-        <h2 className="font-mono text-sm font-bold text-primary tracking-tight lowercase">
-          {userId}
-        </h2>
+        <div className="min-w-0">
+          <h2 className="font-mono text-sm font-bold text-primary tracking-tight lowercase truncate">
+            {userId}
+          </h2>
+          {showAgent ? (
+            <p className="m-0 text-[10px] uppercase tracking-widest text-on-surface-variant">
+              {agent}
+            </p>
+          ) : null}
+        </div>
         {inConflict ? (
           <span className="ml-auto px-2.5 py-0.5 rounded-full bg-error/15 text-error text-[9px] font-black uppercase tracking-widest border border-error/30">
             Conflict

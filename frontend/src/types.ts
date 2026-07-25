@@ -2,6 +2,8 @@
 
 export type Verdict = 'overlapping' | 'related' | 'unrelated';
 
+export type AgentKind = 'cursor' | 'claude-code' | 'codex' | 'unknown';
+
 export interface FileChange {
   file_path: string;
   diff: string;
@@ -14,6 +16,7 @@ export interface Activity {
   timestamp: number;
   prompt: string | null;
   changes: FileChange[];
+  agent?: AgentKind;
 }
 
 /** Server → clients broadcast after an activity message. */
@@ -24,6 +27,7 @@ export interface ActivityUpdate {
   prompt: string | null;
   changes: FileChange[];
   caption: string | null;
+  agent?: AgentKind;
 }
 
 /** One conflict alert per overlapping/related file pair (server → clients). */
@@ -39,6 +43,7 @@ export interface ConflictAlert {
 export interface UserJoined {
   type: 'user_joined';
   user_id: string;
+  agent?: AgentKind;
 }
 
 export interface UserLeft {
@@ -60,6 +65,7 @@ export interface JoinMessage {
   type: 'join';
   name: string | null;
   role?: 'spectator';
+  agent?: AgentKind;
 }
 
 export type ServerMessage =
@@ -73,4 +79,5 @@ export interface LaneState {
   caption: string | null;
   changes: FileChange[];
   prompt: string | null;
+  agent: AgentKind;
 }
