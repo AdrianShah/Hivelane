@@ -688,6 +688,12 @@ export default function App() {
               <button
                 type="button"
                 className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                onClick={() => navigateTo('history')}
+              >
+                Open conflict history
+              </button>
+            </div>
+          ) : null}
 
           {view === 'docs' ? (
             <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
@@ -735,13 +741,7 @@ export default function App() {
             </div>
           ) : null}
 
-                  </button>
-              </div>
-            </div>
-          ) : null}
-=======
           {view === 'watchers' ? <AddWatcher roomId={roomId} /> : null}
->>>>>>> Stashed changes
 
           {view === 'conflicts' || view === 'history' ? (
             <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
@@ -892,8 +892,8 @@ export default function App() {
           <button
             type="button"
             className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
-            title="Add watcher"
-            onClick={() => setView('watchers')}
+            title="Deploy agent"
+            onClick={() => setDeployOpen(true)}
           >
             <span className="material-symbols-outlined text-[26px]">add</span>
           </button>
