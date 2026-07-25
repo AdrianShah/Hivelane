@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import ConflictBanner from './components/ConflictBanner';
 import Lane from './components/Lane';
 import type {
-  ConflictItem,
+  ConflictAlert,
   JoinMessage,
   LaneState,
   ServerMessage,
@@ -17,11 +17,30 @@ const SPECTATOR_JOIN: JoinMessage = {
   role: 'spectator',
 };
 
+/** Keep actionable alerts; drop "unrelated" noise from the banner. */
+function isActionableConflict(alert: ConflictAlert): boolean {
+  return alert.verdict === 'overlapping' || alert.verdict === 'related';
+}
+
+/**
+ * Upsert by file path so the banner shows the latest verdict per contested file.
+ */
+function upsertConflict(
+  prev: ConflictAlert[],
+  next: ConflictAlert,
+): ConflictAlert[] {
+  if (!isActionableConflict(next)) {
+    return prev.filter((c) => c.file_path !== next.file_path);
+  }
+  const without = prev.filter((c) => c.file_path !== next.file_path);
+  return [...without, next].sort((a, b) => b.timestamp - a.timestamp);
+}
+
 type ConnStatus = 'connecting' | 'connected' | 'disconnected';
 
 export default function App() {
   const [users, setUsers] = useState<Record<string, LaneState>>({});
-  const [conflicts, setConflicts] = useState<ConflictItem[]>([]);
+  const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -71,6 +90,9 @@ export default function App() {
               delete next[msg.user_id];
               return next;
             });
+            setConflicts((prev) =>
+              prev.filter((c) => !c.users.includes(msg.user_id)),
+            );
             break;
 
           case 'activity_update':
@@ -85,11 +107,10 @@ export default function App() {
             break;
 
           case 'conflict_alert':
-            setConflicts(msg.conflicts);
+            setConflicts((prev) => upsertConflict(prev, msg));
             break;
 
           case 'name_rejected':
-            // Spectators should not hit this; log for debugging.
             console.warn('name_rejected:', msg.reason);
             break;
         }
@@ -117,6 +138,14 @@ export default function App() {
     };
   }, []);
 
+  const conflictedUsers = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of conflicts) {
+      for (const u of c.users) ids.add(u);
+    }
+    return ids;
+  }, [conflicts]);
+
   const userIds = Object.keys(users);
 
   return (
@@ -137,7 +166,12 @@ export default function App() {
       ) : (
         <main className="app__grid">
           {userIds.map((id) => (
-            <Lane key={id} userId={id} state={users[id]} />
+            <Lane
+              key={id}
+              userId={id}
+              state={users[id]}
+              inConflict={conflictedUsers.has(id)}
+            />
           ))}
         </main>
       )}
