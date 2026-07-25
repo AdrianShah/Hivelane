@@ -9,6 +9,7 @@ interface LaneProps {
 
 export default function Lane({ userId, state, inConflict = false }: LaneProps) {
   const { caption, changes, prompt } = state;
+  const activePrompt = prompt?.trim() ? prompt.trim() : null;
 
   return (
     <article className={`lane${inConflict ? ' lane--conflict' : ''}`}>
@@ -21,11 +22,11 @@ export default function Lane({ userId, state, inConflict = false }: LaneProps) {
         {caption ?? 'Waiting for activity…'}
       </p>
 
-      {prompt ? (
-        <div className="lane__prompt">
-          <span className="lane__prompt-label">Prompt</span>
-          <p className="lane__prompt-text">{prompt}</p>
-        </div>
+      {activePrompt ? (
+        <blockquote className="lane__prompt">
+          <span className="lane__prompt-label">Active prompt</span>
+          <p className="lane__prompt-text">{activePrompt}</p>
+        </blockquote>
       ) : null}
 
       {changes.length === 0 ? (
