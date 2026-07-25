@@ -32,42 +32,66 @@ export default function Home() {
 
   return (
     <div className="home">
-      <div className="home__content">
-        <p className="home__eyebrow">Agent Viewer</p>
-        <h1 className="home__headline">Watch every agent in the room, live.</h1>
-        <p className="home__sub">
-          Spin up a workspace, share the code with your team, and every watcher
-          and dashboard that joins it shows up on the same board.
-        </p>
-
-        <div className="home__actions">
-          <button
-            type="button"
-            className="home__create"
-            onClick={createWorkspace}
-            disabled={creating}
-          >
-            {creating ? 'Creating…' : 'Create workspace'}
-          </button>
-
-          <form className="home__join" onSubmit={joinWorkspace}>
-            <input
-              className="home__join-input"
-              value={joinCode}
-              onChange={(event) => setJoinCode(event.target.value)}
-              placeholder="Enter room code"
-              maxLength={6}
-              autoCapitalize="characters"
-              spellCheck={false}
-            />
-            <button className="home__join-button" type="submit" disabled={!joinCode.trim()}>
-              Join
-            </button>
-          </form>
+      <header className="home__nav">
+        <div className="home__brand" aria-label="Synergo">
+          <span className="home__brand-mark" aria-hidden>
+            S
+          </span>
+          Synergo
         </div>
+      </header>
 
-        {error && <p className="home__error">{error}</p>}
-      </div>
+      <main className="home__hero">
+        <div className="home__content">
+          <p className="home__eyebrow">Multiplayer AI agent viewer</p>
+          <h1 className="home__headline">
+            Synergo
+            <br />
+            <em>See every agent, live.</em>
+          </h1>
+          <p className="home__sub">
+            Share a room, connect watchers, and catch overlapping file edits
+            before they become merge conflicts.
+          </p>
+
+          <div className="home__actions">
+            <button
+              type="button"
+              className="home__create"
+              onClick={() => void createWorkspace()}
+              disabled={creating}
+            >
+              {creating ? 'Creating workspace…' : 'Create workspace'}
+            </button>
+
+            <div className="home__divider">or join</div>
+
+            <form className="home__join" onSubmit={joinWorkspace}>
+              <input
+                className="home__join-input"
+                value={joinCode}
+                onChange={(event) => setJoinCode(event.target.value)}
+                placeholder="ROOM"
+                maxLength={6}
+                autoCapitalize="characters"
+                spellCheck={false}
+                aria-label="Room code"
+              />
+              <button
+                className="home__join-button"
+                type="submit"
+                disabled={!joinCode.trim()}
+              >
+                Join
+              </button>
+            </form>
+          </div>
+
+          {error ? <p className="home__error">{error}</p> : null}
+        </div>
+      </main>
+
+      <footer className="home__footer">Synergo · live collaboration radar</footer>
     </div>
   );
 }

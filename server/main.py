@@ -52,7 +52,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("relay")
 
-app = FastAPI(title="Multiplayer AI Agent Viewer relay")
+app = FastAPI(title="Synergo relay")
 
 ALLOWED_ORIGINS = os.getenv(
     "CORS_ORIGINS", "https://your-app.vercel.app,http://localhost:5173"
