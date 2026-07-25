@@ -195,16 +195,25 @@ export default function App() {
             break;
 
           case 'activity_update':
-            setUsers((prev) => ({
-              ...prev,
-              [msg.user_id]: {
-                caption: msg.caption,
-                changes: msg.changes,
-                prompt: msg.prompt,
-                timestamp: msg.timestamp,
-                agent: msg.agent ?? prev[msg.user_id]?.agent ?? 'unknown',
-              },
-            }));
+            setUsers((prev) => {
+              const prior = prev[msg.user_id];
+              // Prompt-only updates send changes: [] — keep the last diffs so
+              // the lane doesn't blank out when a new Cursor prompt arrives.
+              const changes =
+                msg.changes.length > 0
+                  ? msg.changes
+                  : (prior?.changes ?? []);
+              return {
+                ...prev,
+                [msg.user_id]: {
+                  caption: msg.caption ?? prior?.caption ?? null,
+                  changes,
+                  prompt: msg.prompt,
+                  timestamp: msg.timestamp,
+                  agent: msg.agent ?? prior?.agent ?? 'unknown',
+                },
+              };
+            });
             break;
 
           case 'conflict_alert':
