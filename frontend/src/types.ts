@@ -56,6 +56,11 @@ export interface NameRejected {
   reason: string;
 }
 
+export interface RoomRejected {
+  type: 'room_rejected';
+  reason: string;
+}
+
 /**
  * First message after connect.
  * Spectator: name is null (frontend).
@@ -73,7 +78,8 @@ export type ServerMessage =
   | ConflictAlert
   | UserJoined
   | UserLeft
-  | NameRejected;
+  | NameRejected
+  | RoomRejected;
 
 export interface LaneState {
   caption: string | null;

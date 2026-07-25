@@ -232,6 +232,14 @@ def prime_existing_files(batcher: Batcher, root: Path) -> None:
             batcher.prime(path.resolve())
 
 
+# Matches server.main.WS_CLOSE_ROOM_NOT_FOUND — unknown / expired room code.
+WS_CLOSE_ROOM_NOT_FOUND = 4404
+
+
+class RoomNotFoundError(RuntimeError):
+    """Relay rejected this room code (gone after idle cleanup or redeploy)."""
+
+
 async def join(socket, initial_name: Optional[str], agent: str) -> str:
     """Negotiate a display name, re-prompting locally on rejection."""
     candidate = initial_name
@@ -245,7 +253,27 @@ async def join(socket, initial_name: Optional[str], agent: str) -> str:
             continue
 
         await socket.send(json.dumps({"type": "join", "name": cleaned, "agent": agent}))
-        message = json.loads(await socket.recv())
+        try:
+            raw = await asyncio.wait_for(socket.recv(), timeout=15.0)
+        except asyncio.TimeoutError as exc:
+            raise RoomNotFoundError(
+                "Timed out waiting for join ack — room may not exist on the relay."
+            ) from exc
+        except websockets.exceptions.ConnectionClosed as exc:
+            if exc.code in (WS_CLOSE_ROOM_NOT_FOUND, 4004):
+                raise RoomNotFoundError(
+                    f"Room not found (close {exc.code}). "
+                    "Create a new workspace on the dashboard and use that code."
+                ) from exc
+            raise
+
+        message = json.loads(raw)
+
+        if message.get("type") == "room_rejected":
+            raise RoomNotFoundError(
+                message.get("reason")
+                or "Room not found. Create a new workspace on the dashboard."
+            )
 
         if message.get("type") == "name_rejected":
             print(f"Rejected: {message.get('reason')}", flush=True)
@@ -367,6 +395,13 @@ async def run(
                         agent,
                         need_prime,
                     )
+            except RoomNotFoundError as exc:
+                sys.exit(
+                    f"{exc}\n"
+                    f"Tried: {url}\n"
+                    "On https://hackday-agent-viewer.vercel.app click "
+                    "Create workspace, then rerun with that --room code."
+                )
             except websockets.exceptions.InvalidStatus as exc:
                 response = getattr(exc, "response", None)
                 status = getattr(exc, "status_code", None) or getattr(
@@ -374,9 +409,10 @@ async def run(
                 )
                 if room_id and status in (403, 404):
                     sys.exit(
-                        f"Server rejected {url} (HTTP {status}). "
-                        "The live relay may still be the old single-room build — "
-                        "omit --room, or deploy the room-based server, then retry."
+                        f"Server rejected room {room_id!r} (HTTP {status}). "
+                        "That room no longer exists on the relay (idle cleanup "
+                        "or redeploy). Create a new workspace on the Vercel app "
+                        "and use the new --room code."
                     )
                 raise
             except (
@@ -384,6 +420,16 @@ async def run(
                 OSError,
                 asyncio.TimeoutError,
             ) as exc:
+                closed = (
+                    exc
+                    if isinstance(exc, websockets.exceptions.ConnectionClosed)
+                    else None
+                )
+                if closed is not None and closed.code in (WS_CLOSE_ROOM_NOT_FOUND, 4004):
+                    sys.exit(
+                        f"Room {room_id!r} not found on the relay. "
+                        "Create a new workspace on the Vercel app and use that code."
+                    )
                 print(
                     f"Disconnected ({exc}). Reconnecting in {backoff:.0f}s…",
                     flush=True,

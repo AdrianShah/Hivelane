@@ -82,6 +82,11 @@ class NameRejected(BaseModel):
     reason: str
 
 
+class RoomRejected(BaseModel):
+    type: Literal["room_rejected"] = "room_rejected"
+    reason: str
+
+
 def placeholder_caption(message: ActivityMessage) -> str:
     """Stand-in until Gemini captioning lands. Same shape, no network call."""
     count = len(message.changes)
