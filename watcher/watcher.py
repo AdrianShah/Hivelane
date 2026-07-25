@@ -88,7 +88,12 @@ class DiffTracker:
 
 
 class SaveHandler(FileSystemEventHandler):
-    """Bridges watchdog's observer thread onto the asyncio loop."""
+    """Bridges watchdog's observer thread onto the asyncio loop.
+
+    Cursor/VS Code often save via temp-file + rename, which surfaces as
+    on_moved rather than on_modified — we must handle that or teammates'
+    new files never get reported.
+    """
 
     def __init__(self, root: Path, loop: asyncio.AbstractEventLoop, queue: asyncio.Queue) -> None:
         self._root = root
@@ -96,15 +101,23 @@ class SaveHandler(FileSystemEventHandler):
         self._queue = queue
 
     def on_modified(self, event: FileSystemEvent) -> None:
-        self._emit(event)
+        self._enqueue(getattr(event, "src_path", None), event.is_directory)
 
     def on_created(self, event: FileSystemEvent) -> None:
-        self._emit(event)
+        self._enqueue(getattr(event, "src_path", None), event.is_directory)
 
-    def _emit(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
+    def on_moved(self, event: FileSystemEvent) -> None:
+        # Atomic saves: content lands at dest_path.
+        self._enqueue(getattr(event, "dest_path", None), event.is_directory)
+
+    def on_closed(self, event: FileSystemEvent) -> None:
+        # Linux/some editors fire this after a write finishes.
+        self._enqueue(getattr(event, "src_path", None), event.is_directory)
+
+    def _enqueue(self, raw_path: object, is_directory: bool) -> None:
+        if is_directory or not raw_path:
             return
-        path = Path(str(event.src_path)).resolve()
+        path = Path(str(raw_path)).resolve()
         if is_ignored(path, self._root):
             return
         self._loop.call_soon_threadsafe(self._queue.put_nowait, path)
@@ -131,8 +144,15 @@ class Batcher:
     def add(self, path: Path) -> None:
         content = read_text(path)
         if content is None:
+            # Create/rename events can race the writer; one short retry helps.
+            time.sleep(0.08)
+            content = read_text(path)
+        if content is None:
             return
-        key = relative_key(path, self._root)
+        try:
+            key = relative_key(path, self._root)
+        except ValueError:
+            return
         diff = self._tracker.diff_for(key, content)
         if diff is None:
             return
@@ -282,3 +302,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+        

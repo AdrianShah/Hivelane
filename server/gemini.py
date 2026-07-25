@@ -15,8 +15,12 @@ from typing import Optional
 from google import genai
 from google.genai import types
 
-from .models import ActivityMessage, ConflictAlert, FileChange, Verdict, placeholder_caption
-from .room import FileTouch
+try:
+    from .models import ActivityMessage, ConflictAlert, FileChange, Verdict, placeholder_caption
+    from .room import FileTouch
+except ImportError:  # Render rootDir=server
+    from models import ActivityMessage, ConflictAlert, FileChange, Verdict, placeholder_caption
+    from room import FileTouch
 
 log = logging.getLogger(__name__)
 

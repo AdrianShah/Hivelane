@@ -11,7 +11,10 @@ from typing import Optional
 from fastapi import WebSocket
 from pydantic import BaseModel
 
-from .models import ActivityMessage
+try:
+    from .models import ActivityMessage, ActivityUpdate
+except ImportError:  # Render rootDir=server
+    from models import ActivityMessage, ActivityUpdate
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +46,8 @@ class Room:
         self._spectators: set[WebSocket] = set()
         # file_path -> {user_id: FileTouch} — latest edit per user per file.
         self._file_activity: dict[str, dict[str, FileTouch]] = {}
+        # Last broadcast activity per connected user (for spectator catch-up).
+        self._latest_updates: dict[str, ActivityUpdate] = {}
         self._lock = asyncio.Lock()
 
     # --- membership ----------------------------------------------------------
@@ -62,6 +67,7 @@ class Room:
 
     def remove_member(self, user_id: str) -> None:
         self._members.pop(user_id, None)
+        self._latest_updates.pop(user_id, None)
 
     def add_spectator(self, socket: WebSocket) -> None:
         self._spectators.add(socket)
@@ -81,6 +87,12 @@ class Room:
                 prompt=message.prompt,
                 timestamp=message.timestamp,
             )
+
+    def remember_update(self, update: ActivityUpdate) -> None:
+        self._latest_updates[update.user_id] = update
+
+    def latest_updates(self) -> list[ActivityUpdate]:
+        return list(self._latest_updates.values())
 
     def recent_other_touches(
         self,
