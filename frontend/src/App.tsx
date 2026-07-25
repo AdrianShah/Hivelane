@@ -11,25 +11,39 @@ import './App.css';
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
 
+/** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
+const CONFLICT_TTL_SECONDS = 120;
+const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
+
 const SPECTATOR_JOIN: JoinMessage = {
   type: 'join',
   name: null,
   role: 'spectator',
 };
 
-/** Keep actionable alerts; drop "unrelated" noise from the banner. */
 function isActionableConflict(alert: ConflictAlert): boolean {
   return alert.verdict === 'overlapping' || alert.verdict === 'related';
 }
 
+function isExpired(alert: ConflictAlert, nowSeconds: number): boolean {
+  return nowSeconds - alert.timestamp > CONFLICT_TTL_SECONDS;
+}
+
+function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
+  const now = Date.now() / 1000;
+  const next = prev.filter((c) => !isExpired(c, now));
+  return next.length === prev.length ? prev : next;
+}
+
 /**
  * Upsert by file path so the banner shows the latest verdict per contested file.
+ * An "unrelated" alert clears that file's active conflict.
  */
 function upsertConflict(
   prev: ConflictAlert[],
   next: ConflictAlert,
 ): ConflictAlert[] {
-  if (!isActionableConflict(next)) {
+  if (!isActionableConflict(next) || isExpired(next, Date.now() / 1000)) {
     return prev.filter((c) => c.file_path !== next.file_path);
   }
   const without = prev.filter((c) => c.file_path !== next.file_path);
@@ -43,6 +57,14 @@ export default function App() {
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const wsRef = useRef<WebSocket | null>(null);
+
+  // Auto-expire alerts after the server conflict window elapses.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setConflicts(pruneExpired);
+    }, CONFLICT_PRUNE_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,7 +179,13 @@ export default function App() {
         </span>
       </header>
 
-      <ConflictBanner conflicts={conflicts} />
+      <ConflictBanner
+        conflicts={conflicts}
+        onDismiss={(filePath) =>
+          setConflicts((prev) => prev.filter((c) => c.file_path !== filePath))
+        }
+        onDismissAll={() => setConflicts([])}
+      />
 
       {userIds.length === 0 ? (
         <p className="app__empty">

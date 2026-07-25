@@ -45,6 +45,33 @@
   text-align: center;
 }
 
+.conflicts__dismiss-all,
+.conflicts__dismiss {
+  appearance: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.2rem 0.5rem;
+}
+
+.conflicts__dismiss-all:hover,
+.conflicts__dismiss:hover {
+  color: var(--text);
+  border-color: #4a5568;
+  background: var(--surface-hover);
+}
+
+.conflicts__dismiss {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .conflicts__list {
   list-style: none;
   margin: 0;
