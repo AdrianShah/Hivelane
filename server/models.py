@@ -90,6 +90,10 @@ class RoomRejected(BaseModel):
 def placeholder_caption(message: ActivityMessage) -> str:
     """Stand-in until Gemini captioning lands. Same shape, no network call."""
     count = len(message.changes)
+    if count == 0:
+        if message.prompt:
+            return f"{message.user_id}'s agent received a new prompt"
+        return f"{message.user_id}'s agent is idle"
     if count == 1:
         return f"{message.user_id}'s agent is editing {message.changes[0].file_path}"
     return f"{message.user_id}'s agent is editing {count} files"

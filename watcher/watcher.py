@@ -33,6 +33,7 @@ from watchdog.observers import Observer
 from prompt_capture import capture_latest_prompt
 
 DEBOUNCE_SECONDS = 1.5
+PROMPT_POLL_SECONDS = 3.0
 MAX_FILE_BYTES = 512_000
 # Render proxies and busy event loops often miss a 20s pong window; keep
 # pings frequent enough to stay alive, but tolerate delayed replies.
@@ -156,6 +157,7 @@ class Batcher:
         self._tracker = DiffTracker()
         self._pending: dict[str, str] = {}
         self._deadline: Optional[float] = None
+        self._last_prompt: Optional[str] = None
 
     async def add(self, path: Path) -> None:
         content = await asyncio.to_thread(read_text, path)
@@ -207,6 +209,7 @@ class Batcher:
         # SQLite prompt capture is sync I/O — keep it off the event loop so
         # WebSocket ping/pong frames are not starved during bursts.
         prompt = await asyncio.to_thread(self._resolve_prompt)
+        self._last_prompt = prompt
         await self._socket.send(
             json.dumps(
                 {
@@ -224,6 +227,33 @@ class Batcher:
             f' prompt="{prompt}"' if prompt else " prompt=null"
         )
         print(f"-> sent {len(changes)} change(s): {summary}{prompt_note}", flush=True)
+
+    async def flush_prompt_if_changed(self) -> None:
+        """Push a prompt-only activity when Cursor has a newer user message.
+
+        File saves are no longer required for the dashboard Active Prompt panel
+        to update — we poll Cursor's local DB on a short interval.
+        """
+        if self._pending:
+            return  # A file batch is about to flush with the prompt attached.
+        prompt = await asyncio.to_thread(self._resolve_prompt)
+        if not prompt or prompt == self._last_prompt:
+            return
+        self._last_prompt = prompt
+        await self._socket.send(
+            json.dumps(
+                {
+                    "type": "activity",
+                    "user_id": self._user_id,
+                    "timestamp": time.time(),
+                    "prompt": prompt,
+                    "changes": [],
+                    "agent": self._agent,
+                }
+            )
+        )
+        note = f'"{prompt[:60]}…"' if len(prompt) > 60 else f'"{prompt}"'
+        print(f"-> sent prompt-only update: {note}", flush=True)
 
 
 def prime_existing_files(batcher: Batcher, root: Path) -> None:
@@ -321,15 +351,17 @@ async def watch_session(
 
     while True:
         timeout = batcher.seconds_until_flush
-        # Wake periodically even with no file events so we can flush and so
-        # the websockets client keeps its keepalive ping/pong cycle healthy
-        # (Render free-tier connections otherwise die with ping timeouts).
-        wait_timeout = 15.0 if timeout is None else min(timeout, 15.0)
+        # Wake often enough to flush file batches and poll Cursor for new prompts.
+        wait_timeout = (
+            PROMPT_POLL_SECONDS if timeout is None else min(timeout, PROMPT_POLL_SECONDS)
+        )
         try:
             path = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
         except asyncio.TimeoutError:
             if batcher.seconds_until_flush == 0.0:
                 await batcher.flush()
+            else:
+                await batcher.flush_prompt_if_changed()
             continue
         await batcher.add(path)
 
@@ -364,6 +396,12 @@ async def run(
         f"Prompt source: {capture_mode}. Agent: {agent}",
         flush=True,
     )
+    if prompt_override is None:
+        print(
+            "Tip: new Cursor prompts appear on Synergo within a few seconds "
+            "(--path must be the same folder Cursor has open).",
+            flush=True,
+        )
     print("Ctrl+C to stop.", flush=True)
 
     primed = False

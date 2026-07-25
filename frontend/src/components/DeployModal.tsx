@@ -5,6 +5,7 @@ interface DeployModalProps {
   roomId: string;
   wsUrl: string;
   onClose: () => void;
+  onCopied?: (label: string) => void;
 }
 
 function watcherCommand(roomId: string, wsUrl: string): string {
@@ -21,6 +22,7 @@ export default function DeployModal({
   roomId,
   wsUrl,
   onClose,
+  onCopied,
 }: DeployModalProps) {
   useEffect(() => {
     if (!open) return;
@@ -35,9 +37,10 @@ export default function DeployModal({
 
   const command = watcherCommand(roomId, wsUrl);
 
-  const copy = async (text: string) => {
+  const copy = async (text: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      onCopied?.(label);
     } catch {
       const el = document.createElement('textarea');
       el.value = text;
@@ -45,6 +48,7 @@ export default function DeployModal({
       el.select();
       document.execCommand('copy');
       document.body.removeChild(el);
+      onCopied?.(label);
     }
   };
 
@@ -71,8 +75,8 @@ export default function DeployModal({
               Deploy Agent
             </h2>
             <p className="text-[13px] text-on-muted mt-1 mb-0">
-              Run a watcher on a teammate&apos;s machine to stream their IDE into
-              this room.
+              Connect a Synergo watcher on a teammate&apos;s machine to stream
+              their IDE into this room.
             </p>
           </div>
           <button
@@ -95,7 +99,7 @@ export default function DeployModal({
               <button
                 type="button"
                 className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                onClick={() => void copy(roomId)}
+                onClick={() => void copy(roomId, 'Room code')}
               >
                 Copy
               </button>
@@ -110,7 +114,7 @@ export default function DeployModal({
             <button
               type="button"
               className="deploy-btn mt-3 w-full rounded-xl py-2.5 text-[12px] font-bold tracking-wide"
-              onClick={() => void copy(command)}
+              onClick={() => void copy(command, 'Watcher command')}
             >
               Copy watcher command
             </button>

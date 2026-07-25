@@ -69,6 +69,7 @@ const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
 const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
   dashboard: 'Cluster',
   agents: 'Cluster',
+  watchers: 'Cluster',
   history: 'Logs',
   conflicts: 'Logs',
   analytics: 'Analytics',
@@ -203,16 +204,25 @@ export default function App() {
             break;
 
           case 'activity_update':
-            setUsers((prev) => ({
-              ...prev,
-              [msg.user_id]: {
-                caption: msg.caption,
-                changes: msg.changes,
-                prompt: msg.prompt,
-                timestamp: msg.timestamp,
-                agent: msg.agent ?? prev[msg.user_id]?.agent ?? 'unknown',
-              },
-            }));
+            setUsers((prev) => {
+              const prior = prev[msg.user_id];
+              // Prompt-only updates send changes: [] — keep the last diffs so
+              // the lane doesn't blank out when a new Cursor prompt arrives.
+              const changes =
+                msg.changes.length > 0
+                  ? msg.changes
+                  : (prior?.changes ?? []);
+              return {
+                ...prev,
+                [msg.user_id]: {
+                  caption: msg.caption ?? prior?.caption ?? null,
+                  changes,
+                  prompt: msg.prompt,
+                  timestamp: msg.timestamp,
+                  agent: msg.agent ?? prior?.agent ?? 'unknown',
+                },
+              };
+            });
             break;
 
           case 'conflict_alert':
@@ -350,11 +360,14 @@ export default function App() {
           <div className="flex items-center gap-3.5 min-w-0">
             <button
               type="button"
-              className="font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
+              className="inline-flex items-center gap-2 font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
               onClick={() => navigate('/')}
-              title="Back to home"
+              title="Back to Synergo home"
             >
-              AGI_HACK_2024
+              <span className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 text-primary text-[11px] font-bold font-mono inline-flex items-center justify-center">
+                S
+              </span>
+              Synergo
             </button>
             <div
               className="hidden sm:inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1"
@@ -457,7 +470,7 @@ export default function App() {
             <button
               type="button"
               className="deploy-btn rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
-              onClick={() => setDeployOpen(true)}
+              onClick={() => navigateTo('watchers')}
             >
               Deploy Agent
             </button>
@@ -500,7 +513,7 @@ export default function App() {
           roomId={roomId}
           onCopyRoom={() => void copyShareUrl()}
           copied={copied}
-          onDeployAgent={() => setDeployOpen(true)}
+          onDeployAgent={() => navigateTo('watchers')}
           onNewRoom={() => void createNewRoom()}
           creatingRoom={creatingRoom}
         />
@@ -562,7 +575,7 @@ export default function App() {
                 <button
                   type="button"
                   className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
-                  onClick={() => setDeployOpen(true)}
+                  onClick={() => navigateTo('watchers')}
                 >
                   Deploy Agent
                 </button>
@@ -624,7 +637,7 @@ export default function App() {
                   <button
                     type="button"
                     className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
-                    onClick={() => setDeployOpen(true)}
+                    onClick={() => navigateTo('watchers')}
                   >
                     Deploy Agent
                   </button>
@@ -673,11 +686,11 @@ export default function App() {
             <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
               <p className="text-[13px] text-on-muted mb-6">
-                How to connect watchers to this room.
+                How to connect watchers to Synergo.
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
                 <p className="m-0">
-                  1. Share this room link or code{' '}
+                  1. Share this Synergo room link or code{' '}
                   <code className="text-primary font-mono">{roomId}</code> with
                   teammates.
                 </p>
@@ -693,9 +706,16 @@ export default function App() {
                   <button
                     type="button"
                     className="deploy-btn rounded-xl px-4 py-2 text-[11px] font-bold"
-                    onClick={() => setDeployOpen(true)}
+                    onClick={() => navigateTo('watchers')}
                   >
                     Deploy Agent
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    onClick={() => setDeployOpen(true)}
+                  >
+                    Copy CLI
                   </button>
                   <button
                     type="button"
@@ -839,7 +859,7 @@ export default function App() {
                   <button
                     type="button"
                     className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => setDeployOpen(true)}
+                    onClick={() => navigateTo('watchers')}
                   >
                     Deploy Agent
                   </button>
@@ -867,7 +887,7 @@ export default function App() {
             type="button"
             className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
             title="Deploy agent"
-            onClick={() => setDeployOpen(true)}
+            onClick={() => navigateTo('watchers')}
           >
             <span className="material-symbols-outlined text-[26px]">add</span>
           </button>
@@ -879,6 +899,7 @@ export default function App() {
         roomId={roomId}
         wsUrl={wsUrl}
         onClose={() => setDeployOpen(false)}
+        onCopied={(label) => showToast(`${label} copied`)}
       />
 
       {toast ? (
