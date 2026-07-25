@@ -1,0 +1,45 @@
+:root {
+  --bg: #0f1218;
+  --surface: #171b24;
+  --surface-2: #1c2230;
+  --surface-hover: #242b3a;
+  --border: #2a3344;
+  --text: #e8ecf4;
+  --text-dim: #a8b0c0;
+  --muted: #6b7588;
+  --accent: #5ec8d8;
+  --diff: #b8c0d0;
+  --code-bg: #0c0e14;
+  --ok: #5dce8a;
+  --warn: #d4a84b;
+  --err: #e07070;
+  --font-sans: 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, #1a2840 0%, transparent 55%),
+    linear-gradient(180deg, #0f1218 0%, #0a0c10 100%);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
