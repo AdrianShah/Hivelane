@@ -1,42 +1,29 @@
 body {
-  background-color: #0a0e1a;
-  color: #e0e8f0;
-  font-family: Inter, sans-serif;
   margin: 0;
+  min-height: 100vh;
+  color: #f8fafc;
+  background-color: #090e18;
   background-image:
-    radial-gradient(circle at 0% 0%, rgba(125, 211, 252, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 100% 100%, rgba(125, 211, 252, 0.05) 0%, transparent 40%);
+    radial-gradient(ellipse 90% 55% at 0% -10%, rgba(94, 234, 212, 0.06), transparent 55%),
+    radial-gradient(ellipse 70% 45% at 100% 0%, rgba(165, 180, 252, 0.07), transparent 50%),
+    linear-gradient(180deg, #090e18 0%, #0a101c 100%);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
   height: 100vh;
 }
 
-.glass-panel {
-  background: rgba(15, 21, 36, 0.6);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(125, 211, 252, 0.1);
-}
-
-.glass-sidebar {
-  background: rgba(10, 14, 26, 0.8);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-right: 1px solid rgba(125, 211, 252, 0.05);
-}
-
-.status-glow {
-  box-shadow: 0 0 15px rgba(200, 160, 240, 0.4);
-}
-
-.neon-border-error {
-  box-shadow: 0 0 15px rgba(255, 107, 107, 0.15);
-  border: 1px solid rgba(255, 107, 107, 0.3);
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  user-select: none;
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 5px;
+  width: 6px;
+  height: 6px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
@@ -44,20 +31,195 @@ body {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(125, 211, 252, 0.15);
-  border-radius: 10px;
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 999px;
 }
 
-.active-nav-glow {
-  background: linear-gradient(90deg, rgba(125, 211, 252, 0.15) 0%, transparent 100%);
-  box-shadow: -2px 0 0 #7dd3fc;
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.45);
 }
 
-.ethereal-hover:hover {
-  background: rgba(125, 211, 252, 0.05);
-  color: #7dd3fc;
+.glass-header {
+  background: rgba(14, 21, 34, 0.82);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid rgba(36, 48, 68, 0.9);
 }
 
-.material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+.glass-sidebar {
+  background: rgba(8, 12, 20, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(36, 48, 68, 0.85);
+}
+
+.conflict-banner {
+  background: linear-gradient(
+    90deg,
+    rgba(136, 19, 55, 0.55) 0%,
+    rgba(127, 29, 29, 0.5) 45%,
+    rgba(69, 10, 10, 0.55) 100%
+  );
+  border-bottom: 1px solid rgba(251, 113, 133, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.status-pill {
+  background: rgba(8, 12, 20, 0.7);
+  border: 1px solid rgba(36, 48, 68, 0.95);
+}
+
+.stat-chip {
+  background: rgba(8, 12, 20, 0.65);
+  border: 1px solid rgba(36, 48, 68, 0.95);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.stat-chip:hover {
+  border-color: rgba(94, 234, 212, 0.25);
+  background: rgba(18, 26, 40, 0.85);
+}
+
+.icon-btn {
+  color: #64748b;
+  border-radius: 0.5rem;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.icon-btn:hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.nav-active {
+  background: rgba(165, 180, 252, 0.1);
+  color: #c7d2fe;
+  box-shadow: inset 2px 0 0 #a5b4fc;
+}
+
+.lane-shell {
+  background: linear-gradient(180deg, #141c2b 0%, #101826 100%);
+  border: 1px solid #243044;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 40px rgba(0, 0, 0, 0.28);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
+}
+
+.lane-shell:hover {
+  border-color: rgba(94, 234, 212, 0.22);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 16px 48px rgba(0, 0, 0, 0.35);
+}
+
+.lane-shell.in-conflict {
+  border-color: rgba(251, 113, 133, 0.45);
+  box-shadow: 0 0 0 1px rgba(251, 113, 133, 0.25), 0 12px 40px rgba(136, 19, 55, 0.22);
+}
+
+.prompt-panel,
+.analysis-panel {
+  background: rgba(8, 12, 20, 0.72);
+  border: 1px solid rgba(36, 48, 68, 0.95);
+}
+
+.diff-shell {
+  background: #070b13;
+  border: 1px solid #1c2536;
+}
+
+.diff-line {
+  display: grid;
+  grid-template-columns: 2.75rem 1fr;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.diff-line .ln {
+  text-align: right;
+  padding: 0 0.55rem;
+  color: #475569;
+  user-select: none;
+  border-right: 1px solid #1c2536;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-line .tx {
+  padding: 0 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-add {
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.diff-add .tx {
+  color: #6ee7b7;
+}
+
+.diff-del {
+  background: rgba(244, 63, 94, 0.1);
+}
+
+.diff-del .tx {
+  color: #fda4af;
+}
+
+.diff-hunk {
+  background: rgba(129, 140, 248, 0.08);
+}
+
+.diff-hunk .tx {
+  color: #a5b4fc;
+}
+
+.diff-meta .tx {
+  color: #64748b;
+}
+
+.deploy-btn {
+  background: linear-gradient(135deg, #c7d2fe 0%, #a5b4fc 50%, #93c5fd 100%);
+  color: #1e1b4b;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.35) inset, 0 6px 18px rgba(165, 180, 252, 0.22);
+  transition:
+    transform 0.15s ease,
+    filter 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.deploy-btn:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.4) inset, 0 8px 22px rgba(165, 180, 252, 0.3);
+}
+
+.fab {
+  background: linear-gradient(145deg, #c7d2fe, #818cf8);
+  box-shadow: 0 10px 30px rgba(129, 140, 248, 0.35);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.fab:hover {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 14px 36px rgba(129, 140, 248, 0.45);
+}
+
+.section-label {
+  letter-spacing: 0.14em;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.workspace-canvas {
+  background-image: radial-gradient(rgba(36, 48, 68, 0.55) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -12px -12px;
 }

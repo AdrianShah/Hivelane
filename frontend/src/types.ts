@@ -80,4 +80,5 @@ export interface LaneState {
   changes: FileChange[];
   prompt: string | null;
   agent: AgentKind;
+  timestamp: number | null;
 }
