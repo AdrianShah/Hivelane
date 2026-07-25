@@ -12,6 +12,11 @@ export function relayHttpOrigin(): string {
   return withoutWsPath.replace(/^ws/, 'http');
 }
 
+/** Base WS URL without a room code — what the watcher CLI wants for --server. */
+export function relayWsBase(): string {
+  return WS_BASE.replace(/\/$/, '');
+}
+
 /** ws://localhost:8000/ws + K7M2PQ -> ws://localhost:8000/ws/K7M2PQ */
 export function roomWsUrl(roomId: string): string {
   return `${WS_BASE.replace(/\/$/, '')}/${roomId.trim().toUpperCase()}`;

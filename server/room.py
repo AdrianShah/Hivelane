@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -51,6 +52,8 @@ class Room:
         self._file_activity: dict[str, dict[str, FileTouch]] = {}
         # Last broadcast activity per connected user (for spectator catch-up).
         self._latest_updates: dict[str, ActivityUpdate] = {}
+        # Last accepted activity timestamp per member (server rate limiting).
+        self._last_activity_at: dict[str, float] = {}
         self._lock = asyncio.Lock()
 
     # --- membership ----------------------------------------------------------
@@ -90,12 +93,27 @@ class Room:
         self._members.pop(user_id, None)
         self._member_agents.pop(user_id, None)
         self._latest_updates.pop(user_id, None)
+        self._last_activity_at.pop(user_id, None)
 
     def add_spectator(self, socket: WebSocket) -> None:
         self._spectators.add(socket)
 
     def remove_spectator(self, socket: WebSocket) -> None:
         self._spectators.discard(socket)
+
+    def is_activity_rate_limited(
+        self, user_id: str, min_interval_seconds: float = 0.5
+    ) -> bool:
+        """Return True if this user sent activity too recently (drop the update).
+
+        On acceptance, records the current server time for the next check.
+        """
+        now = time.time()
+        last = self._last_activity_at.get(user_id, 0.0)
+        if now - last < min_interval_seconds:
+            return True
+        self._last_activity_at[user_id] = now
+        return False
 
     # --- file activity -------------------------------------------------------
 
@@ -167,12 +185,24 @@ class Room:
     async def broadcast(self, message: BaseModel) -> None:
         payload = message.model_dump()
         targets = list(self._members.items()) + [(None, s) for s in self._spectators]
+        dead_members: list[str] = []
+        dead_spectators: list[WebSocket] = []
         async with self._lock:
             for user_id, socket in targets:
                 try:
                     await socket.send_json(payload)
                 except Exception:
                     log.warning("Dropping unreachable socket (user=%s)", user_id)
+                    if user_id is None:
+                        dead_spectators.append(socket)
+                    else:
+                        dead_members.append(user_id)
+        # Remove failed sockets after releasing the lock to avoid nested locking.
+        for user_id in dead_members:
+            self._members.pop(user_id, None)
+            self._member_agents.pop(user_id, None)
+        for socket in dead_spectators:
+            self._spectators.discard(socket)
 
     async def send(self, socket: WebSocket, message: BaseModel) -> None:
         await socket.send_json(message.model_dump())

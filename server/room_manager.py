@@ -25,6 +25,9 @@ CODE_LENGTH = 6
 # stop accidental (or malicious) pile-on in one workspace.
 MAX_MEMBERS = 6
 
+# Cap concurrent live rooms to bound memory and block ghost-room flooding.
+MAX_ROOMS = 100
+
 
 def _generate_code() -> str:
     return "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LENGTH))
@@ -36,6 +39,8 @@ class RoomManager:
 
     def create_room(self) -> str:
         """Generate a fresh room code and register an empty Room under it."""
+        if len(self._rooms) >= MAX_ROOMS:
+            raise RuntimeError(f"Maximum number of rooms reached ({MAX_ROOMS})")
         for _ in range(10):  # collisions are astronomically unlikely; bound retries anyway
             room_id = _generate_code()
             if room_id not in self._rooms:
@@ -44,20 +49,9 @@ class RoomManager:
                 return room_id
         raise RuntimeError("Failed to generate a unique room code")
 
-    def get_or_create(self, room_id: str) -> Room:
-        """Look up a room by code, creating it if this is the first client to
-        arrive with that code (handles the case where a teammate connects
-        before the creator's own connection races it, and lets clients type a
-        code from a whiteboard without a separate creation step)."""
-        normalized = room_id.strip().upper()
-        room = self._rooms.get(normalized)
-        if room is None:
-            room = Room()
-            self._rooms[normalized] = room
-            log.info("Room %s created on first join (%d room(s) live)", normalized, len(self._rooms))
-        return room
-
     def get(self, room_id: str) -> Room | None:
+        """Strict lookup: rooms exist only after POST /rooms. Returns None if
+        the code is unknown (callers must reject the connection)."""
         return self._rooms.get(room_id.strip().upper())
 
     def cleanup_if_empty(self, room_id: str) -> None:

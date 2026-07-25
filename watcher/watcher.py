@@ -34,6 +34,11 @@ from prompt_capture import capture_latest_prompt
 
 DEBOUNCE_SECONDS = 1.5
 MAX_FILE_BYTES = 512_000
+# Render proxies and busy event loops often miss a 20s pong window; keep
+# pings frequent enough to stay alive, but tolerate delayed replies.
+WS_PING_INTERVAL = 20
+WS_PING_TIMEOUT = 60
+READ_RETRY_SECONDS = 0.08
 
 IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next"}
 IGNORED_SUFFIXES = {".pyc", ".pyo", ".log", ".lock", ".swp", ".tmp"}
@@ -152,12 +157,13 @@ class Batcher:
         self._pending: dict[str, str] = {}
         self._deadline: Optional[float] = None
 
-    def add(self, path: Path) -> None:
-        content = read_text(path)
+    async def add(self, path: Path) -> None:
+        content = await asyncio.to_thread(read_text, path)
         if content is None:
             # Create/rename events can race the writer; one short retry helps.
-            time.sleep(0.08)
-            content = read_text(path)
+            # Use asyncio.sleep so the WS keepalive loop can still process pongs.
+            await asyncio.sleep(READ_RETRY_SECONDS)
+            content = await asyncio.to_thread(read_text, path)
         if content is None:
             return
         try:
@@ -198,7 +204,9 @@ class Batcher:
         ]
         self._pending.clear()
         self._deadline = None
-        prompt = self._resolve_prompt()
+        # SQLite prompt capture is sync I/O — keep it off the event loop so
+        # WebSocket ping/pong frames are not starved during bursts.
+        prompt = await asyncio.to_thread(self._resolve_prompt)
         await self._socket.send(
             json.dumps(
                 {
@@ -281,21 +289,21 @@ async def watch_session(
         root, user_id, socket, prompt_override=prompt_override, agent=agent
     )
     if need_prime:
-        prime_existing_files(batcher, root)
+        await asyncio.to_thread(prime_existing_files, batcher, root)
 
     while True:
         timeout = batcher.seconds_until_flush
         # Wake periodically even with no file events so we can flush and so
         # the websockets client keeps its keepalive ping/pong cycle healthy
         # (Render free-tier connections otherwise die with ping timeouts).
-        wait_timeout = 20.0 if timeout is None else min(timeout, 20.0)
+        wait_timeout = 15.0 if timeout is None else min(timeout, 15.0)
         try:
             path = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
         except asyncio.TimeoutError:
             if batcher.seconds_until_flush == 0.0:
                 await batcher.flush()
             continue
-        batcher.add(path)
+        await batcher.add(path)
 
 
 async def run(
@@ -339,9 +347,11 @@ async def run(
             try:
                 async with websockets.connect(
                     url,
-                    max_size=None,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    max_size=10 * 1024 * 1024,
+                    ping_interval=WS_PING_INTERVAL,
+                    ping_timeout=WS_PING_TIMEOUT,
+                    close_timeout=5,
+                    open_timeout=30,
                 ) as socket:
                     user_id = await join(socket, display_name, agent)
                     display_name = user_id  # reuse accepted name on reconnect
