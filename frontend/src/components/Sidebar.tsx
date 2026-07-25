@@ -65,17 +65,17 @@ export default function Sidebar({
           onClick={() => navigate('/')}
         >
           <span className="material-symbols-outlined text-lavender text-[20px]">
-            deployed_code
+            hub
           </span>
         </button>
         <div className="min-w-0">
           <button
             type="button"
-            className="text-[13px] font-semibold text-on-surface truncate leading-tight tracking-tight font-mono hover:text-primary transition-colors text-left max-w-full"
+            className="text-[13px] font-semibold text-on-surface truncate leading-tight tracking-tight hover:text-primary transition-colors text-left max-w-full"
             onClick={onCopyRoom}
             title="Copy shareable link"
           >
-            {roomId || 'Hackathon_Alpha'}
+            {roomId || 'Synergo'}
           </button>
           <p className="text-[10px] text-on-dim font-mono mt-1 tracking-wide tabular-nums">
             {copied ? 'Link copied' : `Session ${formatElapsed(elapsedSeconds)}`}
