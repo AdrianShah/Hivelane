@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useParams } from 'react-router-dom';
 import ConflictBanner from './components/ConflictBanner';
 import Lane from './components/Lane';
+import { normalizeRoomCode, roomWsUrl } from './relayUrl';
 import type {
   ConflictAlert,
   JoinMessage,
@@ -8,8 +10,7 @@ import type {
   ServerMessage,
 } from './types';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8000/ws';
-
+/** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
 const CONFLICT_TTL_SECONDS = 120;
 const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
 
@@ -61,12 +62,17 @@ function relativeTime(ts: number): string {
 type ConnStatus = 'connecting' | 'connected' | 'disconnected';
 
 export default function App() {
+  const { roomId: rawRoomId } = useParams<{ roomId: string }>();
+  const roomId = normalizeRoomCode(rawRoomId ?? '');
+  const wsUrl = useMemo(() => roomWsUrl(roomId), [roomId]);
+
   const [users, setUsers] = useState<Record<string, LaneState>>({});
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [conflictHistory, setConflictHistory] = useState<ConflictAlert[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [elapsed, setElapsed] = useState(0);
   const [view, setView] = useState<'agents' | 'history'>('agents');
+  const [copied, setCopied] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -82,6 +88,11 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // A new room means the previous room's lanes/conflicts no longer apply.
+    setUsers({});
+    setConflicts([]);
+    setConflictHistory([]);
+
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -89,7 +100,7 @@ export default function App() {
       if (cancelled) return;
 
       setStatus('connecting');
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -113,10 +124,23 @@ export default function App() {
         switch (msg.type) {
           case 'user_joined':
             setUsers((prev) => {
-              if (prev[msg.user_id]) return prev;
+              if (prev[msg.user_id]) {
+                if (msg.agent && msg.agent !== prev[msg.user_id].agent) {
+                  return {
+                    ...prev,
+                    [msg.user_id]: { ...prev[msg.user_id], agent: msg.agent },
+                  };
+                }
+                return prev;
+              }
               return {
                 ...prev,
-                [msg.user_id]: { caption: null, changes: [], prompt: null },
+                [msg.user_id]: {
+                  caption: null,
+                  changes: [],
+                  prompt: null,
+                  agent: msg.agent ?? 'unknown',
+                },
               };
             });
             break;
@@ -139,6 +163,7 @@ export default function App() {
                 caption: msg.caption,
                 changes: msg.changes,
                 prompt: msg.prompt,
+                agent: msg.agent ?? prev[msg.user_id]?.agent ?? 'unknown',
               },
             }));
             break;
@@ -179,7 +204,13 @@ export default function App() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, []);
+  }, [wsUrl]);
+
+  const copyShareUrl = () => {
+    void navigator.clipboard.writeText(window.location.href);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   const conflictedUsers = useMemo(() => {
     const ids = new Set<string>();
@@ -210,7 +241,7 @@ export default function App() {
             AGI_HACK_24
           </span>
           <div className="h-6 w-px bg-outline-variant/50" />
-          <div className="flex items-center gap-2.5" title={WS_URL}>
+          <div className="flex items-center gap-2.5" title={wsUrl}>
             <div
               className={`w-1.5 h-1.5 rounded-full ${
                 status === 'connected'
@@ -316,11 +347,16 @@ export default function App() {
               </span>
             </div>
             <div>
-              <h2 className="text-sm font-bold text-on-surface leading-tight tracking-tight">
-                Hackathon_Alpha
-              </h2>
+              <button
+                type="button"
+                className="text-sm font-bold text-on-surface leading-tight tracking-tight font-mono hover:text-primary transition-colors"
+                onClick={copyShareUrl}
+                title="Copy shareable link"
+              >
+                {roomId || 'ROOM'}
+              </button>
               <p className="text-[10px] text-on-surface-variant font-mono uppercase tracking-widest mt-0.5">
-                {formatElapsed(elapsed)} Active
+                {copied ? 'Link copied' : `${formatElapsed(elapsed)} Active`}
               </p>
             </div>
           </div>

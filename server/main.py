@@ -28,6 +28,7 @@ try:
         UserLeft,
     )
     from .room import FileOverlap, Room
+    from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
     from gemini import classify_conflict, generate_caption
@@ -40,6 +41,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         UserLeft,
     )
     from room import FileOverlap, Room
+    from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
 load_dotenv()
@@ -59,17 +61,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-room = Room()
+room_manager = RoomManager()
+
+
+@app.post("/rooms")
+async def create_room() -> dict[str, str]:
+    """Generate a fresh room code. The room code is the shared secret —
+    whoever has it can join, same trust model as a Google Docs share link."""
+    room_id = room_manager.create_room()
+    return {"room_id": room_id}
 
 
 @app.get("/health")
 async def health() -> dict[str, object]:
-    return {"status": "ok", "users": room.member_ids}
+    return {"status": "ok", "rooms": room_manager.room_count}
 
 
-async def handshake(socket: WebSocket) -> Optional[str]:
-    """Run the join handshake. Returns the accepted user_id, or None for a
-    spectator. Re-prompts on the same socket when a name is rejected."""
+async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
+    """Run the join handshake. Returns (user_id, agent) for a named member, or
+    None for a spectator. Re-prompts on the same socket when a name is rejected."""
     while True:
         raw = await socket.receive_json()
         try:
@@ -91,10 +101,15 @@ async def handshake(socket: WebSocket) -> Optional[str]:
             await room.send(socket, NameRejected(reason="Name taken"))
             continue
 
-        return user_id
+        if len(room.member_ids) >= MAX_MEMBERS:
+            await room.send(socket, NameRejected(reason="Room full"))
+            continue
+
+        return user_id, join.agent
 
 
 async def evaluate_and_broadcast_conflicts(
+    room: Room,
     user_id: str,
     message: ActivityMessage,
     overlaps: list[FileOverlap],
@@ -134,7 +149,7 @@ async def evaluate_and_broadcast_conflicts(
             )
 
 
-async def handle_activity(user_id: str, raw: dict) -> None:
+async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     try:
         message = ActivityMessage.model_validate(raw)
     except ValidationError as exc:
@@ -142,6 +157,7 @@ async def handle_activity(user_id: str, raw: dict) -> None:
         return
 
     # The connection owns its identity; never trust a client-supplied user_id.
+    # agent is labeling-only and is taken from the client (validated by Pydantic).
     message.user_id = user_id
 
     # Detect same-file overlaps against active peers BEFORE recording this batch.
@@ -161,6 +177,7 @@ async def handle_activity(user_id: str, raw: dict) -> None:
         prompt=message.prompt,
         changes=message.changes,
         caption=caption,
+        agent=message.agent,
     )
     room.remember_update(update)
     log.info(
@@ -172,26 +189,30 @@ async def handle_activity(user_id: str, raw: dict) -> None:
     await room.broadcast(update)
 
     try:
-        await evaluate_and_broadcast_conflicts(user_id, message, overlaps)
+        await evaluate_and_broadcast_conflicts(room, user_id, message, overlaps)
     except Exception as exc:
         log.warning("Conflict broadcast phase failed for %s: %s", user_id, exc)
 
 
-@app.websocket("/ws")
-async def websocket_endpoint(socket: WebSocket) -> None:
+@app.websocket("/ws/{room_id}")
+async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
+    room = room_manager.get_or_create(room_id)
     await socket.accept()
 
     try:
-        user_id = await handshake(socket)
+        joined = await handshake(socket, room)
     except (WebSocketDisconnect, RuntimeError):
         return
 
-    if user_id is None:
+    if joined is None:
         room.add_spectator(socket)
-        log.info("Spectator connected")
+        log.info("Spectator connected to room %s", room_id)
         # Catch up: current lanes + each user's most recent activity snapshot.
         for existing in room.member_ids:
-            await room.send(socket, UserJoined(user_id=existing))
+            await room.send(
+                socket,
+                UserJoined(user_id=existing, agent=room.member_agent(existing)),
+            )
         for update in room.latest_updates():
             await room.send(socket, update)
         try:
@@ -199,23 +220,32 @@ async def websocket_endpoint(socket: WebSocket) -> None:
                 await socket.receive_json()
         except (WebSocketDisconnect, RuntimeError):
             room.remove_spectator(socket)
-            log.info("Spectator disconnected")
+            log.info("Spectator disconnected from room %s", room_id)
+            room_manager.cleanup_if_empty(room_id)
         return
 
-    room.add_member(user_id, socket)
-    log.info("%s joined (%d in room)", user_id, len(room.member_ids))
-    await room.broadcast(UserJoined(user_id=user_id))
+    user_id, agent = joined
+    room.add_member(user_id, socket, agent)
+    log.info(
+        "%s joined room %s as %s (%d in room)",
+        user_id,
+        room_id,
+        agent,
+        len(room.member_ids),
+    )
+    await room.broadcast(UserJoined(user_id=user_id, agent=agent))
 
     try:
         while True:
             raw = await socket.receive_json()
             if raw.get("type") == "activity":
-                await handle_activity(user_id, raw)
+                await handle_activity(room, user_id, raw)
             else:
                 log.debug("Unhandled message type from %s: %s", user_id, raw.get("type"))
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
         room.remove_member(user_id)
-        log.info("%s left (%d in room)", user_id, len(room.member_ids))
+        log.info("%s left room %s (%d in room)", user_id, room_id, len(room.member_ids))
         await room.broadcast(UserLeft(user_id=user_id))
+        room_manager.cleanup_if_empty(room_id)

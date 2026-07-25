@@ -1,5 +1,6 @@
-"""In-memory state for the single global room. Ephemeral by design: nothing
-here survives a server restart."""
+"""In-memory state for one workspace ("room"). A process may hold many Room
+instances at once (see room_manager.RoomManager) — each is fully isolated.
+Ephemeral by design: nothing here survives a server restart."""
 
 from __future__ import annotations
 
@@ -12,9 +13,9 @@ from fastapi import WebSocket
 from pydantic import BaseModel
 
 try:
-    from .models import ActivityMessage, ActivityUpdate
+    from .models import ActivityMessage, ActivityUpdate, AgentKind
 except ImportError:  # Render rootDir=server
-    from models import ActivityMessage, ActivityUpdate
+    from models import ActivityMessage, ActivityUpdate, AgentKind
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ class FileTouch:
     diff: str
     prompt: Optional[str]
     timestamp: float
+    agent: AgentKind = "unknown"
 
 
 @dataclass
@@ -43,6 +45,7 @@ class FileOverlap:
 class Room:
     def __init__(self) -> None:
         self._members: dict[str, WebSocket] = {}
+        self._member_agents: dict[str, AgentKind] = {}
         self._spectators: set[WebSocket] = set()
         # file_path -> {user_id: FileTouch} — latest edit per user per file.
         self._file_activity: dict[str, dict[str, FileTouch]] = {}
@@ -56,17 +59,36 @@ class Room:
         return user_id in self._members
 
     def is_active(self, user_id: str) -> bool:
+        """True if user_id is still connected. Intentionally the same check as
+        is_taken: a disconnected peer's last touch is excluded from conflict
+        comparisons (recent_other_touches(active_only=True)) even if it
+        happened moments ago — there's no point flagging a conflict with
+        someone who already left. Not a bug; do not "fix" by tracking a grace
+        period unless product behavior changes."""
         return user_id in self._members
 
     @property
     def member_ids(self) -> list[str]:
         return list(self._members)
 
-    def add_member(self, user_id: str, socket: WebSocket) -> None:
+    @property
+    def is_empty(self) -> bool:
+        """True once no members and no spectators remain — safe to evict from
+        the RoomManager."""
+        return not self._members and not self._spectators
+
+    def add_member(
+        self, user_id: str, socket: WebSocket, agent: AgentKind = "unknown"
+    ) -> None:
         self._members[user_id] = socket
+        self._member_agents[user_id] = agent
+
+    def member_agent(self, user_id: str) -> AgentKind:
+        return self._member_agents.get(user_id, "unknown")
 
     def remove_member(self, user_id: str) -> None:
         self._members.pop(user_id, None)
+        self._member_agents.pop(user_id, None)
         self._latest_updates.pop(user_id, None)
 
     def add_spectator(self, socket: WebSocket) -> None:
@@ -86,6 +108,7 @@ class Room:
                 diff=change.diff,
                 prompt=message.prompt,
                 timestamp=message.timestamp,
+                agent=message.agent,
             )
 
     def remember_update(self, update: ActivityUpdate) -> None:

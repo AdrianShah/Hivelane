@@ -10,6 +10,10 @@ from pydantic import BaseModel, Field
 
 Verdict = Literal["overlapping", "related", "unrelated"]
 
+# Which AI coding tool a watcher process is reporting for. Defaults to
+# "unknown" so older clients that omit the field stay compatible.
+AgentKind = Literal["cursor", "claude-code", "codex", "unknown"]
+
 
 class FileChange(BaseModel):
     file_path: str
@@ -24,6 +28,7 @@ class JoinMessage(BaseModel):
     # None marks a spectator (the dashboard), which receives broadcasts but is
     # not a room member and skips name validation entirely.
     name: Optional[str] = None
+    agent: AgentKind = "unknown"
 
     @property
     def is_spectator(self) -> bool:
@@ -36,6 +41,7 @@ class ActivityMessage(BaseModel):
     timestamp: float = Field(default_factory=time.time)
     prompt: Optional[str] = None
     changes: list[FileChange]
+    agent: AgentKind = "unknown"
 
 
 # --- Server -> Client --------------------------------------------------------
@@ -48,6 +54,7 @@ class ActivityUpdate(BaseModel):
     prompt: Optional[str] = None
     changes: list[FileChange]
     caption: Optional[str] = None
+    agent: AgentKind = "unknown"
 
 
 class ConflictAlert(BaseModel):
@@ -62,6 +69,7 @@ class ConflictAlert(BaseModel):
 class UserJoined(BaseModel):
     type: Literal["user_joined"] = "user_joined"
     user_id: str
+    agent: AgentKind = "unknown"
 
 
 class UserLeft(BaseModel):

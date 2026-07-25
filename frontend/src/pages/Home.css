@@ -1,0 +1,117 @@
+.home {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+}
+
+.home__content {
+  max-width: 560px;
+  width: 100%;
+  text-align: center;
+}
+
+.home__eyebrow {
+  margin: 0 0 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7dd3fc;
+}
+
+.home__headline {
+  margin: 0 0 0.9rem;
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  line-height: 1.12;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: #e0e8f0;
+}
+
+.home__sub {
+  margin: 0 auto 2.25rem;
+  max-width: 440px;
+  color: #94a3b8;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.home__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+}
+
+.home__create {
+  padding: 0.75rem 1.75rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #0a0e1a;
+  background: #7dd3fc;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.home__create:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.home__create:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.home__join {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.home__join-input {
+  width: 9.5rem;
+  padding: 0.65rem 0.85rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 1rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  text-align: center;
+  color: #e0e8f0;
+  background: rgba(15, 21, 36, 0.8);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 10px;
+}
+
+.home__join-input:focus {
+  outline: none;
+  border-color: #7dd3fc;
+}
+
+.home__join-button {
+  padding: 0.65rem 1.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e0e8f0;
+  background: rgba(15, 21, 36, 0.8);
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.home__join-button:hover:not(:disabled) {
+  background: rgba(125, 211, 252, 0.08);
+}
+
+.home__join-button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.home__error {
+  margin-top: 1.25rem;
+  color: #ff6b6b;
+  font-size: 0.9rem;
+}
