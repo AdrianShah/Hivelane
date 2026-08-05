@@ -87,6 +87,14 @@ class RoomRejected(BaseModel):
     reason: str
 
 
+class SynergoFeed(BaseModel):
+    """Debounced room broadcast: one WebSocket frame every ~500ms carrying
+    all queued events for that room (the dashboard's Synergo feed)."""
+
+    type: Literal["synergo_feed"] = "synergo_feed"
+    events: list[dict]
+
+
 def placeholder_caption(message: ActivityMessage) -> str:
     """Stand-in until Gemini captioning lands. Same shape, no network call."""
     count = len(message.changes)

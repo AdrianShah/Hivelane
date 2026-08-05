@@ -8,6 +8,7 @@ import Sidebar, { type AppView } from './components/Sidebar';
 import { normalizeRoomCode, relayHttpOrigin, roomWsUrl } from './relayUrl';
 import type {
   ConflictAlert,
+  FeedEvent,
   JoinMessage,
   LaneState,
   ServerMessage,
@@ -160,6 +161,82 @@ export default function App() {
           return;
         }
 
+        const applyFeedEvent = (item: FeedEvent) => {
+          switch (item.type) {
+            case 'user_joined':
+              setUsers((prev) => {
+                if (prev[item.user_id]) {
+                  if (item.agent && item.agent !== prev[item.user_id].agent) {
+                    return {
+                      ...prev,
+                      [item.user_id]: {
+                        ...prev[item.user_id],
+                        agent: item.agent,
+                      },
+                    };
+                  }
+                  return prev;
+                }
+                return {
+                  ...prev,
+                  [item.user_id]: {
+                    caption: null,
+                    changes: [],
+                    prompt: null,
+                    timestamp: null,
+                    agent: item.agent ?? 'unknown',
+                  },
+                };
+              });
+              break;
+
+            case 'user_left':
+              setUsers((prev) => {
+                const next = { ...prev };
+                delete next[item.user_id];
+                return next;
+              });
+              setConflicts((prev) =>
+                prev.filter((c) => !c.users.includes(item.user_id)),
+              );
+              break;
+
+            case 'activity_update':
+              setUsers((prev) => {
+                const prior = prev[item.user_id];
+                // Prompt-only updates send changes: [] — keep the last diffs so
+                // the lane doesn't blank out when a new Cursor prompt arrives.
+                const changes =
+                  item.changes.length > 0
+                    ? item.changes
+                    : (prior?.changes ?? []);
+                return {
+                  ...prev,
+                  [item.user_id]: {
+                    caption: item.caption ?? prior?.caption ?? null,
+                    changes,
+                    prompt: item.prompt,
+                    timestamp: item.timestamp,
+                    agent: item.agent ?? prior?.agent ?? 'unknown',
+                  },
+                };
+              });
+              break;
+
+            case 'conflict_alert':
+              setConflicts((prev) => upsertConflict(prev, item));
+              if (isActionableConflict(item)) {
+                setConflictHistory((prev) => {
+                  const without = prev.filter(
+                    (c) => c.file_path !== item.file_path,
+                  );
+                  return [item, ...without].slice(0, 20);
+                });
+              }
+              break;
+          }
+        };
+
         switch (msg.type) {
           case 'room_rejected':
             roomMissing = true;
@@ -168,71 +245,18 @@ export default function App() {
             ws.close();
             break;
 
-          case 'user_joined':
-            setUsers((prev) => {
-              if (prev[msg.user_id]) {
-                if (msg.agent && msg.agent !== prev[msg.user_id].agent) {
-                  return {
-                    ...prev,
-                    [msg.user_id]: { ...prev[msg.user_id], agent: msg.agent },
-                  };
-                }
-                return prev;
-              }
-              return {
-                ...prev,
-                [msg.user_id]: {
-                  caption: null,
-                  changes: [],
-                  prompt: null,
-                  timestamp: null,
-                  agent: msg.agent ?? 'unknown',
-                },
-              };
-            });
-            break;
-
-          case 'user_left':
-            setUsers((prev) => {
-              const next = { ...prev };
-              delete next[msg.user_id];
-              return next;
-            });
-            setConflicts((prev) =>
-              prev.filter((c) => !c.users.includes(msg.user_id)),
-            );
-            break;
-
-          case 'activity_update':
-            setUsers((prev) => {
-              const prior = prev[msg.user_id];
-              // Prompt-only updates send changes: [] — keep the last diffs so
-              // the lane doesn't blank out when a new Cursor prompt arrives.
-              const changes =
-                msg.changes.length > 0
-                  ? msg.changes
-                  : (prior?.changes ?? []);
-              return {
-                ...prev,
-                [msg.user_id]: {
-                  caption: msg.caption ?? prior?.caption ?? null,
-                  changes,
-                  prompt: msg.prompt,
-                  timestamp: msg.timestamp,
-                  agent: msg.agent ?? prior?.agent ?? 'unknown',
-                },
-              };
-            });
-            break;
-
-          case 'conflict_alert':
-            setConflicts((prev) => upsertConflict(prev, msg));
-            if (isActionableConflict(msg)) {
-              setConflictHistory((prev) => {
-                const without = prev.filter((c) => c.file_path !== msg.file_path);
-                return [msg, ...without].slice(0, 20);
-              });
+          case 'synergo_feed':
+            for (const item of msg.events) {
+              applyFeedEvent(item);
             }
+            break;
+
+          case 'user_joined':
+          case 'user_left':
+          case 'activity_update':
+          case 'conflict_alert':
+            // Catch-up frames still arrive as individual messages via send().
+            applyFeedEvent(msg);
             break;
 
           case 'name_rejected':
@@ -591,7 +615,7 @@ export default function App() {
                   className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
                   onClick={() => navigateTo('agents')}
                 >
-                  Open live agents
+                  Open Synergo feed
                 </button>
               </div>
             </div>
@@ -602,16 +626,16 @@ export default function App() {
               <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
-                    Live Agents
+                    Synergo feed
                   </h1>
                   <p className="text-[13px] text-on-muted mt-1 mb-0">
-                    Real-time prompts, captions, and file diffs across the
-                    cluster.
+                    Side-by-side agent lanes with live status — prompts, captions,
+                    and diffs (Synergo feed, batched every 500ms).
                   </p>
                 </div>
               </div>
               {hasLiveAgents ? (
-                <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 max-w-[1400px]">
+                <div className="lane-grid">
                   {displayUserIds.map((id, index) => (
                     <Lane
                       key={id}

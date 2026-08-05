@@ -202,7 +202,7 @@ Spectator (dashboard):
 }
 ```
 
-**Server broadcasts:** `user_joined`, `user_left`, `activity_update` (with `caption`), `conflict_alert`, `name_rejected`.
+**Server broadcasts:** batched as `synergo_feed` every ~500ms (`events`: `user_joined`, `user_left`, `activity_update`, `conflict_alert`). Point-to-point messages (`name_rejected`, spectator catch-up) still send immediately.
 
 Room codes are the shared secret — anyone with the code can join.
 
