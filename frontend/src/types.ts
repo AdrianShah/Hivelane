@@ -61,6 +61,19 @@ export interface RoomRejected {
   reason: string;
 }
 
+/** Debounced room broadcast — one frame every ~500ms with queued events. */
+export interface SynergoFeed {
+  type: 'synergo_feed';
+  events: FeedEvent[];
+}
+
+/** Events that appear inside a Synergo feed batch (or as catch-up sends). */
+export type FeedEvent =
+  | ActivityUpdate
+  | ConflictAlert
+  | UserJoined
+  | UserLeft;
+
 /**
  * First message after connect.
  * Spectator: name is null (frontend).
@@ -74,6 +87,7 @@ export interface JoinMessage {
 }
 
 export type ServerMessage =
+  | SynergoFeed
   | ActivityUpdate
   | ConflictAlert
   | UserJoined

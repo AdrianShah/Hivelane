@@ -14,14 +14,17 @@ from fastapi import WebSocket
 from pydantic import BaseModel
 
 try:
-    from .models import ActivityMessage, ActivityUpdate, AgentKind
+    from .models import ActivityMessage, ActivityUpdate, AgentKind, SynergoFeed
 except ImportError:  # Render rootDir=server
-    from models import ActivityMessage, ActivityUpdate, AgentKind
+    from models import ActivityMessage, ActivityUpdate, AgentKind, SynergoFeed
 
 log = logging.getLogger(__name__)
 
 # How long a peer's last touch of a file stays eligible for conflict comparison.
 CONFLICT_WINDOW_SECONDS = 60.0
+
+# Debounce room-wide broadcasts into a single Synergo feed frame.
+BROADCAST_FLUSH_SECONDS = 0.5
 
 
 @dataclass
@@ -55,6 +58,9 @@ class Room:
         # Last accepted activity timestamp per member (server rate limiting).
         self._last_activity_at: dict[str, float] = {}
         self._lock = asyncio.Lock()
+        # Queued room broadcasts → flushed as one synergo_feed every 500ms.
+        self._broadcast_queue: list[dict] = []
+        self._flush_task: Optional[asyncio.Task] = None
 
     # --- membership ----------------------------------------------------------
 
@@ -183,7 +189,29 @@ class Room:
     # --- broadcast -----------------------------------------------------------
 
     async def broadcast(self, message: BaseModel) -> None:
+        """Queue a room-wide event and flush as a Synergo feed batch (~500ms).
+
+        Point-to-point replies still use send() and go out immediately.
+        """
         payload = message.model_dump()
+        async with self._lock:
+            self._broadcast_queue.append(payload)
+            if self._flush_task is None or self._flush_task.done():
+                self._flush_task = asyncio.create_task(self._flush_broadcast_queue())
+
+    async def _flush_broadcast_queue(self) -> None:
+        await asyncio.sleep(BROADCAST_FLUSH_SECONDS)
+        async with self._lock:
+            events = self._broadcast_queue
+            self._broadcast_queue = []
+            self._flush_task = None
+        if not events:
+            return
+        feed = SynergoFeed(events=events)
+        log.debug("Flushing Synergo feed (%d event(s))", len(events))
+        await self._deliver(feed.model_dump())
+
+    async def _deliver(self, payload: dict) -> None:
         targets = list(self._members.items()) + [(None, s) for s in self._spectators]
         dead_members: list[str] = []
         dead_spectators: list[WebSocket] = []
@@ -197,7 +225,6 @@ class Room:
                         dead_spectators.append(socket)
                     else:
                         dead_members.append(user_id)
-        # Remove failed sockets after releasing the lock to avoid nested locking.
         for user_id in dead_members:
             self._members.pop(user_id, None)
             self._member_agents.pop(user_id, None)

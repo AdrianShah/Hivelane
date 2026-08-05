@@ -141,6 +141,13 @@ export default function Lane({
     `${userId}-${timestamp ?? 0}-${changes.map((c) => c.file_path).join(',')}`,
   );
 
+  const statusLabel = inConflict ? 'Conflict' : changes.length > 0 ? 'Active' : 'Live';
+  const statusClass = inConflict
+    ? 'is-conflict'
+    : changes.length > 0
+      ? 'is-live'
+      : 'is-idle';
+
   return (
     <article
       id={`lane-${userId}`}
@@ -149,33 +156,47 @@ export default function Lane({
       }`}
       style={{ animationDelay: `${index * 60}ms` }}
     >
-      <header className="flex items-center gap-3 px-5 py-4 border-b border-outline-soft/80 bg-white/[0.015]">
+      <header className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06] bg-white/[0.03]">
         <div className="relative shrink-0">
           <div
-            className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(userId)} flex items-center justify-center text-[11px] font-bold text-white ring-2 ring-white/10`}
+            className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(userId)} flex items-center justify-center text-[11px] font-bold text-white ring-2 ring-white/15`}
           >
             {initials(userId)}
           </div>
           <span
-            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-card ${
-              inConflict ? 'bg-error' : 'bg-emerald shadow-live'
+            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#121a28] ${
+              inConflict
+                ? 'bg-error'
+                : 'bg-emerald shadow-live status-dot-live'
             }`}
             title={inConflict ? 'Conflict' : 'Online'}
           />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-semibold text-on-surface truncate tracking-tight">
-            {userId}
-          </h2>
-          <p className="text-[11px] text-on-dim mt-0.5">
-            {inConflict
-              ? 'Editing contested file'
-              : showAgent
-                ? agent
-                : 'Agent online'}
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-[15px] font-semibold text-on-surface truncate tracking-tight m-0">
+              {userId}
+            </h2>
+            <span className={`agent-status-pill ${statusClass}`}>
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  inConflict ? 'bg-error' : 'bg-emerald'
+                }`}
+              />
+              {statusLabel}
+            </span>
+          </div>
+          <p className="text-[11px] text-on-dim mt-1 mb-0 flex items-center gap-1.5 flex-wrap">
+            {showAgent ? (
+              <span className="font-mono text-lavender/90">{agent}</span>
+            ) : (
+              <span>Agent online</span>
+            )}
+            <span className="text-outline-soft">·</span>
+            <span>{relativeTime(timestamp)}</span>
           </p>
         </div>
-        <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-primary bg-primary/8 border border-primary/20 px-2.5 py-1 rounded-md uppercase truncate max-w-[42%]">
+        <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-primary bg-primary/10 border border-primary/25 px-2.5 py-1 rounded-md uppercase truncate max-w-[42%] backdrop-blur-sm">
           {badge}
         </span>
       </header>

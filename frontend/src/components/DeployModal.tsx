@@ -126,7 +126,7 @@ export default function DeployModal({
               Paste the command and replace{' '}
               <code className="text-primary">&lt;your-name&gt;</code>.
             </li>
-            <li>Save files in the watched path — lanes update live here.</li>
+            <li>Save files in the watched path — the Synergo feed updates live.</li>
           </ol>
         </div>
       </div>

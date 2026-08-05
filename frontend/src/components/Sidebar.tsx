@@ -33,7 +33,7 @@ function formatElapsed(seconds: number): string {
 
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'agents', label: 'Agents', icon: 'smart_toy' },
+  { id: 'agents', label: 'Synergo feed', icon: 'dynamic_feed' },
   { id: 'watchers', label: 'Watchers', icon: 'radar' },
   { id: 'conflicts', label: 'Conflicts', icon: 'warning' },
   { id: 'history', label: 'History', icon: 'history' },
