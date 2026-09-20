@@ -446,17 +446,17 @@
       "source_location": "L98"
     },
     {
-      "id": "server_models_synergofeed",
-      "label": "SynergoFeed",
+      "id": "server_room_fileoverlap",
+      "label": "FileOverlap",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "file_type": "code",
-      "norm_label": "synergofeed",
-      "source_file": "server/models.py",
-      "source_location": "L90"
+      "norm_label": "fileoverlap",
+      "source_file": "server/room.py",
+      "source_location": "L41"
     },
     {
       "id": "server_room_manager_roommanager",
@@ -465,63 +465,11 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": "roommanager",
       "source_file": "server/room_manager.py",
       "source_location": "L36"
-    },
-    {
-      "id": "server_room_fileoverlap",
-      "label": "FileOverlap",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "FileOverlap",
-      "file_type": "code",
-      "norm_label": "fileoverlap",
-      "source_file": "server/room.py",
-      "source_location": "L41"
-    },
-    {
-      "id": "companion_detect_toolinfo",
-      "label": "ToolInfo",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "toolinfo",
-      "source_file": "companion/detect.py",
-      "source_location": "L20"
-    },
-    {
-      "id": "companion_main_createwatcherrequest",
-      "label": "CreateWatcherRequest",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "createwatcherrequest",
-      "source_file": "companion/main.py",
-      "source_location": "L98"
-    },
-    {
-      "id": "companion_main_createwatcherresponse",
-      "label": "CreateWatcherResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "createwatcherresponse",
-      "source_file": "companion/main.py",
-      "source_location": "L106"
     },
     {
       "id": "companion_main_watcherinfo",
@@ -542,8 +490,8 @@
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
+      "community": 23,
+      "community_name": "process_manager.py",
       "file_type": "code",
       "norm_label": "watcheralreadyrunning",
       "source_file": "companion/process_manager.py",
@@ -574,6 +522,45 @@
       "norm_label": "importmetaenv",
       "source_file": "frontend/src/vite-env.d.ts",
       "source_location": "L3"
+    },
+    {
+      "id": "companion_detect_toolinfo",
+      "label": "ToolInfo",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "toolinfo",
+      "source_file": "companion/detect.py",
+      "source_location": "L20"
+    },
+    {
+      "id": "companion_main_createwatcherrequest",
+      "label": "CreateWatcherRequest",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "createwatcherrequest",
+      "source_file": "companion/main.py",
+      "source_location": "L98"
+    },
+    {
+      "id": "companion_main_createwatcherresponse",
+      "label": "CreateWatcherResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "createwatcherresponse",
+      "source_file": "companion/main.py",
+      "source_location": "L106"
     },
     {
       "id": "companion_process_manager_watchermanager",
@@ -615,32 +602,6 @@
       "source_location": "L38"
     },
     {
-      "id": "server_models_conflictalert",
-      "label": "ConflictAlert",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "gemini.py",
-      "file_type": "code",
-      "norm_label": "conflictalert",
-      "source_file": "server/models.py",
-      "source_location": "L60"
-    },
-    {
-      "id": "server_models_filechange",
-      "label": "FileChange",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "gemini.py",
-      "file_type": "code",
-      "norm_label": "filechange",
-      "source_file": "server/models.py",
-      "source_location": "L18"
-    },
-    {
       "id": "server_room_filetouch",
       "label": "FileTouch",
       "_callable": true,
@@ -680,13 +641,39 @@
       "source_location": "L49"
     },
     {
+      "id": "server_models_conflictalert",
+      "label": "ConflictAlert",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "conflictalert",
+      "source_file": "server/models.py",
+      "source_location": "L60"
+    },
+    {
+      "id": "server_models_filechange",
+      "label": "FileChange",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "filechange",
+      "source_file": "server/models.py",
+      "source_location": "L18"
+    },
+    {
       "id": "server_models_joinmessage",
       "label": "JoinMessage",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "joinmessage",
       "source_file": "server/models.py",
@@ -699,7 +686,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "namerejected",
       "source_file": "server/models.py",
@@ -712,11 +699,24 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "roomrejected",
       "source_file": "server/models.py",
       "source_location": "L85"
+    },
+    {
+      "id": "server_models_synergofeed",
+      "label": "SynergoFeed",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "synergofeed",
+      "source_file": "server/models.py",
+      "source_location": "L90"
     },
     {
       "id": "server_models_userjoined",
@@ -725,7 +725,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "userjoined",
       "source_file": "server/models.py",
@@ -738,7 +738,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "userleft",
       "source_file": "server/models.py",
@@ -1489,12 +1489,36 @@
       "source_location": "L53"
     },
     {
+      "id": "server_main_health",
+      "label": "health()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "health()",
+      "source_file": "server/main.py",
+      "source_location": "L120"
+    },
+    {
+      "id": "server_main_log_conflict_task_error",
+      "label": "_log_conflict_task_error()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "_log_conflict_task_error()",
+      "source_file": "server/main.py",
+      "source_location": "L99"
+    },
+    {
       "id": "server_room_manager_generate_code",
       "label": "_generate_code()",
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": "_generate_code()",
       "source_file": "server/room_manager.py",
@@ -1506,7 +1530,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": ".cleanup_if_empty()",
       "source_file": "server/room_manager.py",
@@ -1518,7 +1542,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": ".create_room()",
       "source_file": "server/room_manager.py",
@@ -1530,7 +1554,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": ".get()",
       "source_file": "server/room_manager.py",
@@ -1542,7 +1566,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": ".__init__()",
       "source_file": "server/room_manager.py",
@@ -1554,7 +1578,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "code",
       "norm_label": ".room_count()",
       "source_file": "server/room_manager.py",
@@ -1566,7 +1590,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "code",
       "norm_label": ".find_overlaps()",
       "source_file": "server/room.py",
@@ -1578,7 +1602,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "code",
       "norm_label": ".is_active()",
       "source_file": "server/room.py",
@@ -1590,7 +1614,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "code",
       "norm_label": ".recent_other_touches()",
       "source_file": "server/room.py",
@@ -1631,78 +1655,6 @@
       "norm_label": "watch_badge()",
       "source_file": "demo_proj/src/utils.py",
       "source_location": "L14"
-    },
-    {
-      "id": "companion_detect_detect_tools",
-      "label": "detect_tools()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "detect_tools()",
-      "source_file": "companion/detect.py",
-      "source_location": "L172"
-    },
-    {
-      "id": "companion_detect_find_install_path",
-      "label": "_find_install_path()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "_find_install_path()",
-      "source_file": "companion/detect.py",
-      "source_location": "L127"
-    },
-    {
-      "id": "companion_detect_is_running",
-      "label": "_is_running()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "_is_running()",
-      "source_file": "companion/detect.py",
-      "source_location": "L165"
-    },
-    {
-      "id": "companion_detect_platform_key",
-      "label": "_platform_key()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "_platform_key()",
-      "source_file": "companion/detect.py",
-      "source_location": "L119"
-    },
-    {
-      "id": "companion_detect_running_process_names",
-      "label": "_running_process_names()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "_running_process_names()",
-      "source_file": "companion/detect.py",
-      "source_location": "L142"
-    },
-    {
-      "id": "companion_main_create_watcher",
-      "label": "create_watcher()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "create_watcher()",
-      "source_file": "companion/main.py",
-      "source_location": "L155"
     },
     {
       "id": "companion_main_delete_watcher",
@@ -1825,40 +1777,52 @@
       "source_location": "L37"
     },
     {
-      "id": "server_main_evaluate_and_broadcast_conflicts",
-      "label": "evaluate_and_broadcast_conflicts()",
+      "id": "companion_process_manager_build_command",
+      "label": "_build_command()",
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "handle_activity",
+      "community_name": "process_manager.py",
       "file_type": "code",
-      "norm_label": "evaluate_and_broadcast_conflicts()",
-      "source_file": "server/main.py",
-      "source_location": "L155"
+      "norm_label": "_build_command()",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L90"
     },
     {
-      "id": "server_main_handle_activity",
-      "label": "handle_activity()",
+      "id": "companion_process_manager_normalize_path",
+      "label": "_normalize_path()",
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "handle_activity",
+      "community_name": "process_manager.py",
       "file_type": "code",
-      "norm_label": "handle_activity()",
-      "source_file": "server/main.py",
-      "source_location": "L196"
+      "norm_label": "_normalize_path()",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L86"
     },
     {
-      "id": "server_main_log_conflict_task_error",
-      "label": "_log_conflict_task_error()",
+      "id": "companion_process_manager_watchermanager_reap_locked",
+      "label": "._reap_locked()",
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "handle_activity",
+      "community_name": "process_manager.py",
       "file_type": "code",
-      "norm_label": "_log_conflict_task_error()",
-      "source_file": "server/main.py",
-      "source_location": "L99"
+      "norm_label": "._reap_locked()",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L244"
+    },
+    {
+      "id": "companion_process_manager_watchermanager_start",
+      "label": ".start()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "file_type": "code",
+      "norm_label": ".start()",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L119"
     },
     {
       "id": "server_main_create_room",
@@ -1873,28 +1837,76 @@
       "source_location": "L109"
     },
     {
-      "id": "companion_process_manager_build_command",
-      "label": "_build_command()",
+      "id": "companion_detect_detect_tools",
+      "label": "detect_tools()",
       "_callable": true,
       "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
+      "community": 36,
+      "community_name": "detect.py",
       "file_type": "code",
-      "norm_label": "_build_command()",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L90"
+      "norm_label": "detect_tools()",
+      "source_file": "companion/detect.py",
+      "source_location": "L172"
     },
     {
-      "id": "companion_process_manager_normalize_path",
-      "label": "_normalize_path()",
+      "id": "companion_detect_find_install_path",
+      "label": "_find_install_path()",
       "_callable": true,
       "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
+      "community": 36,
+      "community_name": "detect.py",
       "file_type": "code",
-      "norm_label": "_normalize_path()",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L86"
+      "norm_label": "_find_install_path()",
+      "source_file": "companion/detect.py",
+      "source_location": "L127"
+    },
+    {
+      "id": "companion_detect_is_running",
+      "label": "_is_running()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "_is_running()",
+      "source_file": "companion/detect.py",
+      "source_location": "L165"
+    },
+    {
+      "id": "companion_detect_platform_key",
+      "label": "_platform_key()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "_platform_key()",
+      "source_file": "companion/detect.py",
+      "source_location": "L119"
+    },
+    {
+      "id": "companion_detect_running_process_names",
+      "label": "_running_process_names()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "_running_process_names()",
+      "source_file": "companion/detect.py",
+      "source_location": "L142"
+    },
+    {
+      "id": "companion_main_create_watcher",
+      "label": "create_watcher()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "create_watcher()",
+      "source_file": "companion/main.py",
+      "source_location": "L155"
     },
     {
       "id": "companion_process_manager_watchermanager_get",
@@ -1933,18 +1945,6 @@
       "source_location": "L236"
     },
     {
-      "id": "companion_process_manager_watchermanager_reap_locked",
-      "label": "._reap_locked()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
-      "file_type": "code",
-      "norm_label": "._reap_locked()",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L244"
-    },
-    {
       "id": "companion_process_manager_watchermanager_remove",
       "label": ".remove()",
       "_callable": true,
@@ -1967,18 +1967,6 @@
       "norm_label": ".shutdown()",
       "source_file": "companion/process_manager.py",
       "source_location": "L223"
-    },
-    {
-      "id": "companion_process_manager_watchermanager_start",
-      "label": ".start()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
-      "file_type": "code",
-      "norm_label": ".start()",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L119"
     },
     {
       "id": "companion_process_manager_watchermanager_start_reader",
@@ -2171,6 +2159,30 @@
       "norm_label": "_wrap_user_data()",
       "source_file": "server/gemini.py",
       "source_location": "L59"
+    },
+    {
+      "id": "server_main_evaluate_and_broadcast_conflicts",
+      "label": "evaluate_and_broadcast_conflicts()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "gemini.py",
+      "file_type": "code",
+      "norm_label": "evaluate_and_broadcast_conflicts()",
+      "source_file": "server/main.py",
+      "source_location": "L155"
+    },
+    {
+      "id": "server_main_handle_activity",
+      "label": "handle_activity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "gemini.py",
+      "file_type": "code",
+      "norm_label": "handle_activity()",
+      "source_file": "server/main.py",
+      "source_location": "L196"
     },
     {
       "id": "server_models_placeholder_caption",
@@ -2526,23 +2538,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "handshake()",
       "source_file": "server/main.py",
       "source_location": "L124"
-    },
-    {
-      "id": "server_main_health",
-      "label": "health()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "health()",
-      "source_file": "server/main.py",
-      "source_location": "L120"
     },
     {
       "id": "server_main_schedule_empty_room_cleanup",
@@ -2550,7 +2550,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "_schedule_empty_room_cleanup()",
       "source_file": "server/main.py",
@@ -2562,7 +2562,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "_cleanup_later()",
       "source_file": "server/main.py",
@@ -2574,7 +2574,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "websocket_endpoint()",
       "source_file": "server/main.py",
@@ -2586,7 +2586,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": ".is_spectator()",
       "source_file": "server/models.py",
@@ -2598,7 +2598,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "sanitize_name()",
       "source_file": "server/sanitize.py",
@@ -3522,64 +3522,42 @@
       "label": "FastAPI",
       "_origin": "ast",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "file_type": "code",
       "norm_label": "fastapi",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "server_models",
-      "label": "models.py",
+      "id": "server_main",
+      "label": "server/main.py",
       "_origin": "ast",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "file_type": "code",
-      "norm_label": "models.py",
-      "source_file": "server/models.py",
+      "norm_label": "server/main.py",
+      "source_file": "server/main.py",
       "source_location": "L1"
+    },
+    {
+      "id": "server_main_py_get",
+      "label": "get",
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "get",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "server_room",
       "label": "room.py",
       "_origin": "ast",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "file_type": "code",
       "norm_label": "room.py",
-      "source_file": "server/room.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_models_rationale_1",
-      "label": "Wire format for every WebSocket message. Single source of truth shared by the\u2026",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "models.py",
-      "file_type": "rationale",
-      "norm_label": "wire format for every websocket message. single source of truth shared by the...",
-      "source_file": "server/models.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_models_rationale_91",
-      "label": "Debounced room broadcast: one WebSocket frame every ~500ms carrying all queued\u2026",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "models.py",
-      "file_type": "rationale",
-      "norm_label": "debounced room broadcast: one websocket frame every ~500ms carrying all queued...",
-      "source_file": "server/models.py",
-      "source_location": "L91"
-    },
-    {
-      "id": "server_room_rationale_1",
-      "label": "In-memory state for one workspace (\"room\"). A process may hold many Room\u2026",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "models.py",
-      "file_type": "rationale",
-      "norm_label": "in-memory state for one workspace (\"room\"). a process may hold many room...",
       "source_file": "server/room.py",
       "source_location": "L1"
     },
@@ -3587,30 +3565,74 @@
       "id": "server_room_manager",
       "label": "room_manager.py",
       "_origin": "ast",
-      "community": 15,
-      "community_name": "room_manager.py",
+      "community": 14,
+      "community_name": "server/main.py",
       "file_type": "code",
       "norm_label": "room_manager.py",
       "source_file": "server/room_manager.py",
       "source_location": "L1"
     },
     {
+      "id": "task",
+      "label": "Task",
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "task",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "server_main_rationale_1",
+      "label": "Relay server: accepts watcher and spectator WebSocket connections, keeps room\u2026",
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "rationale",
+      "norm_label": "relay server: accepts watcher and spectator websocket connections, keeps room...",
+      "source_file": "server/main.py",
+      "source_location": "L1"
+    },
+    {
       "id": "server_room_manager_rationale_1",
       "label": "Registry of live Room instances, keyed by short shareable room codes. The room\u2026",
       "_origin": "ast",
-      "community": 15,
-      "community_name": "room_manager.py",
+      "community": 14,
+      "community_name": "server/main.py",
       "file_type": "rationale",
       "norm_label": "registry of live room instances, keyed by short shareable room codes. the room...",
       "source_file": "server/room_manager.py",
       "source_location": "L1"
     },
     {
+      "id": "server_room_rationale_1",
+      "label": "In-memory state for one workspace (\"room\"). A process may hold many Room\u2026",
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "rationale",
+      "norm_label": "in-memory state for one workspace (\"room\"). a process may hold many room...",
+      "source_file": "server/room.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_room_rationale_42",
+      "label": "One file that the current user and another active user both touched recently.",
+      "_origin": "ast",
+      "community": 14,
+      "community_name": "server/main.py",
+      "file_type": "rationale",
+      "norm_label": "one file that the current user and another active user both touched recently.",
+      "source_file": "server/room.py",
+      "source_location": "L42"
+    },
+    {
       "id": "server_room_manager_rationale_41",
       "label": "Generate a fresh room code and register an empty Room under it.",
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "rationale",
       "norm_label": "generate a fresh room code and register an empty room under it.",
       "source_file": "server/room_manager.py",
@@ -3621,7 +3643,7 @@
       "label": "Strict lookup: rooms exist only after POST /rooms. Returns None if the code is\u2026",
       "_origin": "ast",
       "community": 15,
-      "community_name": "room_manager.py",
+      "community_name": "RoomManager",
       "file_type": "rationale",
       "norm_label": "strict lookup: rooms exist only after post /rooms. returns none if the code is...",
       "source_file": "server/room_manager.py",
@@ -3728,7 +3750,7 @@
       "label": "Other users' recent touches of the same file within the conflict window.",
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "rationale",
       "norm_label": "other users' recent touches of the same file within the conflict window.",
       "source_file": "server/room.py",
@@ -3739,29 +3761,18 @@
       "label": "Return per-file overlaps with the most recent active peer (if any). Call this\u2026",
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "rationale",
       "norm_label": "return per-file overlaps with the most recent active peer (if any). call this...",
       "source_file": "server/room.py",
       "source_location": "L167"
     },
     {
-      "id": "server_room_rationale_42",
-      "label": "One file that the current user and another active user both touched recently.",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": "FileOverlap",
-      "file_type": "rationale",
-      "norm_label": "one file that the current user and another active user both touched recently.",
-      "source_file": "server/room.py",
-      "source_location": "L42"
-    },
-    {
       "id": "server_room_rationale_71",
       "label": "True if user_id is still connected. Intentionally the same check as is_taken: a\u2026",
       "_origin": "ast",
       "community": 17,
-      "community_name": "FileOverlap",
+      "community_name": ".find_overlaps",
       "file_type": "rationale",
       "norm_label": "true if user_id is still connected. intentionally the same check as is_taken: a...",
       "source_file": "server/room.py",
@@ -3873,17 +3884,6 @@
       "source_location": "L10"
     },
     {
-      "id": "companion_detect",
-      "label": "detect.py",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "detect.py",
-      "source_file": "companion/detect.py",
-      "source_location": "L1"
-    },
-    {
       "id": "companion_main",
       "label": "companion/main.py",
       "_origin": "ast",
@@ -3893,17 +3893,6 @@
       "norm_label": "companion/main.py",
       "source_file": "companion/main.py",
       "source_location": "L1"
-    },
-    {
-      "id": "companion_main_py_basemodel",
-      "label": "BaseModel",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "basemodel",
-      "source_file": "",
-      "source_location": ""
     },
     {
       "id": "companion_main_py_get",
@@ -3917,28 +3906,6 @@
       "source_location": ""
     },
     {
-      "id": "companion_main_py_post",
-      "label": "post",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "post",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "companion_process_manager",
-      "label": "process_manager.py",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "process_manager.py",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L1"
-    },
-    {
       "id": "delete",
       "label": "delete",
       "_origin": "ast",
@@ -3948,61 +3915,6 @@
       "norm_label": "delete",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "exception",
-      "label": "Exception",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "exception",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "typeddict",
-      "label": "TypedDict",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "typeddict",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "companion_detect_rationale_1",
-      "label": "Best-effort detection of locally installed / running AI coding tools. Every\u2026",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "rationale",
-      "norm_label": "best-effort detection of locally installed / running ai coding tools. every...",
-      "source_file": "companion/detect.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "companion_detect_rationale_143",
-      "label": "Lowercased names of running processes, or None if psutil is unusable.",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "rationale",
-      "norm_label": "lowercased names of running processes, or none if psutil is unusable.",
-      "source_file": "companion/detect.py",
-      "source_location": "L143"
-    },
-    {
-      "id": "companion_detect_rationale_173",
-      "label": "Report install + running state for each known tool. Shape: {\"platform\": str,\u2026",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "rationale",
-      "norm_label": "report install + running state for each known tool. shape: {\"platform\": str,...",
-      "source_file": "companion/detect.py",
-      "source_location": "L173"
     },
     {
       "id": "companion_main_rationale_1",
@@ -4036,28 +3948,6 @@
       "norm_label": "reap watchers on ctrl+c / sigterm even if uvicorn exits abruptly.",
       "source_file": "companion/main.py",
       "source_location": "L76"
-    },
-    {
-      "id": "companion_process_manager_rationale_1",
-      "label": "Supervises locally spawned `watcher/watcher.py` subprocesses. State is in-\u2026",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "rationale",
-      "norm_label": "supervises locally spawned `watcher/watcher.py` subprocesses. state is in-...",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "companion_process_manager_rationale_43",
-      "label": "Raised when a (path, agent) pair is already supervised and alive.",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "rationale",
-      "norm_label": "raised when a (path, agent) pair is already supervised and alive.",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L43"
     },
     {
       "id": "frontend_oxlintrc",
@@ -4225,26 +4115,70 @@
       "source_location": "L38"
     },
     {
-      "id": "task",
-      "label": "Task",
+      "id": "companion_process_manager",
+      "label": "process_manager.py",
       "_origin": "ast",
       "community": 23,
-      "community_name": "handle_activity",
+      "community_name": "process_manager.py",
       "file_type": "code",
-      "norm_label": "task",
+      "norm_label": "process_manager.py",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "exception",
+      "label": "Exception",
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "file_type": "code",
+      "norm_label": "exception",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "server_main_rationale_161",
-      "label": "Classify each overlapping file and broadcast conflict_alert when warranted.\u2026",
+      "id": "companion_process_manager_rationale_1",
+      "label": "Supervises locally spawned `watcher/watcher.py` subprocesses. State is in-\u2026",
       "_origin": "ast",
       "community": 23,
-      "community_name": "handle_activity",
+      "community_name": "process_manager.py",
       "file_type": "rationale",
-      "norm_label": "classify each overlapping file and broadcast conflict_alert when warranted....",
-      "source_file": "server/main.py",
-      "source_location": "L161"
+      "norm_label": "supervises locally spawned `watcher/watcher.py` subprocesses. state is in-...",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "companion_process_manager_rationale_128",
+      "label": "Spawn a watcher for one (path, agent) pair. Raises ValueError if the path is\u2026",
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "file_type": "rationale",
+      "norm_label": "spawn a watcher for one (path, agent) pair. raises valueerror if the path is...",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L128"
+    },
+    {
+      "id": "companion_process_manager_rationale_245",
+      "label": "Forget cleanly exited watchers so their (path, agent) frees up. Caller must\u2026",
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "file_type": "rationale",
+      "norm_label": "forget cleanly exited watchers so their (path, agent) frees up. caller must...",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L245"
+    },
+    {
+      "id": "companion_process_manager_rationale_43",
+      "label": "Raised when a (path, agent) pair is already supervised and alive.",
+      "_origin": "ast",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "file_type": "rationale",
+      "norm_label": "raised when a (path, agent) pair is already supervised and alive.",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L43"
     },
     {
       "id": "frontend_readme",
@@ -4973,6 +4907,169 @@
       "source_location": "L1"
     },
     {
+      "id": "companion_detect",
+      "label": "detect.py",
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "detect.py",
+      "source_file": "companion/detect.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "typeddict",
+      "label": "TypedDict",
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "code",
+      "norm_label": "typeddict",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "companion_detect_rationale_1",
+      "label": "Best-effort detection of locally installed / running AI coding tools. Every\u2026",
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "rationale",
+      "norm_label": "best-effort detection of locally installed / running ai coding tools. every...",
+      "source_file": "companion/detect.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "companion_detect_rationale_143",
+      "label": "Lowercased names of running processes, or None if psutil is unusable.",
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "rationale",
+      "norm_label": "lowercased names of running processes, or none if psutil is unusable.",
+      "source_file": "companion/detect.py",
+      "source_location": "L143"
+    },
+    {
+      "id": "companion_detect_rationale_173",
+      "label": "Report install + running state for each known tool. Shape: {\"platform\": str,\u2026",
+      "_origin": "ast",
+      "community": 36,
+      "community_name": "detect.py",
+      "file_type": "rationale",
+      "norm_label": "report install + running state for each known tool. shape: {\"platform\": str,...",
+      "source_file": "companion/detect.py",
+      "source_location": "L173"
+    },
+    {
+      "id": "companion_main_py_basemodel",
+      "label": "BaseModel",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "basemodel",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "companion_main_py_post",
+      "label": "post",
+      "_origin": "ast",
+      "community": 37,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "post",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "mcp",
+      "label": ".mcp.json",
+      "_origin": "ast",
+      "community": 38,
+      "community_name": "graphify",
+      "file_type": "code",
+      "metadata": {
+        "mcp_kind": "mcp_config_file"
+      },
+      "norm_label": ".mcp.json",
+      "source_file": ".mcp.json",
+      "source_location": "L1"
+    },
+    {
+      "id": "mcp_command_uvx",
+      "label": "uvx",
+      "_origin": "ast",
+      "community": 38,
+      "community_name": "graphify",
+      "file_type": "code",
+      "metadata": {
+        "mcp_kind": "mcp_command"
+      },
+      "norm_label": "uvx",
+      "source_file": ".mcp.json",
+      "source_location": "L1"
+    },
+    {
+      "id": "mcp_mcp_server_graphify",
+      "label": "graphify",
+      "_origin": "ast",
+      "community": 38,
+      "community_name": "graphify",
+      "file_type": "code",
+      "metadata": {
+        "mcp_kind": "mcp_server"
+      },
+      "norm_label": "graphify",
+      "source_file": ".mcp.json",
+      "source_location": "L1"
+    },
+    {
+      "id": "mcp_package_graphify_mcp",
+      "label": "graphify-mcp",
+      "_origin": "ast",
+      "community": 38,
+      "community_name": "graphify",
+      "file_type": "code",
+      "metadata": {
+        "mcp_kind": "mcp_package"
+      },
+      "norm_label": "graphify-mcp",
+      "source_file": ".mcp.json",
+      "source_location": "L1"
+    },
+    {
+      "id": "githooks_pre_commit",
+      "label": "pre-commit",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "pre-commit",
+      "file_type": "code",
+      "metadata": {
+        "language": "bash",
+        "kind": "file"
+      },
+      "norm_label": "pre-commit",
+      "source_file": ".githooks/pre-commit",
+      "source_location": "L1"
+    },
+    {
+      "id": "githooks_pre_commit__entry",
+      "label": "pre-commit script",
+      "_origin": "ast",
+      "community": 39,
+      "community_name": "pre-commit",
+      "file_type": "code",
+      "metadata": {
+        "language": "bash",
+        "kind": "bash_entrypoint"
+      },
+      "norm_label": "pre-commit script",
+      "source_file": ".githooks/pre-commit",
+      "source_location": "L1"
+    },
+    {
       "id": "frontend_package",
       "label": "package.json",
       "_origin": "ast",
@@ -5314,17 +5411,6 @@
       "source_location": "L111"
     },
     {
-      "id": "companion_process_manager_rationale_128",
-      "label": "Spawn a watcher for one (path, agent) pair. Raises ValueError if the path is\u2026",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
-      "file_type": "rationale",
-      "norm_label": "spawn a watcher for one (path, agent) pair. raises valueerror if the path is...",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L128"
-    },
-    {
       "id": "companion_process_manager_rationale_174",
       "label": "Drain merged stdout/stderr into the record's ring buffer.",
       "_origin": "ast",
@@ -5356,17 +5442,6 @@
       "norm_label": "terminate every supervised watcher. safe to call more than once.",
       "source_file": "companion/process_manager.py",
       "source_location": "L224"
-    },
-    {
-      "id": "companion_process_manager_rationale_245",
-      "label": "Forget cleanly exited watchers so their (path, agent) frees up. Caller must\u2026",
-      "_origin": "ast",
-      "community": 5,
-      "community_name": "WatcherRecord",
-      "file_type": "rationale",
-      "norm_label": "forget cleanly exited watchers so their (path, agent) frees up. caller must...",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L245"
     },
     {
       "id": "client",
@@ -5444,6 +5519,17 @@
       "norm_label": "one short third-person sentence describing the batch. falls back on any error.",
       "source_file": "server/gemini.py",
       "source_location": "L69"
+    },
+    {
+      "id": "server_main_rationale_161",
+      "label": "Classify each overlapping file and broadcast conflict_alert when warranted.\u2026",
+      "_origin": "ast",
+      "community": 6,
+      "community_name": "gemini.py",
+      "file_type": "rationale",
+      "norm_label": "classify each overlapping file and broadcast conflict_alert when warranted....",
+      "source_file": "server/main.py",
+      "source_location": "L161"
     },
     {
       "id": "server_models_rationale_99",
@@ -5589,77 +5675,77 @@
       "source_location": "L74"
     },
     {
-      "id": "server_main",
-      "label": "server/main.py",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "server/main.py",
-      "source_file": "server/main.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_main_py_get",
-      "label": "get",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "get",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "server_main_py_websocket",
       "label": "WebSocket",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "websocket",
       "source_file": "",
       "source_location": ""
     },
     {
+      "id": "server_models",
+      "label": "models.py",
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "models.py",
+      "source_file": "server/models.py",
+      "source_location": "L1"
+    },
+    {
       "id": "server_models_py_basemodel",
       "label": "BaseModel",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "code",
       "norm_label": "basemodel",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "server_main_rationale_1",
-      "label": "Relay server: accepts watcher and spectator WebSocket connections, keeps room\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "relay server: accepts watcher and spectator websocket connections, keeps room...",
-      "source_file": "server/main.py",
-      "source_location": "L1"
-    },
-    {
       "id": "server_main_rationale_125",
       "label": "Run the join handshake. Returns (user_id, agent) for a named member, or None\u2026",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "rationale",
       "norm_label": "run the join handshake. returns (user_id, agent) for a named member, or none...",
       "source_file": "server/main.py",
       "source_location": "L125"
     },
     {
+      "id": "server_models_rationale_1",
+      "label": "Wire format for every WebSocket message. Single source of truth shared by the\u2026",
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "rationale",
+      "norm_label": "wire format for every websocket message. single source of truth shared by the...",
+      "source_file": "server/models.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_models_rationale_91",
+      "label": "Debounced room broadcast: one WebSocket frame every ~500ms carrying all queued\u2026",
+      "_origin": "ast",
+      "community": 9,
+      "community_name": "models.py",
+      "file_type": "rationale",
+      "norm_label": "debounced room broadcast: one websocket frame every ~500ms carrying all queued...",
+      "source_file": "server/models.py",
+      "source_location": "L91"
+    },
+    {
       "id": "server_sanitize_rationale_28",
       "label": "Return a safe display name or raise ValueError with a client-facing reason.",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "models.py",
       "file_type": "rationale",
       "norm_label": "return a safe display name or raise valueerror with a client-facing reason.",
       "source_file": "server/sanitize.py",
@@ -5668,6 +5754,7 @@
     {
       "id": "frontend_src_index",
       "label": "frontend_src_index",
+      "_origin": "semantic",
       "community": 0,
       "community_name": "App.tsx",
       "external": true,
@@ -5679,6 +5766,7 @@
     {
       "id": "argparse",
       "label": "argparse",
+      "_origin": "semantic",
       "community": 1,
       "community_name": "watcher.py",
       "external": true,
@@ -5690,6 +5778,7 @@
     {
       "id": "difflib",
       "label": "difflib",
+      "_origin": "semantic",
       "community": 1,
       "community_name": "watcher.py",
       "external": true,
@@ -5701,6 +5790,7 @@
     {
       "id": "watchdog_events",
       "label": "watchdog_events",
+      "_origin": "semantic",
       "community": 1,
       "community_name": "watcher.py",
       "external": true,
@@ -5712,6 +5802,7 @@
     {
       "id": "watchdog_observers",
       "label": "watchdog_observers",
+      "_origin": "semantic",
       "community": 1,
       "community_name": "watcher.py",
       "external": true,
@@ -5723,6 +5814,7 @@
     {
       "id": "websockets",
       "label": "websockets",
+      "_origin": "semantic",
       "community": 1,
       "community_name": "watcher.py",
       "external": true,
@@ -5734,6 +5826,7 @@
     {
       "id": "datetime",
       "label": "datetime",
+      "_origin": "semantic",
       "community": 13,
       "community_name": "hello.py",
       "external": true,
@@ -5745,8 +5838,9 @@
     {
       "id": "asyncio",
       "label": "asyncio",
+      "_origin": "semantic",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "asyncio",
@@ -5754,10 +5848,23 @@
       "type": "external"
     },
     {
+      "id": "dotenv",
+      "label": "dotenv",
+      "_origin": "semantic",
+      "community": 14,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "dotenv",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "logging",
       "label": "logging",
+      "_origin": "semantic",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "logging",
@@ -5767,8 +5874,9 @@
     {
       "id": "pydantic",
       "label": "pydantic",
+      "_origin": "semantic",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "pydantic",
@@ -5776,10 +5884,23 @@
       "type": "external"
     },
     {
+      "id": "secrets",
+      "label": "secrets",
+      "_origin": "semantic",
+      "community": 14,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "secrets",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "time",
       "label": "time",
+      "_origin": "semantic",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "time",
@@ -5789,8 +5910,9 @@
     {
       "id": "typing",
       "label": "typing",
+      "_origin": "semantic",
       "community": 14,
-      "community_name": "models.py",
+      "community_name": "server/main.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "typing",
@@ -5798,30 +5920,9 @@
       "type": "external"
     },
     {
-      "id": "secrets",
-      "label": "secrets",
-      "community": 15,
-      "community_name": "room_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "secrets",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "collections",
-      "label": "collections",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "collections",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "contextlib",
       "label": "contextlib",
+      "_origin": "semantic",
       "community": 2,
       "community_name": "companion/main.py",
       "external": true,
@@ -5831,19 +5932,9 @@
       "type": "external"
     },
     {
-      "id": "dataclasses",
-      "label": "dataclasses",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "dataclasses",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "fastapi_middleware_cors",
       "label": "fastapi_middleware_cors",
+      "_origin": "semantic",
       "community": 2,
       "community_name": "companion/main.py",
       "external": true,
@@ -5853,41 +5944,9 @@
       "type": "external"
     },
     {
-      "id": "os",
-      "label": "os",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "os",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "pathlib",
-      "label": "pathlib",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "pathlib",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "shutil",
-      "label": "shutil",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "shutil",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "signal",
       "label": "signal",
+      "_origin": "semantic",
       "community": 2,
       "community_name": "companion/main.py",
       "external": true,
@@ -5897,52 +5956,9 @@
       "type": "external"
     },
     {
-      "id": "subprocess",
-      "label": "subprocess",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "subprocess",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "sys",
-      "label": "sys",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "sys",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "threading",
-      "label": "threading",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "threading",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "uuid",
-      "label": "uuid",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "uuid",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "re",
       "label": "re",
+      "_origin": "semantic",
       "community": 22,
       "community_name": "sanitize.py",
       "external": true,
@@ -5952,8 +5968,117 @@
       "type": "external"
     },
     {
+      "id": "collections",
+      "label": "collections",
+      "_origin": "semantic",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "collections",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "dataclasses",
+      "label": "dataclasses",
+      "_origin": "semantic",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "dataclasses",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "subprocess",
+      "label": "subprocess",
+      "_origin": "semantic",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "subprocess",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "threading",
+      "label": "threading",
+      "_origin": "semantic",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "threading",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "uuid",
+      "label": "uuid",
+      "_origin": "semantic",
+      "community": 23,
+      "community_name": "process_manager.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "uuid",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "os",
+      "label": "os",
+      "_origin": "semantic",
+      "community": 36,
+      "community_name": "detect.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "os",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "pathlib",
+      "label": "pathlib",
+      "_origin": "semantic",
+      "community": 36,
+      "community_name": "detect.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "pathlib",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "shutil",
+      "label": "shutil",
+      "_origin": "semantic",
+      "community": 36,
+      "community_name": "detect.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "shutil",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "sys",
+      "label": "sys",
+      "_origin": "semantic",
+      "community": 36,
+      "community_name": "detect.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "sys",
+      "source_file": "",
+      "type": "external"
+    },
+    {
       "id": "google",
       "label": "google",
+      "_origin": "semantic",
       "community": 6,
       "community_name": "gemini.py",
       "external": true,
@@ -5965,6 +6090,7 @@
     {
       "id": "google_genai",
       "label": "google_genai",
+      "_origin": "semantic",
       "community": 6,
       "community_name": "gemini.py",
       "external": true,
@@ -5976,6 +6102,7 @@
     {
       "id": "json",
       "label": "json",
+      "_origin": "semantic",
       "community": 8,
       "community_name": "prompt_capture.py",
       "external": true,
@@ -5987,6 +6114,7 @@
     {
       "id": "sqlite3",
       "label": "sqlite3",
+      "_origin": "semantic",
       "community": 8,
       "community_name": "prompt_capture.py",
       "external": true,
@@ -5998,22 +6126,12 @@
     {
       "id": "urllib_parse",
       "label": "urllib_parse",
+      "_origin": "semantic",
       "community": 8,
       "community_name": "prompt_capture.py",
       "external": true,
       "file_type": "concept",
       "norm_label": "urllib_parse",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "dotenv",
-      "label": "dotenv",
-      "community": 9,
-      "community_name": "server/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "dotenv",
       "source_file": "",
       "type": "external"
     }
@@ -7301,6 +7419,18 @@
       "context": "call",
       "source_file": "server/main.py",
       "source_location": "L92",
+      "weight": 1.0
+    },
+    {
+      "source": "mcp_mcp_server_graphify",
+      "target": "mcp_command_uvx",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "command",
+      "source_file": ".mcp.json",
+      "source_location": "L1",
       "weight": 1.0
     },
     {
@@ -9765,6 +9895,18 @@
       "context": "import",
       "source_file": "watcher/watcher.py",
       "source_location": "L33",
+      "weight": 1.0
+    },
+    {
+      "source": "mcp_mcp_server_graphify",
+      "target": "mcp_package_graphify_mcp",
+      "relation": "references",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "package",
+      "source_file": ".mcp.json",
+      "source_location": "L1",
       "weight": 1.0
     },
     {
@@ -12395,6 +12537,28 @@
       "confidence_score": 1.0,
       "source_file": "frontend/vercel.json",
       "source_location": "L6",
+      "weight": 1.0
+    },
+    {
+      "source": "githooks_pre_commit",
+      "target": "githooks_pre_commit__entry",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": ".githooks/pre-commit",
+      "source_location": "L1",
+      "weight": 1.0
+    },
+    {
+      "source": "mcp",
+      "target": "mcp_mcp_server_graphify",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": ".mcp.json",
+      "source_location": "L1",
       "weight": 1.0
     },
     {
@@ -15209,5 +15373,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "ffb8f847ada4858b47b4eaefcf9f613284f9b9a3"
+  "built_at_commit": "36245ba3901a69ede5d5f3a11b08dc51b45ee4cb"
 }

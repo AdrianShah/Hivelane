@@ -222,9 +222,9 @@
     "semantic_hash": ""
   },
   "setup.sh": {
-    "mtime": 1789933192.766546,
-    "seen": 1789933411.0617542,
-    "ast_hash": "cbb8f209d7eabfff39256cc25bc22c70",
+    "mtime": 1789934063.2382782,
+    "seen": 1789934070.8149939,
+    "ast_hash": "3229d8f04e67fc671ee7a7b735cb87d3",
     "semantic_hash": ""
   },
   "watcher/prompt_capture.py": {
@@ -357,6 +357,18 @@
     "mtime": 1789933192.7622597,
     "seen": 1789933411.06176,
     "ast_hash": "9960a24288958394ac50e57ff638b036",
+    "semantic_hash": ""
+  },
+  ".githooks/pre-commit": {
+    "mtime": 1789934063.1828816,
+    "seen": 1789934070.814975,
+    "ast_hash": "ead64cb0afaaca918ae3cd7553745ff5",
+    "semantic_hash": ""
+  },
+  ".mcp.json": {
+    "mtime": 1789933588.031885,
+    "seen": 1789934070.814977,
+    "ast_hash": "4ded7f98551229f5cc26f308d593ef80",
     "semantic_hash": ""
   }
 }

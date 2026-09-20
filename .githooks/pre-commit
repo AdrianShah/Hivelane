@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Rebuild the graphify knowledge graph and include it in this commit.
+# Enable once per clone:  git config core.hooksPath .githooks   (setup.sh does this)
+set -euo pipefail
+
+# Only rebuild when something outside graphify-out/ is staged.
+if ! git diff --cached --name-only | grep -qv '^graphify-out/'; then
+  exit 0
+fi
+
+GRAPHIFY="$(command -v graphify || true)"
+[[ -z "$GRAPHIFY" && -x "$HOME/.local/bin/graphify" ]] && GRAPHIFY="$HOME/.local/bin/graphify"
+if [[ -z "$GRAPHIFY" ]]; then
+  echo "[graphify] not installed; skipping graph rebuild (uv tool install 'graphifyy[mcp]')" >&2
+  exit 0
+fi
+
+"$GRAPHIFY" update . >/dev/null 2>&1 || { echo "[graphify] update failed; committing without graph refresh" >&2; exit 0; }
+git add graphify-out/graph.json graphify-out/graph.html graphify-out/GRAPH_REPORT.md graphify-out/manifest.json \
+        graphify-out/.graphify_labels.json graphify-out/.graphify_labels.json.sig graphify-out/.graphify_root
