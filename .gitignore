@@ -45,3 +45,6 @@ companion/companion.log*
 *.ntvs*
 *.njsproj
 *.sln
+
+# graphify local cache (graph.json/report/html are committed)
+graphify-out/cache/
