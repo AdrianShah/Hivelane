@@ -269,6 +269,21 @@ The relay answers point-to-point and immediately — never through the debounced
 
 Room codes are the shared secret — anyone with the code can join.
 
+### Protocol version
+
+The join frame carries `protocol_version`. A daemon older than the relay's
+`MIN_SUPPORTED_PROTOCOL` is refused with `version_rejected` and told to upgrade,
+because such a client would connect happily and simply never send `edit_check` —
+conflict prevention would be silently off. Spectators are exempt: the dashboard
+only consumes broadcasts. `/readyz` reports both numbers. When the wire contract
+changes incompatibly, bump `PROTOCOL_VERSION` in **both** `server/models.py` and
+`synergo/protocol.py`; a test fails if they drift.
+
+### Logs
+
+Human-readable in development, JSON lines everywhere else, so stdout can be
+picked up by an aggregator without re-instrumenting anything.
+
 ---
 
 ## Deployment
@@ -294,6 +309,21 @@ Netlify all offer these). Steps skip with a notice when unconfigured.
 | Environment secret | `RELAY_DEPLOY_HOOK_URL` | secret | Triggers the relay deploy |
 | Environment secret | `DASHBOARD_DEPLOY_HOOK_URL` | secret | Triggers the dashboard deploy |
 | Environment variable | `RELAY_URL` | variable | Base URL polled at `/readyz` after deploy |
+
+### Container
+
+The relay ships as an image so the host stays a choice:
+
+```bash
+docker build -t synergo-relay .
+docker run -p 8000:8000 -v synergo-data:/data \
+  -e SYNERGO_ENV=production -e CORS_ORIGINS=https://your-dashboard \
+  synergo-relay
+```
+
+`$PORT` is honoured when the host injects one, and `/data` is where room codes
+persist — mount a volume or they die with the container. CI builds and boots
+this image on every push, so it cannot rot.
 
 ### Relay
 

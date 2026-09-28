@@ -10,6 +10,13 @@ from pydantic import BaseModel, Field
 
 Verdict = Literal["overlapping", "related", "unrelated"]
 
+# Wire-protocol version, bumped when the message contract changes in a way older
+# clients cannot satisfy. A daemon that predates edit_check would connect happily
+# and simply never ask permission, so conflict prevention would be silently off —
+# the handshake rejects it instead.
+PROTOCOL_VERSION = 1
+MIN_SUPPORTED_PROTOCOL = 1
+
 # Answer to "may I edit this file right now?" — an agent's PreToolUse hook maps
 # "block" to a denied tool call.
 Decision = Literal["allow", "warn", "block"]
@@ -42,6 +49,9 @@ class JoinMessage(BaseModel):
     # not a room member and skips name validation entirely.
     name: Optional[str] = None
     agent: AgentKind = "unknown"
+    # 0 means a client old enough not to declare one. Spectators are exempt:
+    # the dashboard only consumes broadcasts and cannot silently under-report.
+    protocol_version: int = 0
 
     @property
     def is_spectator(self) -> bool:
@@ -155,6 +165,13 @@ class UserLeft(BaseModel):
 class NameRejected(BaseModel):
     type: Literal["name_rejected"] = "name_rejected"
     reason: str
+
+
+class VersionRejected(BaseModel):
+    type: Literal["version_rejected"] = "version_rejected"
+    reason: str
+    server_protocol: int = PROTOCOL_VERSION
+    min_supported: int = MIN_SUPPORTED_PROTOCOL
 
 
 class RoomRejected(BaseModel):

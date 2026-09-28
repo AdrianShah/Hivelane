@@ -21,6 +21,7 @@ from websockets.asyncio.client import connect as ws_connect
 
 from synergo.events import EventAck, NormalizedEvent
 from synergo.protocol import (
+    PROTOCOL_VERSION,
     ActivityMessage,
     AgentKind,
     EditCheckRequest,
@@ -406,6 +407,15 @@ class Daemon:
             print(
                 f"synergo: relay is throttling connections ({data.get('reason', '')})",
                 file=sys.stderr,
+            )
+            return
+
+        if kind == "version_rejected":
+            self.fatal = (
+                f"{data.get('reason', 'this synergo build is too old for the relay')}\n"
+                f"(relay speaks protocol {data.get('server_protocol', '?')}, "
+                f"needs at least {data.get('min_supported', '?')}; "
+                f"this build speaks {PROTOCOL_VERSION})"
             )
             return
 

@@ -41,6 +41,11 @@ class FileChange(BaseModel):
     diff: str
 
 
+# Must match server/models.py PROTOCOL_VERSION. Bump both together when the
+# message contract changes in a way an older peer cannot satisfy.
+PROTOCOL_VERSION = 1
+
+
 # --- Client -> relay ---------------------------------------------------------
 
 
@@ -48,6 +53,7 @@ class JoinMessage(BaseModel):
     type: Literal["join"] = "join"
     name: Optional[str] = None
     agent: AgentKind = "unknown"
+    protocol_version: int = PROTOCOL_VERSION
 
 
 class ActivityMessage(BaseModel):

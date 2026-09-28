@@ -50,6 +50,34 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
+  image:
+    # The relay image is the escape hatch from any one host, so it has to keep
+    # building and booting — not just exist in the tree.
+    name: relay image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: docker build -t synergo-relay:ci .
+      - name: Boot and check readiness
+        run: |
+          docker run -d --name relay -p 8000:8000 \
+            -e SYNERGO_ENV=production \
+            -e CORS_ORIGINS=https://example.test \
+            synergo-relay:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/readyz >/dev/null 2>&1; then
+              curl -fsS http://127.0.0.1:8000/readyz
+              docker rm -f relay >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "relay did not become ready" >&2
+          docker logs relay >&2
+          docker rm -f relay >/dev/null
+          exit 1
+
   smoke:
     # Guards the claim the product rests on: an agent is denied an edit to a file
     # a teammate just touched, across differing working directories. Unit tests on

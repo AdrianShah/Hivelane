@@ -1,0 +1,13 @@
+.git
+.github
+.venv
+node_modules
+frontend
+synergo
+scripts
+graphify-out
+demo_proj
+**/__pycache__
+**/*.pyc
+.env
+*.md
