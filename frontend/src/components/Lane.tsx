@@ -87,7 +87,7 @@ function DiffLines({ diff }: { diff: string }) {
         } else if (line.startsWith('@@')) {
           cls = 'diff-line diff-hunk';
           showLn = false;
-          const match = /@@ \-(\d+)/.exec(line);
+          const match = /@@ -(\d+)/.exec(line);
           if (match) displayLine = Number(match[1]);
         } else if (line.startsWith('+')) {
           cls = 'diff-line diff-add';

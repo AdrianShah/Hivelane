@@ -411,6 +411,12 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         return
 
     user_id, agent = joined
+    # Tell the joiner who is already here before announcing them, so a daemon
+    # that connects second still knows its peers.
+    for existing in room.member_ids:
+        await room.send(
+            socket, UserJoined(user_id=existing, agent=room.member_agent(existing))
+        )
     room.add_member(user_id, socket, agent)
     log.info(
         "%s joined room %s as %s (%d in room)",

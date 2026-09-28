@@ -105,3 +105,20 @@ def test_warn_decision_reaches_the_feed() -> None:
     assert decision["user_id"] == "priya"
     assert decision["file_path"] == FILE
     assert decision["others"] == ["sam"]
+
+
+def test_joining_member_is_told_who_is_already_in_the_room() -> None:
+    """A daemon that connects second must still learn its peers; without this
+    catch-up its peer list starts empty and `synergo status` misreports."""
+    client = TestClient(app)
+    room_id = client.post("/rooms").json()["room_id"]
+
+    with client.websocket_connect(f"/ws/{room_id}") as first:
+        first.send_json({"type": "join", "name": "adrian", "agent": "claude-code"})
+        with client.websocket_connect(f"/ws/{room_id}") as second:
+            second.send_json({"type": "join", "name": "sam", "agent": "cursor"})
+            frame = second.receive_json()
+
+    assert frame["type"] == "user_joined"
+    assert frame["user_id"] == "adrian"
+    assert frame["agent"] == "claude-code"
