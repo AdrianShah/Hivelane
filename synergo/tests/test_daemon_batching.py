@@ -15,9 +15,11 @@ def make_daemon() -> Daemon:
 
 
 def drain(daemon: Daemon) -> list[dict]:
+    """Priority first, matching the order the real drain sends in."""
     messages: list[dict] = []
-    while not daemon._outbox.empty():
-        messages.append(json.loads(daemon._outbox.get_nowait()))
+    for queue in (daemon._priority_outbox, daemon._outbox):
+        while not queue.empty():
+            messages.append(json.loads(queue.get_nowait()))
     return messages
 
 

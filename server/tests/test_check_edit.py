@@ -158,3 +158,15 @@ def test_intent_does_not_consume_the_activity_rate_limit_budget() -> None:
     assert room.is_activity_rate_limited("adrian", 0.5, channel="intent") is False
     assert room.is_activity_rate_limited("adrian", 0.5, channel="activity") is False
     assert room.is_activity_rate_limited("adrian", 0.5, channel="activity") is True
+
+
+def test_stale_intent_no_longer_escalates() -> None:
+    """An intent has to expire: otherwise one morning prompt naming a file warns
+    about it for the rest of the session."""
+    room = Room()
+    _join(room, "sam")
+    _join(room, "priya", "claude-code")
+    room.record_intent("sam", "refactor the room module", timestamp=1000.0)
+
+    assert room.check_edit("priya", FILE, now=1000.0 + 60)[0] == "warn"
+    assert room.check_edit("priya", FILE, now=1000.0 + 7200)[0] == "allow"
