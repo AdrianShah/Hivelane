@@ -127,6 +127,8 @@ class Daemon:
 
         self.connected = False
         self.fatal: Optional[str] = None
+        # Set from a relay rate_limited frame; overrides the next backoff.
+        self.retry_after = 0.0
 
         self._shutdown = asyncio.Event()
         # edit_check sits on the agent's blocking hook and gives up after
@@ -314,6 +316,9 @@ class Daemon:
 
             if self.fatal or self._shutdown.is_set():
                 return
+            if self.retry_after > 0:
+                backoff = max(backoff, self.retry_after)
+                self.retry_after = 0.0
             print(f"synergo: reconnecting in {backoff:.0f}s", file=sys.stderr)
             try:
                 await asyncio.wait_for(self._shutdown.wait(), timeout=backoff)
@@ -393,6 +398,16 @@ class Daemon:
         # Join catch-up and other point-to-point events arrive unbatched, so the
         # same bookkeeping has to run on a bare frame as on a feed event.
         self._note_peers(data)
+
+        if kind == "rate_limited":
+            # Not fatal: the relay is throttling, not refusing. Honour its window
+            # so reconnecting does not keep the limiter pinned.
+            self.retry_after = float(data.get("retry_after") or 0)
+            print(
+                f"synergo: relay is throttling connections ({data.get('reason', '')})",
+                file=sys.stderr,
+            )
+            return
 
         if kind == "name_rejected":
             self.fatal = (

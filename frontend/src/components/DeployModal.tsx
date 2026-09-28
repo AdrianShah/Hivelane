@@ -9,12 +9,9 @@ interface DeployModalProps {
 }
 
 function watcherCommand(roomId: string, wsUrl: string): string {
-  // Strip trailing /ROOM so --room can be passed separately (matches watcher CLI).
+  // Strip the trailing /ROOM: the daemon takes the room as its first argument.
   const base = wsUrl.replace(/\/[^/]+$/, '');
-  return (
-    `python watcher/watcher.py --path . --name <your-name> ` +
-    `--room ${roomId} --server ${base} --agent cursor`
-  );
+  return `synergo join ${roomId} --name <your-name> --server ${base}`;
 }
 
 export default function DeployModal({

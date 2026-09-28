@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot local setup: create .venv and install companion + watcher deps.
+# One-shot local setup: install the synergo daemon and enable the repo git hooks.
 # Usage: ./setup.sh
 set -euo pipefail
 
@@ -19,8 +19,7 @@ fi
 
 VENV_PY=".venv/bin/python"
 "$VENV_PY" -m pip install --upgrade pip
-"$VENV_PY" -m pip install -r companion/requirements.txt
-"$VENV_PY" -m pip install -r watcher/requirements.txt
+"$VENV_PY" -m pip install -e .
 
 # Graph auto-refresh on commit + conflict-free graph.json merges (see .githooks/)
 git config core.hooksPath .githooks
@@ -30,9 +29,7 @@ if ! command -v graphify >/dev/null && [[ ! -x "$HOME/.local/bin/graphify" ]]; t
   echo "Tip: install graphify for the code graph:  uv tool install 'graphifyy[mcp]'"
 fi
 
-chmod +x companion/scripts/start_mac.sh companion/scripts/stop_mac.sh 2>/dev/null || true
-
 echo
 echo "Setup complete."
-echo "  Start companion: companion/scripts/start_mac.sh"
-echo "  Stop companion:  companion/scripts/stop_mac.sh"
+echo "  Install agent hooks: .venv/bin/synergo hook install claude-code"
+echo "  Join a room:         .venv/bin/synergo join <ROOM> --name <your-name>"

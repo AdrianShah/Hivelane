@@ -342,3 +342,104 @@ body {
 .status-dot-live {
   animation: status-pulse 2s ease-in-out infinite;
 }
+
+/* Connect-an-agent panel (replaces the old companion control panel). Mirrors
+   .prompt-panel / .diff-shell so it reads as part of the same surface set. */
+.connect-panel {
+  max-width: 46rem;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 20, 0.45);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.connect-panel header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.connect-panel header p,
+.connect-panel footer p,
+.connect-step-body p {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.connect-steps {
+  list-style: none;
+  margin: 1.25rem 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.connect-steps li {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.connect-step-index {
+  flex: 0 0 1.5rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.75rem;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.connect-step-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.connect-step-body h3 {
+  margin: 0 0 0.45rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.connect-command {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.5rem;
+  background: rgba(4, 8, 16, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.connect-command code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+.connect-command button {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.6rem;
+  border-radius: 0.375rem;
+  font-size: 0.72rem;
+  color: rgba(226, 232, 240, 0.8);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+}
+
+.connect-command button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.connect-panel footer {
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}

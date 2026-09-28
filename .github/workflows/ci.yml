@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Called by deploy.yml so a deploy cannot run on unverified code.
+  workflow_call:
 
 # A newer push to the same ref supersedes the run in flight.
 concurrency:
