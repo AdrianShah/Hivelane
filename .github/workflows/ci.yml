@@ -1,10 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
-  # Called by deploy.yml so a deploy cannot run on unverified code.
+  # Called by deploy.yml, which is what runs these checks on main. Running here
+  # on push too would put both workflows in one concurrency group, where they
+  # cancel each other and main shows a cancelled run even though it passed.
   workflow_call:
 
 # A newer push to the same ref supersedes the run in flight.
