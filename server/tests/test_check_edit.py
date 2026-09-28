@@ -170,3 +170,30 @@ def test_stale_intent_no_longer_escalates() -> None:
 
     assert room.check_edit("priya", FILE, now=1000.0 + 60)[0] == "warn"
     assert room.check_edit("priya", FILE, now=1000.0 + 7200)[0] == "allow"
+
+
+def test_old_touches_are_swept() -> None:
+    """A long-lived room must not keep an entry for every file ever touched."""
+    room = Room()
+    _join(room, "sam")
+    for n in range(50):
+        _touch(room, "sam", timestamp=1000.0, file_path=f"src/f{n}.py")
+    assert len(room._file_activity) == 50
+
+    _touch(room, "sam", timestamp=5000.0, file_path="src/recent.py")
+
+    assert list(room._file_activity) == ["src/recent.py"]
+
+
+def test_pruning_keeps_touches_still_inside_the_window() -> None:
+    """The sweep must not reach a touch a comparison can still see."""
+    room = Room()
+    _join(room, "sam")
+    _join(room, "priya", "claude-code")
+    _touch(room, "sam", timestamp=1000.0, file_path="src/old.py")
+    _touch(room, "sam", timestamp=1010.0)
+    _touch(room, "priya", timestamp=1065.0, file_path="src/other.py")
+
+    assert "src/old.py" not in room._file_activity
+    assert FILE in room._file_activity
+    assert room.check_edit("priya", FILE, now=1066.0)[0] == "warn"
