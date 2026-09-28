@@ -19,10 +19,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 try:
-    from . import config
+    from . import config, logging_config
     from .gemini import classify_conflict, generate_caption
     from .limits import check_room_creation, check_ws_attempt, client_ip
     from .models import (
+        MIN_SUPPORTED_PROTOCOL,
+        PROTOCOL_VERSION,
         ActivityMessage,
         ActivityUpdate,
         Decision,
@@ -37,15 +39,19 @@ try:
         RoomRejected,
         UserJoined,
         UserLeft,
+        VersionRejected,
     )
     from .room import FileOverlap, FileTouch, Room
     from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
-    import config
+    import config  # type: ignore[no-redef]
+    import logging_config  # type: ignore[no-redef]
     from gemini import classify_conflict, generate_caption
     from limits import check_room_creation, check_ws_attempt, client_ip
     from models import (
+        MIN_SUPPORTED_PROTOCOL,
+        PROTOCOL_VERSION,
         ActivityMessage,
         ActivityUpdate,
         Decision,
@@ -60,12 +66,13 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         RoomRejected,
         UserJoined,
         UserLeft,
+        VersionRejected,
     )
     from room import FileOverlap, FileTouch, Room
     from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging_config.configure()
 log = logging.getLogger("relay")
 
 app = FastAPI(title="Synergo relay")
@@ -99,6 +106,12 @@ EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 
 # Private-use close code: room code unknown / expired.
 WS_CLOSE_ROOM_NOT_FOUND = 4404
+# Private-use close code: client protocol too old to coordinate safely.
+WS_CLOSE_VERSION_TOO_OLD = 4426
+
+
+class VersionTooOld(Exception):
+    """Raised by the handshake so the caller closes with the right code."""
 
 # Private-use close code: too many connection attempts from this IP.
 WS_CLOSE_RATE_LIMITED = 4429
@@ -163,6 +176,8 @@ async def readyz() -> dict[str, object]:
         "cors_origins_configured": len(config.CORS_ORIGINS),
         "cors_origin_regex_configured": config.CORS_ORIGIN_REGEX is not None,
         "trust_proxy_header": config.TRUST_PROXY_HEADER,
+        "protocol_version": PROTOCOL_VERSION,
+        "min_supported_protocol": MIN_SUPPORTED_PROTOCOL,
         "rooms": room_manager.room_count,
     }
 
@@ -180,6 +195,24 @@ async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
 
         if join.is_spectator:
             return None
+
+        if join.protocol_version < MIN_SUPPORTED_PROTOCOL:
+            log.info(
+                "Rejecting protocol %s (need >= %s)",
+                join.protocol_version,
+                MIN_SUPPORTED_PROTOCOL,
+            )
+            await room.send(
+                socket,
+                VersionRejected(
+                    reason=(
+                        "This synergo build is too old for the relay and would "
+                        "silently skip conflict checks. Upgrade with "
+                        "`uv tool install --force synergo` (or `pip install -U synergo`)."
+                    )
+                ),
+            )
+            raise VersionTooOld
 
         try:
             user_id = sanitize_name(join.name or "")
@@ -435,6 +468,10 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
 
     try:
         joined = await handshake(socket, room)
+    except VersionTooOld:
+        await socket.close(code=WS_CLOSE_VERSION_TOO_OLD, reason="Client too old")
+        _schedule_empty_room_cleanup(room_id)
+        return
     except (WebSocketDisconnect, RuntimeError):
         _schedule_empty_room_cleanup(room_id)
         return

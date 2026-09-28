@@ -9,8 +9,10 @@ from fastapi.testclient import TestClient
 
 try:
     from server.main import app
+    from server.models import PROTOCOL_VERSION
 except ImportError:  # Render rootDir=server
     from main import app
+    from models import PROTOCOL_VERSION
 
 FILE = "server/room.py"
 
@@ -19,7 +21,14 @@ MAX_FRAMES = 12
 
 
 def _join(socket: Any, name: str, agent: str) -> None:
-    socket.send_json({"type": "join", "name": name, "agent": agent})
+    socket.send_json(
+        {
+            "type": "join",
+            "name": name,
+            "agent": agent,
+            "protocol_version": PROTOCOL_VERSION,
+        }
+    )
 
 
 def _next_frame(socket: Any, type_name: str) -> dict:
@@ -114,9 +123,9 @@ def test_joining_member_is_told_who_is_already_in_the_room() -> None:
     room_id = client.post("/rooms").json()["room_id"]
 
     with client.websocket_connect(f"/ws/{room_id}") as first:
-        first.send_json({"type": "join", "name": "adrian", "agent": "claude-code"})
+        _join(first, "adrian", "claude-code")
         with client.websocket_connect(f"/ws/{room_id}") as second:
-            second.send_json({"type": "join", "name": "sam", "agent": "cursor"})
+            _join(second, "sam", "cursor")
             frame = second.receive_json()
 
     assert frame["type"] == "user_joined"

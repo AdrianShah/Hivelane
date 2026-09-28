@@ -8,11 +8,11 @@ version = "0.1.0"
 description = "Local daemon, CLI and agent hook adapters for the Synergo relay."
 requires-python = ">=3.12"
 dependencies = [
-    "websockets>=13",
-    "fastapi",
-    "uvicorn",
-    "pydantic>=2",
-    "httpx",
+    "websockets>=13,<16",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "pydantic>=2.12.5,<3",
+    "httpx>=0.28,<1",
 ]
 
 [project.optional-dependencies]

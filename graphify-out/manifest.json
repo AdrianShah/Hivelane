@@ -138,15 +138,15 @@
     "semantic_hash": ""
   },
   "server/main.py": {
-    "mtime": 1790633425.3829083,
-    "seen": 1790633827.2492218,
-    "ast_hash": "35351bc84f2f1e9533afd0b94afc8e41",
+    "mtime": 1790634163.881995,
+    "seen": 1790634258.091728,
+    "ast_hash": "93ce20cf5c9946fd7ba03ba2a871ef85",
     "semantic_hash": ""
   },
   "server/models.py": {
-    "mtime": 1790611766.7527013,
-    "seen": 1790612699.512925,
-    "ast_hash": "692d40bde63e43b9e5cc2bd96e54d6b2",
+    "mtime": 1790634065.805031,
+    "seen": 1790634258.091729,
+    "ast_hash": "d8366ca1ff9de4058da73c7d475ea9dc",
     "semantic_hash": ""
   },
   "server/room.py": {
@@ -210,9 +210,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1790633785.6692147,
-    "seen": 1790633827.2492359,
-    "ast_hash": "0d58880a5adbf144ed90b1eb2a009523",
+    "mtime": 1790634242.0003142,
+    "seen": 1790634258.091743,
+    "ast_hash": "b9a41dc824ae88a6586bfa04ff93a3fb",
     "semantic_hash": ""
   },
   "demo_proj/README.md": {
@@ -294,9 +294,9 @@
     "semantic_hash": ""
   },
   "pyproject.toml": {
-    "mtime": 1790612683.2232795,
-    "seen": 1790612699.5129228,
-    "ast_hash": "1132d5bec0ccc29bee293f573b3eb559",
+    "mtime": 1790634203.527766,
+    "seen": 1790634258.091724,
+    "ast_hash": "6f472a2612c227ee8c8fd991de6e057f",
     "semantic_hash": ""
   },
   "server/tests/__init__.py": {
@@ -318,9 +318,9 @@
     "semantic_hash": ""
   },
   "server/tests/test_edit_check_roundtrip.py": {
-    "mtime": 1790615157.8328598,
-    "seen": 1790615363.887224,
-    "ast_hash": "f7d62606c6f08ccb4b1101dd7afe1ff7",
+    "mtime": 1790634142.398047,
+    "seen": 1790634258.091732,
+    "ast_hash": "7c7dc7fa2e33a455e82271e4938356d9",
     "semantic_hash": ""
   },
   "synergo/__init__.py": {
@@ -348,9 +348,9 @@
     "semantic_hash": ""
   },
   "synergo/daemon.py": {
-    "mtime": 1790633730.1231956,
-    "seen": 1790633827.249229,
-    "ast_hash": "aedfdea70c26bfce00734574efdad859",
+    "mtime": 1790634107.6195166,
+    "seen": 1790634258.091736,
+    "ast_hash": "c121f14cb648a17a05dc9cf1dc83f9fd",
     "semantic_hash": ""
   },
   "synergo/events.py": {
@@ -360,9 +360,9 @@
     "semantic_hash": ""
   },
   "synergo/protocol.py": {
-    "mtime": 1790611861.554348,
-    "seen": 1790612699.5129302,
-    "ast_hash": "318381cfe46eb113177810daa75789be",
+    "mtime": 1790634107.6192129,
+    "seen": 1790634258.091737,
+    "ast_hash": "763748a8e9952e1c9139a925442b76d3",
     "semantic_hash": ""
   },
   "synergo/tests/__init__.py": {
@@ -432,9 +432,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1790633314.5977511,
-    "seen": 1790633827.249233,
-    "ast_hash": "45c763651e43954376984c8d461cc3ac",
+    "mtime": 1790634221.0686345,
+    "seen": 1790634258.09174,
+    "ast_hash": "44916a22078f977c341f16b61f1eab8a",
     "semantic_hash": ""
   },
   ".claude/launch.json": {
@@ -495,6 +495,18 @@
     "mtime": 1790633314.6014724,
     "seen": 1790633827.249233,
     "ast_hash": "1e1f605d64da28e8274f24310ae5e58d",
+    "semantic_hash": ""
+  },
+  "server/logging_config.py": {
+    "mtime": 1790634157.2161338,
+    "seen": 1790634258.091728,
+    "ast_hash": "92305474cc19c8c9167f9991ac343172",
+    "semantic_hash": ""
+  },
+  "server/tests/test_protocol_version.py": {
+    "mtime": 1790634122.428855,
+    "seen": 1790634258.091733,
+    "ast_hash": "a7f4491882ecd1570999e48e99c83127",
     "semantic_hash": ""
   }
 }
