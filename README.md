@@ -107,11 +107,26 @@ Hooks replaced the file watcher because a watcher can only notice a collision af
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `SYNERGO_ENV` | `development` | `development` \| `staging` \| `production`. Outside development the relay refuses to start without `CORS_ORIGINS`. |
+| `CORS_ORIGINS` | localhost dev server | Comma-separated exact origins. **Required** in staging/production. |
+| `CORS_ORIGIN_REGEX` | — | Opt-in wildcard for preview deploys. Empty by default; a regex here widens who can call the relay. |
+| `SYNERGO_STATE_PATH` | — | SQLite file on a persistent disk. Without it, room codes live only in memory and every deploy invalidates them. |
+| `TRUST_PROXY_HEADER` | `false` | Read the client IP from `X-Forwarded-For`. See the warning below. |
+| `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS` | `10` / `3600` | Room creations allowed per IP per window. |
+| `WS_ATTEMPT_LIMIT` / `WS_ATTEMPT_WINDOW_SECONDS` | `30` / `60` | WebSocket connection attempts per IP per window. |
+| `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. |
 | `GEMINI_API_KEY` | — | Enables AI captions and conflict explanations |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Model override |
 | `GEMINI_CAPTION_TIMEOUT` | `4.0` | Seconds before caption fallback |
 | `GEMINI_CONFLICT_TIMEOUT` | `5.0` | Seconds before heuristic conflict label |
-| `CORS_ORIGINS` | permissive / configured | Comma-separated allowed origins (set in production) |
+
+> **`TRUST_PROXY_HEADER` cuts both ways.** Behind Render or Cloudflare the socket
+> peer is the proxy, so with it off every user shares one rate-limit bucket. With
+> it on but no proxy in front, a client can spoof `X-Forwarded-For` and bypass the
+> limits entirely. Set it to match your actual topology.
+
+> Rate limits are **per process**. They are a speed bump, not a guarantee, and a
+> shared counter is needed before running more than one relay instance.
 
 ### Dashboard (`frontend/`)
 
@@ -258,17 +273,42 @@ Room codes are the shared secret — anyone with the code can join.
 
 ## Deployment
 
-### Relay (e.g. Render)
+### Environments
+
+| Environment | Deploys from | Gate |
+|-------------|--------------|------|
+| `Staging` | pushes to `main` | CI must pass |
+| `Production` | `v*` tags | CI must pass; tagging is the deliberate step |
+
+`.github/workflows/deploy.yml` reuses `ci.yml`, so nothing deploys on code that
+has not passed tests. Required-reviewer gates need a paid GitHub plan on private
+repos, so the tag stands in for approval — cut a release with `git tag v1.2.3 &&
+git push origin v1.2.3`.
+
+Deploys are host-agnostic: each environment supplies a deploy-hook URL as a
+secret and `scripts/deploy_hook.sh` POSTs it (Render, Cloudflare Pages and
+Netlify all offer these). Steps skip with a notice when unconfigured.
+
+| Scope | Name | Kind | Purpose |
+|-------|------|------|---------|
+| Environment secret | `RELAY_DEPLOY_HOOK_URL` | secret | Triggers the relay deploy |
+| Environment secret | `DASHBOARD_DEPLOY_HOOK_URL` | secret | Triggers the dashboard deploy |
+| Environment variable | `RELAY_URL` | variable | Base URL polled at `/readyz` after deploy |
+
+### Relay
 
 - Python **3.12** (`server/runtime.txt`)
 - Start: `uvicorn main:app --host 0.0.0.0 --port $PORT` (with `rootDir=server`) or `uvicorn server.main:app` from repo root
-- Set `GEMINI_API_KEY` and `CORS_ORIGINS` to your Vercel origin
-- Expose WebSockets (`wss://…/ws/{room}`)
+- Set `CORS_ORIGINS` to your dashboard origin and `SYNERGO_ENV` to `staging`/`production`
+- Set `SYNERGO_STATE_PATH` to a file on a persistent disk, or every deploy invalidates all room codes
+- Turn on `TRUST_PROXY_HEADER` if the host terminates TLS in front of you
+- Expose WebSockets (`wss://…/ws/{room}`), and pick a host that does **not** sleep — an idle-suspended relay drops every connection
+- `/health` is liveness; `/readyz` reports configuration readiness
 
-### Dashboard (e.g. Vercel)
+### Dashboard
 
 - Root: `frontend/`
-- Build: `npm run build` (see `frontend/vercel.json`)
+- Build: `npm run build`
 - Env: `VITE_WS_URL=wss://<your-relay>/ws`
 
 ### Local tunnel (demo)

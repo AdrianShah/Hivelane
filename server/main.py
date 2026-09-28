@@ -11,17 +11,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import time
 from typing import Optional
 
-from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 try:
+    from . import config
     from .gemini import classify_conflict, generate_caption
+    from .limits import check_room_creation, check_ws_attempt, client_ip
     from .models import (
         ActivityMessage,
         ActivityUpdate,
@@ -42,7 +42,9 @@ try:
     from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
+    import config
     from gemini import classify_conflict, generate_caption
+    from limits import check_room_creation, check_ws_attempt, client_ip
     from models import (
         ActivityMessage,
         ActivityUpdate,
@@ -63,30 +65,27 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
-load_dotenv()
-
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("relay")
 
 app = FastAPI(title="Synergo relay")
 
-ALLOWED_ORIGINS = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "https://hackday-agent-viewer.vercel.app,http://localhost:5173",
-    ).split(",")
-    if o.strip()
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS,
-    # Preview deploys use https://hackday-agent-viewer-*.vercel.app
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origins=list(config.CORS_ORIGINS),
+    allow_origin_regex=config.CORS_ORIGIN_REGEX,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
+)
+
+log.info(
+    "Synergo relay configured: env=%s cors_origins=%s cors_origin_regex=%s "
+    "trust_proxy_header=%s",
+    config.ENV,
+    ", ".join(config.CORS_ORIGINS),
+    config.CORS_ORIGIN_REGEX or "-",
+    config.TRUST_PROXY_HEADER,
 )
 
 room_manager = RoomManager()
@@ -100,6 +99,9 @@ EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 
 # Private-use close code: room code unknown / expired.
 WS_CLOSE_ROOM_NOT_FOUND = 4404
+
+# Private-use close code: too many connection attempts from this IP.
+WS_CLOSE_RATE_LIMITED = 4429
 
 
 def _schedule_empty_room_cleanup(room_id: str) -> None:
@@ -120,12 +122,28 @@ def _log_conflict_task_error(task: asyncio.Task) -> None:
 
 
 @app.post("/rooms")
-async def create_room() -> dict[str, str]:
+async def create_room(request: Request) -> dict[str, str]:
     """Generate a fresh room code. The room code is the shared secret —
-    whoever has it can join, same trust model as a Google Docs share link."""
+    whoever has it can join, same trust model as a Google Docs share link.
+
+    Unauthenticated, so it is rate-limited per IP: without that, a short script
+    can exhaust MAX_ROOMS and deny room creation to everyone for as long as the
+    empty-room grace period lasts.
+    """
+    allowance = check_room_creation(request)
+    if not allowance.allowed:
+        log.warning("Room creation rate-limited for %s", client_ip(request))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many rooms created from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+
     try:
         room_id = room_manager.create_room()
     except RuntimeError as exc:
+        # 503 means the relay itself is full, not that this caller is throttled;
+        # the dashboard shows different copy for each.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"room_id": room_id}
 
@@ -133,6 +151,20 @@ async def create_room() -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {"status": "ok", "rooms": room_manager.room_count}
+
+
+@app.get("/readyz")
+async def readyz() -> dict[str, object]:
+    """Readiness: configuration this deploy needs before it can serve a
+    dashboard. /health stays a cheap liveness ping."""
+    return {
+        "status": "ready",
+        "env": config.ENV,
+        "cors_origins_configured": len(config.CORS_ORIGINS),
+        "cors_origin_regex_configured": config.CORS_ORIGIN_REGEX is not None,
+        "trust_proxy_header": config.TRUST_PROXY_HEADER,
+        "rooms": room_manager.room_count,
+    }
 
 
 async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
@@ -363,6 +395,25 @@ async def handle_edit_check(
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
+    # Checked before any room lookup: a 6-character code is ~30 bits, so
+    # unlimited connection attempts make the code brute-forceable.
+    allowance = check_ws_attempt(socket)
+    if not allowance.allowed:
+        log.warning("WebSocket attempt rate-limited for %s", client_ip(socket))
+        await socket.accept()
+        await socket.send_json(
+            {
+                "type": "rate_limited",
+                "reason": (
+                    "Too many connection attempts from this address. "
+                    "Wait a moment and reconnect."
+                ),
+                "retry_after": allowance.retry_after_seconds,
+            }
+        )
+        await socket.close(code=WS_CLOSE_RATE_LIMITED, reason="Rate limited")
+        return
+
     room = room_manager.get(room_id)
     await socket.accept()
     if room is None:

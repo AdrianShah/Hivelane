@@ -1,0 +1,64 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    # Same checks as CI, reused rather than duplicated: nothing deploys unverified.
+    uses: ./.github/workflows/ci.yml
+
+  staging:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Staging
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy relay
+        env:
+          HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
+        run: ./scripts/deploy_hook.sh relay "$HOOK"
+      - name: Deploy dashboard
+        env:
+          HOOK: ${{ secrets.DASHBOARD_DEPLOY_HOOK_URL }}
+        run: ./scripts/deploy_hook.sh dashboard "$HOOK"
+      - name: Smoke the deployed relay
+        env:
+          RELAY_URL: ${{ vars.RELAY_URL }}
+        run: ./scripts/post_deploy_check.sh "$RELAY_URL"
+
+  production:
+    needs: verify
+    # Tags only, matching the environment's deployment branch policy. Tagging is
+    # the deliberate human step: required-reviewer gates need a paid plan on
+    # private repos, so the tag is the approval.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: Production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deploy relay
+        env:
+          HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
+        run: ./scripts/deploy_hook.sh relay "$HOOK"
+      - name: Deploy dashboard
+        env:
+          HOOK: ${{ secrets.DASHBOARD_DEPLOY_HOOK_URL }}
+        run: ./scripts/deploy_hook.sh dashboard "$HOOK"
+      - name: Smoke the deployed relay
+        env:
+          RELAY_URL: ${{ vars.RELAY_URL }}
+        run: ./scripts/post_deploy_check.sh "$RELAY_URL"

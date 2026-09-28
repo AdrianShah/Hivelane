@@ -48,3 +48,14 @@ def test_own_name_is_never_recorded_as_a_peer() -> None:
     daemon = _daemon()
     daemon._handle_frame('{"type":"user_joined","user_id":"adrian"}')
     assert sorted(daemon._peers) == []  # daemon is itself named adrian
+
+
+def test_rate_limited_frame_is_not_fatal_and_sets_retry_after() -> None:
+    """Throttling is the relay asking us to wait, not refusing us: the daemon
+    must back off rather than exit, and must not keep the limiter pinned."""
+    daemon = _daemon()
+    daemon._handle_frame(
+        '{"type":"rate_limited","reason":"Too many attempts","retry_after":45}'
+    )
+    assert daemon.fatal is None
+    assert daemon.retry_after == 45.0

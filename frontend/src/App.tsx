@@ -18,6 +18,8 @@ import type {
 const CONFLICT_TTL_SECONDS = 120;
 const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
 const MAX_LANE_DECISIONS = 3;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
 
 const SPECTATOR_JOIN: JoinMessage = {
   type: 'join',
@@ -165,6 +167,22 @@ export default function App() {
     let cancelled = false;
     let roomMissing = false;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    // The relay rate-limits connection attempts. A flat retry sits at that
+    // budget forever and locks the dashboard out of its own room, so back off
+    // and let the server's retry_after win when it sends one.
+    let retryAfterMs = 0;
+
+    const nextDelay = () => {
+      if (retryAfterMs > 0) {
+        const wait = retryAfterMs;
+        retryAfterMs = 0;
+        return wait;
+      }
+      const capped = Math.min(RECONNECT_BASE_MS * 2 ** attempt, RECONNECT_MAX_MS);
+      // Jitter keeps several dashboards from retrying in lockstep.
+      return capped * (0.5 + Math.random() * 0.5);
+    };
 
     const connect = () => {
       if (cancelled || roomMissing) return;
@@ -172,12 +190,12 @@ export default function App() {
       setStatus('connecting');
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
-
       ws.onopen = () => {
         if (cancelled) {
           ws.close();
           return;
         }
+        attempt = 0;
         setStatus('connected');
         ws.send(JSON.stringify(SPECTATOR_JOIN));
       };
@@ -323,6 +341,11 @@ export default function App() {
             applyFeedEvent(msg);
             break;
 
+          case 'rate_limited':
+            console.warn('rate_limited:', msg.reason);
+            retryAfterMs = Math.max(0, (msg.retry_after ?? 0) * 1000);
+            break;
+
           case 'name_rejected':
             console.warn('name_rejected:', msg.reason);
             break;
@@ -338,7 +361,9 @@ export default function App() {
           return;
         }
         setStatus('disconnected');
-        retryTimer = setTimeout(connect, 2000);
+        const delay = nextDelay();
+        attempt += 1;
+        retryTimer = setTimeout(connect, delay);
       };
 
       ws.onerror = () => {

@@ -1,4 +1,4 @@
-# One-shot local setup: create .venv and install companion + watcher deps.
+# One-shot local setup: install the synergo daemon.
 # Usage: powershell -ExecutionPolicy Bypass -File setup.ps1
 $ErrorActionPreference = 'Stop'
 
@@ -12,10 +12,9 @@ if (-not (Test-Path $VenvPython)) {
 }
 
 & $VenvPython -m pip install --upgrade pip
-& $VenvPython -m pip install -r companion\requirements.txt
-& $VenvPython -m pip install -r watcher\requirements.txt
+& $VenvPython -m pip install -e .
 
 Write-Host ''
 Write-Host 'Setup complete.'
-Write-Host '  Start companion: powershell -ExecutionPolicy Bypass -File companion\scripts\start_windows.ps1'
-Write-Host '  Stop companion:  powershell -ExecutionPolicy Bypass -File companion\scripts\stop_windows.ps1'
+Write-Host '  Install agent hooks: .venv\Scripts\synergo hook install claude-code'
+Write-Host '  Join a room:         .venv\Scripts\synergo join <ROOM> --name <your-name>'
