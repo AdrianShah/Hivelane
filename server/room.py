@@ -14,14 +14,32 @@ from fastapi import WebSocket
 from pydantic import BaseModel
 
 try:
-    from .models import ActivityMessage, ActivityUpdate, AgentKind, SynergoFeed
+    from .models import (
+        ActivityMessage,
+        ActivityUpdate,
+        AgentKind,
+        Decision,
+        IntentUpdate,
+        SynergoFeed,
+    )
 except ImportError:  # Render rootDir=server
-    from models import ActivityMessage, ActivityUpdate, AgentKind, SynergoFeed
+    from models import (
+        ActivityMessage,
+        ActivityUpdate,
+        AgentKind,
+        Decision,
+        IntentUpdate,
+        SynergoFeed,
+    )
 
 log = logging.getLogger(__name__)
 
 # How long a peer's last touch of a file stays eligible for conflict comparison.
 CONFLICT_WINDOW_SECONDS = 60.0
+
+# Inside this window a peer is presumed mid-edit, so an incoming edit is denied
+# outright rather than merely flagged.
+EDIT_BLOCK_WINDOW_SECONDS = 20.0
 
 # Debounce room-wide broadcasts into a single Synergo feed frame.
 BROADCAST_FLUSH_SECONDS = 0.5
@@ -55,8 +73,13 @@ class Room:
         self._file_activity: dict[str, dict[str, FileTouch]] = {}
         # Last broadcast activity per connected user (for spectator catch-up).
         self._latest_updates: dict[str, ActivityUpdate] = {}
+        # Last declared intent per connected user (for spectator catch-up and
+        # the edit-check escalation heuristic).
+        self._latest_intents: dict[str, IntentUpdate] = {}
         # Last accepted activity timestamp per member (server rate limiting).
-        self._last_activity_at: dict[str, float] = {}
+        # (user_id, channel) -> last accepted timestamp; channels are
+        # rate-limited independently (see is_activity_rate_limited).
+        self._last_activity_at: dict[tuple[str, str], float] = {}
         self._lock = asyncio.Lock()
         # Queued room broadcasts → flushed as one synergo_feed every 500ms.
         self._broadcast_queue: list[dict] = []
@@ -99,7 +122,9 @@ class Room:
         self._members.pop(user_id, None)
         self._member_agents.pop(user_id, None)
         self._latest_updates.pop(user_id, None)
-        self._last_activity_at.pop(user_id, None)
+        self._latest_intents.pop(user_id, None)
+        for key in [k for k in self._last_activity_at if k[0] == user_id]:
+            self._last_activity_at.pop(key, None)
 
     def add_spectator(self, socket: WebSocket) -> None:
         self._spectators.add(socket)
@@ -108,17 +133,24 @@ class Room:
         self._spectators.discard(socket)
 
     def is_activity_rate_limited(
-        self, user_id: str, min_interval_seconds: float = 0.5
+        self,
+        user_id: str,
+        min_interval_seconds: float = 0.5,
+        channel: str = "activity",
     ) -> bool:
-        """Return True if this user sent activity too recently (drop the update).
+        """Return True if this user sent this kind of message too recently.
 
         On acceptance, records the current server time for the next check.
+        Each channel gets its own budget: an agent broadcasts its intent and
+        then edits within milliseconds, so a shared budget would drop the first
+        activity of every prompt.
         """
         now = time.time()
-        last = self._last_activity_at.get(user_id, 0.0)
+        key = (user_id, channel)
+        last = self._last_activity_at.get(key, 0.0)
         if now - last < min_interval_seconds:
             return True
-        self._last_activity_at[user_id] = now
+        self._last_activity_at[key] = now
         return False
 
     # --- file activity -------------------------------------------------------
@@ -140,6 +172,25 @@ class Room:
 
     def latest_updates(self) -> list[ActivityUpdate]:
         return list(self._latest_updates.values())
+
+    # --- intent --------------------------------------------------------------
+
+    def record_intent(
+        self,
+        user_id: str,
+        prompt: str,
+        timestamp: float,
+        agent: AgentKind = "unknown",
+    ) -> None:
+        self._latest_intents[user_id] = IntentUpdate(
+            user_id=user_id,
+            agent=agent,
+            prompt=prompt,
+            timestamp=timestamp,
+        )
+
+    def latest_intents(self) -> list[IntentUpdate]:
+        return list(self._latest_intents.values())
 
     def recent_other_touches(
         self,
@@ -185,6 +236,71 @@ class Room:
                 )
             )
         return overlaps
+
+    def _intent_mentions(self, file_path: str, user_id: str) -> list[FileTouch]:
+        """Active peers whose declared intent names this file, newest first.
+
+        Matching on the bare stem as well as the basename catches prompts that
+        talk about the module rather than the file ("refactor the Room
+        broadcast" vs server/room.py). Stems under 3 characters are skipped
+        because they match almost any sentence.
+        """
+        basename = file_path.rsplit("/", 1)[-1].lower()
+        stem = basename.rsplit(".", 1)[0]
+        needles = [basename]
+        if len(stem) >= 3:
+            needles.append(stem)
+
+        matches: list[FileTouch] = []
+        for other_id, intent in self._latest_intents.items():
+            if other_id == user_id or not self.is_active(other_id):
+                continue
+            text = intent.prompt.lower()
+            if not any(needle in text for needle in needles):
+                continue
+            matches.append(
+                FileTouch(
+                    user_id=other_id,
+                    file_path=file_path,
+                    diff="",
+                    prompt=intent.prompt,
+                    timestamp=intent.timestamp,
+                    agent=intent.agent,
+                )
+            )
+        matches.sort(key=lambda touch: touch.timestamp, reverse=True)
+        return matches
+
+    def check_edit(
+        self, user_id: str, file_path: str, now: float
+    ) -> tuple[Decision, list[FileTouch]]:
+        """Decide whether user_id may edit file_path right now.
+
+        Returns the decision plus the peers that justified it, newest first.
+        """
+        others = self.recent_other_touches(
+            file_path,
+            user_id,
+            now,
+            active_only=True,
+            window_seconds=CONFLICT_WINDOW_SECONDS,
+        )
+        others.sort(key=lambda touch: touch.timestamp, reverse=True)
+
+        blocking = [
+            touch
+            for touch in others
+            if now - touch.timestamp <= EDIT_BLOCK_WINDOW_SECONDS
+        ]
+        if blocking:
+            return "block", blocking
+        if others:
+            return "warn", others
+
+        mentions = self._intent_mentions(file_path, user_id)
+        if mentions:
+            return "warn", mentions
+        return "allow", []
 
     # --- broadcast -----------------------------------------------------------
 

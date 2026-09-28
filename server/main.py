@@ -25,13 +25,20 @@ try:
     from .models import (
         ActivityMessage,
         ActivityUpdate,
+        Decision,
+        EditCheckRequest,
+        EditCheckResponse,
+        EditDecision,
+        IntentMessage,
+        IntentUpdate,
         JoinMessage,
         NameRejected,
+        PeerTouch,
         RoomRejected,
         UserJoined,
         UserLeft,
     )
-    from .room import FileOverlap, Room
+    from .room import FileOverlap, FileTouch, Room
     from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
@@ -39,13 +46,20 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     from models import (
         ActivityMessage,
         ActivityUpdate,
+        Decision,
+        EditCheckRequest,
+        EditCheckResponse,
+        EditDecision,
+        IntentMessage,
+        IntentUpdate,
         JoinMessage,
         NameRejected,
+        PeerTouch,
         RoomRejected,
         UserJoined,
         UserLeft,
     )
-    from room import FileOverlap, Room
+    from room import FileOverlap, FileTouch, Room
     from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
@@ -247,6 +261,106 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
         task.add_done_callback(_log_conflict_task_error)
 
 
+async def handle_intent(room: Room, user_id: str, raw: dict) -> None:
+    try:
+        message = IntentMessage.model_validate(raw)
+    except ValidationError as exc:
+        log.warning("Ignoring malformed intent from %s: %s", user_id, exc)
+        return
+
+    message.user_id = user_id
+    message.timestamp = time.time()
+
+    if room.is_activity_rate_limited(
+        user_id, ACTIVITY_MIN_INTERVAL_SECONDS, channel="intent"
+    ):
+        log.debug("Rate-limiting intent from %s", user_id)
+        return
+
+    agent = room.member_agent(user_id)
+    room.record_intent(user_id, message.prompt, message.timestamp, agent)
+    log.info("intent from %s: %s", user_id, message.prompt)
+    await room.broadcast(
+        IntentUpdate(
+            user_id=user_id,
+            agent=agent,
+            prompt=message.prompt,
+            timestamp=message.timestamp,
+        )
+    )
+
+
+def _edit_check_reason(
+    decision: Decision, file_path: str, peers: list[FileTouch], now: float
+) -> str:
+    """One human-readable sentence about the peer that drove the decision."""
+    if decision == "allow" or not peers:
+        return ""
+    peer = peers[0]
+    seconds = int(max(0.0, now - peer.timestamp))
+    # Room.check_edit synthesizes a diff-less touch for peers matched only by
+    # their declared intent — they have not edited the file yet.
+    if not peer.diff:
+        return f"{peer.user_id}'s {peer.agent} said they are working on {file_path}"
+    if decision == "block":
+        return f"{peer.user_id}'s {peer.agent} edited {file_path} {seconds}s ago"
+    return f"{peer.user_id}'s {peer.agent} touched this file {seconds}s ago"
+
+
+async def handle_edit_check(
+    room: Room, socket: WebSocket, user_id: str, raw: dict
+) -> None:
+    """Answer "may I edit this file?" on the agent's blocking hook.
+
+    Deliberately not rate-limited (an agent may probe many files at once) and
+    deliberately free of Gemini calls — the reply must go out immediately.
+    """
+    try:
+        request = EditCheckRequest.model_validate(raw)
+    except ValidationError as exc:
+        log.warning("Ignoring malformed edit_check from %s: %s", user_id, exc)
+        return
+
+    now = time.time()
+    decision, peers = room.check_edit(user_id, request.file_path, now)
+    reason = _edit_check_reason(decision, request.file_path, peers, now)
+
+    await room.send(
+        socket,
+        EditCheckResponse(
+            request_id=request.request_id,
+            decision=decision,
+            file_path=request.file_path,
+            others=[
+                PeerTouch(
+                    user_id=peer.user_id,
+                    agent=peer.agent,
+                    seconds_ago=max(0.0, now - peer.timestamp),
+                    prompt=peer.prompt,
+                )
+                for peer in peers
+            ],
+            reason=reason,
+        ),
+    )
+
+    if decision == "allow":
+        return
+
+    log.info("edit_check %s for %s on %s", decision, user_id, request.file_path)
+    await room.broadcast(
+        EditDecision(
+            user_id=user_id,
+            agent=room.member_agent(user_id),
+            file_path=request.file_path,
+            decision=decision,
+            others=[peer.user_id for peer in peers],
+            reason=reason,
+            timestamp=now,
+        )
+    )
+
+
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     room = room_manager.get(room_id)
@@ -283,6 +397,8 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
                 socket,
                 UserJoined(user_id=existing, agent=room.member_agent(existing)),
             )
+        for intent in room.latest_intents():
+            await room.send(socket, intent)
         for update in room.latest_updates():
             await room.send(socket, update)
         try:
@@ -308,10 +424,15 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     try:
         while True:
             raw = await socket.receive_json()
-            if raw.get("type") == "activity":
+            kind = raw.get("type")
+            if kind == "activity":
                 await handle_activity(room, user_id, raw)
+            elif kind == "intent":
+                await handle_intent(room, user_id, raw)
+            elif kind == "edit_check":
+                await handle_edit_check(room, socket, user_id, raw)
             else:
-                log.debug("Unhandled message type from %s: %s", user_id, raw.get("type"))
+                log.debug("Unhandled message type from %s: %s", user_id, kind)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

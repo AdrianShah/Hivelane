@@ -1,22 +1,22 @@
-# Graph Report - Synergo  (2026-09-20)
+# Graph Report - Synergo  (2026-09-28)
 
 ## Corpus Check
-- 47 files · ~22,810 words
+- 64 files · ~29,447 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 7 file(s) not represented in the graph (top: (none) 4, .css 2, .example 1)
 
 ## Summary
-- 521 nodes · 805 edges · 40 communities (29 shown, 11 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 26 edges (avg confidence: 0.93)
+- 733 nodes · 1349 edges · 53 communities (37 shown, 16 thin omitted)
+- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 58 edges (avg confidence: 0.93)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `36245ba3`
+- Built from commit: `cd19f73f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- App.tsx
+- Sidebar.tsx
 - watcher.py
 - companion/main.py
 - Synergo
@@ -25,15 +25,15 @@
 - gemini.py
 - Room
 - prompt_capture.py
-- models.py
+- server/main.py
 - compilerOptions
 - compilerOptions
 - Lane.tsx
-- hello.py
-- server/main.py
+- NormalizedEvent
+- cli.py
 - RoomManager
 - PROJECT_STORY.md
-- .find_overlaps
+- .check_edit
 - demo_proj/README.md
 - utils.py
 - .oxlintrc.json
@@ -49,29 +49,40 @@
 - stop_mac.sh
 - setup.sh script
 - detect.py
-- create_watcher
+- Daemon
 - graphify
 - pre-commit
+- App.tsx
+- types.ts
+- AddWatcher.tsx
+- Companion Service
+- test_edit_check_roundtrip.py
+- ConflictBanner.tsx
+- _install_signal_handlers
+- react
+- adapters/__init__.py
+- synergo/__init__.py
+- synergo
 
 ## God Nodes (most connected - your core abstractions)
-1. `Room` - 31 edges
-2. `compilerOptions` - 18 edges
-3. `compilerOptions` - 15 edges
-4. `WatcherRecord` - 14 edges
-5. `WatcherManager` - 13 edges
-6. `ActivityMessage` - 12 edges
-7. `Batcher` - 11 edges
-8. `Synergo` - 11 edges
-9. `classify_conflict()` - 10 edges
-10. `capture_latest_prompt()` - 10 edges
+1. `Room` - 51 edges
+2. `Daemon` - 31 edges
+3. `NormalizedEvent` - 28 edges
+4. `EventAck` - 21 edges
+5. `compilerOptions` - 18 edges
+6. `compilerOptions` - 15 edges
+7. `WatcherRecord` - 14 edges
+8. `ActivityMessage` - 14 edges
+9. `WatcherManager` - 13 edges
+10. `_join()` - 12 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `WebSocket` --references--> `events()`  [INFERRED]
+  README.md → synergo/daemon.py
 - `_to_info()` --uses--> `WatcherRecord`  [INFERRED]
   companion/main.py → companion/process_manager.py
 - `create_watcher()` --uses--> `WatcherAlreadyRunning`  [INFERRED]
   companion/main.py → companion/process_manager.py
-- `_format_changes()` --uses--> `FileChange`  [INFERRED]
-  server/gemini.py → server/models.py
 - `handshake()` --uses--> `Room`  [INFERRED]
   server/main.py → server/room.py
 - `evaluate_and_broadcast_conflicts()` --uses--> `FileOverlap`  [INFERRED]
@@ -80,23 +91,23 @@
 ## Import Cycles
 - None detected.
 
-## Communities (40 total, 11 thin omitted)
+## Communities (53 total, 16 thin omitted)
 
-### Community 0 - "App.tsx"
-Cohesion: 0.06
-Nodes (59): App(), ConnStatus, isActionableConflict(), isExpired(), pruneExpired(), relativeTime(), SPECTATOR_JOIN, TOP_NAV (+51 more)
+### Community 0 - "Sidebar.tsx"
+Cohesion: 0.23
+Nodes (11): AppView, formatElapsed(), NAV, Sidebar(), SidebarProps, frontend_src_index, Home(), normalizeRoomCode() (+3 more)
 
 ### Community 1 - "watcher.py"
 Cohesion: 0.06
-Nodes (40): AbstractEventLoop, argparse, difflib, FileSystemEvent, FileSystemEventHandler, Namespace, Queue, RuntimeError (+32 more)
+Nodes (40): AbstractEventLoop, argparse, difflib, FileSystemEvent, FileSystemEventHandler, Queue, RuntimeError, watchdog_events (+32 more)
 
 ### Community 2 - "companion/main.py"
-Cohesion: 0.15
-Nodes (16): delete_watcher(), detect(), health(), _install_signal_handlers(), lifespan(), list_watchers(), get, Local companion API: lets the dashboard start/stop watchers on this machine.… (+8 more)
+Cohesion: 0.16
+Nodes (18): create_watcher(), CreateWatcherRequest, CreateWatcherResponse, delete_watcher(), detect(), health(), list_watchers(), BaseModel (+10 more)
 
 ### Community 3 - "Synergo"
-Cohesion: 0.05
-Nodes (36): API, Companion Service, `DELETE /watchers/{watcher_id}`, Future work: run as a managed service, `GET /detect`, `GET /health`, `GET /watchers`, Lifecycle guarantees (+28 more)
+Cohesion: 0.10
+Nodes (19): 1. Relay server, 2. Dashboard, 3. Synergo CLI (on each contributor machine), Architecture, Dashboard (e.g. Vercel), Dashboard (`frontend/`), Demo tips, Deployment (+11 more)
 
 ### Community 4 - "package.json"
 Cohesion: 0.07
@@ -107,20 +118,20 @@ Cohesion: 0.13
 Nodes (6): Tracks watcher subprocesses keyed by generated watcher_id., Drain merged stdout/stderr into the record's ring buffer., SIGTERM, wait briefly, then SIGKILL. Returns None if unknown id., Terminate every supervised watcher. Safe to call more than once., WatcherManager, WatcherRecord
 
 ### Community 6 - "gemini.py"
-Cohesion: 0.14
-Nodes (22): Client, google, google_genai, classify_conflict(), _format_changes(), generate_caption(), _get_client(), heuristic_conflict_alert() (+14 more)
+Cohesion: 0.12
+Nodes (27): asyncio, Client, google, google_genai, classify_conflict(), _format_changes(), generate_caption(), _get_client() (+19 more)
 
 ### Community 7 - "Room"
-Cohesion: 0.12
-Nodes (7): ActivityUpdate, BaseModel, WebSocket, Return True if this user sent activity too recently (drop the update). On…, Queue a room-wide event and flush as a Synergo feed batch (~500ms). Point-to-…, True once no members and no spectators remain — safe to evict from the…, Room
+Cohesion: 0.10
+Nodes (22): BaseModel, WebSocket, True once no members and no spectators remain — safe to evict from the…, Return True if this user sent this kind of message too recently. On acceptance,…, Queue a room-wide event and flush as a Synergo feed batch (~500ms). Point-to-…, Room, FakeSocket, _join() (+14 more)
 
 ### Community 8 - "prompt_capture.py"
-Cohesion: 0.17
-Nodes (19): Connection, json, sqlite3, urllib_parse, capture_latest_prompt(), _composer_ids_for_workspace(), _cursor_user_dir(), _folder_from_uri() (+11 more)
+Cohesion: 0.10
+Nodes (27): Connection, datetime, fib(), glass_theme(), lane_status(), Any, Synergo demo project — edit these files to light up agent lanes., Conflict radar sketch — agents × overlapping files. (+19 more)
 
-### Community 9 - "models.py"
-Cohesion: 0.15
-Nodes (18): handshake(), WebSocket, Run the join handshake. Returns (user_id, agent) for a named member, or None…, _schedule_empty_room_cleanup(), websocket_endpoint(), ConflictAlert, FileChange, JoinMessage (+10 more)
+### Community 9 - "server/main.py"
+Cohesion: 0.08
+Nodes (43): dotenv, fastapi, logging, pydantic, secrets, _edit_check_reason(), handle_edit_check(), handle_intent() (+35 more)
 
 ### Community 10 - "compilerOptions"
 Cohesion: 0.10
@@ -131,16 +142,16 @@ Cohesion: 0.12
 Nodes (16): compilerOptions, allowImportingTsExtensions, erasableSyntaxOnly, lib, module, moduleDetection, noEmit, noFallthroughCasesInSwitch (+8 more)
 
 ### Community 12 - "Lane.tsx"
-Cohesion: 0.22
-Nodes (11): ArchitectureMap(), AVATAR_COLORS, avatarGradient(), initials(), Lane(), LaneProps, relativeTime(), shortHash() (+3 more)
+Cohesion: 0.19
+Nodes (13): ArchitectureMap(), AVATAR_COLORS, avatarGradient(), decisionNote(), initials(), Lane(), LaneProps, relativeTime() (+5 more)
 
-### Community 13 - "hello.py"
-Cohesion: 0.17
-Nodes (9): Any, datetime, fib(), glass_theme(), lane_status(), Synergo demo project — edit these files to light up agent lanes., Conflict radar sketch — agents × overlapping files., Obvious numeric diff bait for the board. (+1 more)
+### Community 13 - "NormalizedEvent"
+Cohesion: 0.09
+Nodes (52): json, pathlib, conflict_message(), _file_path(), hook_settings(), normalize(), Any, Claude Code hook adapter. Schema per https://code.claude.com/docs/en/hooks… (+44 more)
 
-### Community 14 - "server/main.py"
-Cohesion: 0.15
-Nodes (17): asyncio, dotenv, FastAPI, logging, pydantic, secrets, health(), _log_conflict_task_error() (+9 more)
+### Community 14 - "cli.py"
+Cohesion: 0.07
+Nodes (50): ArgumentParser, fixture, httpx, io, pytest, _no_gemini(), MonkeyPatch, Shared fixtures. Keeps the suite offline: no Gemini key, no network calls. (+42 more)
 
 ### Community 15 - "RoomManager"
 Cohesion: 0.22
@@ -150,9 +161,9 @@ Nodes (4): _generate_code(), Generate a fresh room code and register an empty Ro
 Cohesion: 0.25
 Nodes (7): Accomplishments that we're proud of, Challenges we ran into, How we built it, Inspiration, What it does, What's next for Synergo, What we learned
 
-### Community 17 - ".find_overlaps"
-Cohesion: 0.33
-Nodes (3): Other users' recent touches of the same file within the conflict window., Return per-file overlaps with the most recent active peer (if any). Call this…, True if user_id is still connected. Intentionally the same check as is_taken: a…
+### Community 17 - ".check_edit"
+Cohesion: 0.17
+Nodes (8): FileOverlap, Decision, Other users' recent touches of the same file within the conflict window., Return per-file overlaps with the most recent active peer (if any). Call this…, Active peers whose declared intent names this file, newest first. Matching on…, Decide whether user_id may edit file_path right now. Returns the decision plus…, One file that the current user and another active user both touched recently., True if user_id is still connected. Intentionally the same check as is_taken: a…
 
 ### Community 18 - "demo_proj/README.md"
 Cohesion: 0.33
@@ -171,8 +182,8 @@ Cohesion: 0.33
 Nodes (5): buildCommand, framework, headers, outputDirectory, rewrites
 
 ### Community 22 - "sanitize.py"
-Cohesion: 0.40
-Nodes (4): re, is_probably_valid(), Display-name sanitization. The server is authoritative; clients may pre-…, Non-raising variant for client-side pre-checks.
+Cohesion: 0.33
+Nodes (6): re, is_probably_valid(), Display-name sanitization. The server is authoritative; clients may pre-…, Return a safe display name or raise ValueError with a client-facing reason., Non-raising variant for client-side pre-checks., sanitize_name()
 
 ### Community 23 - "process_manager.py"
 Cohesion: 0.14
@@ -187,36 +198,68 @@ Cohesion: 0.67
 Nodes (3): create_room(), post, Generate a fresh room code. The room code is the shared secret — whoever has it…
 
 ### Community 36 - "detect.py"
-Cohesion: 0.18
-Nodes (14): detect_tools(), _find_install_path(), _is_running(), _platform_key(), Best-effort detection of locally installed / running AI coding tools. Every…, Lowercased names of running processes, or None if psutil is unusable., Report install + running state for each known tool. Shape: {"platform": str,…, _running_process_names() (+6 more)
+Cohesion: 0.20
+Nodes (13): detect_tools(), _find_install_path(), _is_running(), _platform_key(), Best-effort detection of locally installed / running AI coding tools. Every…, Lowercased names of running processes, or None if psutil is unusable., Report install + running state for each known tool. Shape: {"platform": str,…, _running_process_names() (+5 more)
 
-### Community 37 - "create_watcher"
-Cohesion: 0.50
-Nodes (5): create_watcher(), CreateWatcherRequest, CreateWatcherResponse, BaseModel, post
+### Community 37 - "Daemon"
+Cohesion: 0.09
+Nodes (25): HTTP, HTTP & WebSocket API, WebSocket, Daemon, events(), status(), Any, FastAPI (+17 more)
 
 ### Community 38 - "graphify"
 Cohesion: 0.50
 Nodes (3): uvx, graphify, graphify-mcp
 
+### Community 40 - "App.tsx"
+Cohesion: 0.21
+Nodes (15): App(), BLANK_LANE, ConnStatus, isActionableConflict(), isExpired(), pruneExpired(), pruneLaneDecisions(), relativeTime() (+7 more)
+
+### Community 41 - "types.ts"
+Cohesion: 0.13
+Nodes (14): Activity, ActivityUpdate, AgentKind, IntentUpdate, JoinMessage, NameRejected, RoomRejected, ServerMessage (+6 more)
+
+### Community 42 - "AddWatcher.tsx"
+Cohesion: 0.21
+Nodes (13): AddWatcher(), AddWatcherProps, CompanionState, errorDetail(), fetchWithTimeout(), manualCommand(), statusColor(), relayWsBase() (+5 more)
+
+### Community 43 - "Companion Service"
+Cohesion: 0.15
+Nodes (12): API, Companion Service, `DELETE /watchers/{watcher_id}`, Future work: run as a managed service, `GET /detect`, `GET /health`, `GET /watchers`, Lifecycle guarantees (+4 more)
+
+### Community 44 - "test_edit_check_roundtrip.py"
+Cohesion: 0.33
+Nodes (10): fastapi_testclient, main, _join(), _next_feed_event(), _next_frame(), Any, edit_check over a real WebSocket: the reply must arrive immediately, ahead of…, Next top-level frame of this type, skipping debounced feed batches. (+2 more)
+
+### Community 45 - "ConflictBanner.tsx"
+Cohesion: 0.53
+Nodes (5): ConflictBanner(), ConflictBannerProps, formatUsers(), secondsAgo(), ConflictAlert
+
+### Community 46 - "_install_signal_handlers"
+Cohesion: 0.40
+Nodes (4): _install_signal_handlers(), lifespan(), FastAPI, Reap watchers on Ctrl+C / SIGTERM even if uvicorn exits abruptly.
+
+### Community 47 - "react"
+Cohesion: 0.50
+Nodes (4): DeployModal(), DeployModalProps, watcherCommand(), react
+
 ## Knowledge Gaps
 - **139 isolated node(s):** `uvx`, `graphify-mcp`, `start_mac.sh script`, `stop_mac.sh script`, `$schema` (+134 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 275 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **11 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 324 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Room` connect `Room` to `gemini.py`, `models.py`, `server/main.py`, `RoomManager`, `.find_overlaps`?**
-  _High betweenness centrality (0.049) - this node is a cross-community bridge._
-- **Why does `WatcherManager` connect `WatcherRecord` to `companion/main.py`, `process_manager.py`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
-- **Why does `WatcherRecord` connect `WatcherRecord` to `companion/main.py`, `process_manager.py`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Are the 7 inferred relationships involving `Room` (e.g. with `evaluate_and_broadcast_conflicts()` and `handle_activity()`) actually correct?**
-  _`Room` has 7 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `Room` connect `Room` to `server/main.py`, `.check_edit`, `gemini.py`, `RoomManager`?**
+  _High betweenness centrality (0.056) - this node is a cross-community bridge._
+- **Why does `Daemon` connect `Daemon` to `NormalizedEvent`, `cli.py`?**
+  _High betweenness centrality (0.042) - this node is a cross-community bridge._
+- **Are the 12 inferred relationships involving `Room` (e.g. with `evaluate_and_broadcast_conflicts()` and `handle_activity()`) actually correct?**
+  _`Room` has 12 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 9 inferred relationships involving `Daemon` (e.g. with `EventAck` and `NormalizedEvent`) actually correct?**
+  _`Daemon` has 9 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 3 inferred relationships involving `NormalizedEvent` (e.g. with `render_response()` and `post_event()`) actually correct?**
+  _`NormalizedEvent` has 3 INFERRED edges - model-reasoned connections that need verification._
+- **Are the 6 inferred relationships involving `EventAck` (e.g. with `conflict_message()` and `render_response()`) actually correct?**
+  _`EventAck` has 6 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `uvx`, `graphify-mcp`, `start_mac.sh script` to the rest of the system?**
   _139 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `App.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.05575065847234416 - nodes in this community are weakly interconnected._
-- **Should `watcher.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.06060606060606061 - nodes in this community are weakly interconnected._

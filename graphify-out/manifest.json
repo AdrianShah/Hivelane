@@ -72,9 +72,9 @@
     "semantic_hash": ""
   },
   "frontend/src/App.tsx": {
-    "mtime": 1789933192.7616472,
-    "seen": 1789933411.0617468,
-    "ast_hash": "d2951d8d16cb59a35a05d9857aed243f",
+    "mtime": 1790611305.5906684,
+    "seen": 1790612699.5129158,
+    "ast_hash": "a925632cb8e1b8effa79329469653e19",
     "semantic_hash": ""
   },
   "frontend/src/components/AddWatcher.tsx": {
@@ -102,9 +102,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/Lane.tsx": {
-    "mtime": 1789933192.763022,
-    "seen": 1789933411.061748,
-    "ast_hash": "f0f225e702facf6d3080a60924fb84d3",
+    "mtime": 1790611336.249769,
+    "seen": 1790612699.512919,
+    "ast_hash": "fc7fff0c967f53d5d2d96d4d1a8f787d",
     "semantic_hash": ""
   },
   "frontend/src/components/Sidebar.tsx": {
@@ -132,9 +132,9 @@
     "semantic_hash": ""
   },
   "frontend/src/types.ts": {
-    "mtime": 1789933192.7641404,
-    "seen": 1789933411.06175,
-    "ast_hash": "dabd528c33ac5d94c24b6ac4fcad4447",
+    "mtime": 1790611265.5131717,
+    "seen": 1790612699.512921,
+    "ast_hash": "38ae7bdf82b66210420480d469a2b790",
     "semantic_hash": ""
   },
   "frontend/src/vite-env.d.ts": {
@@ -186,21 +186,21 @@
     "semantic_hash": ""
   },
   "server/main.py": {
-    "mtime": 1789933192.7654915,
-    "seen": 1789933411.061752,
-    "ast_hash": "4644e8177e5aa04908694d8ac4c5bac0",
+    "mtime": 1790611588.825309,
+    "seen": 1790612699.512924,
+    "ast_hash": "751a96336c0da69d6231199af7b83640",
     "semantic_hash": ""
   },
   "server/models.py": {
-    "mtime": 1789933192.7656102,
-    "seen": 1789933411.061752,
-    "ast_hash": "1034fff0254570e2eca15c1627c8605b",
+    "mtime": 1790611766.7527013,
+    "seen": 1790612699.512925,
+    "ast_hash": "692d40bde63e43b9e5cc2bd96e54d6b2",
     "semantic_hash": ""
   },
   "server/room.py": {
-    "mtime": 1789933192.765874,
-    "seen": 1789933411.061753,
-    "ast_hash": "caa07c7fb2ef52c8ea4c812259807c32",
+    "mtime": 1790611588.825028,
+    "seen": 1790612699.512925,
+    "ast_hash": "eb0a6310b77a0bb06c78da5055589c95",
     "semantic_hash": ""
   },
   "server/room_manager.py": {
@@ -270,9 +270,9 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1789933192.7580068,
-    "seen": 1789933411.061756,
-    "ast_hash": "5b1dae50c3353a1a74fdc28839bdc17f",
+    "mtime": 1790611606.4487367,
+    "seen": 1790612699.512935,
+    "ast_hash": "dab4bb1ddfcf93fd9a899a95c30b6db8",
     "semantic_hash": ""
   },
   "companion/README.md": {
@@ -369,6 +369,114 @@
     "mtime": 1789933588.031885,
     "seen": 1789934070.814977,
     "ast_hash": "4ded7f98551229f5cc26f308d593ef80",
+    "semantic_hash": ""
+  },
+  "pyproject.toml": {
+    "mtime": 1790612683.2232795,
+    "seen": 1790612699.5129228,
+    "ast_hash": "1132d5bec0ccc29bee293f573b3eb559",
+    "semantic_hash": ""
+  },
+  "server/tests/__init__.py": {
+    "mtime": 1790611333.1710498,
+    "seen": 1790612699.5129259,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "server/tests/conftest.py": {
+    "mtime": 1790611333.182294,
+    "seen": 1790612699.512927,
+    "ast_hash": "85ee8c601359e190de963deee2cd9e44",
+    "semantic_hash": ""
+  },
+  "server/tests/test_check_edit.py": {
+    "mtime": 1790611598.476205,
+    "seen": 1790612699.512927,
+    "ast_hash": "6d922628a9f1510170574ebe94c1d0f5",
+    "semantic_hash": ""
+  },
+  "server/tests/test_edit_check_roundtrip.py": {
+    "mtime": 1790611370.6866438,
+    "seen": 1790612699.512927,
+    "ast_hash": "2d890dd0bae2eac1ed88a690731df3cc",
+    "semantic_hash": ""
+  },
+  "synergo/__init__.py": {
+    "mtime": 1790611841.9426022,
+    "seen": 1790612699.512928,
+    "ast_hash": "a1adc89c4de9cf25b0ce805826714400",
+    "semantic_hash": ""
+  },
+  "synergo/adapters/__init__.py": {
+    "mtime": 1790611923.5897815,
+    "seen": 1790612699.512929,
+    "ast_hash": "22f6cb28038e8cae1568425d261b4cab",
+    "semantic_hash": ""
+  },
+  "synergo/adapters/claude_code.py": {
+    "mtime": 1790612519.663946,
+    "seen": 1790612699.512929,
+    "ast_hash": "b501bc3414ce7f3e44c0e081b74b9a9d",
+    "semantic_hash": ""
+  },
+  "synergo/cli.py": {
+    "mtime": 1790611957.407737,
+    "seen": 1790612699.512929,
+    "ast_hash": "d48a1ad863f3554c6813123be532c569",
+    "semantic_hash": ""
+  },
+  "synergo/daemon.py": {
+    "mtime": 1790612290.7353556,
+    "seen": 1790612699.5129302,
+    "ast_hash": "32faa8ab3d73ad2353f9525e0a048fd1",
+    "semantic_hash": ""
+  },
+  "synergo/events.py": {
+    "mtime": 1790611861.5698583,
+    "seen": 1790612699.5129302,
+    "ast_hash": "a74c5f341e11edb673195f2e711ce2a9",
+    "semantic_hash": ""
+  },
+  "synergo/protocol.py": {
+    "mtime": 1790611861.554348,
+    "seen": 1790612699.5129302,
+    "ast_hash": "318381cfe46eb113177810daa75789be",
+    "semantic_hash": ""
+  },
+  "synergo/tests/__init__.py": {
+    "mtime": 1790611988.402838,
+    "seen": 1790612699.5129302,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_claude_code_adapter.py": {
+    "mtime": 1790612552.8788452,
+    "seen": 1790612699.512931,
+    "ast_hash": "a6d832dcf09bef4d48089e437b275040",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_daemon_batching.py": {
+    "mtime": 1790612036.0876918,
+    "seen": 1790612699.512931,
+    "ast_hash": "d4e41ca338536a1f6ec3028ad5a1844d",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_fail_open.py": {
+    "mtime": 1790612010.3618443,
+    "seen": 1790612699.512931,
+    "ast_hash": "af2109568e4992d7dcbc7de4a56b242f",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_hook_install.py": {
+    "mtime": 1790612010.3773828,
+    "seen": 1790612699.512931,
+    "ast_hash": "4338d7c16bfa2301f754d6cc9fe56bd1",
+    "semantic_hash": ""
+  },
+  "server/requirements-dev.txt": {
+    "mtime": 1790611377.8401656,
+    "seen": 1790612699.512937,
+    "ast_hash": "d748ac57d8d305af543ae23f9b7740d5",
     "semantic_hash": ""
   }
 }

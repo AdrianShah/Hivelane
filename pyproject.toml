@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "synergo"
+version = "0.1.0"
+description = "Local daemon, CLI and agent hook adapters for the Synergo relay."
+requires-python = ">=3.12"
+dependencies = [
+    "websockets>=13",
+    "fastapi",
+    "uvicorn",
+    "pydantic>=2",
+    "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+synergo = "synergo.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["synergo"]
+
+[tool.hatch.build.targets.sdist]
+include = ["synergo", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["synergo/tests", "server/tests"]

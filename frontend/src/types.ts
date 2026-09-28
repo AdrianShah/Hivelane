@@ -2,7 +2,15 @@
 
 export type Verdict = 'overlapping' | 'related' | 'unrelated';
 
-export type AgentKind = 'cursor' | 'claude-code' | 'codex' | 'unknown';
+export type AgentKind =
+  | 'cursor'
+  | 'claude-code'
+  | 'codex'
+  | 'antigravity'
+  | 'gemini-cli'
+  | 'devin'
+  | 'grok'
+  | 'unknown';
 
 export interface FileChange {
   file_path: string;
@@ -27,6 +35,27 @@ export interface ActivityUpdate {
   prompt: string | null;
   changes: FileChange[];
   caption: string | null;
+  agent?: AgentKind;
+}
+
+/** What an agent is currently trying to do — latest per user wins. */
+export interface IntentUpdate {
+  type: 'intent_update';
+  user_id: string;
+  prompt: string;
+  timestamp: number;
+  agent?: AgentKind;
+}
+
+/** A pre-edit check that came back non-allow; allow decisions aren't broadcast. */
+export interface EditDecision {
+  type: 'edit_decision';
+  user_id: string;
+  file_path: string;
+  decision: 'warn' | 'block';
+  others: string[];
+  reason: string;
+  timestamp: number;
   agent?: AgentKind;
 }
 
@@ -71,6 +100,8 @@ export interface SynergoFeed {
 export type FeedEvent =
   | ActivityUpdate
   | ConflictAlert
+  | EditDecision
+  | IntentUpdate
   | UserJoined
   | UserLeft;
 
@@ -90,6 +121,8 @@ export type ServerMessage =
   | SynergoFeed
   | ActivityUpdate
   | ConflictAlert
+  | EditDecision
+  | IntentUpdate
   | UserJoined
   | UserLeft
   | NameRejected
@@ -99,13 +132,15 @@ export interface LaneState {
   caption: string | null;
   changes: FileChange[];
   prompt: string | null;
+  intent: string | null;
+  decisions: EditDecision[];
   agent: AgentKind;
   timestamp: number | null;
 }
 
 /* --- Local companion service (http://localhost:4500) ---------------------- */
 
-/** Tools the companion can detect; a superset of the relay's AgentKind. */
+/** Tools the companion can detect; a subset of the relay's AgentKind. */
 export type ToolId = 'cursor' | 'claude-code' | 'codex' | 'antigravity' | 'unknown';
 
 /** One row of GET /detect. `running` is null when psutil is unavailable. */
