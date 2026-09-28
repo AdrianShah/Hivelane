@@ -510,9 +510,9 @@
     "semantic_hash": ""
   },
   ".github/workflows/ci.yml": {
-    "mtime": 1790632534.5249202,
-    "seen": 1790632787.4826791,
-    "ast_hash": "b699332e180f5cc73f861d614563c337",
+    "mtime": 1790632845.3505058,
+    "seen": 1790632852.5360909,
+    "ast_hash": "eae2b60bbc94e732fb5df5f3db98d39e",
     "semantic_hash": ""
   }
 }
