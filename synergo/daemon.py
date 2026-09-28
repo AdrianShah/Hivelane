@@ -16,6 +16,7 @@ from typing import Any, Optional
 import uvicorn
 import websockets
 from fastapi import FastAPI
+from pydantic import ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
 from synergo.events import EventAck, NormalizedEvent
@@ -268,7 +269,35 @@ class Daemon:
             await socket.send(payload)
 
     def _handle_frame(self, raw: str | bytes) -> None:
-        data = json.loads(raw)
+        """Dispatch one relay frame.
+
+        A bad frame must not kill the daemon: every hook would then fail open
+        and the user would lose coordination with no signal that it happened.
+        """
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            print("synergo: ignoring unparseable relay frame", file=sys.stderr)
+            return
+        if not isinstance(data, dict):
+            return
+        try:
+            self._dispatch_frame(data)
+        except ValidationError as exc:
+            print(f"synergo: ignoring malformed relay frame: {exc}", file=sys.stderr)
+
+    def _note_peers(self, event: dict[str, Any]) -> None:
+        user_id = event.get("user_id")
+        if event.get("type") == "user_left":
+            self._peers.discard(user_id)
+            return
+        if user_id and user_id != self.name:
+            self._peers.add(user_id)
+        for other in event.get("users") or []:
+            if other != self.name:
+                self._peers.add(other)
+
+    def _dispatch_frame(self, data: dict[str, Any]) -> None:
         kind = data.get("type")
 
         if kind == "edit_check_response":
@@ -281,13 +310,12 @@ class Daemon:
 
         if kind == "synergo_feed":
             for event in data.get("events") or []:
-                user_id = event.get("user_id")
-                if user_id and user_id != self.name:
-                    self._peers.add(user_id)
-                for other in event.get("users") or []:
-                    if other != self.name:
-                        self._peers.add(other)
+                self._note_peers(event)
             return
+
+        # Join catch-up and other point-to-point events arrive unbatched, so the
+        # same bookkeeping has to run on a bare frame as on a feed event.
+        self._note_peers(data)
 
         if kind == "name_rejected":
             self.fatal = (

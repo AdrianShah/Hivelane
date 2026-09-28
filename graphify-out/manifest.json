@@ -102,9 +102,9 @@
     "semantic_hash": ""
   },
   "frontend/src/components/Lane.tsx": {
-    "mtime": 1790611336.249769,
-    "seen": 1790612699.512919,
-    "ast_hash": "fc7fff0c967f53d5d2d96d4d1a8f787d",
+    "mtime": 1790615144.2283056,
+    "seen": 1790615363.8872151,
+    "ast_hash": "83a0ddca0d56a8c9f077fbfc9f20ff70",
     "semantic_hash": ""
   },
   "frontend/src/components/Sidebar.tsx": {
@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "server/main.py": {
-    "mtime": 1790611588.825309,
-    "seen": 1790612699.512924,
-    "ast_hash": "751a96336c0da69d6231199af7b83640",
+    "mtime": 1790615144.2137816,
+    "seen": 1790615363.887221,
+    "ast_hash": "5d6e433dbb112b56647312ebf05d3afd",
     "semantic_hash": ""
   },
   "server/models.py": {
@@ -396,9 +396,9 @@
     "semantic_hash": ""
   },
   "server/tests/test_edit_check_roundtrip.py": {
-    "mtime": 1790611370.6866438,
-    "seen": 1790612699.512927,
-    "ast_hash": "2d890dd0bae2eac1ed88a690731df3cc",
+    "mtime": 1790615157.8328598,
+    "seen": 1790615363.887224,
+    "ast_hash": "f7d62606c6f08ccb4b1101dd7afe1ff7",
     "semantic_hash": ""
   },
   "synergo/__init__.py": {
@@ -426,9 +426,9 @@
     "semantic_hash": ""
   },
   "synergo/daemon.py": {
-    "mtime": 1790612290.7353556,
-    "seen": 1790612699.5129302,
-    "ast_hash": "32faa8ab3d73ad2353f9525e0a048fd1",
+    "mtime": 1790615242.4197452,
+    "seen": 1790615363.8872268,
+    "ast_hash": "a38518f6f6bb286fb51a4fdc01fc4338",
     "semantic_hash": ""
   },
   "synergo/events.py": {
@@ -477,6 +477,12 @@
     "mtime": 1790611377.8401656,
     "seen": 1790612699.512937,
     "ast_hash": "d748ac57d8d305af543ae23f9b7740d5",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_frame_handling.py": {
+    "mtime": 1790615311.689247,
+    "seen": 1790615363.88723,
+    "ast_hash": "40f01584711f2653cb7bea21680bc147",
     "semantic_hash": ""
   }
 }
