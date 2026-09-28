@@ -502,5 +502,17 @@
     "seen": 1790631586.82336,
     "ast_hash": "bee11fd485ee7836918150d6c50b3ef7",
     "semantic_hash": ""
+  },
+  "scripts/smoke.sh": {
+    "mtime": 1790632761.855972,
+    "seen": 1790632787.4826639,
+    "ast_hash": "42882639bf3412ff838086f91d987238",
+    "semantic_hash": ""
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1790632534.5249202,
+    "seen": 1790632787.4826791,
+    "ast_hash": "b699332e180f5cc73f861d614563c337",
+    "semantic_hash": ""
   }
 }
