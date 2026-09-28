@@ -22,13 +22,24 @@ HOOK_POST_TIMEOUT = 2.0
 STATUS_TIMEOUT = 2.0
 
 
+class ConfigError(Exception):
+    """Bad local configuration: report it, never guess around it."""
+
+
 def resolve_port(explicit: Optional[int] = None) -> int:
     if explicit is not None:
-        return explicit
-    raw = os.environ.get("SYNERGO_PORT")
-    if raw:
-        return int(raw)
-    return DEFAULT_PORT
+        port = explicit
+    else:
+        raw = os.environ.get("SYNERGO_PORT")
+        if not raw:
+            return DEFAULT_PORT
+        try:
+            port = int(raw)
+        except ValueError:
+            raise ConfigError(f"SYNERGO_PORT is not a number: {raw!r}") from None
+    if not 1 <= port <= 65535:
+        raise ConfigError(f"port out of range: {port}")
+    return port
 
 
 def daemon_url(port: int, path: str) -> str:
@@ -71,11 +82,16 @@ def cmd_hook_claude_code(args: argparse.Namespace) -> int:
     """Fails open unconditionally: any problem means no stdout and exit 0, so a
     dead or slow daemon can never stall or break the user's agent."""
     try:
+        port = resolve_port(args.port)
+    except ConfigError as exc:
+        print(f"synergo: {exc} — proceeding without coordination", file=sys.stderr)
+        return 0
+    try:
         payload = json.loads(sys.stdin.read() or "{}")
         event = claude_code.normalize(payload)
         if event is None:
             return 0
-        ack = post_event(event, resolve_port(args.port))
+        ack = post_event(event, port)
         output = claude_code.render_response(event, ack)
         if output:
             sys.stdout.write(output)
@@ -94,13 +110,23 @@ def settings_path(global_scope: bool) -> Path:
 
 
 def load_settings(path: Path) -> dict[str, Any]:
+    """Parse an existing settings file, or raise.
+
+    Never returns {} for content it failed to understand: the caller writes this
+    file back, so a silent empty dict would replace the user's own settings.
+    """
     if not path.exists():
         return {}
     text = path.read_text(encoding="utf-8").strip()
     if not text:
         return {}
-    data = json.loads(text)
-    return data if isinstance(data, dict) else {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f"{path} is not valid JSON ({exc}) — fix it first") from None
+    if not isinstance(data, dict):
+        raise ConfigError(f"{path} does not contain a JSON object — refusing to overwrite")
+    return data
 
 
 def save_settings(path: Path, settings: dict[str, Any]) -> None:
@@ -259,7 +285,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except ConfigError as exc:
+        print(f"synergo: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

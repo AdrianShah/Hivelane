@@ -16,5 +16,10 @@ if [[ -z "$GRAPHIFY" ]]; then
 fi
 
 "$GRAPHIFY" update . >/dev/null 2>&1 || { echo "[graphify] update failed; committing without graph refresh" >&2; exit 0; }
-git add graphify-out/graph.json graphify-out/graph.html graphify-out/GRAPH_REPORT.md graphify-out/manifest.json \
-        graphify-out/.graphify_labels.json graphify-out/.graphify_labels.json.sig graphify-out/.graphify_root
+# Stage whatever graphify produced rather than a fixed file list: naming a file
+# that a given graphify version does not write would fail under `set -e` and
+# block every commit in the repo. .gitignore already excludes cache/ and
+# dated snapshot directories.
+if [[ -d graphify-out ]]; then
+  git add -- graphify-out/
+fi

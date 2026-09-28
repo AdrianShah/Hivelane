@@ -39,6 +39,7 @@ EDIT_CHECK_TIMEOUT = 1.5
 MAX_BACKOFF = 30.0
 SHUTDOWN_GRACE = 5.0
 OLD_CONTENT_CACHE_SIZE = 512
+REPO_ROOT_CACHE_SIZE = 64
 OUTBOX_LIMIT = 500
 
 
@@ -59,6 +60,49 @@ def relative_path(file_path: str, cwd: str) -> str:
         return path.relative_to(Path(cwd)).as_posix()
     except ValueError:
         return path.as_posix()
+
+
+_repo_roots: dict[str, Optional[Path]] = {}
+
+
+def repo_root(start: str) -> Optional[Path]:
+    """Nearest ancestor containing .git, or None outside a repo.
+
+    Walked on the filesystem rather than shelled out to git: pre_edit is on the
+    agent's blocking hook path. .git is a file in worktrees, so existence is the
+    test, not is_dir.
+    """
+    if start in _repo_roots:
+        return _repo_roots[start]
+    root: Optional[Path] = None
+    try:
+        current = Path(start).resolve() if start else Path.cwd()
+        for candidate in (current, *current.parents):
+            if (candidate / ".git").exists():
+                root = candidate
+                break
+    except OSError:
+        root = None
+    if len(_repo_roots) > REPO_ROOT_CACHE_SIZE:
+        _repo_roots.clear()
+    _repo_roots[start] = root
+    return root
+
+
+def repo_relative_path(file_path: str, cwd: str) -> str:
+    """Path key shared by every agent in the room.
+
+    Keyed on the repo root, not the agent's cwd: teammates run their agents from
+    different directories, and a cwd-relative key makes the same file look like
+    two files, so no overlap is ever detected.
+    """
+    root = repo_root(cwd)
+    if root is not None:
+        try:
+            return Path(file_path).resolve().relative_to(root).as_posix()
+        except (ValueError, OSError):
+            pass
+    return relative_path(file_path, cwd)
 
 
 class Daemon:
@@ -85,7 +129,14 @@ class Daemon:
         self.fatal: Optional[str] = None
 
         self._shutdown = asyncio.Event()
+        # edit_check sits on the agent's blocking hook and gives up after
+        # edit_check_timeout, so it must not queue behind a backlog of activity.
+        self._priority_outbox: asyncio.Queue[str] = asyncio.Queue()
         self._outbox: asyncio.Queue[str] = asyncio.Queue()
+        self._outbox_ready = asyncio.Event()
+        # Held across a send so a connection drop mid-send re-sends rather than
+        # silently losing the payload.
+        self._inflight: Optional[str] = None
         self._pending: dict[str, asyncio.Future[EditCheckResponse]] = {}
         self._peers: set[str] = set()
         self._old_content: OrderedDict[tuple[str, str], str] = OrderedDict()
@@ -127,7 +178,9 @@ class Daemon:
             "server": self.ws_url,
             "port": self.port,
             "peers": sorted(self._peers),
-            "queued_events": self._outbox.qsize() + len(self._batch),
+            "queued_events": (
+                self._outbox.qsize() + self._priority_outbox.qsize() + len(self._batch)
+            ),
         }
 
     # --- event handling ------------------------------------------------------
@@ -149,7 +202,7 @@ class Daemon:
     async def _handle_pre_edit(self, event: NormalizedEvent) -> EventAck:
         if not event.file_path:
             return EventAck()
-        rel = relative_path(event.file_path, event.cwd)
+        rel = repo_relative_path(event.file_path, event.cwd)
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
 
@@ -175,7 +228,7 @@ class Daemon:
     def _handle_post_edit(self, event: NormalizedEvent) -> EventAck:
         if not event.file_path:
             return EventAck()
-        rel = relative_path(event.file_path, event.cwd)
+        rel = repo_relative_path(event.file_path, event.cwd)
         old = event.old_content
         if old is None:
             old = self._old_content.pop((event.session_id, rel), "")
@@ -224,9 +277,14 @@ class Daemon:
     # --- relay socket --------------------------------------------------------
 
     def _send(self, message: ActivityMessage | IntentMessage | EditCheckRequest) -> None:
-        if self._outbox.qsize() >= OUTBOX_LIMIT:
-            self._outbox.get_nowait()
-        self._outbox.put_nowait(message.model_dump_json())
+        payload = message.model_dump_json()
+        if isinstance(message, EditCheckRequest):
+            self._priority_outbox.put_nowait(payload)
+        else:
+            if self._outbox.qsize() >= OUTBOX_LIMIT:
+                self._outbox.get_nowait()
+            self._outbox.put_nowait(payload)
+        self._outbox_ready.set()
 
     async def _relay_loop(self) -> None:
         backoff = 1.0
@@ -263,10 +321,29 @@ class Daemon:
                 pass
             backoff = min(backoff * 2, MAX_BACKOFF)
 
+    async def _next_payload(self) -> str:
+        """Next payload to send: any retained in-flight one, then priority, then bulk.
+
+        The ready event is cleared before the queues are polled so a put landing
+        during the poll either shows up in the poll or leaves the event set.
+        """
+        while True:
+            if self._inflight is not None:
+                return self._inflight
+            self._outbox_ready.clear()
+            for queue in (self._priority_outbox, self._outbox):
+                try:
+                    return queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    continue
+            await self._outbox_ready.wait()
+
     async def _drain(self, socket: Any) -> None:
         while True:
-            payload = await self._outbox.get()
+            payload = await self._next_payload()
+            self._inflight = payload
             await socket.send(payload)
+            self._inflight = None
 
     def _handle_frame(self, raw: str | bytes) -> None:
         """Dispatch one relay frame.
@@ -347,6 +424,9 @@ class Daemon:
         done, pending = await asyncio.wait({http, relay}, return_when=asyncio.FIRST_COMPLETED)
 
         self._shutdown.set()
+        # Best effort: get debounced edits into the outbox so the shutdown grace
+        # period can still send them instead of dropping them on the floor.
+        self.flush_batch()
         if self._batch_task is not None:
             self._batch_task.cancel()
 

@@ -198,9 +198,9 @@
     "semantic_hash": ""
   },
   "server/room.py": {
-    "mtime": 1790611588.825028,
-    "seen": 1790612699.512925,
-    "ast_hash": "eb0a6310b77a0bb06c78da5055589c95",
+    "mtime": 1790631326.6286702,
+    "seen": 1790631586.823333,
+    "ast_hash": "2050faadde3ca22c3aa9dc6aedcc2b82",
     "semantic_hash": ""
   },
   "server/room_manager.py": {
@@ -360,9 +360,9 @@
     "semantic_hash": ""
   },
   ".githooks/pre-commit": {
-    "mtime": 1789934063.1828816,
-    "seen": 1789934070.814975,
-    "ast_hash": "ead64cb0afaaca918ae3cd7553745ff5",
+    "mtime": 1790631441.970326,
+    "seen": 1790631586.823285,
+    "ast_hash": "be4125f2fcd62e749b3c113203bb2e98",
     "semantic_hash": ""
   },
   ".mcp.json": {
@@ -390,9 +390,9 @@
     "semantic_hash": ""
   },
   "server/tests/test_check_edit.py": {
-    "mtime": 1790611598.476205,
-    "seen": 1790612699.512927,
-    "ast_hash": "6d922628a9f1510170574ebe94c1d0f5",
+    "mtime": 1790631455.8512232,
+    "seen": 1790631586.823338,
+    "ast_hash": "07e30aedd7f365d7bba94c27041f7c0b",
     "semantic_hash": ""
   },
   "server/tests/test_edit_check_roundtrip.py": {
@@ -420,15 +420,15 @@
     "semantic_hash": ""
   },
   "synergo/cli.py": {
-    "mtime": 1790611957.407737,
-    "seen": 1790612699.512929,
-    "ast_hash": "d48a1ad863f3554c6813123be532c569",
+    "mtime": 1790631433.1143267,
+    "seen": 1790631586.823346,
+    "ast_hash": "96aeabbb20668135d2cea17dfccbbc0b",
     "semantic_hash": ""
   },
   "synergo/daemon.py": {
-    "mtime": 1790615242.4197452,
-    "seen": 1790615363.8872268,
-    "ast_hash": "a38518f6f6bb286fb51a4fdc01fc4338",
+    "mtime": 1790631389.5377126,
+    "seen": 1790631586.8233469,
+    "ast_hash": "2d2ce17cce03b198d7ce93408bc836b0",
     "semantic_hash": ""
   },
   "synergo/events.py": {
@@ -456,9 +456,9 @@
     "semantic_hash": ""
   },
   "synergo/tests/test_daemon_batching.py": {
-    "mtime": 1790612036.0876918,
-    "seen": 1790612699.512931,
-    "ast_hash": "d4e41ca338536a1f6ec3028ad5a1844d",
+    "mtime": 1790631399.0375183,
+    "seen": 1790631586.823355,
+    "ast_hash": "e518cf50b05334ec2a64a2c74e3d005a",
     "semantic_hash": ""
   },
   "synergo/tests/test_fail_open.py": {
@@ -483,6 +483,24 @@
     "mtime": 1790615311.689247,
     "seen": 1790615363.88723,
     "ast_hash": "40f01584711f2653cb7bea21680bc147",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_config_errors.py": {
+    "mtime": 1790631476.2626483,
+    "seen": 1790631586.823353,
+    "ast_hash": "18f99f2011d756f3f2613699bfaa6ff8",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_outbox.py": {
+    "mtime": 1790631506.149757,
+    "seen": 1790631586.823359,
+    "ast_hash": "46aa51864bb73514bf5b594b81469cd9",
+    "semantic_hash": ""
+  },
+  "synergo/tests/test_path_keys.py": {
+    "mtime": 1790631455.8533437,
+    "seen": 1790631586.82336,
+    "ast_hash": "bee11fd485ee7836918150d6c50b3ef7",
     "semantic_hash": ""
   }
 }

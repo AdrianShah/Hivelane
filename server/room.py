@@ -41,6 +41,11 @@ CONFLICT_WINDOW_SECONDS = 60.0
 # outright rather than merely flagged.
 EDIT_BLOCK_WINDOW_SECONDS = 20.0
 
+# How long a declared intent still describes what a peer is doing. Longer than
+# the touch window because stating a task precedes editing, but bounded: an
+# unbounded intent warns about the same file for the rest of the session.
+INTENT_WINDOW_SECONDS = 300.0
+
 # Debounce room-wide broadcasts into a single Synergo feed frame.
 BROADCAST_FLUSH_SECONDS = 0.5
 
@@ -237,8 +242,10 @@ class Room:
             )
         return overlaps
 
-    def _intent_mentions(self, file_path: str, user_id: str) -> list[FileTouch]:
-        """Active peers whose declared intent names this file, newest first.
+    def _intent_mentions(
+        self, file_path: str, user_id: str, now: float
+    ) -> list[FileTouch]:
+        """Active peers whose recent declared intent names this file, newest first.
 
         Matching on the bare stem as well as the basename catches prompts that
         talk about the module rather than the file ("refactor the Room
@@ -254,6 +261,8 @@ class Room:
         matches: list[FileTouch] = []
         for other_id, intent in self._latest_intents.items():
             if other_id == user_id or not self.is_active(other_id):
+                continue
+            if now - intent.timestamp > INTENT_WINDOW_SECONDS:
                 continue
             text = intent.prompt.lower()
             if not any(needle in text for needle in needles):
@@ -297,7 +306,7 @@ class Room:
         if others:
             return "warn", others
 
-        mentions = self._intent_mentions(file_path, user_id)
+        mentions = self._intent_mentions(file_path, user_id, now)
         if mentions:
             return "warn", mentions
         return "allow", []
