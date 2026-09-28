@@ -37,6 +37,12 @@ log = logging.getLogger(__name__)
 # How long a peer's last touch of a file stays eligible for conflict comparison.
 CONFLICT_WINDOW_SECONDS = 60.0
 
+# A touch past the comparison window is invisible to every reader, so it is swept
+# instead of being kept for the life of the room. Tied to the window on purpose:
+# widening one without the other would start pruning touches still in use.
+ACTIVITY_RETENTION_SECONDS = CONFLICT_WINDOW_SECONDS
+ACTIVITY_PRUNE_INTERVAL_SECONDS = 60.0
+
 # Inside this window a peer is presumed mid-edit, so an incoming edit is denied
 # outright rather than merely flagged.
 EDIT_BLOCK_WINDOW_SECONDS = 20.0
@@ -76,6 +82,8 @@ class Room:
         self._spectators: set[WebSocket] = set()
         # file_path -> {user_id: FileTouch} — latest edit per user per file.
         self._file_activity: dict[str, dict[str, FileTouch]] = {}
+        # Message-clock timestamp of the last sweep (see _prune_file_activity).
+        self._last_prune_at = 0.0
         # Last broadcast activity per connected user (for spectator catch-up).
         self._latest_updates: dict[str, ActivityUpdate] = {}
         # Last declared intent per connected user (for spectator catch-up and
@@ -160,7 +168,29 @@ class Room:
 
     # --- file activity -------------------------------------------------------
 
+    def _prune_file_activity(self, now: float) -> None:
+        """Drop touches that can no longer affect a comparison.
+
+        Measured against the incoming message's timestamp rather than wall clock,
+        the same clock find_overlaps treats as now, and throttled so a busy room
+        does not sweep on every batch.
+        """
+        if now - self._last_prune_at < ACTIVITY_PRUNE_INTERVAL_SECONDS:
+            return
+        self._last_prune_at = now
+        for file_path in list(self._file_activity):
+            touches = self._file_activity[file_path]
+            for user_id in [
+                user
+                for user, touch in touches.items()
+                if now - touch.timestamp > ACTIVITY_RETENTION_SECONDS
+            ]:
+                del touches[user_id]
+            if not touches:
+                del self._file_activity[file_path]
+
     def record_activity(self, message: ActivityMessage) -> None:
+        self._prune_file_activity(message.timestamp)
         for change in message.changes:
             touches = self._file_activity.setdefault(change.file_path, {})
             touches[message.user_id] = FileTouch(

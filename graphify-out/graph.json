@@ -173,6 +173,32 @@
       "source_location": "L25"
     },
     {
+      "id": "server_models_activityupdate",
+      "label": "ActivityUpdate",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "activityupdate",
+      "source_file": "server/models.py",
+      "source_location": "L90"
+    },
+    {
+      "id": "server_models_intentupdate",
+      "label": "IntentUpdate",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 15,
+      "community_name": "models.py",
+      "file_type": "code",
+      "norm_label": "intentupdate",
+      "source_file": "server/models.py",
+      "source_location": "L112"
+    },
+    {
       "id": "server_models_synergofeed",
       "label": "SynergoFeed",
       "_callable": true,
@@ -184,45 +210,6 @@
       "norm_label": "synergofeed",
       "source_file": "server/models.py",
       "source_location": "L165"
-    },
-    {
-      "id": "server_room_fileoverlap",
-      "label": "FileOverlap",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "code",
-      "norm_label": "fileoverlap",
-      "source_file": "server/room.py",
-      "source_location": "L64"
-    },
-    {
-      "id": "companion_main_createwatcherrequest",
-      "label": "CreateWatcherRequest",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "createwatcherrequest",
-      "source_file": "companion/main.py",
-      "source_location": "L98"
-    },
-    {
-      "id": "companion_main_createwatcherresponse",
-      "label": "CreateWatcherResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "createwatcherresponse",
-      "source_file": "companion/main.py",
-      "source_location": "L106"
     },
     {
       "id": "companion_main_watcherinfo",
@@ -244,7 +231,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": "watcheralreadyrunning",
       "source_file": "companion/process_manager.py",
@@ -314,123 +301,6 @@
       "norm_label": "normalizedevent",
       "source_file": "synergo/events.py",
       "source_location": "L19"
-    },
-    {
-      "id": "synergo_protocol_activitymessage",
-      "label": "ActivityMessage",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "activitymessage",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L53"
-    },
-    {
-      "id": "synergo_protocol_editcheckrequest",
-      "label": "EditCheckRequest",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "editcheckrequest",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L69"
-    },
-    {
-      "id": "synergo_protocol_editcheckresponse",
-      "label": "EditCheckResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "editcheckresponse",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L89"
-    },
-    {
-      "id": "synergo_protocol_filechange",
-      "label": "FileChange",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "filechange",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L39"
-    },
-    {
-      "id": "synergo_protocol_intentmessage",
-      "label": "IntentMessage",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "intentmessage",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L62"
-    },
-    {
-      "id": "synergo_protocol_joinmessage",
-      "label": "JoinMessage",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "joinmessage",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L47"
-    },
-    {
-      "id": "synergo_protocol_namerejected",
-      "label": "NameRejected",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "namerejected",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L98"
-    },
-    {
-      "id": "synergo_protocol_roomrejected",
-      "label": "RoomRejected",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "roomrejected",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L103"
-    },
-    {
-      "id": "synergo_protocol_synergofeed",
-      "label": "SynergoFeed",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "synergofeed",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L108"
     },
     {
       "id": "frontend_src_app_connstatus",
@@ -764,7 +634,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 47,
-      "community_name": "react",
+      "community_name": "DeployModal.tsx",
       "file_type": "code",
       "norm_label": "deploymodalprops",
       "source_file": "frontend/src/components/DeployModal.tsx",
@@ -797,30 +667,264 @@
       "source_location": "L47"
     },
     {
-      "id": "server_models_activityupdate",
-      "label": "ActivityUpdate",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 53,
-      "community_name": "handle_activity",
-      "file_type": "code",
-      "norm_label": "activityupdate",
-      "source_file": "server/models.py",
-      "source_location": "L90"
-    },
-    {
       "id": "server_models_activitymessage",
       "label": "ActivityMessage",
       "_callable": true,
       "_callable_class": true,
       "_origin": "ast",
-      "community": 6,
-      "community_name": "gemini.py",
+      "community": 53,
+      "community_name": "ActivityMessage",
       "file_type": "code",
       "norm_label": "activitymessage",
       "source_file": "server/models.py",
       "source_location": "L51"
+    },
+    {
+      "id": "server_room_fileoverlap",
+      "label": "FileOverlap",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 53,
+      "community_name": "ActivityMessage",
+      "file_type": "code",
+      "norm_label": "fileoverlap",
+      "source_file": "server/room.py",
+      "source_location": "L70"
+    },
+    {
+      "id": "synergo_protocol_activitymessage",
+      "label": "ActivityMessage",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "activitymessage",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L53"
+    },
+    {
+      "id": "synergo_protocol_editcheckrequest",
+      "label": "EditCheckRequest",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "editcheckrequest",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L69"
+    },
+    {
+      "id": "synergo_protocol_editcheckresponse",
+      "label": "EditCheckResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "editcheckresponse",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L89"
+    },
+    {
+      "id": "synergo_protocol_filechange",
+      "label": "FileChange",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "filechange",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L39"
+    },
+    {
+      "id": "synergo_protocol_intentmessage",
+      "label": "IntentMessage",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "intentmessage",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L62"
+    },
+    {
+      "id": "synergo_protocol_joinmessage",
+      "label": "JoinMessage",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "joinmessage",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L47"
+    },
+    {
+      "id": "synergo_protocol_namerejected",
+      "label": "NameRejected",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "namerejected",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L98"
+    },
+    {
+      "id": "synergo_protocol_roomrejected",
+      "label": "RoomRejected",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "roomrejected",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L103"
+    },
+    {
+      "id": "synergo_protocol_synergofeed",
+      "label": "SynergoFeed",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "synergofeed",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L108"
+    },
+    {
+      "id": "server_models_filechange",
+      "label": "FileChange",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "filechange",
+      "source_file": "server/models.py",
+      "source_location": "L31"
+    },
+    {
+      "id": "server_tests_test_check_edit_fakesocket",
+      "label": "FakeSocket",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "fakesocket",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L17"
+    },
+    {
+      "id": "server_models_editcheckrequest",
+      "label": "EditCheckRequest",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "editcheckrequest",
+      "source_file": "server/models.py",
+      "source_location": "L70"
+    },
+    {
+      "id": "server_models_editcheckresponse",
+      "label": "EditCheckResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "editcheckresponse",
+      "source_file": "server/models.py",
+      "source_location": "L100"
+    },
+    {
+      "id": "server_models_editdecision",
+      "label": "EditDecision",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "editdecision",
+      "source_file": "server/models.py",
+      "source_location": "L120"
+    },
+    {
+      "id": "server_models_peertouch",
+      "label": "PeerTouch",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "peertouch",
+      "source_file": "server/models.py",
+      "source_location": "L83"
+    },
+    {
+      "id": "server_room_manager_roommanager",
+      "label": "RoomManager",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": "roommanager",
+      "source_file": "server/room_manager.py",
+      "source_location": "L36"
+    },
+    {
+      "id": "companion_main_createwatcherrequest",
+      "label": "CreateWatcherRequest",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "createwatcherrequest",
+      "source_file": "companion/main.py",
+      "source_location": "L98"
+    },
+    {
+      "id": "companion_main_createwatcherresponse",
+      "label": "CreateWatcherResponse",
+      "_callable": true,
+      "_callable_class": true,
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "createwatcherresponse",
+      "source_file": "companion/main.py",
+      "source_location": "L106"
     },
     {
       "id": "server_models_conflictalert",
@@ -836,19 +940,6 @@
       "source_location": "L135"
     },
     {
-      "id": "server_models_filechange",
-      "label": "FileChange",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 6,
-      "community_name": "gemini.py",
-      "file_type": "code",
-      "norm_label": "filechange",
-      "source_file": "server/models.py",
-      "source_location": "L31"
-    },
-    {
       "id": "server_room_filetouch",
       "label": "FileTouch",
       "_callable": true,
@@ -859,20 +950,7 @@
       "file_type": "code",
       "norm_label": "filetouch",
       "source_file": "server/room.py",
-      "source_location": "L54"
-    },
-    {
-      "id": "server_room_manager_roommanager",
-      "label": "RoomManager",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "roommanager",
-      "source_file": "server/room_manager.py",
-      "source_location": "L36"
+      "source_location": "L60"
     },
     {
       "id": "server_room_room",
@@ -885,59 +963,7 @@
       "file_type": "code",
       "norm_label": "room",
       "source_file": "server/room.py",
-      "source_location": "L72"
-    },
-    {
-      "id": "server_tests_test_check_edit_fakesocket",
-      "label": "FakeSocket",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "fakesocket",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L17"
-    },
-    {
-      "id": "server_models_editcheckrequest",
-      "label": "EditCheckRequest",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "editcheckrequest",
-      "source_file": "server/models.py",
-      "source_location": "L70"
-    },
-    {
-      "id": "server_models_editcheckresponse",
-      "label": "EditCheckResponse",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "editcheckresponse",
-      "source_file": "server/models.py",
-      "source_location": "L100"
-    },
-    {
-      "id": "server_models_editdecision",
-      "label": "EditDecision",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "editdecision",
-      "source_file": "server/models.py",
-      "source_location": "L120"
+      "source_location": "L78"
     },
     {
       "id": "server_models_intentmessage",
@@ -946,24 +972,11 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "intentmessage",
       "source_file": "server/models.py",
       "source_location": "L60"
-    },
-    {
-      "id": "server_models_intentupdate",
-      "label": "IntentUpdate",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "intentupdate",
-      "source_file": "server/models.py",
-      "source_location": "L112"
     },
     {
       "id": "server_models_joinmessage",
@@ -972,7 +985,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "joinmessage",
       "source_file": "server/models.py",
@@ -985,24 +998,11 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "namerejected",
       "source_file": "server/models.py",
       "source_location": "L155"
-    },
-    {
-      "id": "server_models_peertouch",
-      "label": "PeerTouch",
-      "_callable": true,
-      "_callable_class": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "peertouch",
-      "source_file": "server/models.py",
-      "source_location": "L83"
     },
     {
       "id": "server_models_roomrejected",
@@ -1011,7 +1011,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "roomrejected",
       "source_file": "server/models.py",
@@ -1024,7 +1024,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "userjoined",
       "source_file": "server/models.py",
@@ -1037,7 +1037,7 @@
       "_callable_class": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "userleft",
       "source_file": "server/models.py",
@@ -1536,6 +1536,18 @@
       "source_location": "L35"
     },
     {
+      "id": "server_tests_conftest_no_gemini",
+      "label": "_no_gemini()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "_no_gemini()",
+      "source_file": "server/tests/conftest.py",
+      "source_location": "L9"
+    },
+    {
       "id": "synergo_adapters_claude_code_conflict_message",
       "label": "conflict_message()",
       "_callable": true,
@@ -1752,16 +1764,52 @@
       "source_location": "L151"
     },
     {
-      "id": "server_tests_conftest_no_gemini",
-      "label": "_no_gemini()",
+      "id": "synergo_tests_test_fail_open_test_hook_fails_open_on_empty_stdin",
+      "label": "test_hook_fails_open_on_empty_stdin()",
       "_callable": true,
       "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
       "file_type": "code",
-      "norm_label": "_no_gemini()",
-      "source_file": "server/tests/conftest.py",
-      "source_location": "L9"
+      "norm_label": "test_hook_fails_open_on_empty_stdin()",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L48"
+    },
+    {
+      "id": "synergo_tests_test_fail_open_test_hook_fails_open_on_garbage_stdin",
+      "label": "test_hook_fails_open_on_garbage_stdin()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "test_hook_fails_open_on_garbage_stdin()",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L40"
+    },
+    {
+      "id": "synergo_tests_test_fail_open_test_hook_fails_open_without_daemon",
+      "label": "test_hook_fails_open_without_daemon()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "test_hook_fails_open_without_daemon()",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L21"
+    },
+    {
+      "id": "synergo_tests_test_fail_open_unused_port",
+      "label": "unused_port()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "unused_port()",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L15"
     },
     {
       "id": "synergo_cli_build_parser",
@@ -2016,54 +2064,6 @@
       "source_location": "L45"
     },
     {
-      "id": "synergo_tests_test_fail_open_test_hook_fails_open_on_empty_stdin",
-      "label": "test_hook_fails_open_on_empty_stdin()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "test_hook_fails_open_on_empty_stdin()",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L48"
-    },
-    {
-      "id": "synergo_tests_test_fail_open_test_hook_fails_open_on_garbage_stdin",
-      "label": "test_hook_fails_open_on_garbage_stdin()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "test_hook_fails_open_on_garbage_stdin()",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L40"
-    },
-    {
-      "id": "synergo_tests_test_fail_open_test_hook_fails_open_without_daemon",
-      "label": "test_hook_fails_open_without_daemon()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "test_hook_fails_open_without_daemon()",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L21"
-    },
-    {
-      "id": "synergo_tests_test_fail_open_unused_port",
-      "label": "unused_port()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "unused_port()",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L15"
-    },
-    {
       "id": "synergo_tests_test_hook_install_synergo_hooks",
       "label": "synergo_hooks()",
       "_callable": true,
@@ -2133,19 +2133,7 @@
       "file_type": "code",
       "norm_label": ".check_edit()",
       "source_file": "server/room.py",
-      "source_location": "L283"
-    },
-    {
-      "id": "server_room_room_find_overlaps",
-      "label": ".find_overlaps()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "code",
-      "norm_label": ".find_overlaps()",
-      "source_file": "server/room.py",
-      "source_location": "L222"
+      "source_location": "L313"
     },
     {
       "id": "server_room_room_intent_mentions",
@@ -2157,7 +2145,7 @@
       "file_type": "code",
       "norm_label": "._intent_mentions()",
       "source_file": "server/room.py",
-      "source_location": "L245"
+      "source_location": "L275"
     },
     {
       "id": "server_room_room_is_active",
@@ -2169,7 +2157,7 @@
       "file_type": "code",
       "norm_label": ".is_active()",
       "source_file": "server/room.py",
-      "source_location": "L98"
+      "source_location": "L106"
     },
     {
       "id": "server_room_room_recent_other_touches",
@@ -2181,7 +2169,7 @@
       "file_type": "code",
       "norm_label": ".recent_other_touches()",
       "source_file": "server/room.py",
-      "source_location": "L200"
+      "source_location": "L230"
     },
     {
       "id": "demo_proj_src_utils_format_diff_summary",
@@ -2218,18 +2206,6 @@
       "norm_label": "watch_badge()",
       "source_file": "demo_proj/src/utils.py",
       "source_location": "L14"
-    },
-    {
-      "id": "companion_main_create_watcher",
-      "label": "create_watcher()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "create_watcher()",
-      "source_file": "companion/main.py",
-      "source_location": "L155"
     },
     {
       "id": "companion_main_delete_watcher",
@@ -2393,7 +2369,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": "_build_command()",
       "source_file": "companion/process_manager.py",
@@ -2405,7 +2381,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": "_normalize_path()",
       "source_file": "companion/process_manager.py",
@@ -2417,7 +2393,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": "._reap_locked()",
       "source_file": "companion/process_manager.py",
@@ -2429,7 +2405,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": ".start()",
       "source_file": "companion/process_manager.py",
@@ -2796,42 +2772,6 @@
       "source_location": "L57"
     },
     {
-      "id": "synergo_daemon_repo_relative_path",
-      "label": "repo_relative_path()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "repo_relative_path()",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L92"
-    },
-    {
-      "id": "synergo_daemon_repo_root",
-      "label": "repo_root()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "repo_root()",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L68"
-    },
-    {
-      "id": "synergo_daemon_unified_diff",
-      "label": "unified_diff()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "unified_diff()",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L46"
-    },
-    {
       "id": "synergo_tests_test_daemon_batching_drain",
       "label": "drain()",
       "_callable": true,
@@ -3034,162 +2974,6 @@
       "norm_label": "test_relative_path_falls_back_to_absolute_outside_cwd()",
       "source_file": "synergo/tests/test_daemon_batching.py",
       "source_location": "L190"
-    },
-    {
-      "id": "synergo_tests_test_outbox_activity",
-      "label": "_activity()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "_activity()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L19"
-    },
-    {
-      "id": "synergo_tests_test_outbox_daemon",
-      "label": "_daemon()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "_daemon()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L15"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_edit_check_overtakes_a_backlog_of_activity",
-      "label": "test_edit_check_overtakes_a_backlog_of_activity()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_edit_check_overtakes_a_backlog_of_activity()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L25"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_edit_check_overtakes_a_backlog_of_activity_scenario",
-      "label": "scenario()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "scenario()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L26"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_inflight_payload_is_resent_after_a_drop",
-      "label": "test_inflight_payload_is_resent_after_a_drop()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_inflight_payload_is_resent_after_a_drop()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L36"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_inflight_payload_is_resent_after_a_drop_scenario",
-      "label": "scenario()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "scenario()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L37"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send",
-      "label": "test_next_payload_wakes_on_a_later_send()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_next_payload_wakes_on_a_later_send()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L56"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send_scenario",
-      "label": "scenario()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "scenario()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L57"
-    },
-    {
-      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send_scenario_send_soon",
-      "label": "send_soon()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "send_soon()",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L60"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_repo",
-      "label": "_repo()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "_repo()",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L10"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_test_outside_a_repo_falls_back_to_cwd_relative",
-      "label": "test_outside_a_repo_falls_back_to_cwd_relative()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_outside_a_repo_falls_back_to_cwd_relative()",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L33"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_test_same_file_keys_identically_from_different_cwds",
-      "label": "test_same_file_keys_identically_from_different_cwds()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_same_file_keys_identically_from_different_cwds()",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L17"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_test_worktree_git_file_is_recognised",
-      "label": "test_worktree_git_file_is_recognised()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_worktree_git_file_is_recognised()",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L27"
     },
     {
       "id": "frontend_src_app_app",
@@ -3509,7 +3293,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 47,
-      "community_name": "react",
+      "community_name": "DeployModal.tsx",
       "file_type": "code",
       "norm_label": "deploymodal()",
       "source_file": "frontend/src/components/DeployModal.tsx",
@@ -3521,7 +3305,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 47,
-      "community_name": "react",
+      "community_name": "DeployModal.tsx",
       "file_type": "code",
       "norm_label": "watchercommand()",
       "source_file": "frontend/src/components/DeployModal.tsx",
@@ -3701,7 +3485,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 53,
-      "community_name": "handle_activity",
+      "community_name": "ActivityMessage",
       "file_type": "code",
       "norm_label": "evaluate_and_broadcast_conflicts()",
       "source_file": "server/main.py",
@@ -3713,7 +3497,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 53,
-      "community_name": "handle_activity",
+      "community_name": "ActivityMessage",
       "file_type": "code",
       "norm_label": "handle_activity()",
       "source_file": "server/main.py",
@@ -3725,11 +3509,23 @@
       "_callable": true,
       "_origin": "ast",
       "community": 53,
-      "community_name": "handle_activity",
+      "community_name": "ActivityMessage",
       "file_type": "code",
       "norm_label": "_log_conflict_task_error()",
       "source_file": "server/main.py",
       "source_location": "L113"
+    },
+    {
+      "id": "server_room_room_find_overlaps",
+      "label": ".find_overlaps()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 53,
+      "community_name": "ActivityMessage",
+      "file_type": "code",
+      "norm_label": ".find_overlaps()",
+      "source_file": "server/room.py",
+      "source_location": "L252"
     },
     {
       "id": "server_main_create_room",
@@ -3737,11 +3533,503 @@
       "_callable": true,
       "_origin": "ast",
       "community": 54,
-      "community_name": "create_room",
+      "community_name": "server/main.py",
       "file_type": "code",
       "norm_label": "create_room()",
       "source_file": "server/main.py",
       "source_location": "L123"
+    },
+    {
+      "id": "server_main_health",
+      "label": "health()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "health()",
+      "source_file": "server/main.py",
+      "source_location": "L134"
+    },
+    {
+      "id": "server_main_schedule_empty_room_cleanup",
+      "label": "_schedule_empty_room_cleanup()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "_schedule_empty_room_cleanup()",
+      "source_file": "server/main.py",
+      "source_location": "L105"
+    },
+    {
+      "id": "server_main_schedule_empty_room_cleanup_cleanup_later",
+      "label": "_cleanup_later()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "_cleanup_later()",
+      "source_file": "server/main.py",
+      "source_location": "L106"
+    },
+    {
+      "id": "synergo_daemon_repo_relative_path",
+      "label": "repo_relative_path()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "repo_relative_path()",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L92"
+    },
+    {
+      "id": "synergo_daemon_repo_root",
+      "label": "repo_root()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "repo_root()",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L68"
+    },
+    {
+      "id": "synergo_daemon_unified_diff",
+      "label": "unified_diff()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "unified_diff()",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L46"
+    },
+    {
+      "id": "synergo_tests_test_outbox_activity",
+      "label": "_activity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "_activity()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L19"
+    },
+    {
+      "id": "synergo_tests_test_outbox_daemon",
+      "label": "_daemon()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "_daemon()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L15"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_edit_check_overtakes_a_backlog_of_activity",
+      "label": "test_edit_check_overtakes_a_backlog_of_activity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_edit_check_overtakes_a_backlog_of_activity()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L25"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_edit_check_overtakes_a_backlog_of_activity_scenario",
+      "label": "scenario()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "scenario()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L26"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_inflight_payload_is_resent_after_a_drop",
+      "label": "test_inflight_payload_is_resent_after_a_drop()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_inflight_payload_is_resent_after_a_drop()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L36"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_inflight_payload_is_resent_after_a_drop_scenario",
+      "label": "scenario()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "scenario()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L37"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send",
+      "label": "test_next_payload_wakes_on_a_later_send()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_next_payload_wakes_on_a_later_send()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L56"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send_scenario",
+      "label": "scenario()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "scenario()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L57"
+    },
+    {
+      "id": "synergo_tests_test_outbox_test_next_payload_wakes_on_a_later_send_scenario_send_soon",
+      "label": "send_soon()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "send_soon()",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L60"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_repo",
+      "label": "_repo()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "_repo()",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L10"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_test_outside_a_repo_falls_back_to_cwd_relative",
+      "label": "test_outside_a_repo_falls_back_to_cwd_relative()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_outside_a_repo_falls_back_to_cwd_relative()",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L33"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_test_same_file_keys_identically_from_different_cwds",
+      "label": "test_same_file_keys_identically_from_different_cwds()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_same_file_keys_identically_from_different_cwds()",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L17"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_test_worktree_git_file_is_recognised",
+      "label": "test_worktree_git_file_is_recognised()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_worktree_git_file_is_recognised()",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L27"
+    },
+    {
+      "id": "server_tests_test_check_edit_join",
+      "label": "_join()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "_join()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L22"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_allows_past_the_conflict_window",
+      "label": "test_allows_past_the_conflict_window()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_allows_past_the_conflict_window()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L68"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_allows_when_the_only_toucher_disconnected",
+      "label": "test_allows_when_the_only_toucher_disconnected()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_allows_when_the_only_toucher_disconnected()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L80"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_blocks_inside_the_block_window",
+      "label": "test_blocks_inside_the_block_window()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_blocks_inside_the_block_window()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L44"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_disconnecting_clears_intent",
+      "label": "test_disconnecting_clears_intent()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_disconnecting_clears_intent()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L143"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_intent_mentioning_the_file_escalates_allow_to_warn",
+      "label": "test_intent_mentioning_the_file_escalates_allow_to_warn()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_intent_mentioning_the_file_escalates_allow_to_warn()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L107"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_intent_with_the_full_basename_escalates",
+      "label": "test_intent_with_the_full_basename_escalates()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_intent_with_the_full_basename_escalates()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L120"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "label": "test_old_touches_are_swept()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_old_touches_are_swept()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L175"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_peers_are_returned_most_recent_first",
+      "label": "test_peers_are_returned_most_recent_first()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_peers_are_returned_most_recent_first()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L93"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "label": "test_pruning_keeps_touches_still_inside_the_window()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_pruning_keeps_touches_still_inside_the_window()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L188"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_unrelated_intent_still_allows",
+      "label": "test_unrelated_intent_still_allows()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_unrelated_intent_still_allows()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L131"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_warns_between_block_and_conflict_windows",
+      "label": "test_warns_between_block_and_conflict_windows()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_warns_between_block_and_conflict_windows()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L56"
+    },
+    {
+      "id": "server_tests_test_check_edit_touch",
+      "label": "_touch()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "_touch()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L26"
+    },
+    {
+      "id": "server_main_edit_check_reason",
+      "label": "_edit_check_reason()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "_edit_check_reason()",
+      "source_file": "server/main.py",
+      "source_location": "L293"
+    },
+    {
+      "id": "server_main_handle_edit_check",
+      "label": "handle_edit_check()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "handle_edit_check()",
+      "source_file": "server/main.py",
+      "source_location": "L310"
+    },
+    {
+      "id": "server_room_manager_generate_code",
+      "label": "_generate_code()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": "_generate_code()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L32"
+    },
+    {
+      "id": "server_room_manager_roommanager_cleanup_if_empty",
+      "label": ".cleanup_if_empty()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": ".cleanup_if_empty()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L57"
+    },
+    {
+      "id": "server_room_manager_roommanager_create_room",
+      "label": ".create_room()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": ".create_room()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L40"
+    },
+    {
+      "id": "server_room_manager_roommanager_get",
+      "label": ".get()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": ".get()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L52"
+    },
+    {
+      "id": "server_room_manager_roommanager_init",
+      "label": ".__init__()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": ".__init__()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L37"
+    },
+    {
+      "id": "server_room_manager_roommanager_room_count",
+      "label": ".room_count()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "code",
+      "norm_label": ".room_count()",
+      "source_file": "server/room_manager.py",
+      "source_location": "L65"
+    },
+    {
+      "id": "companion_main_create_watcher",
+      "label": "create_watcher()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "create_watcher()",
+      "source_file": "companion/main.py",
+      "source_location": "L155"
     },
     {
       "id": "server_gemini_classify_conflict",
@@ -3840,88 +4128,28 @@
       "source_location": "L173"
     },
     {
-      "id": "server_room_room_record_activity",
-      "label": ".record_activity()",
+      "id": "server_tests_test_check_edit_test_intent_does_not_consume_the_activity_rate_limit_budget",
+      "label": "test_intent_does_not_consume_the_activity_rate_limit_budget()",
       "_callable": true,
       "_origin": "ast",
-      "community": 6,
-      "community_name": "gemini.py",
+      "community": 60,
+      "community_name": "test_intent_does_not_consume_the_activity_rate_limit_budget",
       "file_type": "code",
-      "norm_label": ".record_activity()",
-      "source_file": "server/room.py",
+      "norm_label": "test_intent_does_not_consume_the_activity_rate_limit_budget()",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L154"
+    },
+    {
+      "id": "server_tests_test_check_edit_test_stale_intent_no_longer_escalates",
+      "label": "test_stale_intent_no_longer_escalates()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 61,
+      "community_name": "test_stale_intent_no_longer_escalates",
+      "file_type": "code",
+      "norm_label": "test_stale_intent_no_longer_escalates()",
+      "source_file": "server/tests/test_check_edit.py",
       "source_location": "L163"
-    },
-    {
-      "id": "server_room_manager_generate_code",
-      "label": "_generate_code()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "_generate_code()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L32"
-    },
-    {
-      "id": "server_room_manager_roommanager_cleanup_if_empty",
-      "label": ".cleanup_if_empty()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": ".cleanup_if_empty()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L57"
-    },
-    {
-      "id": "server_room_manager_roommanager_create_room",
-      "label": ".create_room()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": ".create_room()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L40"
-    },
-    {
-      "id": "server_room_manager_roommanager_get",
-      "label": ".get()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": ".get()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L52"
-    },
-    {
-      "id": "server_room_manager_roommanager_init",
-      "label": ".__init__()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": ".__init__()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L37"
-    },
-    {
-      "id": "server_room_manager_roommanager_room_count",
-      "label": ".room_count()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": ".room_count()",
-      "source_file": "server/room_manager.py",
-      "source_location": "L65"
     },
     {
       "id": "server_room_room_add_member",
@@ -3933,7 +4161,7 @@
       "file_type": "code",
       "norm_label": ".add_member()",
       "source_file": "server/room.py",
-      "source_location": "L117"
+      "source_location": "L125"
     },
     {
       "id": "server_room_room_add_spectator",
@@ -3945,7 +4173,7 @@
       "file_type": "code",
       "norm_label": ".add_spectator()",
       "source_file": "server/room.py",
-      "source_location": "L134"
+      "source_location": "L142"
     },
     {
       "id": "server_room_room_broadcast",
@@ -3957,7 +4185,7 @@
       "file_type": "code",
       "norm_label": ".broadcast()",
       "source_file": "server/room.py",
-      "source_location": "L316"
+      "source_location": "L346"
     },
     {
       "id": "server_room_room_deliver",
@@ -3969,7 +4197,7 @@
       "file_type": "code",
       "norm_label": "._deliver()",
       "source_file": "server/room.py",
-      "source_location": "L339"
+      "source_location": "L369"
     },
     {
       "id": "server_room_room_flush_broadcast_queue",
@@ -3981,7 +4209,7 @@
       "file_type": "code",
       "norm_label": "._flush_broadcast_queue()",
       "source_file": "server/room.py",
-      "source_location": "L327"
+      "source_location": "L357"
     },
     {
       "id": "server_room_room_init",
@@ -3993,7 +4221,7 @@
       "file_type": "code",
       "norm_label": ".__init__()",
       "source_file": "server/room.py",
-      "source_location": "L73"
+      "source_location": "L79"
     },
     {
       "id": "server_room_room_is_activity_rate_limited",
@@ -4005,7 +4233,7 @@
       "file_type": "code",
       "norm_label": ".is_activity_rate_limited()",
       "source_file": "server/room.py",
-      "source_location": "L140"
+      "source_location": "L148"
     },
     {
       "id": "server_room_room_is_empty",
@@ -4017,7 +4245,7 @@
       "file_type": "code",
       "norm_label": ".is_empty()",
       "source_file": "server/room.py",
-      "source_location": "L112"
+      "source_location": "L120"
     },
     {
       "id": "server_room_room_is_taken",
@@ -4029,7 +4257,7 @@
       "file_type": "code",
       "norm_label": ".is_taken()",
       "source_file": "server/room.py",
-      "source_location": "L95"
+      "source_location": "L103"
     },
     {
       "id": "server_room_room_latest_intents",
@@ -4041,7 +4269,7 @@
       "file_type": "code",
       "norm_label": ".latest_intents()",
       "source_file": "server/room.py",
-      "source_location": "L197"
+      "source_location": "L227"
     },
     {
       "id": "server_room_room_latest_updates",
@@ -4053,7 +4281,7 @@
       "file_type": "code",
       "norm_label": ".latest_updates()",
       "source_file": "server/room.py",
-      "source_location": "L178"
+      "source_location": "L208"
     },
     {
       "id": "server_room_room_member_agent",
@@ -4065,7 +4293,7 @@
       "file_type": "code",
       "norm_label": ".member_agent()",
       "source_file": "server/room.py",
-      "source_location": "L123"
+      "source_location": "L131"
     },
     {
       "id": "server_room_room_member_ids",
@@ -4077,7 +4305,31 @@
       "file_type": "code",
       "norm_label": ".member_ids()",
       "source_file": "server/room.py",
-      "source_location": "L108"
+      "source_location": "L116"
+    },
+    {
+      "id": "server_room_room_prune_file_activity",
+      "label": "._prune_file_activity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Room",
+      "file_type": "code",
+      "norm_label": "._prune_file_activity()",
+      "source_file": "server/room.py",
+      "source_location": "L171"
+    },
+    {
+      "id": "server_room_room_record_activity",
+      "label": ".record_activity()",
+      "_callable": true,
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Room",
+      "file_type": "code",
+      "norm_label": ".record_activity()",
+      "source_file": "server/room.py",
+      "source_location": "L192"
     },
     {
       "id": "server_room_room_record_intent",
@@ -4089,7 +4341,7 @@
       "file_type": "code",
       "norm_label": ".record_intent()",
       "source_file": "server/room.py",
-      "source_location": "L183"
+      "source_location": "L213"
     },
     {
       "id": "server_room_room_remember_update",
@@ -4101,7 +4353,7 @@
       "file_type": "code",
       "norm_label": ".remember_update()",
       "source_file": "server/room.py",
-      "source_location": "L175"
+      "source_location": "L205"
     },
     {
       "id": "server_room_room_remove_member",
@@ -4113,7 +4365,7 @@
       "file_type": "code",
       "norm_label": ".remove_member()",
       "source_file": "server/room.py",
-      "source_location": "L126"
+      "source_location": "L134"
     },
     {
       "id": "server_room_room_remove_spectator",
@@ -4125,7 +4377,7 @@
       "file_type": "code",
       "norm_label": ".remove_spectator()",
       "source_file": "server/room.py",
-      "source_location": "L137"
+      "source_location": "L145"
     },
     {
       "id": "server_room_room_send",
@@ -4137,163 +4389,7 @@
       "file_type": "code",
       "norm_label": ".send()",
       "source_file": "server/room.py",
-      "source_location": "L359"
-    },
-    {
-      "id": "server_tests_test_check_edit_join",
-      "label": "_join()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "_join()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L22"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_allows_past_the_conflict_window",
-      "label": "test_allows_past_the_conflict_window()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_allows_past_the_conflict_window()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L68"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_allows_when_the_only_toucher_disconnected",
-      "label": "test_allows_when_the_only_toucher_disconnected()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_allows_when_the_only_toucher_disconnected()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L80"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_blocks_inside_the_block_window",
-      "label": "test_blocks_inside_the_block_window()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_blocks_inside_the_block_window()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L44"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_disconnecting_clears_intent",
-      "label": "test_disconnecting_clears_intent()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_disconnecting_clears_intent()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L143"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_intent_does_not_consume_the_activity_rate_limit_budget",
-      "label": "test_intent_does_not_consume_the_activity_rate_limit_budget()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_intent_does_not_consume_the_activity_rate_limit_budget()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L154"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_intent_mentioning_the_file_escalates_allow_to_warn",
-      "label": "test_intent_mentioning_the_file_escalates_allow_to_warn()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_intent_mentioning_the_file_escalates_allow_to_warn()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L107"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_intent_with_the_full_basename_escalates",
-      "label": "test_intent_with_the_full_basename_escalates()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_intent_with_the_full_basename_escalates()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L120"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_peers_are_returned_most_recent_first",
-      "label": "test_peers_are_returned_most_recent_first()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_peers_are_returned_most_recent_first()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L93"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_stale_intent_no_longer_escalates",
-      "label": "test_stale_intent_no_longer_escalates()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_stale_intent_no_longer_escalates()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L163"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_unrelated_intent_still_allows",
-      "label": "test_unrelated_intent_still_allows()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_unrelated_intent_still_allows()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L131"
-    },
-    {
-      "id": "server_tests_test_check_edit_test_warns_between_block_and_conflict_windows",
-      "label": "test_warns_between_block_and_conflict_windows()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_warns_between_block_and_conflict_windows()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L56"
-    },
-    {
-      "id": "server_tests_test_check_edit_touch",
-      "label": "_touch()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "_touch()",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L26"
+      "source_location": "L389"
     },
     {
       "id": "demo_proj_src_hello_fib",
@@ -4476,36 +4572,12 @@
       "source_location": "L52"
     },
     {
-      "id": "server_main_edit_check_reason",
-      "label": "_edit_check_reason()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "_edit_check_reason()",
-      "source_file": "server/main.py",
-      "source_location": "L293"
-    },
-    {
-      "id": "server_main_handle_edit_check",
-      "label": "handle_edit_check()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "handle_edit_check()",
-      "source_file": "server/main.py",
-      "source_location": "L310"
-    },
-    {
       "id": "server_main_handle_intent",
       "label": "handle_intent()",
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "handle_intent()",
       "source_file": "server/main.py",
@@ -4517,47 +4589,11 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "handshake()",
       "source_file": "server/main.py",
       "source_location": "L138"
-    },
-    {
-      "id": "server_main_health",
-      "label": "health()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "health()",
-      "source_file": "server/main.py",
-      "source_location": "L134"
-    },
-    {
-      "id": "server_main_schedule_empty_room_cleanup",
-      "label": "_schedule_empty_room_cleanup()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "_schedule_empty_room_cleanup()",
-      "source_file": "server/main.py",
-      "source_location": "L105"
-    },
-    {
-      "id": "server_main_schedule_empty_room_cleanup_cleanup_later",
-      "label": "_cleanup_later()",
-      "_callable": true,
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "_cleanup_later()",
-      "source_file": "server/main.py",
-      "source_location": "L106"
     },
     {
       "id": "server_main_websocket_endpoint",
@@ -4565,7 +4601,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "websocket_endpoint()",
       "source_file": "server/main.py",
@@ -4577,7 +4613,7 @@
       "_callable": true,
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": ".is_spectator()",
       "source_file": "server/models.py",
@@ -4639,15 +4675,15 @@
       "source_location": "L1"
     },
     {
-      "id": "ref_react_dom",
-      "label": "react-dom",
+      "id": "ref_react",
+      "label": "react",
       "_origin": "ast",
       "community": 0,
       "community_name": "Sidebar.tsx",
       "file_type": "concept",
-      "norm_label": "react-dom",
+      "norm_label": "react",
       "source_file": "frontend/package.json",
-      "source_location": "L14"
+      "source_location": "L13"
     },
     {
       "id": "ref_react_router_dom",
@@ -5321,6 +5357,39 @@
       "source_location": "L14"
     },
     {
+      "id": "fixture",
+      "label": "fixture",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "fixture",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "server_tests_conftest",
+      "label": "conftest.py",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "conftest.py",
+      "source_file": "server/tests/conftest.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_tests_conftest_py_monkeypatch",
+      "label": "MonkeyPatch",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "monkeypatch",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "synergo_adapters_claude_code",
       "label": "claude_code.py",
       "_origin": "ast",
@@ -5385,6 +5454,61 @@
       "norm_label": "path",
       "source_file": "",
       "source_location": ""
+    },
+    {
+      "id": "synergo_tests_test_fail_open",
+      "label": "test_fail_open.py",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "test_fail_open.py",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_tests_test_fail_open_py_capturefixture",
+      "label": "CaptureFixture",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "capturefixture",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "synergo_tests_test_fail_open_py_monkeypatch",
+      "label": "MonkeyPatch",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "monkeypatch",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "synergo_tests_test_fail_open_py_path",
+      "label": "Path",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "code",
+      "norm_label": "path",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "server_tests_conftest_rationale_1",
+      "label": "Shared fixtures. Keeps the suite offline: no Gemini key, no network calls.",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "rationale",
+      "norm_label": "shared fixtures. keeps the suite offline: no gemini key, no network calls.",
+      "source_file": "server/tests/conftest.py",
+      "source_location": "L1"
     },
     {
       "id": "synergo_adapters_claude_code_rationale_1",
@@ -5475,6 +5599,17 @@
       "source_location": "L197"
     },
     {
+      "id": "synergo_tests_test_fail_open_rationale_1",
+      "label": "With no daemon listening the hook must stay silent and exit 0.",
+      "_origin": "ast",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "file_type": "rationale",
+      "norm_label": "with no daemon listening the hook must stay silent and exit 0.",
+      "source_file": "synergo/tests/test_fail_open.py",
+      "source_location": "L1"
+    },
+    {
       "id": "argumentparser",
       "label": "ArgumentParser",
       "_origin": "ast",
@@ -5482,39 +5617,6 @@
       "community_name": "cli.py",
       "file_type": "code",
       "norm_label": "argumentparser",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "fixture",
-      "label": "fixture",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "fixture",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "server_tests_conftest",
-      "label": "conftest.py",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "conftest.py",
-      "source_file": "server/tests/conftest.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_tests_conftest_py_monkeypatch",
-      "label": "MonkeyPatch",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "monkeypatch",
       "source_file": "",
       "source_location": ""
     },
@@ -5607,50 +5709,6 @@
       "source_location": ""
     },
     {
-      "id": "synergo_tests_test_fail_open",
-      "label": "test_fail_open.py",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "test_fail_open.py",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "synergo_tests_test_fail_open_py_capturefixture",
-      "label": "CaptureFixture",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "capturefixture",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "synergo_tests_test_fail_open_py_monkeypatch",
-      "label": "MonkeyPatch",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "monkeypatch",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "synergo_tests_test_fail_open_py_path",
-      "label": "Path",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "code",
-      "norm_label": "path",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "synergo_tests_test_hook_install",
       "label": "test_hook_install.py",
       "_origin": "ast",
@@ -5693,17 +5751,6 @@
       "norm_label": "path",
       "source_file": "",
       "source_location": ""
-    },
-    {
-      "id": "server_tests_conftest_rationale_1",
-      "label": "Shared fixtures. Keeps the suite offline: no Gemini key, no network calls.",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "rationale",
-      "norm_label": "shared fixtures. keeps the suite offline: no gemini key, no network calls.",
-      "source_file": "server/tests/conftest.py",
-      "source_location": "L1"
     },
     {
       "id": "synergo_cli_rationale_1",
@@ -5772,17 +5819,6 @@
       "source_location": "L1"
     },
     {
-      "id": "synergo_tests_test_fail_open_rationale_1",
-      "label": "With no daemon listening the hook must stay silent and exit 0.",
-      "_origin": "ast",
-      "community": 14,
-      "community_name": "cli.py",
-      "file_type": "rationale",
-      "norm_label": "with no daemon listening the hook must stay silent and exit 0.",
-      "source_file": "synergo/tests/test_fail_open.py",
-      "source_location": "L1"
-    },
-    {
       "id": "synergo_tests_test_hook_install_rationale_1",
       "label": "`synergo hook install claude-code` must merge, not clobber, and be idempotent.",
       "_origin": "ast",
@@ -5816,17 +5852,6 @@
       "source_location": "L1"
     },
     {
-      "id": "server_room_manager",
-      "label": "room_manager.py",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "models.py",
-      "file_type": "code",
-      "norm_label": "room_manager.py",
-      "source_file": "server/room_manager.py",
-      "source_location": "L1"
-    },
-    {
       "id": "server_models_rationale_1",
       "label": "Wire format for every WebSocket message. Single source of truth shared by the\u2026",
       "_origin": "ast",
@@ -5847,17 +5872,6 @@
       "norm_label": "debounced room broadcast: one websocket frame every ~500ms carrying all queued...",
       "source_file": "server/models.py",
       "source_location": "L166"
-    },
-    {
-      "id": "server_room_manager_rationale_1",
-      "label": "Registry of live Room instances, keyed by short shareable room codes. The room\u2026",
-      "_origin": "ast",
-      "community": 15,
-      "community_name": "models.py",
-      "file_type": "rationale",
-      "norm_label": "registry of live room instances, keyed by short shareable room codes. the room...",
-      "source_file": "server/room_manager.py",
-      "source_location": "L1"
     },
     {
       "id": "server_room_rationale_1",
@@ -5978,62 +5992,7 @@
       "source_location": ""
     },
     {
-      "id": "server_room_rationale_209",
-      "label": "Other users' recent touches of the same file within the conflict window.",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "rationale",
-      "norm_label": "other users' recent touches of the same file within the conflict window.",
-      "source_file": "server/room.py",
-      "source_location": "L209"
-    },
-    {
-      "id": "server_room_rationale_223",
-      "label": "Return per-file overlaps with the most recent active peer (if any). Call this\u2026",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "rationale",
-      "norm_label": "return per-file overlaps with the most recent active peer (if any). call this...",
-      "source_file": "server/room.py",
-      "source_location": "L223"
-    },
-    {
-      "id": "server_room_rationale_248",
-      "label": "Active peers whose recent declared intent names this file, newest first.\u2026",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "rationale",
-      "norm_label": "active peers whose recent declared intent names this file, newest first....",
-      "source_file": "server/room.py",
-      "source_location": "L248"
-    },
-    {
-      "id": "server_room_rationale_286",
-      "label": "Decide whether user_id may edit file_path right now. Returns the decision plus\u2026",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "rationale",
-      "norm_label": "decide whether user_id may edit file_path right now. returns the decision plus...",
-      "source_file": "server/room.py",
-      "source_location": "L286"
-    },
-    {
-      "id": "server_room_rationale_65",
-      "label": "One file that the current user and another active user both touched recently.",
-      "_origin": "ast",
-      "community": 17,
-      "community_name": ".check_edit",
-      "file_type": "rationale",
-      "norm_label": "one file that the current user and another active user both touched recently.",
-      "source_file": "server/room.py",
-      "source_location": "L65"
-    },
-    {
-      "id": "server_room_rationale_99",
+      "id": "server_room_rationale_107",
       "label": "True if user_id is still connected. Intentionally the same check as is_taken: a\u2026",
       "_origin": "ast",
       "community": 17,
@@ -6041,7 +6000,40 @@
       "file_type": "rationale",
       "norm_label": "true if user_id is still connected. intentionally the same check as is_taken: a...",
       "source_file": "server/room.py",
-      "source_location": "L99"
+      "source_location": "L107"
+    },
+    {
+      "id": "server_room_rationale_239",
+      "label": "Other users' recent touches of the same file within the conflict window.",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": ".check_edit",
+      "file_type": "rationale",
+      "norm_label": "other users' recent touches of the same file within the conflict window.",
+      "source_file": "server/room.py",
+      "source_location": "L239"
+    },
+    {
+      "id": "server_room_rationale_278",
+      "label": "Active peers whose recent declared intent names this file, newest first.\u2026",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": ".check_edit",
+      "file_type": "rationale",
+      "norm_label": "active peers whose recent declared intent names this file, newest first....",
+      "source_file": "server/room.py",
+      "source_location": "L278"
+    },
+    {
+      "id": "server_room_rationale_316",
+      "label": "Decide whether user_id may edit file_path right now. Returns the decision plus\u2026",
+      "_origin": "ast",
+      "community": 17,
+      "community_name": ".check_edit",
+      "file_type": "rationale",
+      "norm_label": "decide whether user_id may edit file_path right now. returns the decision plus...",
+      "source_file": "server/room.py",
+      "source_location": "L316"
     },
     {
       "id": "demo_proj_readme",
@@ -6160,17 +6152,6 @@
       "source_location": "L1"
     },
     {
-      "id": "companion_main_py_basemodel",
-      "label": "BaseModel",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "basemodel",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "companion_main_py_get",
       "label": "get",
       "_origin": "ast",
@@ -6178,17 +6159,6 @@
       "community_name": "companion/main.py",
       "file_type": "code",
       "norm_label": "get",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "companion_main_py_post",
-      "label": "post",
-      "_origin": "ast",
-      "community": 2,
-      "community_name": "companion/main.py",
-      "file_type": "code",
-      "norm_label": "post",
       "source_file": "",
       "source_location": ""
     },
@@ -6391,44 +6361,22 @@
       "source_location": "L39"
     },
     {
-      "id": "companion_process_manager",
-      "label": "process_manager.py",
-      "_origin": "ast",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "file_type": "code",
-      "norm_label": "process_manager.py",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L1"
-    },
-    {
       "id": "companion_process_manager_py_exception",
       "label": "Exception",
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "code",
       "norm_label": "exception",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "companion_process_manager_rationale_1",
-      "label": "Supervises locally spawned `watcher/watcher.py` subprocesses. State is in-\u2026",
-      "_origin": "ast",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "file_type": "rationale",
-      "norm_label": "supervises locally spawned `watcher/watcher.py` subprocesses. state is in-...",
-      "source_file": "companion/process_manager.py",
-      "source_location": "L1"
-    },
-    {
       "id": "companion_process_manager_rationale_128",
       "label": "Spawn a watcher for one (path, agent) pair. Raises ValueError if the path is\u2026",
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "rationale",
       "norm_label": "spawn a watcher for one (path, agent) pair. raises valueerror if the path is...",
       "source_file": "companion/process_manager.py",
@@ -6439,7 +6387,7 @@
       "label": "Forget cleanly exited watchers so their (path, agent) frees up. Caller must\u2026",
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "rationale",
       "norm_label": "forget cleanly exited watchers so their (path, agent) frees up. caller must...",
       "source_file": "companion/process_manager.py",
@@ -6450,7 +6398,7 @@
       "label": "Raised when a (path, agent) pair is already supervised and alive.",
       "_origin": "ast",
       "community": 23,
-      "community_name": "process_manager.py",
+      "community_name": ".start",
       "file_type": "rationale",
       "norm_label": "raised when a (path, agent) pair is already supervised and alive.",
       "source_file": "companion/process_manager.py",
@@ -7068,17 +7016,6 @@
       "source_location": "L173"
     },
     {
-      "id": "synergo_daemon",
-      "label": "daemon.py",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "daemon.py",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L1"
-    },
-    {
       "id": "synergo_daemon_py_any",
       "label": "Any",
       "_origin": "ast",
@@ -7101,40 +7038,7 @@
       "source_location": ""
     },
     {
-      "id": "synergo_daemon_py_path",
-      "label": "Path",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "path",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "synergo_events_py_basemodel",
-      "label": "BaseModel",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "basemodel",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "synergo_protocol",
-      "label": "protocol.py",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "protocol.py",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "synergo_protocol_py_basemodel",
       "label": "BaseModel",
       "_origin": "ast",
       "community": 37,
@@ -7167,39 +7071,6 @@
       "source_location": ""
     },
     {
-      "id": "synergo_tests_test_outbox",
-      "label": "test_outbox.py",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_outbox.py",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "synergo_tests_test_path_keys",
-      "label": "test_path_keys.py",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "test_path_keys.py",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_py_path",
-      "label": "Path",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "code",
-      "norm_label": "path",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "readme_websocket",
       "label": "WebSocket",
       "_origin": "ast",
@@ -7210,17 +7081,6 @@
       "norm_label": "websocket",
       "source_file": "README.md",
       "source_location": "L152"
-    },
-    {
-      "id": "synergo_daemon_rationale_1",
-      "label": "The Synergo daemon: one asyncio process that is both a relay room member and a\u2026",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "the synergo daemon: one asyncio process that is both a relay room member and a...",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L1"
     },
     {
       "id": "synergo_daemon_rationale_325",
@@ -7245,39 +7105,6 @@
       "source_location": "L349"
     },
     {
-      "id": "synergo_daemon_rationale_69",
-      "label": "Nearest ancestor containing .git, or None outside a repo. Walked on the\u2026",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "nearest ancestor containing .git, or none outside a repo. walked on the...",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L69"
-    },
-    {
-      "id": "synergo_daemon_rationale_93",
-      "label": "Path key shared by every agent in the room. Keyed on the repo root, not the\u2026",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "path key shared by every agent in the room. keyed on the repo root, not the...",
-      "source_file": "synergo/daemon.py",
-      "source_location": "L93"
-    },
-    {
-      "id": "synergo_protocol_rationale_1",
-      "label": "Synergo relay wire format, as seen from a client. Deliberately duplicated from\u2026",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "synergo relay wire format, as seen from a client. deliberately duplicated from...",
-      "source_file": "synergo/protocol.py",
-      "source_location": "L1"
-    },
-    {
       "id": "synergo_tests_test_daemon_batching_rationale_1",
       "label": "Daemon translation: post_edit debouncing, diffing and the pre_edit cache.",
       "_origin": "ast",
@@ -7298,28 +7125,6 @@
       "norm_label": "priority first, matching the order the real drain sends in.",
       "source_file": "synergo/tests/test_daemon_batching.py",
       "source_location": "L18"
-    },
-    {
-      "id": "synergo_tests_test_outbox_rationale_1",
-      "label": "Outbox ordering and retention: edit_check is on a blocking hook, and a payload\u2026",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "outbox ordering and retention: edit_check is on a blocking hook, and a payload...",
-      "source_file": "synergo/tests/test_outbox.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "synergo_tests_test_path_keys_rationale_1",
-      "label": "Path keys must be identical for every agent in the room, whatever their cwd.",
-      "_origin": "ast",
-      "community": 37,
-      "community_name": "Daemon",
-      "file_type": "rationale",
-      "norm_label": "path keys must be identical for every agent in the room, whatever their cwd.",
-      "source_file": "synergo/tests/test_path_keys.py",
-      "source_location": "L1"
     },
     {
       "id": "mcp",
@@ -7670,6 +7475,17 @@
       "norm_label": "oxlint",
       "source_file": "frontend/package.json",
       "source_location": "L22"
+    },
+    {
+      "id": "ref_react_dom",
+      "label": "react-dom",
+      "_origin": "ast",
+      "community": 4,
+      "community_name": "package.json",
+      "file_type": "concept",
+      "norm_label": "react-dom",
+      "source_file": "frontend/package.json",
+      "source_location": "L14"
     },
     {
       "id": "ref_types_node",
@@ -8074,22 +7890,11 @@
       "label": "DeployModal.tsx",
       "_origin": "ast",
       "community": 47,
-      "community_name": "react",
+      "community_name": "DeployModal.tsx",
       "file_type": "code",
       "norm_label": "deploymodal.tsx",
       "source_file": "frontend/src/components/DeployModal.tsx",
       "source_location": "L1"
-    },
-    {
-      "id": "ref_react",
-      "label": "react",
-      "_origin": "ast",
-      "community": 47,
-      "community_name": "react",
-      "file_type": "concept",
-      "norm_label": "react",
-      "source_file": "frontend/package.json",
-      "source_location": "L13"
     },
     {
       "id": "synergo_adapters_init",
@@ -8220,7 +8025,7 @@
       "label": "Task",
       "_origin": "ast",
       "community": 53,
-      "community_name": "handle_activity",
+      "community_name": "ActivityMessage",
       "file_type": "code",
       "norm_label": "task",
       "source_file": "",
@@ -8231,33 +8036,440 @@
       "label": "Classify each overlapping file and broadcast conflict_alert when warranted.\u2026",
       "_origin": "ast",
       "community": 53,
-      "community_name": "handle_activity",
+      "community_name": "ActivityMessage",
       "file_type": "rationale",
       "norm_label": "classify each overlapping file and broadcast conflict_alert when warranted....",
       "source_file": "server/main.py",
       "source_location": "L175"
     },
     {
+      "id": "server_room_rationale_253",
+      "label": "Return per-file overlaps with the most recent active peer (if any). Call this\u2026",
+      "_origin": "ast",
+      "community": 53,
+      "community_name": "ActivityMessage",
+      "file_type": "rationale",
+      "norm_label": "return per-file overlaps with the most recent active peer (if any). call this...",
+      "source_file": "server/room.py",
+      "source_location": "L253"
+    },
+    {
+      "id": "server_room_rationale_71",
+      "label": "One file that the current user and another active user both touched recently.",
+      "_origin": "ast",
+      "community": 53,
+      "community_name": "ActivityMessage",
+      "file_type": "rationale",
+      "norm_label": "one file that the current user and another active user both touched recently.",
+      "source_file": "server/room.py",
+      "source_location": "L71"
+    },
+    {
+      "id": "server_main",
+      "label": "server/main.py",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "server/main.py",
+      "source_file": "server/main.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_main_py_get",
+      "label": "get",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "get",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
       "id": "server_main_py_post",
       "label": "post",
       "_origin": "ast",
       "community": 54,
-      "community_name": "create_room",
+      "community_name": "server/main.py",
       "file_type": "code",
       "norm_label": "post",
       "source_file": "",
       "source_location": ""
     },
     {
+      "id": "server_room_manager",
+      "label": "room_manager.py",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "code",
+      "norm_label": "room_manager.py",
+      "source_file": "server/room_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_main_rationale_1",
+      "label": "Relay server: accepts watcher and spectator WebSocket connections, keeps room\u2026",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "rationale",
+      "norm_label": "relay server: accepts watcher and spectator websocket connections, keeps room...",
+      "source_file": "server/main.py",
+      "source_location": "L1"
+    },
+    {
       "id": "server_main_rationale_124",
       "label": "Generate a fresh room code. The room code is the shared secret \u2014 whoever has it\u2026",
       "_origin": "ast",
       "community": 54,
-      "community_name": "create_room",
+      "community_name": "server/main.py",
       "file_type": "rationale",
       "norm_label": "generate a fresh room code. the room code is the shared secret \u2014 whoever has it...",
       "source_file": "server/main.py",
       "source_location": "L124"
+    },
+    {
+      "id": "server_room_manager_rationale_1",
+      "label": "Registry of live Room instances, keyed by short shareable room codes. The room\u2026",
+      "_origin": "ast",
+      "community": 54,
+      "community_name": "server/main.py",
+      "file_type": "rationale",
+      "norm_label": "registry of live room instances, keyed by short shareable room codes. the room...",
+      "source_file": "server/room_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "companion_process_manager",
+      "label": "process_manager.py",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "process_manager.py",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_daemon",
+      "label": "daemon.py",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "daemon.py",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_daemon_py_path",
+      "label": "Path",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "path",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "synergo_protocol",
+      "label": "protocol.py",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "protocol.py",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_protocol_py_basemodel",
+      "label": "BaseModel",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "basemodel",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "synergo_tests_test_outbox",
+      "label": "test_outbox.py",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_outbox.py",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_tests_test_path_keys",
+      "label": "test_path_keys.py",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "test_path_keys.py",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_py_path",
+      "label": "Path",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "code",
+      "norm_label": "path",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "companion_process_manager_rationale_1",
+      "label": "Supervises locally spawned `watcher/watcher.py` subprocesses. State is in-\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "supervises locally spawned `watcher/watcher.py` subprocesses. state is in-...",
+      "source_file": "companion/process_manager.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_daemon_rationale_1",
+      "label": "The Synergo daemon: one asyncio process that is both a relay room member and a\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "the synergo daemon: one asyncio process that is both a relay room member and a...",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_daemon_rationale_69",
+      "label": "Nearest ancestor containing .git, or None outside a repo. Walked on the\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "nearest ancestor containing .git, or none outside a repo. walked on the...",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L69"
+    },
+    {
+      "id": "synergo_daemon_rationale_93",
+      "label": "Path key shared by every agent in the room. Keyed on the repo root, not the\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "path key shared by every agent in the room. keyed on the repo root, not the...",
+      "source_file": "synergo/daemon.py",
+      "source_location": "L93"
+    },
+    {
+      "id": "synergo_protocol_rationale_1",
+      "label": "Synergo relay wire format, as seen from a client. Deliberately duplicated from\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "synergo relay wire format, as seen from a client. deliberately duplicated from...",
+      "source_file": "synergo/protocol.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_tests_test_outbox_rationale_1",
+      "label": "Outbox ordering and retention: edit_check is on a blocking hook, and a payload\u2026",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "outbox ordering and retention: edit_check is on a blocking hook, and a payload...",
+      "source_file": "synergo/tests/test_outbox.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "synergo_tests_test_path_keys_rationale_1",
+      "label": "Path keys must be identical for every agent in the room, whatever their cwd.",
+      "_origin": "ast",
+      "community": 55,
+      "community_name": "daemon.py",
+      "file_type": "rationale",
+      "norm_label": "path keys must be identical for every agent in the room, whatever their cwd.",
+      "source_file": "synergo/tests/test_path_keys.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_tests_test_check_edit",
+      "label": "test_check_edit.py",
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "code",
+      "norm_label": "test_check_edit.py",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_tests_test_check_edit_rationale_1",
+      "label": "Room.check_edit policy: the pre-edit decision an agent's hook depends on.",
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "rationale",
+      "norm_label": "room.check_edit policy: the pre-edit decision an agent's hook depends on.",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L1"
+    },
+    {
+      "id": "server_tests_test_check_edit_rationale_176",
+      "label": "A long-lived room must not keep an entry for every file ever touched.",
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "rationale",
+      "norm_label": "a long-lived room must not keep an entry for every file ever touched.",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L176"
+    },
+    {
+      "id": "server_tests_test_check_edit_rationale_18",
+      "label": "Stand-in member socket: Room only stores it and calls send_json on broadcast,\u2026",
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "rationale",
+      "norm_label": "stand-in member socket: room only stores it and calls send_json on broadcast,...",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L18"
+    },
+    {
+      "id": "server_tests_test_check_edit_rationale_189",
+      "label": "The sweep must not reach a touch a comparison can still see.",
+      "_origin": "ast",
+      "community": 56,
+      "community_name": "test_check_edit.py",
+      "file_type": "rationale",
+      "norm_label": "the sweep must not reach a touch a comparison can still see.",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L189"
+    },
+    {
+      "id": "server_main_py_decision",
+      "label": "Decision",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "code",
+      "norm_label": "decision",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "server_main_rationale_296",
+      "label": "One human-readable sentence about the peer that drove the decision.",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "rationale",
+      "norm_label": "one human-readable sentence about the peer that drove the decision.",
+      "source_file": "server/main.py",
+      "source_location": "L296"
+    },
+    {
+      "id": "server_main_rationale_313",
+      "label": "Answer \"may I edit this file?\" on the agent's blocking hook. Deliberately not\u2026",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "rationale",
+      "norm_label": "answer \"may i edit this file?\" on the agent's blocking hook. deliberately not...",
+      "source_file": "server/main.py",
+      "source_location": "L313"
+    },
+    {
+      "id": "server_models_rationale_101",
+      "label": "Point-to-point answer to an EditCheckRequest. Sent immediately (never through\u2026",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "rationale",
+      "norm_label": "point-to-point answer to an editcheckrequest. sent immediately (never through...",
+      "source_file": "server/models.py",
+      "source_location": "L101"
+    },
+    {
+      "id": "server_models_rationale_121",
+      "label": "Feed record of a non-allow edit check. Allow decisions are not broadcast so a\u2026",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "rationale",
+      "norm_label": "feed record of a non-allow edit check. allow decisions are not broadcast so a...",
+      "source_file": "server/models.py",
+      "source_location": "L121"
+    },
+    {
+      "id": "server_models_rationale_71",
+      "label": "Pre-edit permission probe. request_id correlates the response on an agent's\u2026",
+      "_origin": "ast",
+      "community": 57,
+      "community_name": "handle_edit_check",
+      "file_type": "rationale",
+      "norm_label": "pre-edit permission probe. request_id correlates the response on an agent's...",
+      "source_file": "server/models.py",
+      "source_location": "L71"
+    },
+    {
+      "id": "server_room_manager_rationale_41",
+      "label": "Generate a fresh room code and register an empty Room under it.",
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "rationale",
+      "norm_label": "generate a fresh room code and register an empty room under it.",
+      "source_file": "server/room_manager.py",
+      "source_location": "L41"
+    },
+    {
+      "id": "server_room_manager_rationale_53",
+      "label": "Strict lookup: rooms exist only after POST /rooms. Returns None if the code is\u2026",
+      "_origin": "ast",
+      "community": 58,
+      "community_name": "RoomManager",
+      "file_type": "rationale",
+      "norm_label": "strict lookup: rooms exist only after post /rooms. returns none if the code is...",
+      "source_file": "server/room_manager.py",
+      "source_location": "L53"
+    },
+    {
+      "id": "companion_main_py_basemodel",
+      "label": "BaseModel",
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "basemodel",
+      "source_file": "",
+      "source_location": ""
+    },
+    {
+      "id": "companion_main_py_post",
+      "label": "post",
+      "_origin": "ast",
+      "community": 59,
+      "community_name": "create_watcher",
+      "file_type": "code",
+      "norm_label": "post",
+      "source_file": "",
+      "source_location": ""
     },
     {
       "id": "client",
@@ -8348,6 +8560,28 @@
       "source_location": "L174"
     },
     {
+      "id": "server_tests_test_check_edit_rationale_155",
+      "label": "A prompt is followed by edits within milliseconds; the intent must not cause\u2026",
+      "_origin": "ast",
+      "community": 60,
+      "community_name": "test_intent_does_not_consume_the_activity_rate_limit_budget",
+      "file_type": "rationale",
+      "norm_label": "a prompt is followed by edits within milliseconds; the intent must not cause...",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L155"
+    },
+    {
+      "id": "server_tests_test_check_edit_rationale_164",
+      "label": "An intent has to expire: otherwise one morning prompt naming a file warns about\u2026",
+      "_origin": "ast",
+      "community": 61,
+      "community_name": "test_stale_intent_no_longer_escalates",
+      "file_type": "rationale",
+      "norm_label": "an intent has to expire: otherwise one morning prompt naming a file warns about...",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L164"
+    },
+    {
       "id": "server_room_py_basemodel",
       "label": "BaseModel",
       "_origin": "ast",
@@ -8370,40 +8604,7 @@
       "source_location": ""
     },
     {
-      "id": "server_tests_test_check_edit",
-      "label": "test_check_edit.py",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "code",
-      "norm_label": "test_check_edit.py",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_room_manager_rationale_41",
-      "label": "Generate a fresh room code and register an empty Room under it.",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "generate a fresh room code and register an empty room under it.",
-      "source_file": "server/room_manager.py",
-      "source_location": "L41"
-    },
-    {
-      "id": "server_room_manager_rationale_53",
-      "label": "Strict lookup: rooms exist only after POST /rooms. Returns None if the code is\u2026",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "strict lookup: rooms exist only after post /rooms. returns none if the code is...",
-      "source_file": "server/room_manager.py",
-      "source_location": "L53"
-    },
-    {
-      "id": "server_room_rationale_113",
+      "id": "server_room_rationale_121",
       "label": "True once no members and no spectators remain \u2014 safe to evict from the\u2026",
       "_origin": "ast",
       "community": 7,
@@ -8411,10 +8612,10 @@
       "file_type": "rationale",
       "norm_label": "true once no members and no spectators remain \u2014 safe to evict from the...",
       "source_file": "server/room.py",
-      "source_location": "L113"
+      "source_location": "L121"
     },
     {
-      "id": "server_room_rationale_146",
+      "id": "server_room_rationale_154",
       "label": "Return True if this user sent this kind of message too recently. On acceptance,\u2026",
       "_origin": "ast",
       "community": 7,
@@ -8422,10 +8623,21 @@
       "file_type": "rationale",
       "norm_label": "return true if this user sent this kind of message too recently. on acceptance,...",
       "source_file": "server/room.py",
-      "source_location": "L146"
+      "source_location": "L154"
     },
     {
-      "id": "server_room_rationale_317",
+      "id": "server_room_rationale_172",
+      "label": "Drop touches that can no longer affect a comparison. Measured against the\u2026",
+      "_origin": "ast",
+      "community": 7,
+      "community_name": "Room",
+      "file_type": "rationale",
+      "norm_label": "drop touches that can no longer affect a comparison. measured against the...",
+      "source_file": "server/room.py",
+      "source_location": "L172"
+    },
+    {
+      "id": "server_room_rationale_347",
       "label": "Queue a room-wide event and flush as a Synergo feed batch (~500ms). Point-to-\u2026",
       "_origin": "ast",
       "community": 7,
@@ -8433,51 +8645,7 @@
       "file_type": "rationale",
       "norm_label": "queue a room-wide event and flush as a synergo feed batch (~500ms). point-to-...",
       "source_file": "server/room.py",
-      "source_location": "L317"
-    },
-    {
-      "id": "server_tests_test_check_edit_rationale_1",
-      "label": "Room.check_edit policy: the pre-edit decision an agent's hook depends on.",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "room.check_edit policy: the pre-edit decision an agent's hook depends on.",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_tests_test_check_edit_rationale_155",
-      "label": "A prompt is followed by edits within milliseconds; the intent must not cause\u2026",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "a prompt is followed by edits within milliseconds; the intent must not cause...",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L155"
-    },
-    {
-      "id": "server_tests_test_check_edit_rationale_164",
-      "label": "An intent has to expire: otherwise one morning prompt naming a file warns about\u2026",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "an intent has to expire: otherwise one morning prompt naming a file warns about...",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L164"
-    },
-    {
-      "id": "server_tests_test_check_edit_rationale_18",
-      "label": "Stand-in member socket: Room only stores it and calls send_json on broadcast,\u2026",
-      "_origin": "ast",
-      "community": 7,
-      "community_name": "Room",
-      "file_type": "rationale",
-      "norm_label": "stand-in member socket: room only stores it and calls send_json on broadcast,...",
-      "source_file": "server/tests/test_check_edit.py",
-      "source_location": "L18"
+      "source_location": "L347"
     },
     {
       "id": "connection",
@@ -8623,44 +8791,11 @@
       "source_location": "L74"
     },
     {
-      "id": "server_main",
-      "label": "server/main.py",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "server/main.py",
-      "source_file": "server/main.py",
-      "source_location": "L1"
-    },
-    {
-      "id": "server_main_py_decision",
-      "label": "Decision",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "decision",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
-      "id": "server_main_py_get",
-      "label": "get",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "code",
-      "norm_label": "get",
-      "source_file": "",
-      "source_location": ""
-    },
-    {
       "id": "server_main_py_websocket",
       "label": "WebSocket",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "websocket",
       "source_file": "",
@@ -8671,99 +8806,33 @@
       "label": "BaseModel",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "code",
       "norm_label": "basemodel",
       "source_file": "",
       "source_location": ""
     },
     {
-      "id": "server_main_rationale_1",
-      "label": "Relay server: accepts watcher and spectator WebSocket connections, keeps room\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "relay server: accepts watcher and spectator websocket connections, keeps room...",
-      "source_file": "server/main.py",
-      "source_location": "L1"
-    },
-    {
       "id": "server_main_rationale_139",
       "label": "Run the join handshake. Returns (user_id, agent) for a named member, or None\u2026",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "rationale",
       "norm_label": "run the join handshake. returns (user_id, agent) for a named member, or none...",
       "source_file": "server/main.py",
       "source_location": "L139"
     },
     {
-      "id": "server_main_rationale_296",
-      "label": "One human-readable sentence about the peer that drove the decision.",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "one human-readable sentence about the peer that drove the decision.",
-      "source_file": "server/main.py",
-      "source_location": "L296"
-    },
-    {
-      "id": "server_main_rationale_313",
-      "label": "Answer \"may I edit this file?\" on the agent's blocking hook. Deliberately not\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "answer \"may i edit this file?\" on the agent's blocking hook. deliberately not...",
-      "source_file": "server/main.py",
-      "source_location": "L313"
-    },
-    {
-      "id": "server_models_rationale_101",
-      "label": "Point-to-point answer to an EditCheckRequest. Sent immediately (never through\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "point-to-point answer to an editcheckrequest. sent immediately (never through...",
-      "source_file": "server/models.py",
-      "source_location": "L101"
-    },
-    {
-      "id": "server_models_rationale_121",
-      "label": "Feed record of a non-allow edit check. Allow decisions are not broadcast so a\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "feed record of a non-allow edit check. allow decisions are not broadcast so a...",
-      "source_file": "server/models.py",
-      "source_location": "L121"
-    },
-    {
       "id": "server_models_rationale_61",
       "label": "What the agent is currently trying to do, derived from the user's prompt.\u2026",
       "_origin": "ast",
       "community": 9,
-      "community_name": "server/main.py",
+      "community_name": "BaseModel",
       "file_type": "rationale",
       "norm_label": "what the agent is currently trying to do, derived from the user's prompt....",
       "source_file": "server/models.py",
       "source_location": "L61"
-    },
-    {
-      "id": "server_models_rationale_71",
-      "label": "Pre-edit permission probe. request_id correlates the response on an agent's\u2026",
-      "_origin": "ast",
-      "community": 9,
-      "community_name": "server/main.py",
-      "file_type": "rationale",
-      "norm_label": "pre-edit permission probe. request_id correlates the response on an agent's...",
-      "source_file": "server/models.py",
-      "source_location": "L71"
     },
     {
       "id": "frontend_src_index",
@@ -8838,14 +8907,62 @@
       "type": "external"
     },
     {
-      "id": "synergo_adapters",
-      "label": "synergo_adapters",
+      "id": "io",
+      "label": "io",
       "_origin": "semantic",
       "community": 13,
       "community_name": "test_claude_code_adapter.py",
       "external": true,
       "file_type": "concept",
-      "norm_label": "synergo_adapters",
+      "norm_label": "io",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "json",
+      "label": "json",
+      "_origin": "semantic",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "json",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "pytest",
+      "label": "pytest",
+      "_origin": "semantic",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "pytest",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "socket",
+      "label": "socket",
+      "_origin": "semantic",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "socket",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "synergo",
+      "label": "synergo",
+      "_origin": "semantic",
+      "community": 13,
+      "community_name": "test_claude_code_adapter.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "synergo",
       "source_file": "",
       "type": "external"
     },
@@ -8862,110 +8979,14 @@
       "type": "external"
     },
     {
-      "id": "io",
-      "label": "io",
+      "id": "synergo_adapters",
+      "label": "synergo_adapters",
       "_origin": "semantic",
       "community": 14,
       "community_name": "cli.py",
       "external": true,
       "file_type": "concept",
-      "norm_label": "io",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "json",
-      "label": "json",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": "cli.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "json",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "pathlib",
-      "label": "pathlib",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": "cli.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "pathlib",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "pytest",
-      "label": "pytest",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": "cli.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "pytest",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "socket",
-      "label": "socket",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": "cli.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "socket",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "synergo",
-      "label": "synergo",
-      "_origin": "semantic",
-      "community": 14,
-      "community_name": "cli.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "synergo",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "asyncio",
-      "label": "asyncio",
-      "_origin": "semantic",
-      "community": 15,
-      "community_name": "models.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "asyncio",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "fastapi",
-      "label": "fastapi",
-      "_origin": "semantic",
-      "community": 15,
-      "community_name": "models.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "fastapi",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "logging",
-      "label": "logging",
-      "_origin": "semantic",
-      "community": 15,
-      "community_name": "models.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "logging",
+      "norm_label": "synergo_adapters",
       "source_file": "",
       "type": "external"
     },
@@ -8982,18 +9003,6 @@
       "type": "external"
     },
     {
-      "id": "secrets",
-      "label": "secrets",
-      "_origin": "semantic",
-      "community": 15,
-      "community_name": "models.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "secrets",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "time",
       "label": "time",
       "_origin": "semantic",
@@ -9002,18 +9011,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "time",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "typing",
-      "label": "typing",
-      "_origin": "semantic",
-      "community": 15,
-      "community_name": "models.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "typing",
       "source_file": "",
       "type": "external"
     },
@@ -9054,66 +9051,6 @@
       "type": "external"
     },
     {
-      "id": "collections",
-      "label": "collections",
-      "_origin": "semantic",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "collections",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "dataclasses",
-      "label": "dataclasses",
-      "_origin": "semantic",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "dataclasses",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "subprocess",
-      "label": "subprocess",
-      "_origin": "semantic",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "subprocess",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "threading",
-      "label": "threading",
-      "_origin": "semantic",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "threading",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "uuid",
-      "label": "uuid",
-      "_origin": "semantic",
-      "community": 23,
-      "community_name": "process_manager.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "uuid",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "re",
       "label": "re",
       "_origin": "semantic",
@@ -9150,42 +9087,6 @@
       "type": "external"
     },
     {
-      "id": "sys",
-      "label": "sys",
-      "_origin": "semantic",
-      "community": 36,
-      "community_name": "detect.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "sys",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "uvicorn",
-      "label": "uvicorn",
-      "_origin": "semantic",
-      "community": 37,
-      "community_name": "Daemon",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "uvicorn",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "websockets_asyncio_client",
-      "label": "websockets_asyncio_client",
-      "_origin": "semantic",
-      "community": 37,
-      "community_name": "Daemon",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "websockets_asyncio_client",
-      "source_file": "",
-      "type": "external"
-    },
-    {
       "id": "fastapi_testclient",
       "label": "fastapi_testclient",
       "_origin": "semantic",
@@ -9206,6 +9107,186 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "main",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "dotenv",
+      "label": "dotenv",
+      "_origin": "semantic",
+      "community": 54,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "dotenv",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "fastapi",
+      "label": "fastapi",
+      "_origin": "semantic",
+      "community": 54,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "fastapi",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "logging",
+      "label": "logging",
+      "_origin": "semantic",
+      "community": 54,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "logging",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "secrets",
+      "label": "secrets",
+      "_origin": "semantic",
+      "community": 54,
+      "community_name": "server/main.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "secrets",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "collections",
+      "label": "collections",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "collections",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "dataclasses",
+      "label": "dataclasses",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "dataclasses",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "pathlib",
+      "label": "pathlib",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "pathlib",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "subprocess",
+      "label": "subprocess",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "subprocess",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "sys",
+      "label": "sys",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "sys",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "threading",
+      "label": "threading",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "threading",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "typing",
+      "label": "typing",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "typing",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "uuid",
+      "label": "uuid",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "uuid",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "uvicorn",
+      "label": "uvicorn",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "uvicorn",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "websockets_asyncio_client",
+      "label": "websockets_asyncio_client",
+      "_origin": "semantic",
+      "community": 55,
+      "community_name": "daemon.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "websockets_asyncio_client",
+      "source_file": "",
+      "type": "external"
+    },
+    {
+      "id": "asyncio",
+      "label": "asyncio",
+      "_origin": "semantic",
+      "community": 6,
+      "community_name": "gemini.py",
+      "external": true,
+      "file_type": "concept",
+      "norm_label": "asyncio",
       "source_file": "",
       "type": "external"
     },
@@ -9266,18 +9347,6 @@
       "external": true,
       "file_type": "concept",
       "norm_label": "urllib_parse",
-      "source_file": "",
-      "type": "external"
-    },
-    {
-      "id": "dotenv",
-      "label": "dotenv",
-      "_origin": "semantic",
-      "community": 9,
-      "community_name": "server/main.py",
-      "external": true,
-      "file_type": "concept",
-      "norm_label": "dotenv",
       "source_file": "",
       "type": "external"
     }
@@ -10204,7 +10273,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L325",
+      "source_location": "L355",
       "weight": 1.0
     },
     {
@@ -10216,7 +10285,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L290",
+      "source_location": "L320",
       "weight": 1.0
     },
     {
@@ -10228,7 +10297,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L309",
+      "source_location": "L339",
       "weight": 1.0
     },
     {
@@ -10240,7 +10309,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L230",
+      "source_location": "L260",
       "weight": 1.0
     },
     {
@@ -10252,7 +10321,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L237",
+      "source_location": "L267",
       "weight": 1.0
     },
     {
@@ -10264,7 +10333,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L335",
+      "source_location": "L365",
       "weight": 1.0
     },
     {
@@ -10276,7 +10345,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L337",
+      "source_location": "L367",
       "weight": 1.0
     },
     {
@@ -10288,7 +10357,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L263",
+      "source_location": "L293",
       "weight": 1.0
     },
     {
@@ -10300,7 +10369,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L271",
+      "source_location": "L301",
       "weight": 1.0
     },
     {
@@ -10312,7 +10381,19 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L215",
+      "source_location": "L245",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room_record_activity",
+      "target": "server_room_room_prune_file_activity",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/room.py",
+      "source_location": "L193",
       "weight": 1.0
     },
     {
@@ -10324,7 +10405,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "server/room.py",
-      "source_location": "L166",
+      "source_location": "L196",
       "weight": 1.0
     },
     {
@@ -10544,6 +10625,42 @@
       "weight": 1.0
     },
     {
+      "source": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "target": "server_room_room",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L177",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "target": "server_tests_test_check_edit_join",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L178",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "target": "server_tests_test_check_edit_touch",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L180",
+      "weight": 1.0
+    },
+    {
       "source": "server_tests_test_check_edit_test_peers_are_returned_most_recent_first",
       "target": "server_room_room",
       "relation": "calls",
@@ -10577,6 +10694,42 @@
       "context": "call",
       "source_file": "server/tests/test_check_edit.py",
       "source_location": "L98",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "target": "server_room_room",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L190",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "target": "server_tests_test_check_edit_join",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L191",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "target": "server_tests_test_check_edit_touch",
+      "relation": "calls",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "context": "call",
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L193",
       "weight": 1.0
     },
     {
@@ -13168,7 +13321,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "server/room.py",
-      "source_location": "L283",
+      "source_location": "L313",
       "weight": 1.0
     },
     {
@@ -13180,7 +13333,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "server/room.py",
-      "source_location": "L283",
+      "source_location": "L313",
       "weight": 1.0
     },
     {
@@ -13192,7 +13345,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "server/room.py",
-      "source_location": "L197",
+      "source_location": "L227",
       "weight": 1.0
     },
     {
@@ -13204,7 +13357,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "server/room.py",
-      "source_location": "L178",
+      "source_location": "L208",
       "weight": 1.0
     },
     {
@@ -13216,7 +13369,7 @@
       "confidence_score": 1.0,
       "context": "generic_arg",
       "source_file": "server/room.py",
-      "source_location": "L200",
+      "source_location": "L230",
       "weight": 1.0
     },
     {
@@ -17288,7 +17441,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L117",
+      "source_location": "L125",
       "weight": 1.0
     },
     {
@@ -17300,7 +17453,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L134",
+      "source_location": "L142",
       "weight": 1.0
     },
     {
@@ -17312,7 +17465,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L316",
+      "source_location": "L346",
       "weight": 1.0
     },
     {
@@ -17324,7 +17477,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L222",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -17336,7 +17489,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L163",
+      "source_location": "L192",
       "weight": 1.0
     },
     {
@@ -17348,7 +17501,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L175",
+      "source_location": "L205",
       "weight": 1.0
     },
     {
@@ -17360,7 +17513,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L137",
+      "source_location": "L145",
       "weight": 1.0
     },
     {
@@ -17372,7 +17525,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L359",
+      "source_location": "L389",
       "weight": 1.0
     },
     {
@@ -17384,7 +17537,7 @@
       "confidence_score": 1.0,
       "context": "parameter_type",
       "source_file": "server/room.py",
-      "source_location": "L359",
+      "source_location": "L389",
       "weight": 1.0
     },
     {
@@ -21478,7 +21631,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L54",
+      "source_location": "L60",
       "weight": 1.0
     },
     {
@@ -21489,7 +21642,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L64",
+      "source_location": "L70",
       "weight": 1.0
     },
     {
@@ -21500,7 +21653,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L72",
+      "source_location": "L78",
       "weight": 1.0
     },
     {
@@ -21633,6 +21786,28 @@
       "confidence_score": 1.0,
       "source_file": "server/tests/test_check_edit.py",
       "source_location": "L17",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit",
+      "target": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L175",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit",
+      "target": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "relation": "contains",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L188",
       "weight": 1.0
     },
     {
@@ -23727,255 +23902,13 @@
     },
     {
       "source": "server_room_room",
-      "target": "server_room_room_member_ids",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L108",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_is_empty",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L112",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_add_member",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L117",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_member_agent",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L123",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_remove_member",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L126",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_add_spectator",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L134",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_remove_spectator",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L137",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_is_activity_rate_limited",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L140",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_record_activity",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L163",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_remember_update",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L175",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_latest_updates",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L178",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_record_intent",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L183",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_latest_intents",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L197",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_recent_other_touches",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L200",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_find_overlaps",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L222",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_intent_mentions",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L245",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_check_edit",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L283",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_broadcast",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L316",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_flush_broadcast_queue",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L327",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_deliver",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L339",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_send",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L359",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
-      "target": "server_room_room_init",
-      "relation": "method",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L73",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_room",
       "target": "server_room_room_is_taken",
       "relation": "method",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L95",
+      "source_location": "L103",
       "weight": 1.0
     },
     {
@@ -23986,7 +23919,260 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L98",
+      "source_location": "L106",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_member_ids",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L116",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_is_empty",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L120",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_add_member",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L125",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_member_agent",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L131",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_remove_member",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L134",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_add_spectator",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L142",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_remove_spectator",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L145",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_is_activity_rate_limited",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L148",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_prune_file_activity",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L171",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_record_activity",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L192",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_remember_update",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L205",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_latest_updates",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L208",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_record_intent",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L213",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_latest_intents",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L227",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_recent_other_touches",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L230",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_find_overlaps",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L252",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_intent_mentions",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L275",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_check_edit",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L313",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_broadcast",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L346",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_flush_broadcast_queue",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L357",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_deliver",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L369",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_send",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L389",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_room",
+      "target": "server_room_room_init",
+      "relation": "method",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L79",
       "weight": 1.0
     },
     {
@@ -24848,102 +25034,113 @@
       "weight": 1.0
     },
     {
-      "source": "server_room_rationale_113",
-      "target": "server_room_room_is_empty",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L113",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_146",
-      "target": "server_room_room_is_activity_rate_limited",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L146",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_209",
-      "target": "server_room_room_recent_other_touches",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L209",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_223",
-      "target": "server_room_room_find_overlaps",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L223",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_248",
-      "target": "server_room_room_intent_mentions",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L248",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_286",
-      "target": "server_room_room_check_edit",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L286",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_317",
-      "target": "server_room_room_broadcast",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L317",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_65",
-      "target": "server_room_fileoverlap",
-      "relation": "rationale_for",
-      "_origin": "ast",
-      "confidence": "EXTRACTED",
-      "confidence_score": 1.0,
-      "source_file": "server/room.py",
-      "source_location": "L65",
-      "weight": 1.0
-    },
-    {
-      "source": "server_room_rationale_99",
+      "source": "server_room_rationale_107",
       "target": "server_room_room_is_active",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "server/room.py",
-      "source_location": "L99",
+      "source_location": "L107",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_121",
+      "target": "server_room_room_is_empty",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L121",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_154",
+      "target": "server_room_room_is_activity_rate_limited",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L154",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_172",
+      "target": "server_room_room_prune_file_activity",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L172",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_239",
+      "target": "server_room_room_recent_other_touches",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L239",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_253",
+      "target": "server_room_room_find_overlaps",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L253",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_278",
+      "target": "server_room_room_intent_mentions",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L278",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_316",
+      "target": "server_room_room_check_edit",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L316",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_347",
+      "target": "server_room_room_broadcast",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L347",
+      "weight": 1.0
+    },
+    {
+      "source": "server_room_rationale_71",
+      "target": "server_room_fileoverlap",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/room.py",
+      "source_location": "L71",
       "weight": 1.0
     },
     {
@@ -25024,6 +25221,17 @@
       "weight": 1.0
     },
     {
+      "source": "server_tests_test_check_edit_rationale_176",
+      "target": "server_tests_test_check_edit_test_old_touches_are_swept",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L176",
+      "weight": 1.0
+    },
+    {
       "source": "server_tests_test_check_edit_rationale_18",
       "target": "server_tests_test_check_edit_fakesocket",
       "relation": "rationale_for",
@@ -25032,6 +25240,17 @@
       "confidence_score": 1.0,
       "source_file": "server/tests/test_check_edit.py",
       "source_location": "L18",
+      "weight": 1.0
+    },
+    {
+      "source": "server_tests_test_check_edit_rationale_189",
+      "target": "server_tests_test_check_edit_test_pruning_keeps_touches_still_inside_the_window",
+      "relation": "rationale_for",
+      "_origin": "ast",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "server/tests/test_check_edit.py",
+      "source_location": "L189",
       "weight": 1.0
     },
     {
@@ -26112,7 +26331,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.95,
       "source_file": "server/room.py",
-      "source_location": "L163",
+      "source_location": "L192",
       "weight": 0.8
     },
     {
@@ -26123,7 +26342,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.95,
       "source_file": "server/room.py",
-      "source_location": "L335",
+      "source_location": "L365",
       "weight": 0.8
     },
     {
@@ -26134,7 +26353,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.95,
       "source_file": "server/room.py",
-      "source_location": "L80",
+      "source_location": "L88",
       "weight": 0.8
     },
     {
@@ -26145,7 +26364,7 @@
       "confidence": "INFERRED",
       "confidence_score": 0.95,
       "source_file": "server/room.py",
-      "source_location": "L83",
+      "source_location": "L91",
       "weight": 0.8
     },
     {
@@ -26293,5 +26512,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "467dff6821faa8c13e4d71ff56e38d3eca1805f5"
+  "built_at_commit": "d58d9da0159f157ddc6096ac3e6fc182377b3b97"
 }
