@@ -17,6 +17,7 @@ import type {
 /** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
 const CONFLICT_TTL_SECONDS = 120;
 const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
+const MAX_LANE_DECISIONS = 3;
 
 const SPECTATOR_JOIN: JoinMessage = {
   type: 'join',
@@ -24,18 +25,46 @@ const SPECTATOR_JOIN: JoinMessage = {
   role: 'spectator',
 };
 
+const BLANK_LANE: LaneState = {
+  caption: null,
+  changes: [],
+  prompt: null,
+  intent: null,
+  decisions: [],
+  agent: 'unknown',
+  timestamp: null,
+};
+
 function isActionableConflict(alert: ConflictAlert): boolean {
   return alert.verdict === 'overlapping' || alert.verdict === 'related';
 }
 
-function isExpired(alert: ConflictAlert, nowSeconds: number): boolean {
-  return nowSeconds - alert.timestamp > CONFLICT_TTL_SECONDS;
+function isExpired(event: { timestamp: number }, nowSeconds: number): boolean {
+  return nowSeconds - event.timestamp > CONFLICT_TTL_SECONDS;
 }
 
 function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
   const now = Date.now() / 1000;
   const next = prev.filter((c) => !isExpired(c, now));
   return next.length === prev.length ? prev : next;
+}
+
+function pruneLaneDecisions(
+  prev: Record<string, LaneState>,
+): Record<string, LaneState> {
+  const now = Date.now() / 1000;
+  let changed = false;
+  const next: Record<string, LaneState> = {};
+  for (const [id, lane] of Object.entries(prev)) {
+    const kept = lane.decisions.filter((d) => !isExpired(d, now));
+    if (kept.length === lane.decisions.length) {
+      next[id] = lane;
+    } else {
+      changed = true;
+      next[id] = { ...lane, decisions: kept };
+    }
+  }
+  return changed ? next : prev;
 }
 
 function upsertConflict(
@@ -121,6 +150,7 @@ export default function App() {
   useEffect(() => {
     const id = setInterval(() => {
       setConflicts(pruneExpired);
+      setUsers(pruneLaneDecisions);
     }, CONFLICT_PRUNE_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
@@ -180,10 +210,7 @@ export default function App() {
                 return {
                   ...prev,
                   [item.user_id]: {
-                    caption: null,
-                    changes: [],
-                    prompt: null,
-                    timestamp: null,
+                    ...BLANK_LANE,
                     agent: item.agent ?? 'unknown',
                   },
                 };
@@ -213,11 +240,46 @@ export default function App() {
                 return {
                   ...prev,
                   [item.user_id]: {
+                    ...(prior ?? BLANK_LANE),
                     caption: item.caption ?? prior?.caption ?? null,
                     changes,
                     prompt: item.prompt,
                     timestamp: item.timestamp,
                     agent: item.agent ?? prior?.agent ?? 'unknown',
+                  },
+                };
+              });
+              break;
+
+            case 'intent_update':
+              setUsers((prev) => {
+                const prior = prev[item.user_id];
+                return {
+                  ...prev,
+                  [item.user_id]: {
+                    ...(prior ?? BLANK_LANE),
+                    intent: item.prompt,
+                    agent: item.agent ?? prior?.agent ?? 'unknown',
+                  },
+                };
+              });
+              break;
+
+            case 'edit_decision':
+              setUsers((prev) => {
+                const prior = prev[item.user_id] ?? BLANK_LANE;
+                const decisions = [
+                  item,
+                  ...prior.decisions.filter(
+                    (d) => d.file_path !== item.file_path,
+                  ),
+                ].slice(0, MAX_LANE_DECISIONS);
+                return {
+                  ...prev,
+                  [item.user_id]: {
+                    ...prior,
+                    decisions,
+                    agent: item.agent ?? prior.agent,
                   },
                 };
               });
@@ -255,6 +317,8 @@ export default function App() {
           case 'user_left':
           case 'activity_update':
           case 'conflict_alert':
+          case 'intent_update':
+          case 'edit_decision':
             // Catch-up frames still arrive as individual messages via send().
             applyFeedEvent(msg);
             break;

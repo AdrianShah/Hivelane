@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react';
-import type { FileChange, LaneState } from '../types';
+import type { EditDecision, FileChange, LaneState } from '../types';
 import ArchitectureMap from './ArchitectureMap';
 
 interface LaneProps {
@@ -52,6 +52,11 @@ function relativeTime(ts: number | null): string {
   }
   const h = Math.floor(delta / 3600);
   return `${h}h ago`;
+}
+
+function decisionNote(decision: EditDecision): string | null {
+  if (decision.others.length === 0) return null;
+  return `${decision.others.join(', ')} editing`;
 }
 
 function shortHash(seed: string): string {
@@ -115,8 +120,9 @@ export default function Lane({
   showArchitectureMap = false,
   index = 0,
 }: LaneProps) {
-  const { caption, changes, prompt, timestamp, agent } = state;
+  const { caption, changes, prompt, intent, decisions, timestamp, agent } = state;
   const activePrompt = prompt?.trim() ? prompt.trim() : null;
+  const activeIntent = intent?.trim() ? intent.trim() : null;
   const showAgent = agent && agent !== 'unknown';
   const badge = watchBadge(changes);
   const baseId = useId();
@@ -202,6 +208,45 @@ export default function Lane({
       </header>
 
       <div className="flex flex-col gap-3.5 p-5 flex-1">
+        {activeIntent ? (
+          <p
+            className="m-0 flex items-center gap-1.5 text-[11.5px] min-w-0"
+            title={activeIntent}
+          >
+            <span className="material-symbols-outlined text-[14px] text-lavender/70 shrink-0">
+              my_location
+            </span>
+            <span className="text-on-dim shrink-0">working on:</span>
+            <span className="text-on-muted truncate">{activeIntent}</span>
+          </p>
+        ) : null}
+
+        {decisions.length > 0 ? (
+          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5">
+            {decisions.map((decision) => {
+              const note = decisionNote(decision);
+              const blocked = decision.decision === 'block';
+              return (
+                <li
+                  key={`${decision.file_path}-${decision.timestamp}`}
+                  className={`decision-chip ${blocked ? 'is-block' : 'is-warn'}`}
+                  title={decision.reason || undefined}
+                >
+                  <span className="material-symbols-outlined text-[13px]">
+                    {blocked ? 'block' : 'warning'}
+                  </span>
+                  <span className="font-semibold">
+                    {blocked ? 'blocked' : 'warned'}
+                  </span>
+                  <span className="text-on-dim">·</span>
+                  <code className="font-mono">{decision.file_path}</code>
+                  {note ? <span className="text-on-dim">— {note}</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
         <section className="prompt-panel rounded-xl p-3.5">
           <div className="flex items-center gap-2 mb-2.5">
             <span className="material-symbols-outlined text-primary text-[16px]">terminal</span>

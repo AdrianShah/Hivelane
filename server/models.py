@@ -10,9 +10,22 @@ from pydantic import BaseModel, Field
 
 Verdict = Literal["overlapping", "related", "unrelated"]
 
+# Answer to "may I edit this file right now?" — an agent's PreToolUse hook maps
+# "block" to a denied tool call.
+Decision = Literal["allow", "warn", "block"]
+
 # Which AI coding tool a watcher process is reporting for. Defaults to
 # "unknown" so older clients that omit the field stay compatible.
-AgentKind = Literal["cursor", "claude-code", "codex", "unknown"]
+AgentKind = Literal[
+    "cursor",
+    "claude-code",
+    "codex",
+    "antigravity",
+    "gemini-cli",
+    "devin",
+    "grok",
+    "unknown",
+]
 
 
 class FileChange(BaseModel):
@@ -44,7 +57,34 @@ class ActivityMessage(BaseModel):
     agent: AgentKind = "unknown"
 
 
+class IntentMessage(BaseModel):
+    """What the agent is currently trying to do, derived from the user's prompt.
+    Declared up front so peers can be warned before they collide with it."""
+
+    type: Literal["intent"] = "intent"
+    user_id: str
+    prompt: str
+    timestamp: float = Field(default_factory=time.time)
+
+
+class EditCheckRequest(BaseModel):
+    """Pre-edit permission probe. request_id correlates the response on an
+    agent's blocking hook."""
+
+    type: Literal["edit_check"] = "edit_check"
+    request_id: str
+    file_path: str
+    symbol: Optional[str] = None
+
+
 # --- Server -> Client --------------------------------------------------------
+
+
+class PeerTouch(BaseModel):
+    user_id: str
+    agent: AgentKind = "unknown"
+    seconds_ago: float
+    prompt: Optional[str] = None
 
 
 class ActivityUpdate(BaseModel):
@@ -55,6 +95,41 @@ class ActivityUpdate(BaseModel):
     changes: list[FileChange]
     caption: Optional[str] = None
     agent: AgentKind = "unknown"
+
+
+class EditCheckResponse(BaseModel):
+    """Point-to-point answer to an EditCheckRequest. Sent immediately (never
+    through the debounced feed) — an agent is blocked waiting on it."""
+
+    type: Literal["edit_check_response"] = "edit_check_response"
+    request_id: str
+    decision: Decision
+    file_path: str
+    others: list[PeerTouch] = []
+    reason: str = ""
+
+
+class IntentUpdate(BaseModel):
+    type: Literal["intent_update"] = "intent_update"
+    user_id: str
+    agent: AgentKind = "unknown"
+    prompt: str
+    timestamp: float
+
+
+class EditDecision(BaseModel):
+    """Feed record of a non-allow edit check. Allow decisions are not broadcast
+    so a busy agent's file probes don't drown the dashboard — the narrowed
+    decision type keeps the dashboard's union honest."""
+
+    type: Literal["edit_decision"] = "edit_decision"
+    user_id: str
+    agent: AgentKind = "unknown"
+    file_path: str
+    decision: Literal["warn", "block"]
+    others: list[str] = []
+    reason: str = ""
+    timestamp: float = Field(default_factory=time.time)
 
 
 class ConflictAlert(BaseModel):
