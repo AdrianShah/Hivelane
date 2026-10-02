@@ -102,3 +102,13 @@ class RoomManager:
     def durable_room_count(self) -> int:
         """Valid room codes, including those with no live Room yet."""
         return self._store.count()
+
+    @property
+    def member_count(self) -> int:
+        """Named agents connected across every live room (for /metrics)."""
+        return sum(room.member_count for room in self._rooms.values())
+
+    @property
+    def spectator_count(self) -> int:
+        """Dashboards connected across every live room (for /metrics)."""
+        return sum(room.spectator_count for room in self._rooms.values())

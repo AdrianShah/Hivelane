@@ -1,10 +1,17 @@
-"""Wire format for every WebSocket message. Single source of truth shared by
-the relay, the watcher, and (mirrored in TypeScript) the frontend."""
+"""Wire format for every WebSocket message, as the relay sees it.
+
+Mirrored on purpose in synergo/protocol.py (the daemon must not import the
+relay package) and in frontend/src/types.ts. Mirrors drift, so the copies are
+pinned by tests: server/tests/test_protocol_contract.py requires every message
+here to have the same JSON schema as its synergo/protocol.py twin and a
+TypeScript declaration for each frame the dashboard receives, and
+protocol/schema.json is regenerated from the client copy by protocol/generate.py.
+"""
 
 from __future__ import annotations
 
 import time
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -21,8 +28,8 @@ MIN_SUPPORTED_PROTOCOL = 1
 # "block" to a denied tool call.
 Decision = Literal["allow", "warn", "block"]
 
-# Which AI coding tool a watcher process is reporting for. Defaults to
-# "unknown" so older clients that omit the field stay compatible.
+# Which AI coding tool a daemon is reporting for. Defaults to "unknown" so
+# older clients that omit the field stay compatible.
 AgentKind = Literal[
     "cursor",
     "claude-code",
@@ -33,6 +40,15 @@ AgentKind = Literal[
     "grok",
     "unknown",
 ]
+
+
+# Opaque repository identity computed by the daemon (a hash of the normalized
+# origin URL, else the root commit). Touches are compared only within one
+# repo_id, so two repos that both have src/main.py never collide. Empty means
+# unknown, which is what every pre-repo_id client implicitly sends; empty
+# matches only empty, preserving the old behaviour between two old clients.
+# Bounded because the relay keys in-memory state on it.
+RepoId = Annotated[str, Field(max_length=64)]
 
 
 class FileChange(BaseModel):
@@ -52,6 +68,7 @@ class JoinMessage(BaseModel):
     # 0 means a client old enough not to declare one. Spectators are exempt:
     # the dashboard only consumes broadcasts and cannot silently under-report.
     protocol_version: int = 0
+    repo_id: RepoId = ""
 
     @property
     def is_spectator(self) -> bool:
@@ -65,6 +82,7 @@ class ActivityMessage(BaseModel):
     prompt: Optional[str] = None
     changes: list[FileChange]
     agent: AgentKind = "unknown"
+    repo_id: RepoId = ""
 
 
 class IntentMessage(BaseModel):
@@ -75,6 +93,7 @@ class IntentMessage(BaseModel):
     user_id: str
     prompt: str
     timestamp: float = Field(default_factory=time.time)
+    repo_id: RepoId = ""
 
 
 class EditCheckRequest(BaseModel):
@@ -85,6 +104,7 @@ class EditCheckRequest(BaseModel):
     request_id: str
     file_path: str
     symbol: Optional[str] = None
+    repo_id: RepoId = ""
 
 
 # --- Server -> Client --------------------------------------------------------
@@ -105,6 +125,7 @@ class ActivityUpdate(BaseModel):
     changes: list[FileChange]
     caption: Optional[str] = None
     agent: AgentKind = "unknown"
+    repo_id: RepoId = ""
 
 
 class EditCheckResponse(BaseModel):
@@ -125,6 +146,7 @@ class IntentUpdate(BaseModel):
     agent: AgentKind = "unknown"
     prompt: str
     timestamp: float
+    repo_id: RepoId = ""
 
 
 class EditDecision(BaseModel):
@@ -140,6 +162,7 @@ class EditDecision(BaseModel):
     others: list[str] = []
     reason: str = ""
     timestamp: float = Field(default_factory=time.time)
+    repo_id: RepoId = ""
 
 
 class ConflictAlert(BaseModel):
@@ -177,6 +200,16 @@ class VersionRejected(BaseModel):
 class RoomRejected(BaseModel):
     type: Literal["room_rejected"] = "room_rejected"
     reason: str
+
+
+class RateLimited(BaseModel):
+    """Sent once, before closing with 4429, to a caller over the per-IP
+    connection-attempt budget. Arrives before any join, so spectators and
+    daemons alike must handle it."""
+
+    type: Literal["rate_limited"] = "rate_limited"
+    reason: str
+    retry_after: int
 
 
 class SynergoFeed(BaseModel):

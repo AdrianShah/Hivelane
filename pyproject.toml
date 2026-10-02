@@ -28,4 +28,4 @@ packages = ["synergo"]
 include = ["synergo", "pyproject.toml"]
 
 [tool.pytest.ini_options]
-testpaths = ["synergo/tests", "server/tests"]
+testpaths = ["synergo/tests", "server/tests", "tests/e2e"]

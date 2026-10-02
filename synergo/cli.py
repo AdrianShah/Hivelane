@@ -3,22 +3,25 @@ installation."""
 
 from __future__ import annotations
 
-import argparse
-import asyncio
-import json
+# Module-level imports here are paid by every `synergo hook claude-code`, which
+# Claude Code spawns as a fresh process around every edit. Keep them to what the
+# hook itself needs: the daemon stack (fastapi, uvicorn, websockets, pydantic,
+# httpx) and even argparse/json/pathlib/typing are imported inside the functions
+# that need them. scripts/bench_hook.py measures the result.
 import os
 import sys
-from pathlib import Path
-from typing import Any, Optional, Sequence
 
-import httpx
-
+from synergo import hook_fast
 from synergo.adapters import claude_code
-from synergo.daemon import DEFAULT_PORT, DEFAULT_SERVER, Daemon
-from synergo.events import EventAck, NormalizedEvent
-from synergo.protocol import AGENT_KINDS
+from synergo.hook_fast import DEFAULT_PORT
 
-HOOK_POST_TIMEOUT = 2.0
+# Type checkers treat any name TYPE_CHECKING as True.
+TYPE_CHECKING = False
+if TYPE_CHECKING:
+    import argparse
+    from pathlib import Path
+    from typing import Any, Optional, Sequence
+
 STATUS_TIMEOUT = 2.0
 
 
@@ -42,6 +45,21 @@ def resolve_port(explicit: Optional[int] = None) -> int:
     return port
 
 
+def resolve_root(raw: Optional[str]) -> Optional[str]:
+    """Check --root up front: a typo would otherwise key every path against a
+    directory that does not exist, and no overlap would ever be detected."""
+    if raw is None:
+        return None
+    if not raw.strip():
+        raise ConfigError("--root is empty")
+    expanded = os.path.expanduser(raw)
+    if not os.path.exists(expanded):
+        raise ConfigError(f"--root {raw!r} does not exist")
+    if not os.path.isdir(expanded):
+        raise ConfigError(f"--root {raw!r} is not a directory")
+    return raw
+
+
 def daemon_url(port: int, path: str) -> str:
     return f"http://127.0.0.1:{port}{path}"
 
@@ -50,12 +68,17 @@ def daemon_url(port: int, path: str) -> str:
 
 
 def cmd_join(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from synergo.daemon import Daemon
+
     daemon = Daemon(
         room=args.room,
         name=args.name,
         agent=args.agent,
         server=args.server,
         port=resolve_port(args.port),
+        root=resolve_root(args.root),
     )
     try:
         return asyncio.run(daemon.run())
@@ -67,43 +90,67 @@ def cmd_join(args: argparse.Namespace) -> int:
 # --- hook entrypoint ---------------------------------------------------------
 
 
-def post_event(event: NormalizedEvent, port: int) -> EventAck:
-    response = httpx.post(
-        daemon_url(port, "/events"),
-        content=event.model_dump_json(),
-        headers={"content-type": "application/json"},
-        timeout=HOOK_POST_TIMEOUT,
-    )
-    response.raise_for_status()
-    return EventAck.model_validate(response.json())
+HOOK_HELP_FLAGS = ("-h", "--help")
 
 
-def cmd_hook_claude_code(args: argparse.Namespace) -> int:
-    """Fails open unconditionally: any problem means no stdout and exit 0, so a
-    dead or slow daemon can never stall or break the user's agent."""
+def run_hook(port_arg: Optional[int]) -> int:
+    """Fails open unconditionally: any problem means exit 0 and no decision, so
+    a dead or slow daemon can never stall or break the user's agent. The work
+    itself lives in synergo.hook_fast, which is stdlib-only."""
     try:
-        port = resolve_port(args.port)
+        port = resolve_port(port_arg)
     except ConfigError as exc:
         print(f"synergo: {exc} — proceeding without coordination", file=sys.stderr)
         return 0
+    return hook_fast.run_claude_code(port)
+
+
+def cmd_hook_claude_code(args: argparse.Namespace) -> int:
+    return run_hook(args.port)
+
+
+def parse_hook_args(argv: Sequence[str]) -> Optional[int]:
+    """The hook's only flag, `--port N` / `--port=N`, parsed by hand.
+
+    Raises ValueError on anything else. Not argparse: building a parser costs
+    the hook ~20 ms of imports (argparse sizes its help formatter through
+    shutil) on every edit, for one optional integer.
+    """
+    port: Optional[int] = None
+    rest = list(argv)
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--port" and rest:
+            port = int(rest.pop(0))
+        elif arg.startswith("--port="):
+            port = int(arg.partition("=")[2])
+        else:
+            raise ValueError(f"unexpected argument {arg!r}")
+    return port
+
+
+def run_hook_fast_path(argv: Sequence[str]) -> int:
+    """`synergo hook claude-code [--port N]` without building the full parser,
+    whose choices and defaults come from the pydantic-backed modules.
+
+    A bad flag must still fail open: argparse would exit 2, and Claude Code
+    reads exit 2 from a PreToolUse hook as "block this edit", so a typo in
+    settings.json would stall every edit.
+    """
     try:
-        payload = json.loads(sys.stdin.read() or "{}")
-        event = claude_code.normalize(payload)
-        if event is None:
-            return 0
-        ack = post_event(event, port)
-        output = claude_code.render_response(event, ack)
-        if output:
-            sys.stdout.write(output)
+        port_arg = parse_hook_args(argv)
+    except ValueError as exc:
+        print(f"synergo: {exc} — proceeding without coordination", file=sys.stderr)
         return 0
-    except BaseException:
-        return 0
+    return run_hook(port_arg)
 
 
 # --- hook install / uninstall ------------------------------------------------
 
 
 def settings_path(global_scope: bool) -> Path:
+    from pathlib import Path
+
     if global_scope:
         return Path.home() / ".claude" / "settings.json"
     return Path.cwd() / ".claude" / "settings.json"
@@ -115,6 +162,8 @@ def load_settings(path: Path) -> dict[str, Any]:
     Never returns {} for content it failed to understand: the caller writes this
     file back, so a silent empty dict would replace the user's own settings.
     """
+    import json
+
     if not path.exists():
         return {}
     text = path.read_text(encoding="utf-8").strip()
@@ -130,6 +179,8 @@ def load_settings(path: Path) -> dict[str, Any]:
 
 
 def save_settings(path: Path, settings: dict[str, Any]) -> None:
+    import json
+
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
 
@@ -232,6 +283,10 @@ def cmd_hook_uninstall(args: argparse.Namespace) -> int:
 
 
 def cmd_status(args: argparse.Namespace) -> int:
+    import json
+
+    import httpx
+
     port = resolve_port(args.port)
     try:
         response = httpx.get(daemon_url(port, "/status"), timeout=STATUS_TIMEOUT)
@@ -247,6 +302,13 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Deferred: both modules import pydantic, which only the hook path (routed
+    # around this parser in main) has to avoid.
+    import argparse
+
+    from synergo.daemon import DEFAULT_SERVER
+    from synergo.protocol import AGENT_KINDS
+
     parser = argparse.ArgumentParser(prog="synergo", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -257,14 +319,22 @@ def build_parser() -> argparse.ArgumentParser:
         run.add_argument("--server", default=DEFAULT_SERVER, help=f"relay ws base (default {DEFAULT_SERVER})")
         run.add_argument("--agent", default="claude-code", choices=AGENT_KINDS, help="agent you are driving")
         run.add_argument("--port", type=int, default=None, help=f"loopback port (default {DEFAULT_PORT})")
+        run.add_argument(
+            "--root",
+            default=None,
+            metavar="PATH",
+            help="project directory file paths are keyed against (default: the git repo "
+            "around each agent's cwd); outside git, every teammate must pass one",
+        )
         run.set_defaults(func=cmd_join)
 
     hook = sub.add_parser("hook", help="agent hook entrypoint and installation")
     hook_sub = hook.add_subparsers(dest="hook_command", required=True)
 
-    run_hook = hook_sub.add_parser("claude-code", help="handle one Claude Code hook invocation")
-    run_hook.add_argument("--port", type=int, default=None)
-    run_hook.set_defaults(func=cmd_hook_claude_code)
+    # Normally reached only for --help: main() routes the hook around this parser.
+    hook_cmd = hook_sub.add_parser("claude-code", help="handle one Claude Code hook invocation")
+    hook_cmd.add_argument("--port", type=int, default=None)
+    hook_cmd.set_defaults(func=cmd_hook_claude_code)
 
     install = hook_sub.add_parser("install", help="install hooks into a Claude Code settings.json")
     install.add_argument("target", choices=["claude-code"])
@@ -284,6 +354,9 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:2] == ["hook", "claude-code"] and not any(a in HOOK_HELP_FLAGS for a in argv[2:]):
+        return run_hook_fast_path(argv[2:])
     args = build_parser().parse_args(argv)
     try:
         return args.func(args)

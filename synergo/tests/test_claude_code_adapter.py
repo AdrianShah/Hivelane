@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from synergo import cli
+from synergo import cli, hook_fast
 from synergo.adapters import claude_code
 from synergo.events import EventAck, NormalizedEvent
 from synergo.protocol import PeerTouch
@@ -104,12 +104,14 @@ def run_hook(monkeypatch: pytest.MonkeyPatch, payload: dict, ack: EventAck | Non
     monkeypatch.setattr("sys.stdout", stdout)
     if ack is None:
 
-        def explode(*_args: object, **_kwargs: object) -> EventAck:
+        def explode(*_args: object, **_kwargs: object) -> dict:
             raise RuntimeError("daemon exploded")
 
-        monkeypatch.setattr(cli, "post_event", explode)
+        monkeypatch.setattr(hook_fast, "post_event", explode)
     else:
-        monkeypatch.setattr(cli, "post_event", lambda event, port: ack)
+        # What the daemon actually puts on the wire: FastAPI's JSON of the ack.
+        wire = json.loads(ack.model_dump_json())
+        monkeypatch.setattr(hook_fast, "post_event", lambda event, port: wire)
     code = cli.main(["hook", "claude-code"])
     return code, stdout.getvalue()
 

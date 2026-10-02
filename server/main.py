@@ -1,10 +1,12 @@
-"""Relay server: accepts watcher and spectator WebSocket connections, keeps
-room state in memory, and broadcasts activity to everyone.
+"""Relay server: accepts WebSocket connections from synergo daemons (named room
+members, one per agent) and dashboards (spectators), keeps per-room state in
+memory, answers pre-edit checks point-to-point, and broadcasts activity to the
+room as a debounced feed.
 
 Run from the repo root:
     uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
-Then expose it with:
-    ngrok http 8000
+To share a local relay with teammates, expose it with e.g. `ngrok http 8000`;
+deployed relays run from the Dockerfile image.
 """
 
 from __future__ import annotations
@@ -16,10 +18,11 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import ValidationError
 
 try:
-    from . import config, logging_config
+    from . import config, logging_config, metrics
     from .gemini import classify_conflict, generate_caption
     from .limits import check_room_creation, check_ws_attempt, client_ip
     from .models import (
@@ -32,10 +35,10 @@ try:
         EditCheckResponse,
         EditDecision,
         IntentMessage,
-        IntentUpdate,
         JoinMessage,
         NameRejected,
         PeerTouch,
+        RateLimited,
         RoomRejected,
         UserJoined,
         UserLeft,
@@ -47,6 +50,7 @@ try:
 except ImportError:  # Render runs with rootDir=server as a flat module tree
     import config  # type: ignore[no-redef]
     import logging_config  # type: ignore[no-redef]
+    import metrics  # type: ignore[no-redef]
     from gemini import classify_conflict, generate_caption
     from limits import check_room_creation, check_ws_attempt, client_ip
     from models import (
@@ -59,10 +63,10 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         EditCheckResponse,
         EditDecision,
         IntentMessage,
-        IntentUpdate,
         JoinMessage,
         NameRejected,
         PeerTouch,
+        RateLimited,
         RoomRejected,
         UserJoined,
         UserLeft,
@@ -97,10 +101,31 @@ log.info(
 
 room_manager = RoomManager()
 
+metrics.register_gauge(
+    "synergo_rooms_live",
+    "Rooms with in-memory state in this process.",
+    lambda: room_manager.room_count,
+)
+metrics.register_gauge(
+    "synergo_rooms_durable",
+    "Valid room codes in the room store, live or not.",
+    lambda: room_manager.durable_room_count,
+)
+metrics.register_gauge(
+    "synergo_members",
+    "Named agents connected across all rooms.",
+    lambda: room_manager.member_count,
+)
+metrics.register_gauge(
+    "synergo_spectators",
+    "Dashboards connected across all rooms.",
+    lambda: room_manager.spectator_count,
+)
+
 # Drop activity spam: same user must wait this long between accepted updates.
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
 
-# Keep empty rooms around so a shared Vercel link / watcher reconnect still
+# Keep empty rooms around so a shared Vercel link / daemon reconnect still
 # works after a brief disconnect (Render free-tier blips, laptop sleep, etc.).
 EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 
@@ -108,13 +133,12 @@ EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 WS_CLOSE_ROOM_NOT_FOUND = 4404
 # Private-use close code: client protocol too old to coordinate safely.
 WS_CLOSE_VERSION_TOO_OLD = 4426
+# Private-use close code: too many connection attempts from this IP.
+WS_CLOSE_RATE_LIMITED = 4429
 
 
 class VersionTooOld(Exception):
     """Raised by the handshake so the caller closes with the right code."""
-
-# Private-use close code: too many connection attempts from this IP.
-WS_CLOSE_RATE_LIMITED = 4429
 
 
 def _schedule_empty_room_cleanup(room_id: str) -> None:
@@ -166,6 +190,16 @@ async def health() -> dict[str, object]:
     return {"status": "ok", "rooms": room_manager.room_count}
 
 
+@app.get("/metrics")
+async def prometheus_metrics() -> PlainTextResponse:
+    """Prometheus text exposition of this process's counters and gauges.
+
+    Unauthenticated like /health: it reports only aggregate counts, never room
+    codes or names, so exposing it leaks nothing a room code would protect.
+    """
+    return PlainTextResponse(metrics.render(), media_type=metrics.CONTENT_TYPE)
+
+
 @app.get("/readyz")
 async def readyz() -> dict[str, object]:
     """Readiness: configuration this deploy needs before it can serve a
@@ -190,6 +224,7 @@ async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
         try:
             join = JoinMessage.model_validate(raw)
         except ValidationError:
+            metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Invalid name"))
             continue
 
@@ -202,6 +237,7 @@ async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
                 join.protocol_version,
                 MIN_SUPPORTED_PROTOCOL,
             )
+            metrics.ws_rejections_total.inc("version")
             await room.send(
                 socket,
                 VersionRejected(
@@ -217,14 +253,17 @@ async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
         try:
             user_id = sanitize_name(join.name or "")
         except ValueError as exc:
+            metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason=str(exc)))
             continue
 
         if room.is_taken(user_id):
+            metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Name taken"))
             continue
 
         if len(room.member_ids) >= MAX_MEMBERS:
+            metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Room full"))
             continue
 
@@ -288,6 +327,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     if room.is_activity_rate_limited(user_id, ACTIVITY_MIN_INTERVAL_SECONDS):
         log.debug("Rate-limiting activity from %s", user_id)
         return
+    metrics.activity_messages_total.inc()
 
     # Detect same-file overlaps against active peers BEFORE recording this batch.
     overlaps = room.find_overlaps(message)
@@ -307,6 +347,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
         changes=message.changes,
         caption=caption,
         agent=message.agent,
+        repo_id=message.repo_id,
     )
     room.remember_update(update)
     log.info(
@@ -341,18 +382,17 @@ async def handle_intent(room: Room, user_id: str, raw: dict) -> None:
     ):
         log.debug("Rate-limiting intent from %s", user_id)
         return
+    metrics.intents_total.inc()
 
-    agent = room.member_agent(user_id)
-    room.record_intent(user_id, message.prompt, message.timestamp, agent)
-    log.info("intent from %s: %s", user_id, message.prompt)
-    await room.broadcast(
-        IntentUpdate(
-            user_id=user_id,
-            agent=agent,
-            prompt=message.prompt,
-            timestamp=message.timestamp,
-        )
+    update = room.record_intent(
+        user_id,
+        message.prompt,
+        message.timestamp,
+        room.member_agent(user_id),
+        repo_id=message.repo_id,
     )
+    log.info("intent from %s: %s", user_id, message.prompt)
+    await room.broadcast(update)
 
 
 def _edit_check_reason(
@@ -380,6 +420,7 @@ async def handle_edit_check(
     Deliberately not rate-limited (an agent may probe many files at once) and
     deliberately free of Gemini calls — the reply must go out immediately.
     """
+    started = time.perf_counter()
     try:
         request = EditCheckRequest.model_validate(raw)
     except ValidationError as exc:
@@ -387,27 +428,31 @@ async def handle_edit_check(
         return
 
     now = time.time()
-    decision, peers = room.check_edit(user_id, request.file_path, now)
-    reason = _edit_check_reason(decision, request.file_path, peers, now)
-
-    await room.send(
-        socket,
-        EditCheckResponse(
-            request_id=request.request_id,
-            decision=decision,
-            file_path=request.file_path,
-            others=[
-                PeerTouch(
-                    user_id=peer.user_id,
-                    agent=peer.agent,
-                    seconds_ago=max(0.0, now - peer.timestamp),
-                    prompt=peer.prompt,
-                )
-                for peer in peers
-            ],
-            reason=reason,
-        ),
+    decision, peers = room.check_edit(
+        user_id, request.file_path, now, repo_id=request.repo_id
     )
+    reason = _edit_check_reason(decision, request.file_path, peers, now)
+    response = EditCheckResponse(
+        request_id=request.request_id,
+        decision=decision,
+        file_path=request.file_path,
+        others=[
+            PeerTouch(
+                user_id=peer.user_id,
+                agent=peer.agent,
+                seconds_ago=max(0.0, now - peer.timestamp),
+                prompt=peer.prompt,
+            )
+            for peer in peers
+        ],
+        reason=reason,
+    )
+    # Recorded once the reply is ready and before it is sent, so anyone who
+    # has seen the reply also sees it counted. The feed broadcast below is
+    # excluded: the agent's hook is unblocked by the reply alone.
+    metrics.edit_check_seconds.observe(time.perf_counter() - started)
+    metrics.edit_checks_total.inc(decision)
+    await room.send(socket, response)
 
     if decision == "allow":
         return
@@ -422,6 +467,7 @@ async def handle_edit_check(
             others=[peer.user_id for peer in peers],
             reason=reason,
             timestamp=now,
+            repo_id=request.repo_id,
         )
     )
 
@@ -433,16 +479,16 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     allowance = check_ws_attempt(socket)
     if not allowance.allowed:
         log.warning("WebSocket attempt rate-limited for %s", client_ip(socket))
+        metrics.ws_rejections_total.inc("rate_limited")
         await socket.accept()
         await socket.send_json(
-            {
-                "type": "rate_limited",
-                "reason": (
+            RateLimited(
+                reason=(
                     "Too many connection attempts from this address. "
                     "Wait a moment and reconnect."
                 ),
-                "retry_after": allowance.retry_after_seconds,
-            }
+                retry_after=allowance.retry_after_seconds,
+            ).model_dump()
         )
         await socket.close(code=WS_CLOSE_RATE_LIMITED, reason="Rate limited")
         return
@@ -450,11 +496,12 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     room = room_manager.get(room_id)
     await socket.accept()
     if room is None:
-        # Accept + JSON reject (then close) so browsers and the watcher get a
+        # Accept + JSON reject (then close) so browsers and the daemon get a
         # clear signal. Closing before accept becomes an opaque 1006 in Chrome;
         # closing after accept without a body often arrives as "no close frame"
         # through Render's proxy.
         log.info("Rejecting unknown room %s", room_id)
+        metrics.ws_rejections_total.inc("room_not_found")
         await socket.send_json(
             RoomRejected(
                 reason=(
