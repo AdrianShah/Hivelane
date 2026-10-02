@@ -25,6 +25,10 @@ DEFAULT_WS_ATTEMPT_LIMIT = 30
 DEFAULT_WS_ATTEMPT_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS = 4096
 
+# Schemes redis-py's from_url understands. Checked here so a typo fails the boot
+# instead of quietly leaving every instance on its own per-process budget.
+REDIS_URL_SCHEMES = ("redis://", "rediss://", "unix://")
+
 
 class ConfigError(RuntimeError):
     """Raised at import when the environment cannot serve traffic safely."""
@@ -41,6 +45,7 @@ class Settings:
     ws_attempt_limit: int
     ws_attempt_window_seconds: int
     rate_limit_max_tracked_ips: int
+    redis_url: str | None
 
     @property
     def is_production(self) -> bool:
@@ -74,6 +79,23 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
     if value < 1:
         raise ConfigError(f"{name} must be at least 1, got {value}")
     return value
+
+
+def _redis_url(env: Mapping[str, str]) -> str | None:
+    """Optional shared store for the rate limiters (see limits.py).
+
+    Unset keeps the limiters in process memory, which is right for a single
+    relay instance and needs no extra service.
+    """
+    raw = (env.get("SYNERGO_REDIS_URL") or "").strip()
+    if not raw:
+        return None
+    if not raw.lower().startswith(REDIS_URL_SCHEMES):
+        # The value is not echoed: it usually carries a password.
+        raise ConfigError(
+            f"SYNERGO_REDIS_URL must start with {', '.join(REDIS_URL_SCHEMES)}"
+        )
+    return raw
 
 
 def load_settings(env: Mapping[str, str]) -> Settings:
@@ -124,6 +146,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         rate_limit_max_tracked_ips=_positive_int(
             env, "RATE_LIMIT_MAX_TRACKED_IPS", DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS
         ),
+        redis_url=_redis_url(env),
     )
 
 
@@ -140,3 +163,4 @@ ROOM_CREATE_WINDOW_SECONDS: int = SETTINGS.room_create_window_seconds
 WS_ATTEMPT_LIMIT: int = SETTINGS.ws_attempt_limit
 WS_ATTEMPT_WINDOW_SECONDS: int = SETTINGS.ws_attempt_window_seconds
 RATE_LIMIT_MAX_TRACKED_IPS: int = SETTINGS.rate_limit_max_tracked_ips
+REDIS_URL: str | None = SETTINGS.redis_url

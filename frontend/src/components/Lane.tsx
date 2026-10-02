@@ -9,6 +9,12 @@ interface LaneProps {
   highlightFile?: string | null;
   showArchitectureMap?: boolean;
   index?: number;
+  /**
+   * When the agent's daemon left the room (ms epoch), or null while it is
+   * connected. An offline lane stays on the board, greyed out, so a teammate
+   * dropping off is visible instead of their lane silently vanishing.
+   */
+  offlineSince?: number | null;
 }
 
 const AVATAR_COLORS = [
@@ -52,6 +58,10 @@ function relativeTime(ts: number | null): string {
   }
   const h = Math.floor(delta / 3600);
   return `${h}h ago`;
+}
+
+function clockTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 function decisionNote(decision: EditDecision): string | null {
@@ -119,6 +129,7 @@ export default function Lane({
   highlightFile = null,
   showArchitectureMap = false,
   index = 0,
+  offlineSince = null,
 }: LaneProps) {
   const { caption, changes, prompt, intent, decisions, timestamp, agent } = state;
   const activePrompt = prompt?.trim() ? prompt.trim() : null;
@@ -147,20 +158,34 @@ export default function Lane({
     `${userId}-${timestamp ?? 0}-${changes.map((c) => c.file_path).join(',')}`,
   );
 
-  const statusLabel = inConflict ? 'Conflict' : changes.length > 0 ? 'Active' : 'Live';
-  const statusClass = inConflict
-    ? 'is-conflict'
-    : changes.length > 0
-      ? 'is-live'
-      : 'is-idle';
+  const offline = offlineSince != null;
+  const offlineNote = offline
+    ? `offline since ${clockTime(offlineSince)} (${relativeTime(offlineSince / 1000)})`
+    : null;
+  const statusLabel = offline
+    ? 'Offline'
+    : inConflict
+      ? 'Conflict'
+      : changes.length > 0
+        ? 'Active'
+        : 'Live';
+  const statusClass = offline
+    ? 'is-offline'
+    : inConflict
+      ? 'is-conflict'
+      : changes.length > 0
+        ? 'is-live'
+        : 'is-idle';
+  const dotClass = offline ? 'bg-on-dim' : inConflict ? 'bg-error' : 'bg-emerald';
 
   return (
     <article
       id={`lane-${userId}`}
       className={`lane-shell rounded-2xl flex flex-col min-h-[440px] overflow-hidden animate-fade-up ${
-        inConflict ? 'in-conflict' : ''
+        offline ? 'is-offline' : inConflict ? 'in-conflict' : ''
       }`}
       style={{ animationDelay: `${index * 60}ms` }}
+      aria-label={offlineNote ? `${userId}, ${offlineNote}` : undefined}
     >
       <header className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06] bg-white/[0.03]">
         <div className="relative shrink-0">
@@ -171,11 +196,13 @@ export default function Lane({
           </div>
           <span
             className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#121a28] ${
-              inConflict
-                ? 'bg-error'
-                : 'bg-emerald shadow-live status-dot-live'
+              offline
+                ? 'bg-on-dim'
+                : inConflict
+                  ? 'bg-error'
+                  : 'bg-emerald shadow-live status-dot-live'
             }`}
-            title={inConflict ? 'Conflict' : 'Online'}
+            title={offline ? 'Offline' : inConflict ? 'Conflict' : 'Online'}
           />
         </div>
         <div className="min-w-0 flex-1">
@@ -184,11 +211,7 @@ export default function Lane({
               {userId}
             </h2>
             <span className={`agent-status-pill ${statusClass}`}>
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  inConflict ? 'bg-error' : 'bg-emerald'
-                }`}
-              />
+              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
               {statusLabel}
             </span>
           </div>
@@ -196,10 +219,14 @@ export default function Lane({
             {showAgent ? (
               <span className="font-mono text-lavender/90">{agent}</span>
             ) : (
-              <span>Agent online</span>
+              <span>{offline ? 'Agent' : 'Agent online'}</span>
             )}
             <span className="text-outline-soft">·</span>
-            <span>{relativeTime(timestamp)}</span>
+            {offlineNote ? (
+              <span className="lane-offline-note">{offlineNote}</span>
+            ) : (
+              <span>{relativeTime(timestamp)}</span>
+            )}
           </p>
         </div>
         <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-primary bg-primary/10 border border-primary/25 px-2.5 py-1 rounded-md uppercase truncate max-w-[42%] backdrop-blur-sm">

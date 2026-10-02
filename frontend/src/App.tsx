@@ -20,6 +20,8 @@ const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
 const MAX_LANE_DECISIONS = 3;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+/** How long a departed agent's greyed-out lane stays up before it is dropped. */
+const OFFLINE_LANE_TTL_MS = 10 * 60 * 1000;
 
 const SPECTATOR_JOIN: JoinMessage = {
   type: 'join',
@@ -37,6 +39,15 @@ const BLANK_LANE: LaneState = {
   timestamp: null,
 };
 
+/**
+ * A lane plus when its agent left the room (ms epoch, local clock — user_left
+ * carries no timestamp), or null while connected. Kept here rather than in
+ * LaneState because it is dashboard bookkeeping, not part of the wire format.
+ */
+type LaneEntry = LaneState & { offlineSince: number | null };
+
+const BLANK_ENTRY: LaneEntry = { ...BLANK_LANE, offlineSince: null };
+
 function isActionableConflict(alert: ConflictAlert): boolean {
   return alert.verdict === 'overlapping' || alert.verdict === 'related';
 }
@@ -52,11 +63,11 @@ function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
 }
 
 function pruneLaneDecisions(
-  prev: Record<string, LaneState>,
-): Record<string, LaneState> {
+  prev: Record<string, LaneEntry>,
+): Record<string, LaneEntry> {
   const now = Date.now() / 1000;
   let changed = false;
-  const next: Record<string, LaneState> = {};
+  const next: Record<string, LaneEntry> = {};
   for (const [id, lane] of Object.entries(prev)) {
     const kept = lane.decisions.filter((d) => !isExpired(d, now));
     if (kept.length === lane.decisions.length) {
@@ -64,6 +75,22 @@ function pruneLaneDecisions(
     } else {
       changed = true;
       next[id] = { ...lane, decisions: kept };
+    }
+  }
+  return changed ? next : prev;
+}
+
+function pruneOfflineLanes(
+  prev: Record<string, LaneEntry>,
+): Record<string, LaneEntry> {
+  const now = Date.now();
+  let changed = false;
+  const next: Record<string, LaneEntry> = {};
+  for (const [id, lane] of Object.entries(prev)) {
+    if (lane.offlineSince != null && now - lane.offlineSince > OFFLINE_LANE_TTL_MS) {
+      changed = true;
+    } else {
+      next[id] = lane;
     }
   }
   return changed ? next : prev;
@@ -115,7 +142,7 @@ export default function App() {
   const roomId = normalizeRoomCode(rawRoomId ?? '');
   const wsUrl = useMemo(() => roomWsUrl(roomId), [roomId]);
 
-  const [users, setUsers] = useState<Record<string, LaneState>>({});
+  const [users, setUsers] = useState<Record<string, LaneEntry>>({});
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [conflictHistory, setConflictHistory] = useState<ConflictAlert[]>([]);
   const [status, setStatus] = useState<ConnStatus>('connecting');
@@ -143,6 +170,10 @@ export default function App() {
   const displayUsers = users;
   const displayConflicts = conflicts;
   const displayUserIds = Object.keys(displayUsers);
+  // Offline lanes stay on the board but are not "agents" in any count.
+  const onlineUserIds = displayUserIds.filter(
+    (id) => displayUsers[id].offlineSince == null,
+  );
 
   useEffect(() => {
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -152,7 +183,7 @@ export default function App() {
   useEffect(() => {
     const id = setInterval(() => {
       setConflicts(pruneExpired);
-      setUsers(pruneLaneDecisions);
+      setUsers((prev) => pruneOfflineLanes(pruneLaneDecisions(prev)));
     }, CONFLICT_PRUNE_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
@@ -213,22 +244,25 @@ export default function App() {
           switch (item.type) {
             case 'user_joined':
               setUsers((prev) => {
-                if (prev[item.user_id]) {
-                  if (item.agent && item.agent !== prev[item.user_id].agent) {
-                    return {
-                      ...prev,
-                      [item.user_id]: {
-                        ...prev[item.user_id],
-                        agent: item.agent,
-                      },
-                    };
+                const prior = prev[item.user_id];
+                if (prior) {
+                  // A rejoin restores the greyed-out lane, history intact.
+                  const agent =
+                    item.agent && item.agent !== prior.agent
+                      ? item.agent
+                      : prior.agent;
+                  if (agent === prior.agent && prior.offlineSince == null) {
+                    return prev;
                   }
-                  return prev;
+                  return {
+                    ...prev,
+                    [item.user_id]: { ...prior, agent, offlineSince: null },
+                  };
                 }
                 return {
                   ...prev,
                   [item.user_id]: {
-                    ...BLANK_LANE,
+                    ...BLANK_ENTRY,
                     agent: item.agent ?? 'unknown',
                   },
                 };
@@ -236,10 +270,16 @@ export default function App() {
               break;
 
             case 'user_left':
+              // Keep the lane, greyed out: a lane that silently vanishes reads
+              // as "nobody to coordinate with" rather than "their coordination
+              // just stopped". pruneOfflineLanes drops it after the TTL.
               setUsers((prev) => {
-                const next = { ...prev };
-                delete next[item.user_id];
-                return next;
+                const prior = prev[item.user_id];
+                if (!prior || prior.offlineSince != null) return prev;
+                return {
+                  ...prev,
+                  [item.user_id]: { ...prior, offlineSince: Date.now() },
+                };
               });
               setConflicts((prev) =>
                 prev.filter((c) => !c.users.includes(item.user_id)),
@@ -258,7 +298,7 @@ export default function App() {
                 return {
                   ...prev,
                   [item.user_id]: {
-                    ...(prior ?? BLANK_LANE),
+                    ...(prior ?? BLANK_ENTRY),
                     caption: item.caption ?? prior?.caption ?? null,
                     changes,
                     prompt: item.prompt,
@@ -275,7 +315,7 @@ export default function App() {
                 return {
                   ...prev,
                   [item.user_id]: {
-                    ...(prior ?? BLANK_LANE),
+                    ...(prior ?? BLANK_ENTRY),
                     intent: item.prompt,
                     agent: item.agent ?? prior?.agent ?? 'unknown',
                   },
@@ -285,7 +325,7 @@ export default function App() {
 
             case 'edit_decision':
               setUsers((prev) => {
-                const prior = prev[item.user_id] ?? BLANK_LANE;
+                const prior = prev[item.user_id] ?? BLANK_ENTRY;
                 const decisions = [
                   item,
                   ...prior.decisions.filter(
@@ -428,7 +468,7 @@ export default function App() {
     [displayUsers],
   );
 
-  const hasLiveAgents = displayUserIds.length > 0;
+  const hasLanes = displayUserIds.length > 0;
 
   const serverLabel =
     status === 'connected'
@@ -531,7 +571,7 @@ export default function App() {
                   Agents
                 </span>
                 <span className="font-mono text-[12px] font-bold text-primary tabular-nums">
-                  {String(displayUserIds.length).padStart(2, '0')}
+                  {String(onlineUserIds.length).padStart(2, '0')}
                 </span>
               </div>
               <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
@@ -603,7 +643,7 @@ export default function App() {
             <p className="text-[13px] text-on-surface m-0">
               Room <span className="font-mono text-primary">{roomId}</span> is
               gone on the relay (expired or redeployed). Create a new workspace
-              and update your watcher --room code.
+              and rejoin it with <code className="font-mono">synergo join</code>.
             </p>
             <button
               type="button"
@@ -645,7 +685,7 @@ export default function App() {
                 {[
                   {
                     label: 'Active agents',
-                    value: String(displayUserIds.length).padStart(2, '0'),
+                    value: String(onlineUserIds.length).padStart(2, '0'),
                     action: () => navigateTo('agents'),
                     cta: 'View agents',
                   },
@@ -723,7 +763,7 @@ export default function App() {
                   </p>
                 </div>
               </div>
-              {hasLiveAgents ? (
+              {hasLanes ? (
                 <div className="lane-grid">
                   {displayUserIds.map((id, index) => (
                     <Lane
@@ -736,6 +776,7 @@ export default function App() {
                       }
                       showArchitectureMap={index === 1}
                       index={index}
+                      offlineSince={displayUsers[id].offlineSince}
                     />
                   ))}
                 </div>
@@ -745,7 +786,8 @@ export default function App() {
                     No agents connected yet
                   </p>
                   <p className="text-[13px] text-on-muted mt-2 mb-5">
-                    Deploy a watcher to stream IDE activity into this room.
+                    Run <code className="font-mono">synergo join {roomId}</code> on
+                    a teammate&apos;s machine to stream their agent into this room.
                   </p>
                   <button
                     type="button"
@@ -769,7 +811,7 @@ export default function App() {
                 <div className="lane-shell rounded-2xl p-5">
                   <p className="section-label m-0">Agents online</p>
                   <p className="font-mono text-3xl font-bold mt-3 mb-0 text-primary">
-                    {displayUserIds.length}
+                    {onlineUserIds.length}
                   </p>
                 </div>
                 <div className="lane-shell rounded-2xl p-5">
@@ -799,7 +841,7 @@ export default function App() {
             <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
               <p className="text-[13px] text-on-muted mb-6">
-                How to connect watchers to Synergo.
+                How to connect agents to Synergo.
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
                 <p className="m-0">
@@ -808,12 +850,15 @@ export default function App() {
                   teammates.
                 </p>
                 <p className="m-0">
-                  2. On each machine, run the watcher against the same room
-                  (Deploy Agent copies the command).
+                  2. On each machine, run{' '}
+                  <code className="text-primary font-mono">
+                    synergo join {roomId} --name &lt;you&gt;
+                  </code>{' '}
+                  and install the agent hook (Deploy Agent has the commands).
                 </p>
                 <p className="m-0">
-                  3. Edit files under the watched path — activity and conflicts
-                  appear on this board.
+                  3. Let the agents work — activity and conflicts appear on this
+                  board.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-2">
                   <button
