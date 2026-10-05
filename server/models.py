@@ -59,6 +59,18 @@ class FileChange(BaseModel):
 # --- Client -> Server ---------------------------------------------------------
 
 
+class RoomSettings(BaseModel):
+    """Team-wide conflict windows from the repo's .synergo.toml.
+
+    Sent on join so the relay enforces what the team committed, not its own
+    defaults. Bounded so one member cannot disable blocking room-wide by
+    accident (a zero block window still warns).
+    """
+
+    block_window_seconds: float = Field(default=20.0, ge=0, le=600)
+    warn_window_seconds: float = Field(default=60.0, ge=0, le=3600)
+
+
 class JoinMessage(BaseModel):
     type: Literal["join"] = "join"
     # None marks a spectator (the dashboard), which receives broadcasts but is
@@ -69,6 +81,9 @@ class JoinMessage(BaseModel):
     # the dashboard only consumes broadcasts and cannot silently under-report.
     protocol_version: int = 0
     repo_id: RepoId = ""
+    # Optional: a member that carries a committed .synergo.toml shares its
+    # windows with the room. None leaves the room's current settings alone.
+    settings: Optional[RoomSettings] = None
 
     @property
     def is_spectator(self) -> bool:
@@ -171,6 +186,23 @@ class ConflictAlert(BaseModel):
     file_path: str
     verdict: Verdict
     explanation: str
+    timestamp: float = Field(default_factory=time.time)
+
+
+class RoomSettingsUpdate(BaseModel):
+    """The conflict windows the relay is enforcing for this room.
+
+    Broadcast whenever a member's join changes them, and sent to every
+    spectator on connect, so the dashboard always shows the windows actually in
+    force rather than whatever the viewer's own repo would set. Flat rather than
+    nesting RoomSettings so a dashboard reads it like every other feed event.
+    set_by is None for relay defaults and settings chosen at room creation.
+    """
+
+    type: Literal["room_settings"] = "room_settings"
+    block_window_seconds: float
+    warn_window_seconds: float
+    set_by: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
 
 

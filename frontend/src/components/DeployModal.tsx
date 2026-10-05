@@ -1,23 +1,22 @@
 import { useEffect } from 'react';
+import { copyText } from '../clipboard';
+import { setupCommand } from '../relayUrl';
 
 interface DeployModalProps {
   open: boolean;
   roomId: string;
-  wsUrl: string;
   onClose: () => void;
   onCopied?: (label: string) => void;
 }
 
-function watcherCommand(roomId: string, wsUrl: string): string {
-  // Strip the trailing /ROOM: the daemon takes the room as its first argument.
-  const base = wsUrl.replace(/\/[^/]+$/, '');
-  return `synergo join ${roomId} --name <your-name> --server ${base}`;
-}
-
+/**
+ * Quick copy of the one-line teammate setup. The invite view has the same
+ * command with a step-by-step explanation; this is for someone who already
+ * knows the drill and just wants the line.
+ */
 export default function DeployModal({
   open,
   roomId,
-  wsUrl,
   onClose,
   onCopied,
 }: DeployModalProps) {
@@ -32,21 +31,10 @@ export default function DeployModal({
 
   if (!open) return null;
 
-  const command = watcherCommand(roomId, wsUrl);
+  const command = setupCommand(roomId);
 
   const copy = async (text: string, label: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      onCopied?.(label);
-    } catch {
-      const el = document.createElement('textarea');
-      el.value = text;
-      document.body.appendChild(el);
-      el.select();
-      document.execCommand('copy');
-      document.body.removeChild(el);
-      onCopied?.(label);
-    }
+    if (await copyText(text)) onCopied?.(label);
   };
 
   return (
@@ -69,11 +57,10 @@ export default function DeployModal({
               id="deploy-modal-title"
               className="text-lg font-bold tracking-tight m-0"
             >
-              Deploy Agent
+              Connect a teammate&apos;s agent
             </h2>
             <p className="text-[13px] text-on-muted mt-1 mb-0">
-              Connect a Synergo watcher on a teammate&apos;s machine to stream
-              their IDE into this room.
+              One line installs Synergo and joins this room from their repo.
             </p>
           </div>
           <button
@@ -104,26 +91,27 @@ export default function DeployModal({
           </div>
 
           <div>
-            <label className="section-label">Watcher command</label>
+            <label className="section-label">Setup command</label>
             <pre className="mt-2 m-0 font-mono text-[11px] leading-relaxed text-on-muted bg-surface-deep border border-outline-soft rounded-lg px-3 py-3 whitespace-pre-wrap break-all">
               {command}
             </pre>
             <button
               type="button"
               className="deploy-btn mt-3 w-full rounded-xl py-2.5 text-[12px] font-bold tracking-wide"
-              onClick={() => void copy(command, 'Watcher command')}
+              onClick={() => void copy(command, 'Setup command')}
             >
-              Copy watcher command
+              Copy setup command
             </button>
           </div>
 
           <ol className="m-0 pl-4 text-[12px] text-on-muted space-y-1.5 list-decimal">
-            <li>Activate the watcher venv in the repo.</li>
+            <li>Open a terminal in the repository the agent works in.</li>
             <li>
-              Paste the command and replace{' '}
-              <code className="text-primary">&lt;your-name&gt;</code>.
+              Paste the command: <code className="text-primary">pipx install synergo</code>{' '}
+              once, then <code className="text-primary">synergo up</code> joins this
+              room.
             </li>
-            <li>Save files in the watched path — the Synergo feed updates live.</li>
+            <li>Keep working — the agent shows up as a lane in the Synergo feed.</li>
           </ol>
         </div>
       </div>

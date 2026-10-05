@@ -185,8 +185,9 @@ def test_members_and_spectators_are_gauged_live() -> None:
         member.receive_json()
         with client.websocket_connect(f"/ws/{room_id}") as spectator:
             spectator.send_json({"type": "join", "name": None})
-            # Catch-up is sent after the spectator is registered.
-            assert spectator.receive_json()["type"] == "user_joined"
+            # Catch-up (room settings first) is sent after the spectator is
+            # registered.
+            assert spectator.receive_json()["type"] == "room_settings"
             during = _scrape(client)
 
     assert during["synergo_members"] == before["synergo_members"] + 1

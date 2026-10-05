@@ -16,6 +16,7 @@
     "intent_update": "#/$defs/IntentUpdate",
     "edit_decision": "#/$defs/EditDecision",
     "conflict_alert": "#/$defs/ConflictAlert",
+    "room_settings": "#/$defs/RoomSettingsUpdate",
     "user_joined": "#/$defs/UserJoined",
     "user_left": "#/$defs/UserLeft",
     "name_rejected": "#/$defs/NameRejected",
@@ -51,6 +52,9 @@
     },
     {
       "$ref": "#/$defs/ConflictAlert"
+    },
+    {
+      "$ref": "#/$defs/RoomSettingsUpdate"
     },
     {
       "$ref": "#/$defs/UserJoined"
@@ -569,6 +573,17 @@
           "maxLength": 64,
           "title": "Repo Id",
           "type": "string"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RoomSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "title": "JoinMessage",
@@ -679,6 +694,67 @@
         "reason"
       ],
       "title": "RoomRejected",
+      "type": "object"
+    },
+    "RoomSettings": {
+      "description": "Team-wide conflict windows from the repo's .synergo.toml.\n\nSent on join so the relay enforces what the team committed, not its own\ndefaults. Bounded so one member cannot disable blocking room-wide by\naccident (a zero block window still warns).",
+      "properties": {
+        "block_window_seconds": {
+          "default": 20.0,
+          "maximum": 600,
+          "minimum": 0,
+          "title": "Block Window Seconds",
+          "type": "number"
+        },
+        "warn_window_seconds": {
+          "default": 60.0,
+          "maximum": 3600,
+          "minimum": 0,
+          "title": "Warn Window Seconds",
+          "type": "number"
+        }
+      },
+      "title": "RoomSettings",
+      "type": "object"
+    },
+    "RoomSettingsUpdate": {
+      "properties": {
+        "type": {
+          "const": "room_settings",
+          "default": "room_settings",
+          "title": "Type",
+          "type": "string"
+        },
+        "block_window_seconds": {
+          "title": "Block Window Seconds",
+          "type": "number"
+        },
+        "warn_window_seconds": {
+          "title": "Warn Window Seconds",
+          "type": "number"
+        },
+        "set_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Set By"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "block_window_seconds",
+        "warn_window_seconds"
+      ],
+      "title": "RoomSettingsUpdate",
       "type": "object"
     },
     "SynergoFeed": {
