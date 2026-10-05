@@ -434,6 +434,9 @@ def run_agent(agent_id: str, port: int) -> int:
     several agents read exit 2 as "block", so a broken hook must never stall
     the agent.
     """
+    adapter: Any = None
+    payload: Any = None
+    wrote = False
     try:
         adapter = adapters.load(agent_id)
         payload = _read_stdin()
@@ -450,6 +453,7 @@ def run_agent(agent_id: str, port: int) -> int:
                 notice = adapter.render_notice(event, str(exc))
                 if notice.stdout and claim_offline_notice():
                     sys.stdout.write(notice.stdout)
+                    wrote = True
                 return 0
             except (BadResponse, ValueError, OSError):
                 ack = None  # unreadable ack: this file reads as allow
@@ -460,9 +464,19 @@ def run_agent(agent_id: str, port: int) -> int:
         output = adapter.render(chosen[0], chosen[1])
         if output.stdout:
             sys.stdout.write(output.stdout)
+            wrote = True
         return output.exit_code if output.exit_code in (0, 2) else 0
     except BaseException:
         return 0
+    finally:
+        # Some agents (Cursor) read an empty answer as a block: say "carry on".
+        if not wrote and adapter is not None:
+            try:
+                text = adapter.passthrough(payload)
+                if text:
+                    sys.stdout.write(text)
+            except BaseException:  # noqa: BLE001
+                pass
 
 
 def run_claude_code(port: int) -> int:

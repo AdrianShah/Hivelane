@@ -60,12 +60,23 @@ def test_hook_never_imports_the_daemon_stack(
     assert not any(name in other for name in ast.literal_eval(loaded_line.removeprefix("LOADED=")))
 
     stdout = result.stdout.decode()
+    adapter = adapters.load(agent)
     if scenario == "allow":
-        assert stdout == ""
+        # "" for most agents; Cursor reads empty output as a block, so it
+        # answers an explicit allow instead.
+        assert stdout == adapter.passthrough(payload)
     elif scenario == "block":
-        assert json.loads(stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+        data = json.loads(stdout)
+        hso = data.get("hookSpecificOutput") or {}
+        assert (
+            hso.get("permissionDecision") == "deny"
+            or data.get("decision") == "deny"
+            or data.get("permission") == "deny"
+        )
     else:
-        assert json.loads(stdout) == {"systemMessage": hook_fast.OFFLINE_NOT_RUNNING}
+        (event,) = adapter.normalize(payload)
+        expected = adapter.render_notice(event, hook_fast.OFFLINE_NOT_RUNNING).stdout
+        assert json.loads(stdout) == json.loads(expected)
 
 
 def _run(agent: str, payload: Any, port: int, monkeypatch: pytest.MonkeyPatch, home: Path) -> tuple[int, str]:

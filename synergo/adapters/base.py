@@ -321,6 +321,11 @@ class Adapter:
     def render_notice(self, event: dict[str, Any], message: str) -> HookOutput:
         return PROCEED
 
+    def passthrough(self, payload: Any) -> str:
+        """What to print when nothing else was rendered ("" = nothing). For
+        agents (Cursor) whose permission hooks read empty output as a block."""
+        return ""
+
     def settings_path(self, scope: str, root: Any = None) -> Path:
         raise NotImplementedError
 

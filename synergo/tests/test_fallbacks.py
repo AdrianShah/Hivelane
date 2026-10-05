@@ -161,7 +161,7 @@ def test_watch_create_modify_delete(tmp_path: Path) -> None:
     events = w.poll()
     assert [Path(e["file_path"]).name for e in events] == ["new.py"]
     assert events[0]["old_content"] == "" and events[0]["new_content"] == "print(1)\n"
-    assert events[0]["kind"] == "post_edit" and events[0]["agent"] == "unknown" and events[0]["tool"] == "watch:aider"
+    assert events[0]["kind"] == "post_edit" and events[0]["agent"] == "aider" and events[0]["tool"] == "watch:aider"
 
     p = tmp_path / "keep.txt"
     p.write_text("one\ntwo\n", newline="")

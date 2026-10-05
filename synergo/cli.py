@@ -675,13 +675,20 @@ def cmd_hook_install(args: argparse.Namespace) -> int:
     from synergo import adapters
 
     adapter = adapters.load(args.target)
+    from pathlib import Path
+
+    from synergo.adapters import base
+
     path = settings_path(args.global_scope, args.target)
-    settings = load_settings(path)
-    changes = merge_hooks(settings, adapter.hook_settings())
+    scope, root = ("user", None) if args.global_scope else ("project", Path.cwd())
+    try:
+        # Through the adapter: not every agent's file has Claude Code's shape.
+        changes = adapter.install(scope, root)
+    except base.SettingsError as exc:
+        raise ConfigError(str(exc)) from None
     if not changes:
         print(f"synergo: hooks already installed in {path} — nothing to do")
         return 0
-    save_settings(path, settings)
     print(f"synergo: added hooks to {path}")
     for event in changes:
         print(f"  + {event} -> {adapter.hook_command}")
@@ -691,16 +698,20 @@ def cmd_hook_install(args: argparse.Namespace) -> int:
 
 
 def cmd_hook_uninstall(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from synergo import adapters
+    from synergo.adapters import base
+
     path = settings_path(args.global_scope, args.target)
-    if not path.exists():
-        print(f"synergo: no synergo hooks found in {path}")
-        return 0
-    settings = load_settings(path)
-    changes = remove_hooks(settings)
+    scope, root = ("user", None) if args.global_scope else ("project", Path.cwd())
+    try:
+        changes = adapters.load(args.target).uninstall(scope, root)
+    except base.SettingsError as exc:
+        raise ConfigError(str(exc)) from None
     if not changes:
         print(f"synergo: no synergo hooks found in {path}")
         return 0
-    save_settings(path, settings)
     print(f"synergo: removed hooks from {path}")
     for event in changes:
         print(f"  - {event}")
@@ -742,7 +753,8 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('ok')} {spec.label} ({evidence}): hooks already in {where}")
     for agent in found:
         if not agent.has_adapter:
-            say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, adapter coming soon")
+            hint = agent.spec.note or "adapter coming soon"
+            say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, {hint}")
 
 
 def project_file_values(root: Path) -> dict[str, Any]:
@@ -1336,6 +1348,28 @@ def cmd_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    from synergo import watch
+    from synergo.config import load_config
+
+    argv = list(args.cmd)
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    if not argv:
+        raise ConfigError("synergo run: no command given, e.g. `synergo run aider` or `synergo run --agent unknown -- mytool`")
+    from pathlib import Path
+
+    agent = args.agent or Path(argv[0]).stem.lower()
+    root = project_root(args.root)
+    ignore = tuple(getattr(load_config(root), "ignore", ()) or ())
+    port = resolve_port(args.port)
+    watcher = watch.Watcher(root, watch.daemon_poster(port, say), agent=agent, ignore=ignore)
+    say(f"synergo run: watching {root} as {watcher.agent} while `{argv[0]}` runs (observe only: warns after the fact)")
+    code = watch.run_wrapped(argv, watcher, interval=args.interval, say=say)
+    say(f"synergo run: {argv[0]} exited ({code}); watcher stopped")
+    return code
+
+
 def cmd_githook(args: argparse.Namespace) -> int:
     import subprocess
 
@@ -1478,6 +1512,20 @@ def build_parser() -> argparse.ArgumentParser:
     watch_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
     watch_cmd.add_argument("--port", type=int, default=None, help=port_help)
     watch_cmd.set_defaults(func=cmd_watch)
+
+    run_cmd = sub.add_parser(
+        "run",
+        help="run a hookless agent (e.g. aider) with an observe-only watcher",
+        description="Run COMMAND in this terminal while `synergo watch` shares its edits. "
+        "An `-m/--message` argument is posted as the agent's intent first. "
+        "Exits with COMMAND's exit code.",
+    )
+    run_cmd.add_argument("--agent", default=None, help="agent id reported to the room (default: the command name, e.g. aider; unknown ids read as unknown)")
+    run_cmd.add_argument("--interval", type=float, default=1.0, help="poll interval in seconds (default 1)")
+    run_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    run_cmd.add_argument("--port", type=int, default=None, help=port_help)
+    run_cmd.add_argument("cmd", nargs=argparse.REMAINDER, metavar="COMMAND [ARGS...]", help="command to run, e.g. aider -m 'fix the login bug'")
+    run_cmd.set_defaults(func=cmd_run)
 
     githook_cmd = sub.add_parser("githook", help="git pre-commit check against teammates' recent edits")
     githook_sub = githook_cmd.add_subparsers(dest="githook_command", required=True, metavar="ACTION")

@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 REGISTRY: dict[str, str] = {
     "claude-code": "synergo.adapters.claude_code",
     "codex": "synergo.adapters.codex",
+    "cursor": "synergo.adapters.cursor",
+    "gemini-cli": "synergo.adapters.gemini_cli",
 }
 
 

@@ -371,6 +371,7 @@ def test_claude_code_is_hooked_even_when_not_detected(
     machine: Machine, capsys: pytest.CaptureFixture[str]
 ) -> None:
     machine.executables["codex"] = "/usr/bin/codex"
+    machine.executables["aider"] = "/usr/bin/aider"
     (machine.home / ".gemini").mkdir()
 
     assert cli.main(["up"]) == 0
@@ -379,7 +380,8 @@ def test_claude_code_is_hooked_even_when_not_detected(
     assert synergo_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
     assert "Claude Code (not detected): added hooks" in out
     assert "Codex (codex on PATH): added hooks to .codex" in out
-    assert "Gemini CLI (~/.gemini): detected, adapter coming soon" in out
+    assert "Gemini CLI (~/.gemini): added hooks to .gemini" in out
+    assert "Aider (aider on PATH): detected, observe-only via `synergo run aider`" in out
 
 
 def test_declining_the_undetected_primary_adapter(
