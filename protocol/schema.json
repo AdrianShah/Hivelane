@@ -124,6 +124,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -200,6 +202,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -377,6 +381,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -500,6 +506,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -558,6 +566,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -624,6 +634,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
@@ -802,6 +814,8 @@
             "gemini-cli",
             "devin",
             "grok",
+            "aider",
+            "human",
             "unknown"
           ],
           "title": "Agent",
