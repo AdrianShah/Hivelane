@@ -59,7 +59,7 @@ def test_unreachable_daemon_notifies_once_and_never_decides(
     first = run(monkeypatch, capsys, edit_payload(tmp_path))
 
     assert json.loads(first) == {"systemMessage": hook_fast.OFFLINE_NOT_RUNNING}
-    assert "synergo join" in first
+    assert "synergo up" in first
     assert (no_daemon / "hook_state.json").exists()
 
     # Rate-limited: the next edits proceed with no output at all.
