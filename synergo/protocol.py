@@ -27,6 +27,8 @@ AgentKind = Literal[
     "gemini-cli",
     "devin",
     "grok",
+    "aider",
+    "human",
     "unknown",
 ]
 
@@ -38,6 +40,8 @@ AGENT_KINDS: tuple[str, ...] = (
     "gemini-cli",
     "devin",
     "grok",
+    "aider",
+    "human",
     "unknown",
 )
 

@@ -14,6 +14,8 @@ export type AgentKind =
   | 'gemini-cli'
   | 'devin'
   | 'grok'
+  | 'aider'
+  | 'human'
   | 'unknown';
 
 export interface FileChange {

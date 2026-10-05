@@ -1,0 +1,2 @@
+{"payload": {"conversation_id": "conv1", "generation_id": "g1", "model": "auto", "cursor_version": "2.0", "workspace_roots": ["{tmp}"], "user_email": null, "transcript_path": null, "hook_event_name": "beforeSubmitPrompt", "prompt": "rename room", "attachments": []},
+ "expect": [{"kind": "intent", "session_id": "conv1", "prompt": "rename room", "cwd": "{tmp}"}]}

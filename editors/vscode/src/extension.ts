@@ -159,7 +159,7 @@ export function activate(context: vscode.ExtensionContext): void {
     try {
       const ack = await client.postEvent({
         kind: "pre_edit",
-        agent: "unknown",
+        agent: "human",
         session_id: sessionId(),
         cwd: repo.root,
         file_path: doc.uri.fsPath,
@@ -199,7 +199,7 @@ export function activate(context: vscode.ExtensionContext): void {
       try {
         await client.postEvent({
           kind: "post_edit",
-          agent: "unknown",
+          agent: "human",
           session_id: sessionId(),
           cwd: repo.root,
           file_path: doc.uri.fsPath,
