@@ -3,7 +3,8 @@
 A registry, not a plugin system: each known agent is one `AgentSpec` saying how
 to spot it (an executable on PATH and/or a config directory in the home
 directory) and, when Synergo ships a hook adapter for it, how to install that
-adapter. Adding an adapter for another agent is one `HookAdapter` on its entry.
+adapter. Adding an adapter for another agent is one module in synergo.adapters.REGISTRY plus
+`registry_adapter(id)` on its entry (test_adapter_conformance checks they agree).
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 
 @dataclass(frozen=True)
@@ -101,45 +102,47 @@ class DetectedAgent:
         return "detected"
 
 
-# --- claude-code adapter -----------------------------------------------------
-# Delegates to the merge logic in synergo.cli (imported lazily: cli imports this
-# module lazily too, and the hook path must never pay for either).
+# --- adapters from the registry ---------------------------------------------
+# Each AgentSpec with an adapter delegates to synergo.adapters.<id>.ADAPTER
+# (imported lazily: the hook path must never pay for detection).
 
 
-def _claude_settings_path(scope: HookScope) -> Path:
-    if scope.root is None:
-        return home() / ".claude" / "settings.json"
-    return scope.root / ".claude" / "settings.json"
+def _scope_args(scope: HookScope) -> tuple[str, Optional[Path]]:
+    return ("user", None) if scope.root is None else ("project", scope.root)
 
 
-def _claude_install(scope: HookScope) -> InstallResult:
-    from synergo import cli
-    from synergo.adapters import claude_code
+def registry_adapter(agent_id: str) -> HookAdapter:
+    """A HookAdapter for one entry of synergo.adapters.REGISTRY."""
 
-    path = _claude_settings_path(scope)
-    settings = cli.load_settings(path)  # raises on unparseable files: never clobber
-    added = cli.merge_hooks(settings, claude_code.hook_settings())
-    if added:
-        cli.save_settings(path, settings)
-    return InstallResult(path=path, added=tuple(added))
+    def _adapter() -> Any:
+        from synergo import adapters
+
+        return adapters.load(agent_id)
+
+    def settings_path(scope: HookScope) -> Path:
+        return _adapter().settings_path(*_scope_args(scope))
+
+    def install(scope: HookScope) -> InstallResult:
+        from synergo.adapters import base
+
+        adapter = _adapter()
+        path = adapter.settings_path(*_scope_args(scope))
+        try:
+            added = adapter.install(*_scope_args(scope))
+        except base.SettingsError as exc:
+            from synergo import cli
+
+            raise cli.ConfigError(str(exc)) from None
+        return InstallResult(path=path, added=tuple(added))
+
+    def is_installed(scope: HookScope) -> bool:
+        return _adapter().is_installed(*_scope_args(scope))
+
+    return HookAdapter(settings_path=settings_path, install=install, is_installed=is_installed)
 
 
-def _claude_is_installed(scope: HookScope) -> bool:
-    from synergo import cli
-    from synergo.adapters import claude_code
-
-    try:
-        settings = cli.load_settings(_claude_settings_path(scope))
-    except (cli.ConfigError, OSError):
-        return False
-    return cli.has_synergo_hooks(settings, tuple(claude_code.hook_settings()))
-
-
-CLAUDE_CODE_ADAPTER = HookAdapter(
-    settings_path=_claude_settings_path,
-    install=_claude_install,
-    is_installed=_claude_is_installed,
-)
+CLAUDE_CODE_ADAPTER = registry_adapter("claude-code")
+CODEX_ADAPTER = registry_adapter("codex")
 
 
 # --- registry ----------------------------------------------------------------
@@ -154,7 +157,13 @@ KNOWN_AGENTS: tuple[AgentSpec, ...] = (
         config_dirs=(".claude",),
         adapter=CLAUDE_CODE_ADAPTER,
     ),
-    AgentSpec(id="codex", label="Codex", executables=("codex",), config_dirs=(".codex",)),
+    AgentSpec(
+        id="codex",
+        label="Codex",
+        executables=("codex",),
+        config_dirs=(".codex",),
+        adapter=CODEX_ADAPTER,
+    ),
     AgentSpec(
         id="cursor",
         label="Cursor",

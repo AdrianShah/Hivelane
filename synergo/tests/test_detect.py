@@ -24,7 +24,7 @@ def test_registry_shape() -> None:
     ids = [spec.id for spec in detect.KNOWN_AGENTS]
     assert ids == ["claude-code", "codex", "cursor", "gemini-cli", "aider"]
     assert len(set(ids)) == len(ids)
-    assert [spec.id for spec in detect.KNOWN_AGENTS if spec.has_adapter] == ["claude-code"]
+    assert [spec.id for spec in detect.KNOWN_AGENTS if spec.has_adapter] == ["claude-code", "codex"]
     assert detect.get_agent(detect.PRIMARY_AGENT).has_adapter
     with pytest.raises(KeyError):
         detect.get_agent("nope")
@@ -60,10 +60,10 @@ def test_cursor_agent_preferred_over_cursor(machine: dict[str, str]) -> None:
 
 
 def test_unsupported_agent_cannot_install(tmp_path: Path) -> None:
-    codex = detect.get_agent("codex")
+    cursor = detect.get_agent("cursor")
     with pytest.raises(LookupError, match="no hook adapter"):
-        codex.install(detect.HookScope.project(tmp_path))
-    assert not codex.is_installed(detect.HookScope.project(tmp_path))
+        cursor.install(detect.HookScope.project(tmp_path))
+    assert not cursor.is_installed(detect.HookScope.project(tmp_path))
 
 
 def test_claude_adapter_installs_idempotently(machine: dict[str, str], tmp_path: Path) -> None:
