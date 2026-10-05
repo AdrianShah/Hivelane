@@ -1,6 +1,6 @@
-"""The `synergo hook claude-code` hot path, standard library only.
+"""The `synergo hook <agent>` hot path, standard library only.
 
-Claude Code starts the hook as a fresh process before and after every edit, so
+The agent (Claude Code, Codex, ...) starts the hook as a fresh process before and after every edit, so
 everything this module imports is paid on every file write the agent makes.
 The daemon side needs fastapi/uvicorn/websockets/pydantic; none of that may
 leak in here (synergo/tests/test_hook_fast.py checks sys.modules), and neither
@@ -34,7 +34,8 @@ except ImportError:  # pragma: no cover - CPython always ships _socket
     import socket as _sock
 
 from synergo import hook_json
-from synergo.adapters import claude_code
+from synergo import adapters
+from synergo.adapters import base
 
 # Type checkers treat any name TYPE_CHECKING as True; importing typing's own
 # costs the hook a few milliseconds per edit.
@@ -422,31 +423,48 @@ def _read_stdin() -> Any:
     return hook_json.loads(raw or "{}")
 
 
-def run_claude_code(port: int) -> int:
-    """Handle one Claude Code hook invocation: stdin payload in, response out.
+def run_agent(agent_id: str, port: int) -> int:
+    """Handle one hook invocation for any registered adapter: stdin payload in,
+    response out.
 
-    Always returns 0. Claude Code reads exit 2 as "block", so any other exit
-    status from a broken hook would be a Synergo outage stalling the agent.
+    One native call may yield several events (a Codex patch touching several
+    files): each is posted, and the strictest ack decides. Returns the
+    adapter's exit code, which is 0 for everything but an explicit block in
+    an agent that blocks by exit status; any failure here means exit 0 —
+    several agents read exit 2 as "block", so a broken hook must never stall
+    the agent.
     """
     try:
+        adapter = adapters.load(agent_id)
         payload = _read_stdin()
-        if not isinstance(payload, dict):
+        events = adapter.normalize(payload)
+        if not events:
             return 0
-        event = claude_code.normalize_payload(payload)
-        if event is None:
-            return 0
-        try:
-            ack = post_event(event, port)
-        except DaemonUnreachable as exc:
-            if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
+        results: list[Any] = []
+        for event in events:
+            try:
+                ack = post_event(event, port)
+            except DaemonUnreachable as exc:
+                if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
+                    return 0
+                notice = adapter.render_notice(event, str(exc))
+                if notice.stdout and claim_offline_notice():
+                    sys.stdout.write(notice.stdout)
                 return 0
-            output = claude_code.render_notice(event, str(exc))
-            if output and claim_offline_notice():
-                sys.stdout.write(output)
+            except (BadResponse, ValueError, OSError):
+                ack = None  # unreadable ack: this file reads as allow
+            results.append((event, ack))
+        chosen = base.strictest(results)
+        if chosen is None:
             return 0
-        output = claude_code.render_ack(event, ack)
-        if output:
-            sys.stdout.write(output)
-        return 0
+        output = adapter.render(chosen[0], chosen[1])
+        if output.stdout:
+            sys.stdout.write(output.stdout)
+        return output.exit_code if output.exit_code in (0, 2) else 0
     except BaseException:
         return 0
+
+
+def run_claude_code(port: int) -> int:
+    """Back-compat entry: `run_agent("claude-code", port)`."""
+    return run_agent("claude-code", port)

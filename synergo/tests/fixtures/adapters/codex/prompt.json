@@ -1,0 +1,3 @@
+{"payload": {"session_id": "c1", "turn_id": "t1", "transcript_path": null, "cwd": "{tmp}", "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5-codex", "permission_mode": "default", "prompt": "add a retry to the client"},
+ "expect": [{"kind": "intent", "prompt": "add a retry to the client"}]}

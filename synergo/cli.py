@@ -16,7 +16,6 @@ import os
 import sys
 
 from synergo import hook_fast
-from synergo.adapters import claude_code
 from synergo.hook_fast import DEFAULT_PORT
 
 # Type checkers treat any name TYPE_CHECKING as True.
@@ -560,7 +559,7 @@ def cmd_join(args: argparse.Namespace) -> int:
 HOOK_HELP_FLAGS = ("-h", "--help")
 
 
-def run_hook(port_arg: Optional[int]) -> int:
+def run_hook(port_arg: Optional[int], agent: str = "claude-code") -> int:
     """Fails open unconditionally: any problem means exit 0 and no decision, so
     a dead or slow daemon can never stall or break the user's agent. The work
     itself lives in synergo.hook_fast, which is stdlib-only."""
@@ -569,11 +568,14 @@ def run_hook(port_arg: Optional[int]) -> int:
     except ConfigError as exc:
         print(f"synergo: {exc} — proceeding without coordination", file=sys.stderr)
         return 0
-    return hook_fast.run_claude_code(port)
+    return hook_fast.run_agent(agent, port)
 
 
-def cmd_hook_claude_code(args: argparse.Namespace) -> int:
-    return run_hook(args.port)
+def cmd_hook_agent(args: argparse.Namespace) -> int:
+    return run_hook(args.port, args.hook_command)
+
+
+cmd_hook_claude_code = cmd_hook_agent
 
 
 def parse_hook_args(argv: Sequence[str]) -> Optional[int]:
@@ -596,152 +598,103 @@ def parse_hook_args(argv: Sequence[str]) -> Optional[int]:
     return port
 
 
-def run_hook_fast_path(argv: Sequence[str]) -> int:
-    """`synergo hook claude-code [--port N]` without building the full parser,
+def run_hook_fast_path(argv: Sequence[str], agent: str = "claude-code") -> int:
+    """`synergo hook <agent> [--port N]` without building the full parser,
     whose choices and defaults come from the pydantic-backed modules.
 
     A bad flag must still fail open: argparse would exit 2, and Claude Code
-    reads exit 2 from a PreToolUse hook as "block this edit", so a typo in
-    settings.json would stall every edit.
+    (and Codex) read exit 2 from a PreToolUse hook as "block this edit", so a
+    typo in a hooks config would stall every edit.
     """
     try:
         port_arg = parse_hook_args(argv)
     except ValueError as exc:
         print(f"synergo: {exc} — proceeding without coordination", file=sys.stderr)
         return 0
-    return run_hook(port_arg)
+    return run_hook(port_arg, agent)
 
 
 # --- hook install / uninstall ------------------------------------------------
+# The JSON merge logic lives in synergo.adapters.base, shared by every adapter
+# whose hooks config is Claude-Code-shaped; these wrappers keep cli's
+# ConfigError contract.
 
 
-def settings_path(global_scope: bool) -> Path:
+def settings_path(global_scope: bool, agent: str = "claude-code") -> Path:
     from pathlib import Path
 
+    from synergo import adapters
+
+    adapter = adapters.load(agent)
     if global_scope:
-        return Path.home() / ".claude" / "settings.json"
-    return Path.cwd() / ".claude" / "settings.json"
+        return adapter.settings_path("user", None)
+    return adapter.settings_path("project", Path.cwd())
 
 
 def load_settings(path: Path) -> dict[str, Any]:
-    """Parse an existing settings file, or raise.
+    """Parse an existing settings file, or raise ConfigError (never {} for
+    content it failed to understand: the caller writes this file back)."""
+    from synergo.adapters import base
 
-    Never returns {} for content it failed to understand: the caller writes this
-    file back, so a silent empty dict would replace the user's own settings.
-    """
-    import json
-
-    if not path.exists():
-        return {}
-    text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return {}
     try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"{path} is not valid JSON ({exc}) — fix it first") from None
-    if not isinstance(data, dict):
-        raise ConfigError(f"{path} does not contain a JSON object — refusing to overwrite")
-    return data
+        return base.load_settings(path)
+    except base.SettingsError as exc:
+        raise ConfigError(str(exc)) from None
 
 
 def save_settings(path: Path, settings: dict[str, Any]) -> None:
-    import json
+    from synergo.adapters import base
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
-
-
-def _has_synergo(groups: list[Any]) -> bool:
-    for group in groups:
-        if not isinstance(group, dict):
-            continue
-        for hook in group.get("hooks") or []:
-            if isinstance(hook, dict) and claude_code.HOOK_MARKER in str(hook.get("command", "")):
-                return True
-    return False
+    base.save_settings(path, settings)
 
 
 def has_synergo_hooks(settings: dict[str, Any], events: Sequence[str]) -> bool:
     """Every one of `events` carries a synergo hook entry."""
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        return False
-    return all(isinstance(hooks.get(e), list) and _has_synergo(hooks[e]) for e in events)
+    from synergo.adapters import base
+
+    return base.has_synergo_hooks(settings, events)
 
 
 def merge_hooks(settings: dict[str, Any], desired: dict[str, list[dict[str, Any]]]) -> list[str]:
     """Add synergo's hook entries without disturbing anything already there."""
-    hooks = settings.setdefault("hooks", {})
-    changes: list[str] = []
-    for event, groups in desired.items():
-        existing = hooks.get(event)
-        if not isinstance(existing, list):
-            existing = [] if existing is None else [existing]
-            hooks[event] = existing
-        if _has_synergo(existing):
-            continue
-        existing.extend(groups)
-        changes.append(event)
-    return changes
+    from synergo.adapters import base
+
+    try:
+        return base.merge_hooks(settings, desired)
+    except base.SettingsError as exc:
+        raise ConfigError(str(exc)) from None
 
 
 def remove_hooks(settings: dict[str, Any]) -> list[str]:
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        return []
-    changes: list[str] = []
-    for event in list(hooks):
-        groups = hooks.get(event)
-        if not isinstance(groups, list):
-            continue
-        kept_groups: list[Any] = []
-        touched = False
-        for group in groups:
-            if not isinstance(group, dict):
-                kept_groups.append(group)
-                continue
-            entries = group.get("hooks") or []
-            kept = [
-                hook
-                for hook in entries
-                if not (
-                    isinstance(hook, dict)
-                    and claude_code.HOOK_MARKER in str(hook.get("command", ""))
-                )
-            ]
-            if len(kept) != len(entries):
-                touched = True
-            if kept:
-                group["hooks"] = kept
-                kept_groups.append(group)
-        if touched:
-            changes.append(event)
-        if kept_groups:
-            hooks[event] = kept_groups
-        else:
-            del hooks[event]
-    if not hooks:
-        settings.pop("hooks", None)
-    return changes
+    from synergo.adapters import base
+
+    return base.remove_hooks(settings)
 
 
 def cmd_hook_install(args: argparse.Namespace) -> int:
-    path = settings_path(args.global_scope)
+    from synergo import adapters
+
+    adapter = adapters.load(args.target)
+    path = settings_path(args.global_scope, args.target)
     settings = load_settings(path)
-    changes = merge_hooks(settings, claude_code.hook_settings())
+    changes = merge_hooks(settings, adapter.hook_settings())
     if not changes:
         print(f"synergo: hooks already installed in {path} — nothing to do")
         return 0
     save_settings(path, settings)
     print(f"synergo: added hooks to {path}")
     for event in changes:
-        print(f"  + {event} -> {claude_code.HOOK_COMMAND}")
+        print(f"  + {event} -> {adapter.hook_command}")
+    if args.target == "codex":
+        print("  Codex asks you to review and trust new hooks (`/hooks`) before they run.")
     return 0
 
 
 def cmd_hook_uninstall(args: argparse.Namespace) -> int:
-    path = settings_path(args.global_scope)
+    path = settings_path(args.global_scope, args.target)
+    if not path.exists():
+        print(f"synergo: no synergo hooks found in {path}")
+        return 0
     settings = load_settings(path)
     changes = remove_hooks(settings)
     if not changes:
@@ -1352,6 +1305,55 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 # --- parser ------------------------------------------------------------------
 
 
+# --- fallbacks for agents without native hooks (mcp / watch / githook) ------
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from synergo import mcp_server
+
+    if args.print_config:
+        print(mcp_server.config_snippet(args.agent, args.port))
+        return 0
+    if args.agents_md:
+        print(mcp_server.AGENTS_MD, end="")
+        return 0
+    return mcp_server.run(resolve_port(args.port), args.agent)
+
+
+def cmd_watch(args: argparse.Namespace) -> int:
+    from synergo import watch
+    from synergo.config import load_config
+
+    root = project_root(args.root)
+    ignore = tuple(getattr(load_config(root), "ignore", ()) or ())
+    port = resolve_port(args.port)
+    watcher = watch.Watcher(root, watch.daemon_poster(port, say), agent=args.agent, ignore=ignore)
+    say(f"synergo watch: watching {root} for {args.agent} (observe only: warns after the fact). Ctrl+C to stop.")
+    try:
+        watcher.run(args.interval)
+    except KeyboardInterrupt:
+        say("synergo watch: stopped")
+    return 0
+
+
+def cmd_githook(args: argparse.Namespace) -> int:
+    import subprocess
+
+    from synergo import githook
+
+    root = project_root(args.root)
+    if args.githook_command == "run":
+        return githook.run(root, resolve_port(args.port), strict=args.strict, say=lambda t: say(t, err=True))
+    try:
+        if args.githook_command == "install":
+            say(githook.install(root))
+        else:
+            say(githook.uninstall(root))
+    except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
+        raise CommandFailed(f"githook {args.githook_command}: {exc}") from None
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Deferred: both modules import pydantic, which only the hook path (routed
     # around this parser in main) has to avoid.
@@ -1443,27 +1445,62 @@ def build_parser() -> argparse.ArgumentParser:
     hook_sub = hook.add_subparsers(dest="hook_command", required=True)
 
     # Normally reached only for --help: main() routes the hook around this parser.
-    hook_cmd = hook_sub.add_parser("claude-code", help="handle one Claude Code hook invocation")
-    hook_cmd.add_argument("--port", type=int, default=None)
-    hook_cmd.set_defaults(func=cmd_hook_claude_code)
+    from synergo import adapters
 
-    install = hook_sub.add_parser("install", help="install hooks into a Claude Code settings.json")
-    install.add_argument("target", choices=["claude-code"])
-    install.add_argument("--global", dest="global_scope", action="store_true", help="use ~/.claude/settings.json")
+    for agent_id in adapters.ids():
+        label = adapters.load(agent_id).label
+        hook_cmd = hook_sub.add_parser(agent_id, help=f"handle one {label} hook invocation")
+        hook_cmd.add_argument("--port", type=int, default=None)
+        hook_cmd.set_defaults(func=cmd_hook_agent)
+
+    install = hook_sub.add_parser("install", help="install synergo hooks into an agent's hooks config")
+    install.add_argument("target", choices=list(adapters.ids()))
+    install.add_argument(
+        "--global", dest="global_scope", action="store_true", help="use the user-level config (~/.claude, ~/.codex)"
+    )
     install.set_defaults(func=cmd_hook_install)
 
-    uninstall = hook_sub.add_parser("uninstall", help="remove synergo hooks from a settings.json")
-    uninstall.add_argument("target", choices=["claude-code"])
+    uninstall = hook_sub.add_parser("uninstall", help="remove synergo hooks from an agent's hooks config")
+    uninstall.add_argument("target", choices=list(adapters.ids()))
     uninstall.add_argument("--global", dest="global_scope", action="store_true")
     uninstall.set_defaults(func=cmd_hook_uninstall)
+
+    mcp = sub.add_parser("mcp", help="MCP server (stdio) for agents without native hooks")
+    mcp.add_argument("--agent", default="unknown", help="agent id reported to the room (default: unknown)")
+    mcp.add_argument("--port", type=int, default=None, help=port_help)
+    mcp.add_argument("--print-config", action="store_true", help="print a JSON config snippet for an MCP client")
+    mcp.add_argument("--agents-md", action="store_true", help="print an instruction block for AGENTS.md / CLAUDE.md")
+    mcp.set_defaults(func=cmd_mcp)
+
+    watch_cmd = sub.add_parser("watch", help="observe-only file watcher for agents without hooks (e.g. aider)")
+    watch_cmd.add_argument("--agent", default="unknown", help="agent id, e.g. aider")
+    watch_cmd.add_argument("--interval", type=float, default=1.0, help="poll interval in seconds (default 1)")
+    watch_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    watch_cmd.add_argument("--port", type=int, default=None, help=port_help)
+    watch_cmd.set_defaults(func=cmd_watch)
+
+    githook_cmd = sub.add_parser("githook", help="git pre-commit check against teammates' recent edits")
+    githook_sub = githook_cmd.add_subparsers(dest="githook_command", required=True, metavar="ACTION")
+    for action, text in (("install", "install (chaining any existing hook)"),
+                         ("uninstall", "remove and restore any previous hook"),
+                         ("run", "check staged files (called by the hook)")):
+        p = githook_sub.add_parser(action, help=text)
+        p.add_argument("--root", default=None, metavar="PATH", help=root_help)
+        if action == "run":
+            p.add_argument("--port", type=int, default=None, help=port_help)
+            p.add_argument("--strict", action="store_true", help="fail the commit when a teammate touched a staged file")
+        p.set_defaults(func=cmd_githook)
 
     return parser
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv[:2] == ["hook", "claude-code"] and not any(a in HOOK_HELP_FLAGS for a in argv[2:]):
-        return run_hook_fast_path(argv[2:])
+    if len(argv) >= 2 and argv[0] == "hook" and not any(a in HOOK_HELP_FLAGS for a in argv[2:]):
+        from synergo.adapters import REGISTRY
+
+        if argv[1] in REGISTRY:
+            return run_hook_fast_path(argv[2:], argv[1])
     args = build_parser().parse_args(argv)
 
     from synergo.config import ConfigFileError

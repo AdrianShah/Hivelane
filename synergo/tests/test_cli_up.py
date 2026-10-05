@@ -378,7 +378,7 @@ def test_claude_code_is_hooked_even_when_not_detected(
     out = capsys.readouterr().out
     assert synergo_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
     assert "Claude Code (not detected): added hooks" in out
-    assert "Codex (codex on PATH): detected, adapter coming soon" in out
+    assert "Codex (codex on PATH): added hooks to .codex" in out
     assert "Gemini CLI (~/.gemini): detected, adapter coming soon" in out
 
 
