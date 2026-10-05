@@ -94,6 +94,71 @@ def patch_paths(patch: str) -> list[str]:
     return paths
 
 
+NEWLINE = chr(10)
+
+
+def patch_hints(patch: str) -> dict[str, list[dict[str, str]]]:
+    """Per updated file, the old/new text of each change in a Codex patch:
+    each run of removed lines (with the lines added in its place), or, for a
+    pure insertion, the hunk's context lines."""
+    out: dict[str, list[dict[str, str]]] = {}
+    current: Optional[list[dict[str, str]]] = None
+    context: list[str] = []
+    removed: list[str] = []
+    added: list[str] = []
+
+    def flush_run() -> None:
+        if current is not None and (removed or added):
+            old = removed or context[-3:]
+            if old and len(current) < base.MAX_HINTS:
+                current.append({"old": NEWLINE.join(old), "new": NEWLINE.join(added)})
+        removed.clear()
+        added.clear()
+
+    for line in patch.splitlines():
+        if line.startswith("*** "):
+            flush_run()
+            context.clear()
+            stripped = line.strip()
+            current = None
+            if stripped.startswith("*** Update File:"):
+                path = stripped[len("*** Update File:") :].strip()
+                current = out.setdefault(path, []) if path else None
+            continue
+        if current is None:
+            continue
+        if line.startswith("@@"):
+            flush_run()
+            context.clear()
+        elif line.startswith("-"):
+            if added and not removed:
+                flush_run()
+            removed.append(line[1:])
+        elif line.startswith("+"):
+            added.append(line[1:])
+        else:
+            flush_run()
+            context.append(line[1:] if line.startswith(" ") else line)
+    flush_run()
+    return {path: hints for path, hints in out.items() if hints}
+
+
+def _edit_hints(tool_input: dict[str, Any], cwd: str) -> dict[str, list[dict[str, str]]]:
+    """Absolute path -> edit hints for a Codex Edit or apply_patch call."""
+    command = tool_input.get("command")
+    patches = [command] if isinstance(command, str) else [c for c in command if isinstance(c, str)] if isinstance(command, list) else []
+    hints: dict[str, list[dict[str, str]]] = {}
+    for patch in patches:
+        for path, found in patch_hints(patch).items():
+            hints.setdefault(_absolute(path, cwd), []).extend(found)
+    if not hints:
+        value = tool_input.get("file_path") or tool_input.get("path")
+        found = base.string_hints(tool_input)
+        if isinstance(value, str) and value and found:
+            hints[_absolute(value, cwd)] = found
+    return hints
+
+
 def _absolute(path: str, cwd: str) -> str:
     if not os.path.isabs(path) and cwd:
         path = os.path.join(cwd, path)
@@ -147,9 +212,10 @@ def normalize_payload(payload: Any) -> list[dict[str, Any]]:
         return []
 
     events: list[dict[str, Any]] = []
+    hints = _edit_hints(tool_input, cwd) if event_name == "PreToolUse" else {}
     for path in _tool_paths(tool_input, cwd):
         if event_name == "PreToolUse":
-            fields = {"old_content": base.read_text(path)}
+            fields = {"old_content": base.read_text(path), "edit_hints": hints.get(path)}
             kind = "pre_edit"
         else:
             fields = {"new_content": base.read_text(path)}

@@ -206,9 +206,16 @@ def legacy_normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
             return None
 
     if event_name == "PreToolUse":
+        # Phase 3 addition: Edit/MultiEdit old/new strings as edit hints.
+        edits = [tool_input] if tool == "Edit" else tool_input.get("edits") if tool == "MultiEdit" else None
+        hints = [
+            {"old": e["old_string"], "new": e.get("new_string") if isinstance(e.get("new_string"), str) else ""}
+            for e in (edits if isinstance(edits, list) else [])
+            if isinstance(e, dict) and isinstance(e.get("old_string"), str) and e["old_string"]
+        ]
         return NormalizedEvent(
             kind="pre_edit", agent="claude-code", session_id=session_id, cwd=cwd,
-            file_path=file_path, old_content=read(file_path), tool=tool,
+            file_path=file_path, old_content=read(file_path), tool=tool, edit_hints=hints or None,
         )
     return NormalizedEvent(
         kind="post_edit", agent="claude-code", session_id=session_id, cwd=cwd,
@@ -269,6 +276,10 @@ def payload_matrix(tmp: Path) -> dict[str, dict[str, Any]]:
         "pre-write": tool("PreToolUse", "Write", {"file_path": str(src), "content": "x"}),
         "pre-write-new-file": tool("PreToolUse", "Write", {"file_path": str(tmp / "new.py"), "content": "x"}),
         "pre-multiedit": tool("PreToolUse", "MultiEdit", {"file_path": str(src), "edits": []}),
+        "pre-multiedit-hints": tool(
+            "PreToolUse", "MultiEdit",
+            {"file_path": str(src), "edits": [{"old_string": "room", "new_string": "rm"}, {"old_string": ""}]},
+        ),
         "pre-notebookedit": tool("PreToolUse", "NotebookEdit", {"notebook_path": str(notebook), "new_source": "1"}),
         "post-edit": tool("PostToolUse", "Edit", edit_input),
         "post-write": tool("PostToolUse", "Write", {"file_path": str(src)}),

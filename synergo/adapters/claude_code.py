@@ -25,6 +25,9 @@ AGENT = "claude-code"
 
 EDIT_TOOLS: tuple[str, ...] = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 EDIT_MATCHER = "|".join(EDIT_TOOLS)
+# PostToolUse for these yields a `plan` event: the agent's todo list / plan.
+PLAN_TOOLS: tuple[str, ...] = ("TodoWrite", "ExitPlanMode")
+POST_MATCHER = "|".join(EDIT_TOOLS + PLAN_TOOLS)
 
 PRE_TOOL_TIMEOUT = 5
 OTHER_TIMEOUT = 10
@@ -53,7 +56,7 @@ def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]
         ],
         "PostToolUse": [
             {
-                "matcher": EDIT_MATCHER,
+                "matcher": POST_MATCHER,
                 "hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}],
             }
         ],
@@ -66,6 +69,31 @@ def _file_path(tool_input: dict[str, Any]) -> Optional[str]:
 
 
 _read = base.read_text
+
+def _edit_hints(tool: Any, tool_input: dict[str, Any]) -> Optional[list[dict[str, str]]]:
+    """old/new strings of an Edit / MultiEdit, so the daemon can tell which
+    lines (and so which functions) the edit is about to touch."""
+    if tool == "Edit":
+        return base.string_hints(tool_input)
+    if tool == "MultiEdit":
+        return base.string_hints(tool_input.get("edits"))
+    return None
+
+
+def _plan_text(tool: Any, tool_input: dict[str, Any]) -> str:
+    if tool == "ExitPlanMode":
+        plan = tool_input.get("plan")
+        return plan if isinstance(plan, str) else ""
+    todos = tool_input.get("todos")
+    if not isinstance(todos, list):
+        return ""
+    lines: list[str] = []
+    for todo in todos:
+        if isinstance(todo, dict) and todo.get("status") != "completed":
+            content = todo.get("content")
+            if isinstance(content, str) and content.strip():
+                lines.append("- " + content.strip())
+    return "\n".join(lines)
 
 
 def _event(kind: str, session_id: str, cwd: str, **fields: Any) -> dict[str, Any]:
@@ -89,10 +117,14 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         return None
 
     tool = payload.get("tool_name")
-    if tool not in EDIT_TOOLS:
-        return None
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
+        return None
+    if tool in PLAN_TOOLS:
+        if event_name != "PostToolUse":
+            return None
+        return base.plan_event(AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool)
+    if tool not in EDIT_TOOLS:
         return None
     file_path = _file_path(tool_input)
     if file_path is None:
@@ -100,7 +132,8 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
 
     if event_name == "PreToolUse":
         return _event(
-            "pre_edit", session_id, cwd, file_path=file_path, old_content=_read(file_path), tool=tool
+            "pre_edit", session_id, cwd, file_path=file_path, old_content=_read(file_path), tool=tool,
+            edit_hints=_edit_hints(tool, tool_input),
         )
     return _event(
         "post_edit", session_id, cwd, file_path=file_path, new_content=_read(file_path), tool=tool
@@ -133,6 +166,8 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
     back; anything that is not a well-formed warn/block is treated as allow,
     which is the fail-open reading.
     """
+    if event.get("kind") == "plan":
+        return render_plan_ack(ack)
     if event.get("kind") != "pre_edit" or not isinstance(ack, dict):
         return ""
     decision = ack.get("decision", "allow")
@@ -165,6 +200,27 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
             "systemMessage": f"Synergo: {message}",
         }
     )
+
+
+def render_plan_ack(ack: Any) -> str:
+    """A plan's overlaps as context for the agent; never a permission decision."""
+    if not isinstance(ack, dict) or ack_decision(ack) == "allow":
+        return ""
+    reason = ack.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        return ""
+    return hook_json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": f"Synergo heads-up: {reason}",
+            },
+            "systemMessage": f"Synergo: {reason}",
+        }
+    )
+
+
+ack_decision = base.ack_decision
 
 
 def render_response(event: NormalizedEvent, ack: EventAck) -> str:

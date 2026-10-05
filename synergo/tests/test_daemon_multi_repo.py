@@ -291,7 +291,11 @@ def test_repo_is_adopted_from_its_project_config(tmp_path: Path) -> None:
             await daemon.handle_event(event("post_edit", repo, repo / "src" / "a.py", new_content="b\n"))
             await wait_for(lambda: relay.of_type("TEAMX", "activity"), "the activity")
             (activity,) = relay.of_type("TEAMX", "activity")
-            assert activity["changes"] == [{"file_path": "src/a.py", "diff": ""}]
+            # Symbol names and line numbers still go out (they drive overlap
+            # detection); the content of the change does not.
+            assert activity["changes"] == [
+                {"file_path": "src/a.py", "diff": "", "symbols": ["<module>"], "line_ranges": [[1, 1]]}
+            ]
 
             entry = daemon.status()["repos"][0]
             assert entry["auto"] is True

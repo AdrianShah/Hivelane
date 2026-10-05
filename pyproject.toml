@@ -51,6 +51,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Exact symbol extraction for JS/TS/Go/Rust/Java/C#/Ruby (Python always uses
+# the stdlib ast); without it the daemon falls back to regex heuristics.
+symbols = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.0"]
 
 [project.urls]
 Homepage = "https://github.com/AdrianShah/Synergo"
