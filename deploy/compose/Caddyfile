@@ -1,0 +1,17 @@
+# Caddy in front of the Synergo relay. Caddy issues and renews a certificate
+# for RELAY_DOMAIN on its own (Let's Encrypt, falling back to ZeroSSL), so:
+#   - DNS for RELAY_DOMAIN must already point at this host, and
+#   - ports 80 and 443 must be reachable from the internet.
+# RELAY_DOMAIN=localhost also works for a local trial, with a certificate from
+# Caddy's own local CA instead.
+#
+# reverse_proxy upgrades WebSockets (/ws/{room}) without extra config, and by
+# default replaces any client-sent X-Forwarded-For with the real client address,
+# which is what makes TRUST_PROXY_HEADER=true safe in this setup.
+
+{$RELAY_DOMAIN} {
+	reverse_proxy relay:8000 {
+		# A config reload otherwise cuts every daemon's WebSocket at once.
+		stream_close_delay 5m
+	}
+}

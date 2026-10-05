@@ -1,0 +1,33 @@
+{
+  "name": "synergo-cli",
+  "version": "0.1.0",
+  "description": "Run the Synergo CLI from npm: a zero-dependency launcher that hands off to uvx or pipx.",
+  "keywords": [
+    "synergo",
+    "ai-agents",
+    "claude-code",
+    "coding-agents",
+    "collaboration",
+    "cli"
+  ],
+  "homepage": "https://github.com/AdrianShah/Synergo#readme",
+  "bugs": {
+    "url": "https://github.com/AdrianShah/Synergo/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AdrianShah/Synergo.git",
+    "directory": "packaging/npm"
+  },
+  "license": "Apache-2.0",
+  "bin": {
+    "synergo": "bin/synergo.js"
+  },
+  "files": [
+    "bin/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}
