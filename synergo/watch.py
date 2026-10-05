@@ -132,3 +132,81 @@ def daemon_poster(port: int, say: Callable[[str], None]) -> Poster:
         return ack
 
     return post
+
+
+# --- `synergo run`: wrap a hookless agent's process with the watcher ----------------
+
+MESSAGE_FLAGS = ("-m", "--message")
+
+
+def message_arg(argv: list[str]) -> Optional[str]:
+    """The value of `-m/--message` in an aider-style argv, if any."""
+    for i, arg in enumerate(argv):
+        if arg in MESSAGE_FLAGS and i + 1 < len(argv):
+            return argv[i + 1]
+        for flag in MESSAGE_FLAGS:
+            if arg.startswith(flag + "=") and len(arg) > len(flag) + 1:
+                return arg[len(flag) + 1 :]
+    return None
+
+
+def run_wrapped(
+    argv: list[str],
+    watcher: Watcher,
+    *,
+    interval: float = 1.0,
+    say: Callable[[str], None] = print,
+) -> int:
+    """Run `argv` as a child inheriting the terminal while `watcher` polls in a
+    thread; posts an intent first when argv carries `-m/--message`. Returns the
+    child's exit code (127 when it cannot be started)."""
+    import shutil
+    import subprocess
+    import threading
+
+    prompt = message_arg(argv[1:])
+    if prompt and prompt.strip():
+        intent = {
+            "kind": "intent",
+            "agent": watcher.agent,
+            "session_id": watcher.session_id,
+            "cwd": str(watcher.root),
+            "prompt": prompt,
+            "file_path": None,
+            "old_content": None,
+            "new_content": None,
+            "tool": watcher.tool,
+        }
+        watcher.post(intent)
+
+    executable = shutil.which(argv[0]) or argv[0]
+    watcher.prime()
+    stop = threading.Event()
+
+    def loop() -> None:
+        while not stop.wait(interval):
+            try:
+                watcher.poll()
+            except Exception as exc:  # noqa: BLE001 - never kill the wrapped agent
+                say(f"synergo run: watcher error: {exc}")
+
+    thread = threading.Thread(target=loop, name="synergo-watch", daemon=True)
+    thread.start()
+    try:
+        try:
+            proc = subprocess.Popen([executable, *argv[1:]], cwd=str(watcher.root))
+        except OSError as exc:
+            say(f"synergo run: cannot start {argv[0]}: {exc}")
+            return 127
+        while True:
+            try:
+                return proc.wait()
+            except KeyboardInterrupt:
+                continue  # the child got the Ctrl+C too; wait for it to exit
+    finally:
+        stop.set()
+        thread.join(timeout=max(interval * 2, 2.0))
+        try:
+            watcher.poll()  # catch edits made in the last interval
+        except Exception:  # noqa: BLE001
+            pass

@@ -60,6 +60,8 @@ class AgentSpec:
     # Relative to the home directory.
     config_dirs: tuple[str, ...] = ()
     adapter: Optional[HookAdapter] = None
+    # Shown by `synergo up` for agents without a hook adapter (how to use them).
+    note: Optional[str] = None
 
     @property
     def has_adapter(self) -> bool:
@@ -143,6 +145,8 @@ def registry_adapter(agent_id: str) -> HookAdapter:
 
 CLAUDE_CODE_ADAPTER = registry_adapter("claude-code")
 CODEX_ADAPTER = registry_adapter("codex")
+CURSOR_ADAPTER = registry_adapter("cursor")
+GEMINI_CLI_ADAPTER = registry_adapter("gemini-cli")
 
 
 # --- registry ----------------------------------------------------------------
@@ -169,9 +173,21 @@ KNOWN_AGENTS: tuple[AgentSpec, ...] = (
         label="Cursor",
         executables=("cursor-agent", "cursor"),
         config_dirs=(".cursor",),
+        adapter=CURSOR_ADAPTER,
     ),
-    AgentSpec(id="gemini-cli", label="Gemini CLI", executables=("gemini",), config_dirs=(".gemini",)),
-    AgentSpec(id="aider", label="Aider", executables=("aider",)),
+    AgentSpec(
+        id="gemini-cli",
+        label="Gemini CLI",
+        executables=("gemini",),
+        config_dirs=(".gemini",),
+        adapter=GEMINI_CLI_ADAPTER,
+    ),
+    AgentSpec(
+        id="aider",
+        label="Aider",
+        executables=("aider",),
+        note="observe-only via `synergo run aider`",
+    ),
 )
 
 

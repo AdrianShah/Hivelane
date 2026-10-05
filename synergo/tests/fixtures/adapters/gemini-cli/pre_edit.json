@@ -1,0 +1,3 @@
+{"payload": {"session_id": "g1", "transcript_path": "/tmp/t.json", "cwd": "{tmp}", "hook_event_name": "BeforeTool", "timestamp": "2026-10-04T10:00:01Z",
+  "tool_name": "replace", "tool_input": {"file_path": "{tmp}/room.py", "old_string": "    pass", "new_string": "    return 1", "instruction": "return 1"}},
+ "expect": [{"kind": "pre_edit", "file_path": "{tmp}/room.py", "tool": "replace", "old_content": "def room():\n    pass\n"}]}

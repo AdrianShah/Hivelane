@@ -22,6 +22,7 @@ managing the daemon, or for advanced and scripted use.
 | [`hook`](#synergo-hook) | The agent hook entrypoint, plus `install` / `uninstall` for Claude Code. |
 | [`mcp`](#synergo-mcp) | MCP server (stdio) for agents without native hooks. |
 | [`watch`](#synergo-watch) | Observe-only file watcher for agents without hooks (e.g. Aider). |
+| [`run`](#synergo-run) | Run a hookless agent (e.g. `synergo run aider`) with the watcher. |
 | [`githook`](#synergo-githook) | Git pre-commit check against teammates' recent edits. |
 
 Global options: `--version` prints `synergo X.Y.Z`; `-h`/`--help` works on
@@ -202,6 +203,10 @@ synergo hook uninstall claude-code [--global]
   `.claude/settings.json` in the current directory (`--global`:
   `~/.claude/settings.json`), leaving your other hooks untouched. `synergo up`
   does the install for you.
+- `gemini-cli` works the same way: `synergo hook install gemini-cli` adds
+  BeforeAgent/BeforeTool/AfterTool hooks (matching `write_file` and `replace`)
+  to `.gemini/settings.json` (`--global`: `~/.gemini/settings.json`). A block
+  is returned as `{"decision": "deny"}`; a warn as a `systemMessage`.
 
 ## Configuration files
 
@@ -268,6 +273,24 @@ Polls the repo every second and shares each created, modified or deleted text
 file as an edit. Observe only: it warns after the fact and cannot stop an
 edit. Skips `.git`, `node_modules`, `.venv`, `dist`, `build`, the
 `.synergo.toml` `ignore` globs, binaries and files over 256 KB. Ctrl+C stops.
+
+## synergo run
+
+```text
+synergo run [--agent ID] [--interval SECONDS] [--root PATH] [--port PORT] [--] COMMAND [ARGS...]
+```
+
+Runs `COMMAND` in this terminal (stdin/stdout inherited, cwd = the repo) while
+the `synergo watch` poller runs in the background, then stops the watcher and
+exits with the command's exit code (127 if it cannot be started). If `ARGS`
+contains `-m TEXT` / `--message TEXT`, that text is posted as the agent's
+intent before the command starts. `--agent` defaults to the command's name, so
+`synergo run aider -m "fix login"` reports as `aider`; an id that is not a
+known agent kind reports as `unknown`. Use `--` to wrap any other tool:
+`synergo run --agent unknown -- mytool --flag`. Observe only, like `watch`:
+edits are shared after they happen and cannot be blocked. This is how Aider
+(which has no pre-edit hook) joins a room; `synergo up` points to it when Aider
+is detected.
 
 ## synergo githook
 

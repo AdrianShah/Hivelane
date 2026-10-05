@@ -110,7 +110,8 @@ def test_normalize_matches_golden(agent: str, name: str, workdir: Path) -> None:
         assert set(event) == set(base.EVENT_FIELDS)
         NormalizedEvent(**event)  # validates against the daemon's model
         assert event["agent"] == agent
-        assert event["session_id"] == payload.get("session_id")
+        # Agents name their session differently (Cursor: conversation_id).
+        assert event["session_id"] == want.get("session_id", payload.get("session_id"))
         for key, value in want.items():
             if key == "file_path":
                 assert _norm(event[key]) == _norm(value)
@@ -163,7 +164,11 @@ def _denies(output: base.HookOutput) -> bool:
         return False
     data = json.loads(output.stdout)
     hso = data.get("hookSpecificOutput") or {}
-    return hso.get("permissionDecision") == "deny" or data.get("decision") == "block"
+    return (
+        hso.get("permissionDecision") == "deny"
+        or data.get("decision") in ("block", "deny")
+        or data.get("permission") == "deny"  # Cursor
+    )
 
 
 @pytest.mark.parametrize("agent", AGENTS)

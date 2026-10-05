@@ -1,0 +1,2 @@
+{"payload": {"session_id": "g1", "transcript_path": "/tmp/t.json", "cwd": "{tmp}", "hook_event_name": "BeforeAgent", "timestamp": "2026-10-04T10:00:00Z", "prompt": "add a retry to the client"},
+ "expect": [{"kind": "intent", "prompt": "add a retry to the client"}]}
