@@ -93,6 +93,20 @@ def test_disjoint_symbols_warn(room: Room) -> None:
     assert (v.decision, v.scope) == ("warn", "symbol")
 
 
+def test_disjoint_symbols_with_overlapping_lines_block(room: Room) -> None:
+    _touch(room, "sam", 1000.0, symbols=["Room.broadcast"], line_ranges=[(40, 44)])
+    v = room.evaluate_edit(
+        "priya", FILE, 1005.0, symbols=["Room.check_edit"], line_ranges=[(44, 46)]
+    )
+    assert (v.decision, v.scope) == ("block", "lines")
+
+
+def test_project_config_is_always_warn() -> None:
+    from server.room import is_always_warn_file
+
+    assert is_always_warn_file(".synergo.toml")
+
+
 def test_imports_symbol_intersects_everything(room: Room) -> None:
     _touch(room, "sam", 1000.0, symbols=["<imports>"])
     v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["Room.check_edit"])

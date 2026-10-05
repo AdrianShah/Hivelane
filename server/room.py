@@ -107,6 +107,7 @@ _ALWAYS_WARN_BASENAMES = (
     "tsconfig*.json",
     ".env*",
     "Dockerfile",
+    ".synergo.toml",
 )
 
 
@@ -617,6 +618,12 @@ class Room:
                 return hard, "symbol"
             if always_warn:
                 return hard, "file"
+            # Symbol extraction can mislabel a hunk on a definition boundary;
+            # literally overlapping lines are a collision whatever the names say.
+            if line_ranges and touch.line_ranges and ranges_near(
+                line_ranges, touch.line_ranges, proximity=0
+            ):
+                return hard, "lines"
             return "warn", "symbol"
         if line_ranges and touch.line_ranges:
             if ranges_near(line_ranges, touch.line_ranges):
