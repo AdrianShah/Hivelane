@@ -89,7 +89,7 @@ def test_labelled_counters_start_at_zero_for_every_known_value() -> None:
     samples = _scrape(TestClient(app))
 
     for decision in ("allow", "warn", "block"):
-        assert samples[f'synergo_edit_checks_total{{decision="{decision}"}}'] == 0
+        assert samples[f'synergo_edit_checks_total{{decision="{decision}",scope="file"}}'] == 0
     for reason in ("rate_limited", "room_not_found", "version", "name"):
         assert samples[f'synergo_ws_rejections_total{{reason="{reason}"}}'] == 0
 
@@ -143,8 +143,8 @@ def test_edit_checks_are_counted_by_decision_and_timed() -> None:
             assert ws.receive_json()["type"] == "edit_check_response"
         samples = _scrape(client)
 
-    assert samples['synergo_edit_checks_total{decision="allow"}'] == 3
-    assert samples['synergo_edit_checks_total{decision="block"}'] == 0
+    assert samples['synergo_edit_checks_total{decision="allow",scope="file"}'] == 3
+    assert samples['synergo_edit_checks_total{decision="block",scope="file"}'] == 0
     assert samples["synergo_edit_check_seconds_count"] == 3
     assert samples['synergo_edit_check_seconds_bucket{le="+Inf"}'] == 3
     assert samples["synergo_edit_check_seconds_sum"] >= 0
