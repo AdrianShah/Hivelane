@@ -1,0 +1,56 @@
+{
+ "name": "different_function_1",
+ "description": "same file, disjoint functions far apart",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_edit_check"
+   ],
+   "line_ranges": [
+    [
+     496,
+     560
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_join"
+   ],
+   "line_ranges": [
+    [
+     300,
+     360
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  },
+  {
+   "t": 30,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_join"
+   ],
+   "line_ranges": [
+    [
+     300,
+     360
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

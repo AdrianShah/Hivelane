@@ -1,0 +1,30 @@
+{
+ "name": "intent_mention_0",
+ "description": "alice declared an intent naming the module",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "intent",
+   "prompt": "refactor the room broadcast flushing",
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.broadcast"
+   ],
+   "line_ranges": [
+    [
+     493,
+     503
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

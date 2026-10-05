@@ -1,0 +1,39 @@
+{
+ "name": "stale_touch_0",
+ "description": "alice edited long ago (outside the warn window)",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 900,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

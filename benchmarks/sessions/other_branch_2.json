@@ -1,0 +1,39 @@
+{
+ "name": "other_branch_2",
+ "description": "same function but on different branches (merge conflict later, not now)",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     170
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 4,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     170
+    ]
+   ],
+   "branch": "feature/x2",
+   "label": "no_conflict"
+  }
+ ]
+}

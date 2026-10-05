@@ -1,0 +1,36 @@
+{
+ "name": "plan_only_0",
+ "description": "alice planned the file but has not edited it yet",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "plan",
+   "prompt": "Rework Room.check_edit",
+   "files": [
+    "server/room.py"
+   ],
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 10,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}
