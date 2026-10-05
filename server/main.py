@@ -19,10 +19,10 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError, model_validator
 
 try:
-    from . import config, logging_config, metrics
+    from . import config, limits, logging_config, metrics
     from .gemini import classify_conflict, generate_caption
     from .limits import check_room_creation, check_ws_attempt, client_ip
     from .models import (
@@ -30,6 +30,7 @@ try:
         PROTOCOL_VERSION,
         ActivityMessage,
         ActivityUpdate,
+        AgentKind,
         Decision,
         EditCheckRequest,
         EditCheckResponse,
@@ -40,15 +41,17 @@ try:
         PeerTouch,
         RateLimited,
         RoomRejected,
+        RoomSettings,
         UserJoined,
         UserLeft,
         VersionRejected,
     )
-    from .room import FileOverlap, FileTouch, Room
+    from .room import DEFAULT_SETTINGS, FileOverlap, FileTouch, Room, settings_problem
     from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
     import config  # type: ignore[no-redef]
+    import limits  # type: ignore[no-redef]
     import logging_config  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
     from gemini import classify_conflict, generate_caption
@@ -58,6 +61,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         PROTOCOL_VERSION,
         ActivityMessage,
         ActivityUpdate,
+        AgentKind,
         Decision,
         EditCheckRequest,
         EditCheckResponse,
@@ -68,11 +72,12 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         PeerTouch,
         RateLimited,
         RoomRejected,
+        RoomSettings,
         UserJoined,
         UserLeft,
         VersionRejected,
     )
-    from room import FileOverlap, FileTouch, Room
+    from room import DEFAULT_SETTINGS, FileOverlap, FileTouch, Room, settings_problem
     from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
@@ -158,10 +163,36 @@ def _log_conflict_task_error(task: asyncio.Task) -> None:
         log.warning("Conflict broadcast phase failed: %s", exc)
 
 
+class CreateRoomRequest(BaseModel):
+    """Optional POST /rooms body: start the room with these conflict windows.
+
+    HTTP-only, so it lives here rather than in models.py, whose models are the
+    WebSocket frames mirrored in synergo/protocol.py. Unlike a join, a bad
+    request here is refused (422): the caller is waiting on the response and can
+    fix it, whereas a join's settings come from a committed file.
+    """
+
+    settings: Optional[RoomSettings] = None
+
+    @model_validator(mode="after")
+    def _settings_are_enforceable(self) -> CreateRoomRequest:
+        if self.settings is not None:
+            problem = settings_problem(self.settings)
+            if problem is not None:
+                raise ValueError(problem)
+        return self
+
+
 @app.post("/rooms")
-async def create_room(request: Request) -> dict[str, str]:
+async def create_room(
+    request: Request, body: Optional[CreateRoomRequest] = None
+) -> dict[str, object]:
     """Generate a fresh room code. The room code is the shared secret —
     whoever has it can join, same trust model as a Google Docs share link.
+
+    The body is optional: no body creates a room on the default windows,
+    exactly as before settings existed. The response echoes the windows in
+    force so a CLI can show them without joining first.
 
     Unauthenticated, so it is rate-limited per IP: without that, a short script
     can exhaust MAX_ROOMS and deny room creation to everyone for as long as the
@@ -176,13 +207,15 @@ async def create_room(request: Request) -> dict[str, str]:
             headers={"Retry-After": str(allowance.retry_after_seconds)},
         )
 
+    settings = body.settings if body is not None else None
     try:
-        room_id = room_manager.create_room()
+        room_id = room_manager.create_room(settings)
     except RuntimeError as exc:
         # 503 means the relay itself is full, not that this caller is throttled;
         # the dashboard shows different copy for each.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return {"room_id": room_id}
+    effective = settings if settings is not None else DEFAULT_SETTINGS
+    return {"room_id": room_id, "settings": effective.model_dump()}
 
 
 @app.get("/health")
@@ -213,17 +246,50 @@ async def readyz() -> dict[str, object]:
         "protocol_version": PROTOCOL_VERSION,
         "min_supported_protocol": MIN_SUPPORTED_PROTOCOL,
         "rooms": room_manager.room_count,
+        # "memory" means per-instance limits: fine for one relay, a speed bump
+        # only when several run behind a load balancer (see limits.py).
+        "rate_limit_backend": limits.BACKEND,
     }
 
 
-async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
-    """Run the join handshake. Returns (user_id, agent) for a named member, or
-    None for a spectator. Re-prompts on the same socket when a name is rejected."""
+def _parse_join(raw: object) -> Optional[JoinMessage]:
+    """Validate a join frame, dropping settings that do not validate.
+
+    Settings come from a teammate's committed .synergo.toml. An out-of-range
+    value there must not surface as "Invalid name" — the daemon treats a name
+    rejection as fatal — so the join is retried without them and the room keeps
+    the windows it has. Returns None when the join is invalid regardless.
+    """
+    try:
+        return JoinMessage.model_validate(raw)
+    except ValidationError as exc:
+        if not isinstance(raw, dict) or raw.get("settings") is None:
+            return None
+        try:
+            join = JoinMessage.model_validate(
+                {key: value for key, value in raw.items() if key != "settings"}
+            )
+        except ValidationError:
+            return None
+        log.warning(
+            "Ignoring invalid room settings in join from %r: %s",
+            raw.get("name"),
+            exc,
+        )
+        return join
+
+
+async def handshake(
+    socket: WebSocket, room: Room
+) -> Optional[tuple[str, AgentKind, Optional[RoomSettings]]]:
+    """Run the join handshake. Returns (user_id, agent, settings) for a named
+    member, or None for a spectator. Re-prompts on the same socket when a name
+    is rejected. Settings are returned rather than applied: only a member who
+    is actually admitted gets to change the room's windows."""
     while True:
         raw = await socket.receive_json()
-        try:
-            join = JoinMessage.model_validate(raw)
-        except ValidationError:
+        join = _parse_join(raw)
+        if join is None:
             metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Invalid name"))
             continue
@@ -267,7 +333,23 @@ async def handshake(socket: WebSocket, room: Room) -> Optional[tuple[str, str]]:
             await room.send(socket, NameRejected(reason="Room full"))
             continue
 
-        return user_id, join.agent
+        return user_id, join.agent, join.settings
+
+
+async def apply_member_settings(
+    room: Room, room_id: str, user_id: str, settings: RoomSettings
+) -> None:
+    """Adopt a joining member's committed windows room-wide and announce them.
+
+    Last join wins: a team shares one .synergo.toml, so differing settings mean
+    someone is on an older or newer commit, and the member joining now is the
+    best evidence of the current one. Persisted so a revived room keeps them.
+    """
+    update = room.apply_settings(settings, set_by=user_id)
+    if update is None:
+        return
+    room_manager.save_settings(room_id, room.settings)
+    await room.broadcast(update)
 
 
 async def evaluate_and_broadcast_conflicts(
@@ -474,8 +556,9 @@ async def handle_edit_check(
 
 @app.websocket("/ws/{room_id}")
 async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
-    # Checked before any room lookup: a 6-character code is ~30 bits, so
-    # unlimited connection attempts make the code brute-forceable.
+    # Checked before any room lookup: even an 8-character code is ~40 bits
+    # (legacy 6-character ones ~30), and it stays valid for a week, so
+    # unlimited connection attempts would make codes brute-forceable.
     allowance = check_ws_attempt(socket)
     if not allowance.allowed:
         log.warning("WebSocket attempt rate-limited for %s", client_ip(socket))
@@ -526,7 +609,10 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
     if joined is None:
         room.add_spectator(socket)
         log.info("Spectator connected to room %s", room_id)
-        # Catch up: current lanes + each user's most recent activity snapshot.
+        # Catch up: the windows in force, current lanes, and each user's most
+        # recent activity snapshot. Settings go first: they frame everything
+        # the dashboard renders after them.
+        await room.send(socket, room.settings_update())
         for existing in room.member_ids:
             await room.send(
                 socket,
@@ -545,7 +631,7 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
             _schedule_empty_room_cleanup(room_id)
         return
 
-    user_id, agent = joined
+    user_id, agent, settings = joined
     # Tell the joiner who is already here before announcing them, so a daemon
     # that connects second still knows its peers.
     for existing in room.member_ids:
@@ -561,6 +647,8 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         len(room.member_ids),
     )
     await room.broadcast(UserJoined(user_id=user_id, agent=agent))
+    if settings is not None:
+        await apply_member_settings(room, room_id, user_id, settings)
 
     try:
         while True:

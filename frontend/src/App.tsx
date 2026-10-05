@@ -1,16 +1,31 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import AddWatcher from './components/AddWatcher';
+import AddTeammate from './components/AddTeammate';
 import ConflictBanner from './components/ConflictBanner';
 import DeployModal from './components/DeployModal';
 import Lane from './components/Lane';
+import SharePanel from './components/SharePanel';
 import Sidebar, { type AppView } from './components/Sidebar';
-import { normalizeRoomCode, relayHttpOrigin, roomWsUrl } from './relayUrl';
+import { copyText } from './clipboard';
+import {
+  normalizeRoomCode,
+  relayHttpOrigin,
+  roomLink,
+  roomPath,
+  roomWsUrl,
+  upCommand,
+} from './relayUrl';
+import {
+  DEFAULT_ROOM_SETTINGS,
+  describeSettingsSource,
+  describeWindows,
+} from './roomSettings';
 import type {
   ConflictAlert,
   FeedEvent,
   JoinMessage,
   LaneState,
+  RoomSettingsUpdate,
   ServerMessage,
 } from './types';
 
@@ -128,7 +143,7 @@ const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
 const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
   dashboard: 'Cluster',
   agents: 'Cluster',
-  watchers: 'Cluster',
+  invite: 'Cluster',
   history: 'Logs',
   conflicts: 'Logs',
   analytics: 'Analytics',
@@ -138,13 +153,17 @@ const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
 
 export default function App() {
   const navigate = useNavigate();
-  const { roomId: rawRoomId } = useParams<{ roomId: string }>();
-  const roomId = normalizeRoomCode(rawRoomId ?? '');
+  const { code: rawCode } = useParams<{ code: string }>();
+  const roomId = normalizeRoomCode(rawCode ?? '');
   const wsUrl = useMemo(() => roomWsUrl(roomId), [roomId]);
 
   const [users, setUsers] = useState<Record<string, LaneEntry>>({});
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [conflictHistory, setConflictHistory] = useState<ConflictAlert[]>([]);
+  // Conflict windows the relay enforces here; null until its catch-up arrives.
+  const [roomSettings, setRoomSettings] = useState<RoomSettingsUpdate | null>(
+    null,
+  );
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [elapsed, setElapsed] = useState(0);
   const [view, setView] = useState<AppView>('agents');
@@ -176,6 +195,14 @@ export default function App() {
   );
 
   useEffect(() => {
+    // /r/abcd-2345 and friends settle on one canonical link, so the address
+    // bar always matches what Share copies.
+    if (roomId && rawCode !== roomId) {
+      navigate(roomPath(roomId), { replace: true });
+    }
+  }, [rawCode, roomId, navigate]);
+
+  useEffect(() => {
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(id);
   }, []);
@@ -193,6 +220,7 @@ export default function App() {
     setUsers({});
     setConflicts([]);
     setConflictHistory([]);
+    setRoomSettings(null);
     setStatus('connecting');
 
     let cancelled = false;
@@ -343,6 +371,10 @@ export default function App() {
               });
               break;
 
+            case 'room_settings':
+              setRoomSettings(item);
+              break;
+
             case 'conflict_alert':
               setConflicts((prev) => upsertConflict(prev, item));
               if (isActionableConflict(item)) {
@@ -377,6 +409,7 @@ export default function App() {
           case 'conflict_alert':
           case 'intent_update':
           case 'edit_decision':
+          case 'room_settings':
             // Catch-up frames still arrive as individual messages via send().
             applyFeedEvent(msg);
             break;
@@ -422,14 +455,13 @@ export default function App() {
   }, [wsUrl]);
 
   const copyShareUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopied(true);
-      showToast('Share link copied');
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
+    if (!(await copyText(roomLink(roomId)))) {
       showToast('Could not copy link');
+      return;
     }
+    setCopied(true);
+    showToast('Room link copied');
+    window.setTimeout(() => setCopied(false), 1500);
   };
 
   const createNewRoom = async () => {
@@ -447,7 +479,7 @@ export default function App() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = (await response.json()) as { room_id: string };
-      navigate(`/room/${data.room_id}`);
+      navigate(roomPath(data.room_id));
     } catch {
       showToast('Could not create room');
       setCreatingRoom(false);
@@ -623,9 +655,9 @@ export default function App() {
             <button
               type="button"
               className="deploy-btn rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
-              onClick={() => navigateTo('watchers')}
+              onClick={() => navigateTo('invite')}
             >
-              Deploy Agent
+              Invite teammates
             </button>
           </div>
         </div>
@@ -642,8 +674,10 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
             <p className="text-[13px] text-on-surface m-0">
               Room <span className="font-mono text-primary">{roomId}</span> is
-              gone on the relay (expired or redeployed). Create a new workspace
-              and rejoin it with <code className="font-mono">synergo join</code>.
+              gone on the relay (expired or redeployed). Create a new workspace,
+              then run{' '}
+              <code className="font-mono">synergo up --room &lt;new code&gt;</code>{' '}
+              in each repo.
             </p>
             <button
               type="button"
@@ -666,7 +700,7 @@ export default function App() {
           roomId={roomId}
           onCopyRoom={() => void copyShareUrl()}
           copied={copied}
-          onDeployAgent={() => navigateTo('watchers')}
+          onInvite={() => navigateTo('invite')}
           onNewRoom={() => void createNewRoom()}
           creatingRoom={creatingRoom}
         />
@@ -728,16 +762,16 @@ export default function App() {
                 <button
                   type="button"
                   className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
-                  onClick={() => navigateTo('watchers')}
+                  onClick={() => navigateTo('invite')}
                 >
-                  Deploy Agent
+                  Invite teammates
                 </button>
                 <button
                   type="button"
                   className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
                   onClick={() => void copyShareUrl()}
                 >
-                  Copy share link
+                  Copy room link
                 </button>
                 <button
                   type="button"
@@ -781,21 +815,24 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <div className="lane-shell rounded-2xl p-8 max-w-[1400px] text-center">
-                  <p className="text-[14px] text-on-surface font-medium m-0">
-                    No agents connected yet
-                  </p>
-                  <p className="text-[13px] text-on-muted mt-2 mb-5">
-                    Run <code className="font-mono">synergo join {roomId}</code> on
-                    a teammate&apos;s machine to stream their agent into this room.
-                  </p>
-                  <button
-                    type="button"
-                    className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
-                    onClick={() => navigateTo('watchers')}
-                  >
-                    Deploy Agent
-                  </button>
+                <div className="max-w-[46rem] space-y-4">
+                  <div className="lane-shell rounded-2xl p-6">
+                    <p className="text-[14px] text-on-surface font-medium m-0">
+                      No agents connected yet
+                    </p>
+                    <p className="text-[13px] text-on-muted mt-2 mb-0">
+                      Share this room. Each teammate runs the setup line in their
+                      repo, and their agent appears here as a lane.{' '}
+                      <button
+                        type="button"
+                        className="text-primary font-semibold hover:text-primary/80 transition-colors"
+                        onClick={() => navigateTo('invite')}
+                      >
+                        Step-by-step setup →
+                      </button>
+                    </p>
+                  </div>
+                  <SharePanel roomId={roomId} settings={roomSettings} />
                 </div>
               )}
             </div>
@@ -845,28 +882,29 @@ export default function App() {
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
                 <p className="m-0">
-                  1. Share this Synergo room link or code{' '}
+                  1. Share this room&apos;s link or code{' '}
                   <code className="text-primary font-mono">{roomId}</code> with
                   teammates.
                 </p>
                 <p className="m-0">
-                  2. On each machine, run{' '}
-                  <code className="text-primary font-mono">
-                    synergo join {roomId} --name &lt;you&gt;
-                  </code>{' '}
-                  and install the agent hook (Deploy Agent has the commands).
+                  2. On each machine, install once with{' '}
+                  <code className="text-primary font-mono">pipx install synergo</code>
+                  , then run{' '}
+                  <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
+                  in the repo the agent works in. It sets up the agent hooks and the
+                  Synergo daemon.
                 </p>
                 <p className="m-0">
                   3. Let the agents work — activity and conflicts appear on this
-                  board.
+                  board. {describeWindows(roomSettings ?? DEFAULT_ROOM_SETTINGS)}.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-2">
                   <button
                     type="button"
                     className="deploy-btn rounded-xl px-4 py-2 text-[11px] font-bold"
-                    onClick={() => navigateTo('watchers')}
+                    onClick={() => navigateTo('invite')}
                   >
-                    Deploy Agent
+                    Invite teammates
                   </button>
                   <button
                     type="button"
@@ -893,7 +931,9 @@ export default function App() {
             </div>
           ) : null}
 
-          {view === 'watchers' ? <AddWatcher roomId={roomId} /> : null}
+          {view === 'invite' ? (
+            <AddTeammate roomId={roomId} settings={roomSettings} />
+          ) : null}
 
           {view === 'conflicts' || view === 'history' ? (
             <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
@@ -1006,20 +1046,30 @@ export default function App() {
                   </p>
                 </div>
                 <div className="h-px bg-outline-soft" />
+                <div>
+                  <label className="section-label">Conflict windows</label>
+                  <p className="text-[13px] text-on-surface mt-2 mb-0">
+                    {describeWindows(roomSettings ?? DEFAULT_ROOM_SETTINGS)}
+                  </p>
+                  <p className="text-[12px] text-on-muted mt-1 mb-0">
+                    {describeSettingsSource(roomSettings)}
+                  </p>
+                </div>
+                <div className="h-px bg-outline-soft" />
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
                     className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => void copyShareUrl()}
                   >
-                    Copy share link
+                    Copy room link
                   </button>
                   <button
                     type="button"
                     className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => navigateTo('watchers')}
+                    onClick={() => navigateTo('invite')}
                   >
-                    Deploy Agent
+                    Invite teammates
                   </button>
                   <button
                     type="button"
@@ -1044,10 +1094,10 @@ export default function App() {
           <button
             type="button"
             className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
-            title="Deploy agent"
-            onClick={() => navigateTo('watchers')}
+            title="Invite teammates"
+            onClick={() => navigateTo('invite')}
           >
-            <span className="material-symbols-outlined text-[26px]">add</span>
+            <span className="material-symbols-outlined text-[26px]">person_add</span>
           </button>
         </main>
       </div>
@@ -1055,7 +1105,6 @@ export default function App() {
       <DeployModal
         open={deployOpen}
         roomId={roomId}
-        wsUrl={wsUrl}
         onClose={() => setDeployOpen(false)}
         onCopied={(label) => showToast(`${label} copied`)}
       />
