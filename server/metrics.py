@@ -23,6 +23,7 @@ CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 # explicit 0 instead of a missing series before the first event of each kind.
 EDIT_DECISIONS = ("allow", "warn", "block")
 WS_REJECTION_REASONS = ("rate_limited", "room_not_found", "version", "name")
+DECISION_SCOPES = ("symbol", "lines", "file", "intent", "plan", "branch")
 
 # Edit checks sit on an agent's blocking hook with a 1.5 s client budget; the
 # interesting range is well under that, so the buckets are fine-grained low.
@@ -48,21 +49,31 @@ def _labels(pairs: Iterable[tuple[str, str]]) -> str:
     return f"{{{body}}}" if body else ""
 
 
+LabelValue = str | tuple[str, ...]
+
+
 class Counter:
-    """Monotonic counter with at most one label, pre-seeded with known values."""
+    """Monotonic counter, pre-seeded with known label values.
+
+    `label` is one label name or a tuple of names; with several names each
+    label value passed to inc/value is a tuple in the same order.
+    """
 
     def __init__(
         self,
         name: str,
         help_text: str,
-        label: str | None = None,
-        values: Sequence[str] = (),
+        label: str | tuple[str, ...] | None = None,
+        values: Sequence[LabelValue] = (),
     ) -> None:
         self.name = name
         self.help_text = help_text
         self.label = label
+        self._names: tuple[str, ...] = (
+            () if label is None else (label,) if isinstance(label, str) else tuple(label)
+        )
         self._initial = tuple(values) if label else ("",)
-        self._counts: dict[str, float] = {}
+        self._counts: dict[LabelValue, float] = {}
         self._lock = threading.Lock()
         self.reset()
 
@@ -70,23 +81,23 @@ class Counter:
         with self._lock:
             self._counts = {value: 0.0 for value in self._initial}
 
-    def inc(self, label_value: str = "", amount: float = 1.0) -> None:
+    def inc(self, label_value: LabelValue = "", amount: float = 1.0) -> None:
         with self._lock:
             self._counts[label_value] = self._counts.get(label_value, 0.0) + amount
 
-    def value(self, label_value: str = "") -> float:
+    def value(self, label_value: LabelValue = "") -> float:
         with self._lock:
             return self._counts.get(label_value, 0.0)
 
     def render(self) -> list[str]:
         lines = [f"# HELP {self.name} {self.help_text}", f"# TYPE {self.name} counter"]
         with self._lock:
-            items = sorted(self._counts.items())
+            items = sorted(self._counts.items(), key=lambda item: str(item[0]))
         for label_value, count in items:
-            labels = _labels([(self.label, label_value)]) if self.label else ""
+            values = label_value if isinstance(label_value, tuple) else (label_value,)
+            labels = _labels(zip(self._names, values)) if self._names else ""
             lines.append(f"{self.name}{labels} {_format_value(count)}")
         return lines
-
 
 class Gauge:
     """Gauge read from a callback at scrape time, so it can never go stale."""
@@ -177,9 +188,15 @@ registry = Registry()
 
 edit_checks_total = Counter(
     "synergo_edit_checks_total",
-    "Edit checks answered, by decision.",
-    label="decision",
-    values=EDIT_DECISIONS,
+    "Edit checks answered, by decision and the scope that decided it.",
+    label=("decision", "scope"),
+    values=[(d, sc) for d in EDIT_DECISIONS for sc in DECISION_SCOPES],
+)
+decision_feedback_total = Counter(
+    "synergo_decision_feedback_total",
+    "Dashboard votes on warn/block decisions: useful or noise, by scope.",
+    label=("useful", "scope"),
+    values=[(u, sc) for u in ("true", "false") for sc in DECISION_SCOPES],
 )
 activity_messages_total = Counter(
     "synergo_activity_messages_total",
@@ -207,6 +224,7 @@ for _metric in (
     intents_total,
     ws_rejections_total,
     edit_check_seconds,
+    decision_feedback_total,
 ):
     registry.register(_metric)
 

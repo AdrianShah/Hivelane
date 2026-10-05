@@ -21,7 +21,14 @@ export type AgentKind =
 export interface FileChange {
   file_path: string;
   diff: string;
+  /** Touched function/class names; "<imports>" marks an import-block edit. */
+  symbols?: string[];
+  /** 1-based inclusive [start, end] ranges in the new file. */
+  line_ranges?: [number, number][];
 }
+
+/** Granularity at which the relay found a conflict. */
+export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch';
 
 /**
  * Opaque repository identity from the daemon (hash of the normalized origin
@@ -51,6 +58,7 @@ export interface ActivityUpdate {
   caption: string | null;
   agent?: AgentKind;
   repo_id?: RepoId;
+  branch?: string;
 }
 
 /** What an agent is currently trying to do — latest per user wins. */
@@ -74,6 +82,53 @@ export interface EditDecision {
   timestamp: number;
   agent?: AgentKind;
   repo_id?: RepoId;
+  scope?: DecisionScope;
+  /** Non-empty for warn/block; key for decision_feedback votes. */
+  decision_id?: string;
+}
+
+/** A member's declared plan (files/symbols it intends to change). */
+export interface PlanUpdate {
+  type: 'plan_update';
+  user_id: string;
+  agent?: AgentKind;
+  summary: string;
+  files: string[];
+  symbols: string[];
+  repo_id?: RepoId;
+  branch?: string;
+  timestamp: number;
+  expires_at: number;
+}
+
+export interface PlanConflict {
+  file_path: string;
+  user_id: string;
+  agent?: AgentKind;
+  kind: 'edited' | 'planned';
+  summary: string;
+  seconds_ago: number;
+}
+
+/** Point-to-point reply to a member's plan message. */
+export interface PlanConflicts {
+  type: 'plan_conflicts';
+  conflicts: PlanConflict[];
+}
+
+/** Spectator → relay: was this warn/block useful or noise? */
+export interface DecisionFeedback {
+  type: 'decision_feedback';
+  decision_id: string;
+  useful: boolean;
+}
+
+/** Running vote tally for one decision, broadcast after each vote. */
+export interface DecisionFeedbackUpdate {
+  type: 'decision_feedback_update';
+  decision_id: string;
+  useful_count: number;
+  noise_count: number;
 }
 
 /** One conflict alert per overlapping/related file pair (server → clients). */
@@ -140,6 +195,8 @@ export type FeedEvent =
   | ConflictAlert
   | EditDecision
   | IntentUpdate
+  | PlanUpdate
+  | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | UserJoined
   | UserLeft;
@@ -171,6 +228,9 @@ export type ServerMessage =
   | ConflictAlert
   | EditDecision
   | IntentUpdate
+  | PlanUpdate
+  | PlanConflicts
+  | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | UserJoined
   | UserLeft

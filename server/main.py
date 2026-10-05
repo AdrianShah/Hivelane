@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -32,6 +33,8 @@ try:
         ActivityUpdate,
         AgentKind,
         Decision,
+        DecisionFeedback,
+        DecisionScope,
         EditCheckRequest,
         EditCheckResponse,
         EditDecision,
@@ -39,6 +42,8 @@ try:
         JoinMessage,
         NameRejected,
         PeerTouch,
+        PlanConflicts,
+        PlanMessage,
         RateLimited,
         RoomRejected,
         RoomSettings,
@@ -46,7 +51,13 @@ try:
         UserLeft,
         VersionRejected,
     )
-    from .room import DEFAULT_SETTINGS, FileOverlap, FileTouch, Room, settings_problem
+    from .room import (
+        DEFAULT_SETTINGS,
+        FileOverlap,
+        FileTouch,
+        Room,
+        settings_problem,
+    )
     from .room_manager import MAX_MEMBERS, RoomManager
     from .sanitize import sanitize_name
 except ImportError:  # Render runs with rootDir=server as a flat module tree
@@ -63,6 +74,8 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         ActivityUpdate,
         AgentKind,
         Decision,
+        DecisionFeedback,
+        DecisionScope,
         EditCheckRequest,
         EditCheckResponse,
         EditDecision,
@@ -70,6 +83,8 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         JoinMessage,
         NameRejected,
         PeerTouch,
+        PlanConflicts,
+        PlanMessage,
         RateLimited,
         RoomRejected,
         RoomSettings,
@@ -77,7 +92,13 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         UserLeft,
         VersionRejected,
     )
-    from room import DEFAULT_SETTINGS, FileOverlap, FileTouch, Room, settings_problem
+    from room import (  # type: ignore[no-redef]
+        DEFAULT_SETTINGS,
+        FileOverlap,
+        FileTouch,
+        Room,
+        settings_problem,
+    )
     from room_manager import MAX_MEMBERS, RoomManager
     from sanitize import sanitize_name
 
@@ -430,6 +451,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
         caption=caption,
         agent=message.agent,
         repo_id=message.repo_id,
+        branch=message.branch,
     )
     room.remember_update(update)
     log.info(
@@ -477,21 +499,93 @@ async def handle_intent(room: Room, user_id: str, raw: dict) -> None:
     await room.broadcast(update)
 
 
+async def handle_plan(room: Room, socket: WebSocket, user_id: str, raw: dict) -> None:
+    """Store the sender's plan, reply with what it collides with, announce it."""
+    try:
+        message = PlanMessage.model_validate(raw)
+    except ValidationError as exc:
+        log.warning("Ignoring malformed plan from %s: %s", user_id, exc)
+        return
+
+    message.user_id = user_id
+    if room.is_activity_rate_limited(
+        user_id, ACTIVITY_MIN_INTERVAL_SECONDS, channel="plan"
+    ):
+        log.debug("Rate-limiting plan from %s", user_id)
+        return
+
+    now = time.time()
+    update = room.record_plan(message, now, room.member_agent(user_id))
+    conflicts = room.plan_conflicts(update, now)
+    await room.send(socket, PlanConflicts(conflicts=conflicts))
+    log.info(
+        "plan from %s (%d file(s), %d conflict(s))",
+        user_id,
+        len(message.files),
+        len(conflicts),
+    )
+    await room.broadcast(update)
+
+
+async def handle_decision_feedback(room: Room, voter: str, raw: dict) -> None:
+    """Count a dashboard's useful/noise vote on a warn or block decision."""
+    try:
+        message = DecisionFeedback.model_validate(raw)
+    except ValidationError as exc:
+        log.debug("Ignoring malformed decision_feedback: %s", exc)
+        return
+    scope = room.decision_scope(message.decision_id)
+    update = room.record_feedback(message.decision_id, message.useful, voter)
+    if update is None or scope is None:
+        return
+    metrics.decision_feedback_total.inc(
+        ("true" if message.useful else "false", scope)
+    )
+    await room.broadcast(update)
+
+
 def _edit_check_reason(
-    decision: Decision, file_path: str, peers: list[FileTouch], now: float
+    decision: Decision,
+    file_path: str,
+    peers: list[FileTouch],
+    now: float,
+    scope: DecisionScope = "file",
 ) -> str:
     """One human-readable sentence about the peer that drove the decision."""
     if decision == "allow" or not peers:
         return ""
     peer = peers[0]
     seconds = int(max(0.0, now - peer.timestamp))
-    # Room.check_edit synthesizes a diff-less touch for peers matched only by
-    # their declared intent — they have not edited the file yet.
-    if not peer.diff:
-        return f"{peer.user_id}'s {peer.agent} said they are working on {file_path}"
+    who = f"{peer.user_id}'s {peer.agent}"
+    if scope == "plan" or peer.kind == "planned":
+        summary = f": {peer.prompt}" if peer.prompt else ""
+        return f"{peer.user_id} plans to change {file_path}{summary}"
+    # Peers matched only by their declared intent have not edited the file yet.
+    if scope == "intent" or peer.kind == "intent" or not peer.diff:
+        return f"{who} said they are working on {file_path}"
+    if scope == "branch":
+        return (
+            f"{peer.user_id} edited {file_path} on branch {peer.branch} "
+            f"{seconds}s ago — this will conflict at merge"
+        )
+    if scope == "symbol":
+        names = ", ".join(peer.symbols[:3])
+        if decision == "block":
+            return f"{who} is editing {names} in {file_path} ({seconds}s ago)"
+        return (
+            f"{who} is editing {names} in {file_path} ({seconds}s ago) — "
+            "different function, safe to proceed"
+        )
+    if scope == "lines":
+        if decision == "block":
+            return f"{who} is editing the same lines of {file_path} ({seconds}s ago)"
+        return (
+            f"{who} edited a different part of {file_path} {seconds}s ago — "
+            "safe to proceed"
+        )
     if decision == "block":
-        return f"{peer.user_id}'s {peer.agent} edited {file_path} {seconds}s ago"
-    return f"{peer.user_id}'s {peer.agent} touched this file {seconds}s ago"
+        return f"{who} edited {file_path} {seconds}s ago"
+    return f"{who} touched this file {seconds}s ago"
 
 
 async def handle_edit_check(
@@ -510,10 +604,21 @@ async def handle_edit_check(
         return
 
     now = time.time()
-    decision, peers = room.check_edit(
-        user_id, request.file_path, now, repo_id=request.repo_id
+    symbols = list(request.symbols)
+    if request.symbol and request.symbol not in symbols:
+        symbols.append(request.symbol)
+    verdict = room.evaluate_edit(
+        user_id,
+        request.file_path,
+        now,
+        repo_id=request.repo_id,
+        symbols=symbols,
+        line_ranges=list(request.line_ranges),
+        branch=request.branch,
     )
-    reason = _edit_check_reason(decision, request.file_path, peers, now)
+    decision, peers, scope = verdict.decision, verdict.peers, verdict.scope
+    reason = _edit_check_reason(decision, request.file_path, peers, now, scope)
+    decision_id = "" if decision == "allow" else uuid.uuid4().hex
     response = EditCheckResponse(
         request_id=request.request_id,
         decision=decision,
@@ -524,22 +629,30 @@ async def handle_edit_check(
                 agent=peer.agent,
                 seconds_ago=max(0.0, now - peer.timestamp),
                 prompt=peer.prompt,
+                symbols=list(peer.symbols),
+                branch=peer.branch,
+                kind=peer.kind,
             )
             for peer in peers
         ],
         reason=reason,
+        scope=scope,
+        decision_id=decision_id,
     )
     # Recorded once the reply is ready and before it is sent, so anyone who
     # has seen the reply also sees it counted. The feed broadcast below is
     # excluded: the agent's hook is unblocked by the reply alone.
     metrics.edit_check_seconds.observe(time.perf_counter() - started)
-    metrics.edit_checks_total.inc(decision)
+    metrics.edit_checks_total.inc((decision, scope))
     await room.send(socket, response)
 
     if decision == "allow":
         return
 
-    log.info("edit_check %s for %s on %s", decision, user_id, request.file_path)
+    room.register_decision(decision_id, scope)
+    log.info(
+        "edit_check %s (%s) for %s on %s", decision, scope, user_id, request.file_path
+    )
     await room.broadcast(
         EditDecision(
             user_id=user_id,
@@ -550,6 +663,8 @@ async def handle_edit_check(
             reason=reason,
             timestamp=now,
             repo_id=request.repo_id,
+            scope=scope,
+            decision_id=decision_id,
         )
     )
 
@@ -620,11 +735,16 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
             )
         for intent in room.latest_intents():
             await room.send(socket, intent)
+        for plan in room.active_plans():
+            await room.send(socket, plan)
         for update in room.latest_updates():
             await room.send(socket, update)
+        voter = f"socket:{id(socket)}"
         try:
             while True:
-                await socket.receive_json()
+                raw = await socket.receive_json()
+                if isinstance(raw, dict) and raw.get("type") == "decision_feedback":
+                    await handle_decision_feedback(room, voter, raw)
         except (WebSocketDisconnect, RuntimeError):
             room.remove_spectator(socket)
             log.info("Spectator disconnected from room %s", room_id)
@@ -660,6 +780,10 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
                 await handle_intent(room, user_id, raw)
             elif kind == "edit_check":
                 await handle_edit_check(room, socket, user_id, raw)
+            elif kind == "plan":
+                await handle_plan(room, socket, user_id, raw)
+            elif kind == "decision_feedback":
+                await handle_decision_feedback(room, f"socket:{id(socket)}", raw)
             else:
                 log.debug("Unhandled message type from %s: %s", user_id, kind)
     except (WebSocketDisconnect, RuntimeError):
