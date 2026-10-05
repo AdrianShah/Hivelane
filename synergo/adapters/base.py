@@ -54,6 +54,13 @@ EVENT_FIELDS: tuple[str, ...] = (
     "old_content",
     "new_content",
     "tool",
+    # Optional Phase 3 fields. edit_hints: [{"old": str, "new": str}] for
+    # string-replacement edits (lets the daemon predict touched lines); plan
+    # events carry summary plus candidate files/symbols pulled from the text.
+    "edit_hints",
+    "summary",
+    "files",
+    "symbols",
 )
 
 DECISIONS: tuple[str, ...] = ("allow", "warn", "block")
@@ -87,6 +94,85 @@ def make_event(agent: str, kind: str, session_id: str, cwd: str, **fields: Any) 
     event: dict[str, Any] = dict.fromkeys(EVENT_FIELDS)
     event.update(kind=kind, agent=agent, session_id=session_id, cwd=cwd, **fields)
     return event
+
+
+MAX_HINT_CHARS = 20000
+MAX_HINTS = 50
+
+
+def string_hints(edits: Any, old_key: str = "old_string", new_key: str = "new_string") -> Optional[list[dict[str, str]]]:
+    """[{"old", "new"}] from string-replacement edits (dicts carrying old/new
+    strings), so the daemon can predict which lines an edit touches. None
+    when there is nothing usable."""
+    if isinstance(edits, dict):
+        edits = [edits]
+    if not isinstance(edits, list):
+        return None
+    hints: list[dict[str, str]] = []
+    for edit in edits[:MAX_HINTS]:
+        if not isinstance(edit, dict):
+            continue
+        old, new = edit.get(old_key), edit.get(new_key)
+        if isinstance(old, str) and old and len(old) <= MAX_HINT_CHARS:
+            hints.append({"old": old, "new": new if isinstance(new, str) and len(new) <= MAX_HINT_CHARS else ""})
+    return hints or None
+
+
+# File extensions a plan's path-like token must end with to be a file candidate.
+PLAN_FILE_EXTENSIONS: tuple[str, ...] = (
+    ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java",
+    ".cs", ".rb", ".kt", ".swift", ".c", ".h", ".cc", ".cpp", ".hpp", ".php", ".scala",
+    ".vue", ".svelte", ".css", ".scss", ".html", ".md", ".toml", ".yaml", ".yml", ".json",
+    ".sql", ".sh",
+)
+_TOKEN_STRIP = "`'\"()[]{}<>,;:!?*"
+_IDENT_EXTRA = "._$"
+MAX_PLAN_TEXT = 8000
+MAX_PLAN_ITEMS = 50
+
+
+def plan_candidates(text: str) -> tuple[list[str], list[str]]:
+    """Candidate file paths and symbol names mentioned in plan text.
+
+    Stdlib-only and regex-free (the hook path cannot afford `re`): files are
+    whitespace tokens ending in a known extension; symbols are backticked
+    identifiers such as `Room.check_edit` or `foo()`. The daemon matches the
+    file candidates against the repo's tracked files.
+    """
+    files: list[str] = []
+    found: list[str] = []
+    text = text[:MAX_PLAN_TEXT]
+    for raw in text.split():
+        token = raw.strip(_TOKEN_STRIP).rstrip(".")
+        if "." in token and token.lower().endswith(PLAN_FILE_EXTENSIONS) and token not in files:
+            files.append(token)
+    for index, chunk in enumerate(text.split("`")):
+        if index % 2 == 0:
+            continue
+        name = chunk.strip()
+        if name.endswith("()"):
+            name = name[:-2]
+        if (
+            name
+            and len(name) <= 120
+            and (name[0].isalpha() or name[0] == "_")
+            and all(ch.isalnum() or ch in _IDENT_EXTRA for ch in name)
+            and not name.lower().endswith(PLAN_FILE_EXTENSIONS)
+            and name not in found
+        ):
+            found.append(name)
+    return files[:MAX_PLAN_ITEMS], found[:MAX_PLAN_ITEMS]
+
+
+def plan_event(agent: str, session_id: str, cwd: str, summary: str, tool: Any = None) -> Optional[dict[str, Any]]:
+    summary = summary.strip()
+    if not summary:
+        return None
+    files, symbols = plan_candidates(summary)
+    return make_event(
+        agent, "plan", session_id, cwd, summary=summary[:MAX_PLAN_TEXT], files=files,
+        symbols=symbols, tool=tool,
+    )
 
 
 def read_text(path: str) -> Optional[str]:
@@ -222,10 +308,28 @@ def merge_hooks(settings: dict[str, Any], desired: dict[str, list[dict[str, Any]
             existing = [] if existing is None else [existing]
             hooks[event] = existing
         if has_synergo(existing):
-            continue
+            if all(group in existing for group in groups):
+                continue
+            # An older synergo entry (say, a narrower matcher): replace it.
+            existing[:] = _without_synergo(existing)
         existing.extend(groups)
         changes.append(event)
     return changes
+
+
+def _without_synergo(groups: list[Any]) -> list[Any]:
+    kept_groups: list[Any] = []
+    for group in groups:
+        if not isinstance(group, dict):
+            kept_groups.append(group)
+            continue
+        entries = group.get("hooks") or []
+        kept = [hook for hook in entries if not _is_synergo(hook)]
+        if len(kept) == len(entries):
+            kept_groups.append(group)
+        elif kept:
+            kept_groups.append({**group, "hooks": kept})
+    return kept_groups
 
 
 def remove_hooks(settings: dict[str, Any]) -> list[str]:
