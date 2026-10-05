@@ -1,12 +1,46 @@
 [build-system]
-requires = ["hatchling"]
+# >=1.27 for PEP 639: `license` as an SPDX expression (core metadata 2.4).
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "synergo"
-version = "0.1.0"
-description = "Local daemon, CLI and agent hook adapters for the Synergo relay."
+# Single-sourced from synergo/__init__.py (see [tool.hatch.version]), so the
+# release workflow's tag check and `synergo --version` can never disagree.
+dynamic = ["version"]
+description = "Live coordination for parallel AI coding agents: warns or blocks an edit when a teammate's agent is already in that file."
+readme = "README.md"
 requires-python = ">=3.12"
+# Intended license. The LICENSE file itself lands separately; until it does,
+# hatchling's default license-files globs simply match nothing.
+license = "Apache-2.0"
+authors = [{ name = "Synergo contributors" }]
+keywords = [
+    "ai-agents",
+    "claude-code",
+    "coding-agents",
+    "collaboration",
+    "conflict-detection",
+    "developer-tools",
+    "hooks",
+    "multiplayer",
+    "pair-programming",
+    "websocket",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Version Control",
+]
 dependencies = [
     "websockets>=13,<16",
     "fastapi>=0.115,<1",
@@ -18,14 +52,28 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest"]
 
+[project.urls]
+Homepage = "https://github.com/AdrianShah/Synergo"
+Documentation = "https://github.com/AdrianShah/Synergo/tree/main/docs"
+Repository = "https://github.com/AdrianShah/Synergo"
+Issues = "https://github.com/AdrianShah/Synergo/issues"
+Changelog = "https://github.com/AdrianShah/Synergo/releases"
+
 [project.scripts]
 synergo = "synergo.cli:main"
 
+[tool.hatch.version]
+path = "synergo/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["synergo"]
+# Tests run from the source tree; an installed CLI has no use for them.
+exclude = ["synergo/tests"]
 
 [tool.hatch.build.targets.sdist]
-include = ["synergo", "pyproject.toml"]
+# Anchored with a leading slash: these are gitignore-style patterns, and a bare
+# "README.md" would sweep in every nested README in the repo.
+include = ["/synergo", "/pyproject.toml", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["synergo/tests", "server/tests", "tests/e2e"]
