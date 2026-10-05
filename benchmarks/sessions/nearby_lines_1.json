@@ -1,0 +1,39 @@
+{
+ "name": "nearby_lines_1",
+ "description": "different symbols but adjacent line ranges",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     130
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "helper_1"
+   ],
+   "line_ranges": [
+    [
+     133,
+     142
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

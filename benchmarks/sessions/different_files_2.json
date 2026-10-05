@@ -1,0 +1,39 @@
+{
+ "name": "different_files_2",
+ "description": "different files entirely",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "x"
+   ],
+   "line_ranges": [
+    [
+     1,
+     20
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 3,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/protocol.py",
+   "symbols": [
+    "y"
+   ],
+   "line_ranges": [
+    [
+     1,
+     20
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

@@ -1,0 +1,39 @@
+{
+ "name": "nearby_lines_0",
+ "description": "different symbols but adjacent line ranges",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     470
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "helper_0"
+   ],
+   "line_ranges": [
+    [
+     473,
+     482
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

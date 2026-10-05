@@ -1,0 +1,39 @@
+{
+ "name": "other_branch_3",
+ "description": "same function but on different branches (merge conflict later, not now)",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     40,
+     200
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 4,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     40,
+     200
+    ]
+   ],
+   "branch": "feature/x3",
+   "label": "no_conflict"
+  }
+ ]
+}

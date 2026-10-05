@@ -1,0 +1,56 @@
+{
+ "name": "same_function_1",
+ "description": "both agents edit the same function",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_edit_check"
+   ],
+   "line_ranges": [
+    [
+     496,
+     560
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 6,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_edit_check"
+   ],
+   "line_ranges": [
+    [
+     501,
+     511
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  },
+  {
+   "t": 40,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "handle_edit_check"
+   ],
+   "line_ranges": [
+    [
+     496,
+     560
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

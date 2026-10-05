@@ -3,10 +3,18 @@ import { useNavigate, useParams } from 'react-router-dom';
 import AddTeammate from './components/AddTeammate';
 import ConflictBanner from './components/ConflictBanner';
 import DeployModal from './components/DeployModal';
+import DetectionQuality from './components/DetectionQuality';
 import Lane from './components/Lane';
 import SharePanel from './components/SharePanel';
 import Sidebar, { type AppView } from './components/Sidebar';
 import { copyText } from './clipboard';
+import {
+  aggregateQuality,
+  applyFeedbackUpdate,
+  decisionScope,
+  type FeedbackMap,
+  type Vote,
+} from './detection';
 import {
   normalizeRoomCode,
   relayHttpOrigin,
@@ -22,9 +30,12 @@ import {
 } from './roomSettings';
 import type {
   ConflictAlert,
+  DecisionFeedback,
+  DecisionScope,
   FeedEvent,
   JoinMessage,
   LaneState,
+  PlanUpdate,
   RoomSettingsUpdate,
   ServerMessage,
 } from './types';
@@ -59,9 +70,20 @@ const BLANK_LANE: LaneState = {
  * carries no timestamp), or null while connected. Kept here rather than in
  * LaneState because it is dashboard bookkeeping, not part of the wire format.
  */
-type LaneEntry = LaneState & { offlineSince: number | null };
+type LaneEntry = LaneState & {
+  offlineSince: number | null;
+  /** Latest declared plan (dropped once expires_at passes). */
+  plan: PlanUpdate | null;
+  /** Branch from the latest activity_update; empty when unknown. */
+  branch: string;
+};
 
-const BLANK_ENTRY: LaneEntry = { ...BLANK_LANE, offlineSince: null };
+const BLANK_ENTRY: LaneEntry = {
+  ...BLANK_LANE,
+  offlineSince: null,
+  plan: null,
+  branch: '',
+};
 
 function isActionableConflict(alert: ConflictAlert): boolean {
   return alert.verdict === 'overlapping' || alert.verdict === 'related';
@@ -85,11 +107,16 @@ function pruneLaneDecisions(
   const next: Record<string, LaneEntry> = {};
   for (const [id, lane] of Object.entries(prev)) {
     const kept = lane.decisions.filter((d) => !isExpired(d, now));
-    if (kept.length === lane.decisions.length) {
+    const planExpired = lane.plan != null && lane.plan.expires_at < now;
+    if (kept.length === lane.decisions.length && !planExpired) {
       next[id] = lane;
     } else {
       changed = true;
-      next[id] = { ...lane, decisions: kept };
+      next[id] = {
+        ...lane,
+        decisions: kept,
+        plan: planExpired ? null : lane.plan,
+      };
     }
   }
   return changed ? next : prev;
@@ -174,6 +201,28 @@ export default function App() {
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  // Detection-quality bookkeeping for decisions seen this session.
+  const [decisionScopes, setDecisionScopes] = useState<
+    Record<string, DecisionScope>
+  >({});
+  const [feedback, setFeedback] = useState<FeedbackMap>({});
+  const [myVotes, setMyVotes] = useState<Record<string, Vote>>({});
+
+  const sendVote = (decisionId: string, vote: Vote) => {
+    if (myVotes[decisionId]) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showToast('Not connected — vote not sent');
+      return;
+    }
+    const frame: DecisionFeedback = {
+      type: 'decision_feedback',
+      decision_id: decisionId,
+      useful: vote === 'useful',
+    };
+    ws.send(JSON.stringify(frame));
+    setMyVotes((prev) => ({ ...prev, [decisionId]: vote }));
+  };
 
   const showToast = (message: string) => {
     setToast(message);
@@ -332,6 +381,7 @@ export default function App() {
                     prompt: item.prompt,
                     timestamp: item.timestamp,
                     agent: item.agent ?? prior?.agent ?? 'unknown',
+                    branch: item.branch ?? prior?.branch ?? '',
                   },
                 };
               });
@@ -351,7 +401,32 @@ export default function App() {
               });
               break;
 
+            case 'plan_update':
+              setUsers((prev) => {
+                const prior = prev[item.user_id] ?? BLANK_ENTRY;
+                return {
+                  ...prev,
+                  [item.user_id]: {
+                    ...prior,
+                    plan: item,
+                    agent: item.agent ?? prior.agent,
+                  },
+                };
+              });
+              break;
+
+            case 'decision_feedback_update':
+              setFeedback((prev) => applyFeedbackUpdate(prev, item));
+              break;
+
             case 'edit_decision':
+              if (item.decision_id) {
+                const id = item.decision_id;
+                const scope = decisionScope(item);
+                setDecisionScopes((prev) =>
+                  prev[id] === scope ? prev : { ...prev, [id]: scope },
+                );
+              }
               setUsers((prev) => {
                 const prior = prev[item.user_id] ?? BLANK_ENTRY;
                 const decisions = [
@@ -409,6 +484,8 @@ export default function App() {
           case 'conflict_alert':
           case 'intent_update':
           case 'edit_decision':
+          case 'plan_update':
+          case 'decision_feedback_update':
           case 'room_settings':
             // Catch-up frames still arrive as individual messages via send().
             applyFeedEvent(msg);
@@ -811,6 +888,11 @@ export default function App() {
                       showArchitectureMap={index === 1}
                       index={index}
                       offlineSince={displayUsers[id].offlineSince}
+                      plan={displayUsers[id].plan}
+                      branch={displayUsers[id].branch}
+                      feedback={feedback}
+                      votes={myVotes}
+                      onVote={sendVote}
                     />
                   ))}
                 </div>
@@ -844,6 +926,9 @@ export default function App() {
               <p className="text-[13px] text-on-muted mb-6">
                 Session metrics for this room.
               </p>
+              <DetectionQuality
+                rows={aggregateQuality(decisionScopes, feedback)}
+              />
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div className="lane-shell rounded-2xl p-5">
                   <p className="section-label m-0">Agents online</p>
