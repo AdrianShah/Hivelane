@@ -1,0 +1,47 @@
+{
+  "name": "synergo",
+  "displayName": "Synergo",
+  "description": "See which AI agents and teammates are editing your repo right now, and get warned before you collide.",
+  "version": "0.1.0",
+  "publisher": "synergo",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "https://github.com/synergo/synergo" },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other", "SCM Providers"],
+  "keywords": ["ai", "agents", "collaboration", "cursor", "claude"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "synergo.menu", "title": "Synergo: Menu" },
+      { "command": "synergo.checkFile", "title": "Synergo: Check this file" },
+      { "command": "synergo.whosHere", "title": "Synergo: Who's here" },
+      { "command": "synergo.openDashboard", "title": "Synergo: Open dashboard" },
+      { "command": "synergo.up", "title": "Synergo: Start daemon (synergo up)" }
+    ],
+    "configuration": {
+      "title": "Synergo",
+      "properties": {
+        "synergo.port": { "type": "number", "default": 4600, "description": "Port of the local Synergo daemon (overrides SYNERGO_PORT)." },
+        "synergo.dashboardUrl": { "type": "string", "default": "http://localhost:5173", "description": "Base URL of the Synergo dashboard; rooms open at <url>/r/ROOM." },
+        "synergo.warnOnEdit": { "type": "boolean", "default": true, "description": "Ask the daemon before you start editing a file and warn if a peer is working on it." },
+        "synergo.shareHumanEdits": { "type": "boolean", "default": true, "description": "Share your saved edits with the room so agents and teammates see them." }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p .",
+    "test": "npm run compile && node --test \"out/test/*.test.js\"",
+    "package": "vsce package",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": { "ws": "^8.18.0" },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.4.0"
+  }
+}
