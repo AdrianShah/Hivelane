@@ -1,0 +1,84 @@
+name: Docs
+
+# Builds the docs site (docs-site/, Astro Starlight) whenever its sources
+# change. Its pages are synced in from docs/*.md, README sections,
+# editors/vscode/README.md and deploy/**/README.md by
+# docs-site/scripts/sync-docs.mjs, so a page whose frontmatter, sidebar entry or
+# Markdown no longer builds fails the pull request that broke it rather than an
+# eventual deploy.
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "docs-site/**"
+      - "README.md"
+      - "editors/vscode/README.md"
+      - "deploy/**/README.md"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# A newer push to the same ref supersedes the run in flight.
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: docs site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          # Astro 7 needs Node 22.12+; the dashboard's Node 20 is too old.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - run: npm ci
+      - name: Build
+        # Runs sync-docs.mjs first. A listed source that does not exist yet is
+        # skipped with a note in the log, not treated as an error.
+        run: npm run build
+      # Uncomment together with the deploy job below.
+      # - uses: actions/upload-pages-artifact@v4
+      #   with:
+      #     path: docs-site/dist
+
+  # Deploying to GitHub Pages is off until a human sets it up:
+  #
+  #   1. Settings > Pages > Build and deployment > Source: "GitHub Actions".
+  #   2. Pick where the site lives. It is built for https://synergo.dev/docs
+  #      (SITE and BASE in docs-site/sources.mjs, both placeholders), i.e. under
+  #      /docs on the dashboard's domain, which Pages cannot share with another
+  #      host. Either serve it from its own host (a docs.* custom domain, with
+  #      BASE set to "/" and a docs-site/public/CNAME file; or the default
+  #      https://adrianshah.github.io/Synergo/ with BASE set to "/Synergo"), or
+  #      keep Pages as the origin and have the dashboard host proxy /docs to it.
+  #   3. Add `push: branches: [main]` (with the same paths) to `on:` above.
+  #      Pull request runs must never deploy, which the `if:` below enforces.
+  #   4. Uncomment the upload step above and this job.
+  #
+  # deploy:
+  #   name: deploy to GitHub Pages
+  #   if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  #   needs: build
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     pages: write
+  #     id-token: write
+  #   environment:
+  #     name: github-pages
+  #     url: ${{ steps.deployment.outputs.page_url }}
+  #   # One Pages deploy at a time; a newer one waits rather than cancelling.
+  #   concurrency:
+  #     group: docs-pages
+  #     cancel-in-progress: false
+  #   steps:
+  #     - id: deployment
+  #       uses: actions/deploy-pages@v4

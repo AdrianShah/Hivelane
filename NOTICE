@@ -1,0 +1,9 @@
+Synergo
+Copyright 2026 The Synergo Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+"The Synergo Authors" are the people who have contributed to the project, as
+recorded in its git history.
+
+The editor extension in editors/vscode/ is published separately and carries
+its own license; see editors/vscode/LICENSE.
