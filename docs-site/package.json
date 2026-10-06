@@ -1,0 +1,23 @@
+{
+  "name": "synergo-docs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The Synergo docs site. Pages are synced from ../docs/*.md and README sections at build time.",
+  "license": "Apache-2.0",
+  "scripts": {
+    "sync": "node scripts/sync-docs.mjs",
+    "dev": "node scripts/sync-docs.mjs && astro dev",
+    "build": "node scripts/sync-docs.mjs && astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.5",
+    "astro": "^7.3.5",
+    "sharp": "^0.35.5"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

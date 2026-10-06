@@ -1,0 +1,9 @@
+# Blank issues stay available for anything the forms do not fit.
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/AdrianShah/Synergo/security/advisories/new
+    about: Please report security problems privately, never in a public issue. See SECURITY.md.
+  - name: Documentation
+    url: https://github.com/AdrianShah/Synergo/tree/main/docs
+    about: Install, CLI reference, self-hosting, conflict detection and the wire protocol.

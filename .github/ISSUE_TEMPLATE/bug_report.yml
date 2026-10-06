@@ -1,0 +1,93 @@
+name: Bug report
+description: Something in the CLI, daemon, hooks, relay, dashboard or editor extension does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. **Security problems go through
+        [a private advisory](https://github.com/AdrianShah/Synergo/security/advisories/new),
+        not here.**
+
+        `synergo doctor` explains most setup problems. Please run it first and
+        paste its output below.
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Where do you see the problem? Pick the closest.
+      options:
+        - CLI (synergo up / status / doctor / ...)
+        - Daemon (background coordination, reconnects)
+        - Agent hook / adapter (Claude Code, Codex, Cursor, Gemini CLI)
+        - synergo run / watch / mcp / githook
+        - Relay (self-hosted or hosted)
+        - Dashboard
+        - VS Code / Cursor extension
+        - Install or packaging (pipx, uv, Homebrew, Scoop, npm, install scripts)
+        - Docs
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        Two agents in the same room edited server/room.py within a few seconds.
+        I expected the second one to be blocked. It was allowed, and the
+        dashboard showed no decision.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps that shows the problem, starting from a fresh `synergo up` if you can.
+    validations:
+      required: false
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `synergo --version` and `synergo doctor`
+      description: Remove anything private (room codes, relay hostnames) before you paste.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        The daemon log is `~/.synergo/logs/daemon.log` (under `SYNERGO_HOME` if you set it).
+        For a self-hosted relay, its stdout. Remove prompts, diffs and room codes you do
+        not want to share.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: macOS 15, Windows 11, Ubuntu 24.04, ...
+    validations:
+      required: true
+  - type: input
+    id: agents
+    attributes:
+      label: Agents and versions involved
+      placeholder: Claude Code and Codex, both in the same room
+    validations:
+      required: false
+  - type: dropdown
+    id: relay
+    attributes:
+      label: Relay
+      options:
+        - Local (uvicorn on my machine)
+        - Self-hosted
+        - Hosted by someone else
+        - Not sure
+    validations:
+      required: false
