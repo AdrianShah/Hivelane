@@ -38,7 +38,7 @@ and the hooks call.
 
 ```text
 synergo up [--room CODE] [--relay URL] [--name NAME] [--root PATH]
-           [--port PORT] [-y] [--no-hooks] [--foreground]
+           [--port PORT] [-y] [--no-hooks] [--foreground] [--insecure] [--e2e]
 ```
 
 Installs agent hooks, creates or joins this repo's room, and connects the repo
@@ -64,6 +64,8 @@ through the background daemon. Safe to re-run.
 | `-y`, `--yes` | Answer yes to every question (scripts, CI). |
 | `--no-hooks` | Do not install agent hooks. |
 | `--foreground` | Run the daemon in this terminal instead of the background (debugging, CI). |
+| `--insecure` | Allow a plaintext `ws://` relay on another machine. Without it, `up` refuses `ws://` to anything but this machine. Also settable as `insecure = true` in `.synergo.toml`. |
+| `--e2e` | Turn on end-to-end encryption for this repo's room: writes `e2e = true` to `.synergo.toml` and, if you have no key yet, generates one and prints it once. Share the key out of band; it is never written to the repo. |
 
 ## synergo down
 
@@ -167,6 +169,47 @@ entry on Windows. `uninstall` removes it and leaves a running daemon alone
 | Option | Description |
 |--------|-------------|
 | `--port PORT` | Port the autostarted daemon listens on (default `4600`, or `SYNERGO_PORT`). |
+
+## synergo key
+
+```text
+synergo key show [CODE] [--root PATH]
+synergo key set  [CODE] [KEY] [--root PATH]
+```
+
+Manages the passphrase of an end-to-end encrypted room (`e2e = true` in
+`.synergo.toml`). Keys live in `~/.synergo/config.toml` under `room_keys`, or in
+`SYNERGO_ROOM_KEY`; never in the repo. `show` prints the key so you can hand it
+to a teammate privately; `set` stores a key a teammate gave you (prompting with
+hidden input, or reading stdin, when `KEY` is omitted). `CODE` defaults to this
+repo's room. See [security.md](security.md#end-to-end-encryption).
+
+## synergo room
+
+```text
+synergo room approve <REQUEST_ID> [--port PORT]
+synergo room deny <REQUEST_ID> [--port PORT]
+synergo room require-approval on|off [--root PATH] [--port PORT]
+```
+
+Owner actions for a room this machine created (its owner token is stored in
+`~/.synergo/config.toml` under `owner_tokens`). `require-approval on` holds every
+newcomer until an owner lets them in; pending requests and their ids appear in
+`synergo status`. Owners can also approve from the dashboard.
+
+## synergo relay
+
+```text
+synergo relay [--host HOST] [--port PORT] [--state PATH] [--dashboard DIR]
+              [--log-level LEVEL]
+```
+
+Runs a relay in this terminal (plus the dashboard, when a build is found) for a
+LAN or a hackathon, and prints the line teammates use to join it. Needs the
+relay extra: `pip install "synergo[relay]"`. `--state` keeps room codes in a
+SQLite file across restarts. A LAN relay speaks plaintext `ws://`, so the
+printed join line includes `--insecure`; for anything internet-facing see
+[self-hosting.md](self-hosting.md).
 
 ## synergo join / synergo daemon
 
