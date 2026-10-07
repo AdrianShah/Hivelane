@@ -11,8 +11,6 @@ dynamic = ["version"]
 description = "Live coordination for parallel AI coding agents: warns or blocks an edit when a teammate's agent is already in that file."
 readme = "README.md"
 requires-python = ">=3.12"
-# Intended license. The LICENSE file itself lands separately; until it does,
-# hatchling's default license-files globs simply match nothing.
 license = "Apache-2.0"
 authors = [{ name = "Synergo contributors" }]
 keywords = [
