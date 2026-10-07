@@ -480,5 +480,5 @@ ngrok http 8000
 
 ## License
 
-Apache-2.0, as declared in `pyproject.toml`. The full license text has not been
-added to the repository yet.
+Apache-2.0. See [LICENSE](https://github.com/AdrianShah/Synergo/blob/main/LICENSE)
+and [NOTICE](https://github.com/AdrianShah/Synergo/blob/main/NOTICE).
