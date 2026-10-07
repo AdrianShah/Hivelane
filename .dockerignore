@@ -1,14 +1,16 @@
-.git
-.github
-.venv
-node_modules
-frontend
-synergo
-scripts
-graphify-out
-examples
-tests
-**/__pycache__
+# The image needs server/ and frontend/ only: allow-list them so nothing else
+# in the repo (the CLI, docs, local venvs, secrets) reaches the build context.
+*
+!server/
+!frontend/
+
+# Within those, leave out tests, local builds and anything secret.
+server/tests/
+**/__pycache__/
 **/*.pyc
-.env
-*.md
+frontend/node_modules/
+frontend/dist/
+frontend/Synergo/
+frontend/.vercel/
+**/.env
+**/.env.*

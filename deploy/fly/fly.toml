@@ -1,6 +1,7 @@
 # Fly.io config for the Synergo relay. One-time setup is in README.md here.
 #
-# Deploy from the REPO ROOT, so the build context contains server/:
+# Deploy from the REPO ROOT, so the build context contains server/ and
+# frontend/ (the image serves the dashboard too):
 #
 #   fly deploy --config deploy/fly/fly.toml
 #
@@ -13,16 +14,24 @@
 app = "synergo-relay"
 primary_region = "iad"
 
-# Regions. This runs ONE machine in primary_region. A second region is two
-# commands, e.g.
+# Regions. This runs ONE machine in primary_region, which needs nothing else.
 #
-#   fly volumes create synergo_data --region fra --size 1 --yes
-#   fly scale count 2 --region iad,fra
+# More machines (more regions, or more capacity) need Redis, because each relay
+# process holds its rooms in memory:
 #
-# but do not do that yet: each relay process holds its rooms in memory and its
-# room codes on its own volume, and Fly routes every client to the nearest
-# machine. Two teammates landing on different machines would get "unknown room"
-# or two separate halves of one room, and never see each other's edits.
+#   fly redis create                      # Upstash Redis; note the URL it prints
+#   fly secrets set --stage SYNERGO_REDIS_URL=redis://...  --config deploy/fly/fly.toml
+#   fly volumes create synergo_data --region fra --size 1 --yes --config deploy/fly/fly.toml
+#   fly scale count 2 --region iad,fra --config deploy/fly/fly.toml
+#
+# With SYNERGO_REDIS_URL set, room codes live in Redis (valid on every
+# machine), and each room is leased to the machine its first member reached.
+# Fly routes every client to its nearest machine; when that is not the room's
+# owner, the relay answers the WebSocket upgrade with `fly-replay:
+# instance=<owner>` and Fly's proxy replays the connection there, so a team
+# always shares one machine. Each machine still needs its own volume (the
+# [[mounts]] below), now only for its local copy of the room codes.
+# Details: docs/self-hosting.md#scaling-out.
 
 [build]
   # Relative to this file. The build context is the directory you deploy from.
@@ -32,14 +41,16 @@ primary_region = "iad"
   SYNERGO_ENV = "production"
   # On the volume mounted below, so room codes survive deploys and restarts.
   SYNERGO_STATE_PATH = "/data/rooms.sqlite3"
-  # Fly's proxy terminates TLS, so without this every user shares one
-  # rate-limit bucket (the proxy's address). Caveat: the relay reads the
-  # leftmost X-Forwarded-For entry and Fly appends to whatever the client sent,
-  # so a determined client can still pick its own bucket. See README.md.
+  # Client IPs for rate limits: on Fly (FLY_APP_NAME is set) the relay reads
+  # Fly-Client-IP, which Fly's edge overwrites on every request; this is the
+  # fallback for anything without it. See docs/security.md.
   TRUST_PROXY_HEADER = "true"
   # Set with `fly secrets set`, never here:
-  #   CORS_ORIGINS=https://your-dashboard.example.com   (required)
-  #   GEMINI_API_KEY=...                                (optional AI captions)
+  #   CORS_ORIGINS=https://your-app.fly.dev   (required; the bundled dashboard
+  #                                            is same-origin, but production
+  #                                            needs at least one origin)
+  #   GEMINI_API_KEY=...                      (optional AI captions)
+  #   SYNERGO_REDIS_URL=redis://...           (only for more than one machine)
 
 [[mounts]]
   source = "synergo_data"
