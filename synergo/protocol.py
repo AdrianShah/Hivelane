@@ -57,6 +57,17 @@ DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch"]
 PeerKind = Literal["edited", "planned", "intent"]
 
 
+# End-to-end encrypted payload: opaque base64 ciphertext a client produced with
+# the team's shared room key. The relay never decrypts or inspects it; it only
+# copies the sender's blob onto the matching broadcast (and onto PeerTouch /
+# PlanConflict records derived from that sender's messages). Empty in rooms
+# that do not use e2e. Bounded so one member cannot make the relay hold or fan
+# out megabytes per message; an oversized blob fails validation and the message
+# is dropped.
+E2E_MAX_CHARS = 256 * 1024
+E2EBlob = Annotated[str, Field(max_length=E2E_MAX_CHARS)]
+
+
 class FileChange(BaseModel):
     file_path: str
     diff: str
@@ -88,6 +99,10 @@ class RoomSettings(BaseModel):
 
     block_window_seconds: float = Field(default=20.0, ge=0, le=600)
     warn_window_seconds: float = Field(default=60.0, ge=0, le=3600)
+    # The team committed `e2e = true`: members encrypt prompts, diffs and
+    # paths into each message's e2e blob. The relay only stores and
+    # broadcasts the flag so every client (and the dashboard) knows.
+    e2e: bool = False
 
 
 class JoinMessage(BaseModel):
@@ -101,6 +116,10 @@ class JoinMessage(BaseModel):
     # Optional: a member that carries a committed .synergo.toml shares its
     # windows with the room. None leaves the room's current settings alone.
     settings: Optional[RoomSettings] = None
+    # Secret returned once by POST /rooms. A join carrying the matching
+    # token marks that socket as a room owner (may approve joins and set
+    # the room policy). A wrong token is treated as no token.
+    owner_token: Optional[str] = None
 
 
 class ActivityMessage(BaseModel):
@@ -113,6 +132,7 @@ class ActivityMessage(BaseModel):
     repo_id: RepoId = ""
     branch: str = ""
     base_commit: str = ""
+    e2e: E2EBlob = ""
 
 
 class IntentMessage(BaseModel):
@@ -121,6 +141,7 @@ class IntentMessage(BaseModel):
     prompt: str
     timestamp: float = Field(default_factory=time.time)
     repo_id: RepoId = ""
+    e2e: E2EBlob = ""
 
 
 class EditCheckRequest(BaseModel):
@@ -132,6 +153,7 @@ class EditCheckRequest(BaseModel):
     symbols: list[str] = []
     line_ranges: list[tuple[int, int]] = []
     branch: str = ""
+    e2e: E2EBlob = ""
 
 
 ClientMessage = ActivityMessage | IntentMessage | EditCheckRequest
@@ -148,6 +170,7 @@ class PeerTouch(BaseModel):
     symbols: list[str] = []
     branch: str = ""
     kind: PeerKind = "edited"
+    e2e: E2EBlob = ""
 
 
 class EditCheckResponse(BaseModel):
@@ -171,6 +194,7 @@ class ActivityUpdate(BaseModel):
     agent: AgentKind = "unknown"
     repo_id: RepoId = ""
     branch: str = ""
+    e2e: E2EBlob = ""
 
 
 class IntentUpdate(BaseModel):
@@ -180,6 +204,7 @@ class IntentUpdate(BaseModel):
     prompt: str
     timestamp: float
     repo_id: RepoId = ""
+    e2e: E2EBlob = ""
 
 
 class EditDecision(BaseModel):
@@ -194,6 +219,7 @@ class EditDecision(BaseModel):
     repo_id: RepoId = ""
     scope: DecisionScope = "file"
     decision_id: str = ""
+    e2e: E2EBlob = ""
 
 
 class PlanMessage(BaseModel):
@@ -205,6 +231,7 @@ class PlanMessage(BaseModel):
     repo_id: RepoId = ""
     branch: str = ""
     ttl_seconds: float = Field(1800, ge=60, le=86400)
+    e2e: E2EBlob = ""
 
 
 class DecisionFeedback(BaseModel):
@@ -220,6 +247,7 @@ class PlanConflict(BaseModel):
     kind: Literal["edited", "planned"]
     summary: str = ""
     seconds_ago: float
+    e2e: E2EBlob = ""
 
 
 class PlanConflicts(BaseModel):
@@ -238,6 +266,7 @@ class PlanUpdate(BaseModel):
     branch: str = ""
     timestamp: float
     expires_at: float
+    e2e: E2EBlob = ""
 
 
 class DecisionFeedbackUpdate(BaseModel):
@@ -260,6 +289,7 @@ class RoomSettingsUpdate(BaseModel):
     type: Literal["room_settings"] = "room_settings"
     block_window_seconds: float
     warn_window_seconds: float
+    e2e: bool = False
     set_by: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
 
@@ -292,6 +322,65 @@ class RoomRejected(BaseModel):
     reason: str
 
 
+class JoinPending(BaseModel):
+    """Sent to a joiner held at the door of an approval-required room. The
+    socket stays open; the next frame is either the normal post-join traffic
+    (approved) or room_rejected (declined, timed out, or the queue is full)."""
+
+    type: Literal["join_pending"] = "join_pending"
+    request_id: str
+    reason: str
+
+
+class JoinRequest(BaseModel):
+    """Sent to every owner socket when someone waits for approval. name is
+    "dashboard viewer" for a spectator. Answered with join_decision."""
+
+    type: Literal["join_request"] = "join_request"
+    request_id: str
+    name: str
+    agent: AgentKind = "unknown"
+    timestamp: float = Field(default_factory=time.time)
+
+
+class JoinResolved(BaseModel):
+    """How a pending join request ended. Sent to every owner socket, so each
+    owner's list stays current: approved/declined by an owner (or approved
+    because approval was switched off), timed_out, or withdrawn (the joiner
+    disconnected while waiting). Also sent to the joiner itself, with outcome
+    "approved", the moment it is admitted: frames a joiner sends before that
+    are discarded, so a client waits for it. Declined and timed-out joiners
+    get room_rejected instead."""
+
+    type: Literal["join_resolved"] = "join_resolved"
+    request_id: str
+    outcome: Literal["approved", "declined", "timed_out", "withdrawn"]
+
+
+class JoinDecision(BaseModel):
+    """Owner -> relay: admit or decline a pending joiner. Ignored from a
+    socket that did not present the room's owner token."""
+
+    type: Literal["join_decision"] = "join_decision"
+    request_id: str
+    approve: bool
+
+
+class RoomPolicy(BaseModel):
+    """Owner -> relay: change who may join. Ignored from non-owners."""
+
+    type: Literal["room_policy"] = "room_policy"
+    require_approval: bool
+
+
+class RoomPolicyUpdate(BaseModel):
+    """The room's join policy, broadcast when an owner changes it and sent in
+    every spectator's catch-up."""
+
+    type: Literal["room_policy_update"] = "room_policy_update"
+    require_approval: bool
+
+
 class RateLimited(BaseModel):
     type: Literal["rate_limited"] = "rate_limited"
     reason: str
@@ -313,6 +402,8 @@ CLIENT_TO_RELAY: tuple[type[BaseModel], ...] = (
     EditCheckRequest,
     PlanMessage,
     DecisionFeedback,
+    JoinDecision,
+    RoomPolicy,
 )
 
 RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
@@ -331,5 +422,9 @@ RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
     PlanConflicts,
     PlanUpdate,
     DecisionFeedbackUpdate,
+    JoinPending,
+    JoinRequest,
+    JoinResolved,
+    RoomPolicyUpdate,
     SynergoFeed,
 )

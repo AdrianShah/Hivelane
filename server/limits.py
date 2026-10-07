@@ -109,6 +109,38 @@ class FixedWindowLimiter:
         return RateLimitResult(True, 0)
 
 
+class TokenBucket:
+    """Steady-rate budget with bursts: `rate_per_minute` tokens refill evenly
+    over each minute, up to `capacity` (default: one minute's worth).
+
+    In-process on purpose: it guards one room's fan-out, and a room lives in
+    one relay process.
+    """
+
+    def __init__(
+        self,
+        rate_per_minute: float,
+        capacity: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.rate_per_second = rate_per_minute / 60.0
+        self.capacity = float(rate_per_minute if capacity is None else capacity)
+        self._clock = clock
+        self._tokens = self.capacity
+        self._updated = clock()
+
+    def take(self) -> bool:
+        """Spend one token if there is one. False means: drop the message."""
+        now = self._clock()
+        elapsed = max(0.0, now - self._updated)
+        self._updated = now
+        self._tokens = min(self.capacity, self._tokens + elapsed * self.rate_per_second)
+        if self._tokens >= 1.0:
+            self._tokens -= 1.0
+            return True
+        return False
+
+
 class RedisCounterStore:
     """Window counters in Redis, shared by every relay instance.
 
@@ -308,22 +340,72 @@ ws_attempt_limiter: RateLimiter = build_limiter(
 )
 
 
+def _forwarded_client(header: str, trusted_hops: int) -> str:
+    """The X-Forwarded-For entry written by the outermost proxy we trust.
+
+    Each proxy appends the address it received the connection from, so the
+    rightmost `trusted_hops` entries are written by our own proxies and
+    everything to their left came from the client, who can put anything there.
+    The leftmost entry is therefore the one a caller controls; the entry
+    `trusted_hops` from the right is the first address a proxy of ours saw.
+    A header shorter than that (fewer proxies than configured) yields its
+    leftmost entry, which a trusted proxy still wrote.
+    """
+    entries = [entry.strip() for entry in header.split(",")]
+    entries = [entry for entry in entries if entry]
+    if not entries:
+        return ""
+    return entries[max(0, len(entries) - trusted_hops)]
+
+
 def client_ip(connection: HTTPConnection) -> str:
     """Best-known client IP for a request or WebSocket.
 
-    X-Forwarded-For is only consulted when TRUST_PROXY_HEADER is on; any client
-    can set that header, so trusting it without a proxy in front would let a
+    In order:
+    - Fly-Client-IP when running on Fly.io (FLY_APP_NAME is set), which Fly's
+      edge overwrites on every request;
+    - CF-Connecting-IP when TRUST_CLOUDFLARE is on, for origins reachable only
+      through Cloudflare;
+    - with TRUST_PROXY_HEADER, the X-Forwarded-For entry TRUSTED_PROXY_HOPS
+      from the right (see _forwarded_client);
+    - otherwise the socket peer.
+
+    Every header here is client-settable when no proxy strips it, so each is
+    opt-in: trusting one without the matching proxy in front would let a
     caller rotate its apparent IP and skip every limit here.
     """
+    headers = connection.headers
+    if config.BEHIND_FLY:
+        fly = headers.get("fly-client-ip", "").strip()
+        if fly:
+            return fly
+    if config.TRUST_CLOUDFLARE:
+        cloudflare = headers.get("cf-connecting-ip", "").strip()
+        if cloudflare:
+            return cloudflare
     if config.TRUST_PROXY_HEADER:
-        forwarded = connection.headers.get("x-forwarded-for", "")
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        forwarded = _forwarded_client(
+            headers.get("x-forwarded-for", ""), config.TRUSTED_PROXY_HOPS
+        )
+        if forwarded:
+            return forwarded
     client = connection.client
     if client is None or not client.host:
         return UNKNOWN_IP
     return client.host
+
+
+def client_ip_source() -> str:
+    """Where client_ip looks first, for /readyz and the startup log."""
+    sources = []
+    if config.BEHIND_FLY:
+        sources.append("fly-client-ip")
+    if config.TRUST_CLOUDFLARE:
+        sources.append("cf-connecting-ip")
+    if config.TRUST_PROXY_HEADER:
+        sources.append(f"x-forwarded-for[-{config.TRUSTED_PROXY_HOPS}]")
+    sources.append("socket")
+    return ",".join(sources)
 
 
 def check_room_creation(connection: HTTPConnection) -> RateLimitResult:

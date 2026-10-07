@@ -22,7 +22,20 @@ CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
 # Label values every labelled counter starts with, so a dashboard sees an
 # explicit 0 instead of a missing series before the first event of each kind.
 EDIT_DECISIONS = ("allow", "warn", "block")
-WS_REJECTION_REASONS = ("rate_limited", "room_not_found", "version", "name")
+WS_REJECTION_REASONS = (
+    "rate_limited",
+    "room_not_found",
+    "version",
+    "name",
+    # Approval-required rooms: an owner said no, nobody answered in time, or
+    # too many people were already waiting.
+    "approval_declined",
+    "approval_timeout",
+    "approval_queue_full",
+    "frame_too_large",
+)
+# Why an inbound WebSocket message was discarded after the join.
+MESSAGE_DROP_REASONS = ("room_quota", "invalid", "frame_too_large")
 DECISION_SCOPES = ("symbol", "lines", "file", "intent", "plan", "branch")
 
 # Edit checks sit on an agent's blocking hook with a 1.5 s client budget; the
@@ -212,6 +225,13 @@ ws_rejections_total = Counter(
     label="reason",
     values=WS_REJECTION_REASONS,
 )
+messages_dropped_total = Counter(
+    "synergo_messages_dropped_total",
+    "Inbound WebSocket messages discarded: over the room's message quota, "
+    "malformed (or over a field cap such as the e2e blob), or in an oversized frame.",
+    label="reason",
+    values=MESSAGE_DROP_REASONS,
+)
 edit_check_seconds = Histogram(
     "synergo_edit_check_seconds",
     "Server-side time to decide an edit check, from receipt to reply ready.",
@@ -223,6 +243,7 @@ for _metric in (
     activity_messages_total,
     intents_total,
     ws_rejections_total,
+    messages_dropped_total,
     edit_check_seconds,
     decision_feedback_total,
 ):
