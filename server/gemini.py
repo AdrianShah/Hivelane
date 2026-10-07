@@ -1,7 +1,9 @@
 """Gemini helpers for captioning and conflict classification.
 
 All network failures fall back so the WebSocket broadcast path never breaks.
-Requires GEMINI_API_KEY in the environment (or a .env loaded by main).
+Requires GEMINI_API_KEY in the environment (or a .env loaded by main) and the
+google-genai package, which is optional: without either, captions and conflict
+summaries use the deterministic placeholders, exactly as with no key.
 """
 
 from __future__ import annotations
@@ -12,8 +14,12 @@ import logging
 import os
 from typing import Optional
 
-from google import genai
-from google.genai import types
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:  # optional: pip install google-genai (synergo[gemini])
+    genai = None  # type: ignore[assignment]
+    types = None  # type: ignore[assignment]
 
 try:
     from .models import ActivityMessage, ConflictAlert, FileChange, Verdict, placeholder_caption
@@ -38,9 +44,25 @@ def _get_client() -> Optional[genai.Client]:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return None
+    if genai is None:
+        _warn_missing_package()
+        return None
     if _client is None:
         _client = genai.Client(api_key=api_key)
     return _client
+
+
+_warned_missing_package = False
+
+
+def _warn_missing_package() -> None:
+    global _warned_missing_package
+    if not _warned_missing_package:
+        _warned_missing_package = True
+        log.warning(
+            "GEMINI_API_KEY is set but google-genai is not installed "
+            "(pip install google-genai); using placeholder captions"
+        )
 
 
 def _truncate(text: str, limit: int = MAX_DIFF_CHARS) -> str:

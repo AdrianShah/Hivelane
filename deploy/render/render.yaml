@@ -35,8 +35,10 @@ services:
       # rate-limit bucket. See the client-IP caveat in docs/self-hosting.md.
       - key: TRUST_PROXY_HEADER
         value: "true"
-      # Exact dashboard origin(s), comma-separated. Required: the relay will not
-      # boot in production without it. Render prompts for it on first apply.
+      # Exact origin(s) of dashboards hosted elsewhere, comma-separated. The
+      # bundled dashboard (served at /) is same-origin and needs no entry, but
+      # the relay will not boot in production without one: use the service's
+      # own URL if it is the only dashboard. Render prompts for it on first apply.
       - key: CORS_ORIGINS
         sync: false
       # Optional AI captions and conflict summaries.
