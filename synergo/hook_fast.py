@@ -15,6 +15,11 @@ daemon cannot be reached at all, the user is told so at most once per
 OFFLINE_NOTICE_INTERVAL via a systemMessage, so coordination never silently
 stops without anyone noticing.
 
+Auth: every POST carries `X-Synergo-Token`, the contents of
+SYNERGO_HOME/token (see synergo.auth), read fresh with a plain open() on each
+invocation: no cache survives a process, so a regenerated token is picked up
+by the very next edit. A missing token file fails open like a missing daemon.
+
 Lazy start: when nothing listens on the daemon port and the agent's cwd is in
 a project with a `.synergo.toml`, the hook starts the background daemon itself
 (detached, without waiting) and lets this one event through silently. The
@@ -59,6 +64,14 @@ MAX_RESPONSE_BYTES = 1 << 20
 OFFLINE_NOTICE_INTERVAL = 600.0
 STATE_FILENAME = "hook_state.json"
 
+# Must match synergo.auth (asserted in the tests); importing it from there
+# would pull pathlib and secrets into every hook.
+TOKEN_FILENAME = "token"
+TOKEN_HEADER = "X-Synergo-Token"
+# The token is url-safe base64; anything else in the file is not ours and is
+# never written into a request header.
+_TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+
 # Must match synergo.config.PROJECT_FILE (asserted in the tests); importing it
 # from there would pull tomllib into every hook.
 PROJECT_FILE = ".synergo.toml"
@@ -81,6 +94,10 @@ OFFLINE_NOT_RUNNING = (
 OFFLINE_NOT_RESPONDING = (
     "Synergo offline: the local daemon isn't responding, so edits aren't being coordinated. "
     "Check `synergo status`, or restart it with `synergo up`."
+)
+OFFLINE_UNAUTHORIZED = (
+    "Synergo offline: the local daemon refused this hook's token, so edits aren't being "
+    "coordinated. Run `synergo doctor` (the hook and the daemon must share SYNERGO_HOME)."
 )
 
 
@@ -112,6 +129,10 @@ def _parse_response(raw: bytes) -> Any:
     parts = lines[0].split(None, 2)
     if len(parts) < 2 or not parts[0].startswith(b"HTTP/"):
         raise BadResponse(f"bad status line {lines[0]!r}")
+    if parts[1] == b"401":
+        # Not a broken ack: a daemon that will refuse every edit's check until
+        # someone fixes the token. Worth the (rate-limited) offline notice.
+        raise DaemonUnreachable(OFFLINE_UNAUTHORIZED)
     if parts[1] != b"200":
         raise BadResponse(f"daemon answered {parts[1].decode(errors='replace')}")
     headers: dict[bytes, bytes] = {}
@@ -157,19 +178,29 @@ def _complete(raw: bytes) -> bool:
     return False
 
 
-def post_event(event: dict[str, Any], port: int, timeout: float = HOOK_POST_TIMEOUT) -> Any:
+def post_event(
+    event: dict[str, Any],
+    port: int,
+    timeout: float = HOOK_POST_TIMEOUT,
+    token: Optional[str] = None,
+) -> Any:
     """POST one NormalizedEvent-shaped dict to the daemon; returns the parsed ack.
 
-    Raises DaemonUnreachable when nothing answers (the offline notice case) and
-    BadResponse / ValueError / OSError for anything else, all of which the
-    caller swallows.
+    `token` defaults to the token file's contents, read now and never cached.
+    Raises DaemonUnreachable when nothing answers or the daemon refuses the
+    token (the offline notice cases) and BadResponse / ValueError / OSError
+    for anything else, all of which the caller swallows.
     """
+    if token is None:
+        token = read_token()
+    auth = f"{TOKEN_HEADER}: {token}\r\n" if token else ""
     body = hook_json.dumps(event).encode("utf-8")
     request = (
         f"POST /events HTTP/1.1\r\n"
         f"Host: {LOOPBACK}:{port}\r\n"
         f"Content-Type: application/json\r\n"
         f"Content-Length: {len(body)}\r\n"
+        f"{auth}"
         f"Connection: close\r\n\r\n"
     ).encode("ascii") + body
 
@@ -217,6 +248,24 @@ def synergo_home() -> str:
 
 def state_path() -> str:
     return os.path.join(synergo_home(), STATE_FILENAME)
+
+
+def token_path() -> str:
+    return os.path.join(synergo_home(), TOKEN_FILENAME)
+
+
+def read_token() -> Optional[str]:
+    """The daemon token from SYNERGO_HOME/token, or None (missing, unreadable,
+    or not a token): the request then goes out without one and the daemon's
+    refusal fails open like any other."""
+    try:
+        with open(token_path(), encoding="ascii") as handle:
+            text = handle.read(256).strip()
+    except (OSError, ValueError):
+        return None
+    if not text or not _TOKEN_CHARS.issuperset(text):
+        return None
+    return text
 
 
 def claim_offline_notice(now: Optional[float] = None) -> bool:

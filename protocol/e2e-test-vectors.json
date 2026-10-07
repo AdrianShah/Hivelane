@@ -1,0 +1,102 @@
+{
+  "description": "Synergo e2e test vectors. Keys: HKDF-SHA256(ikm=passphrase UTF-8, salt='synergo-e2e-v1:'+ROOM (uppercased), info='enc'|'mac', L=32). Blob: base64url without padding of nonce(12) || AES-256-GCM ciphertext || tag(16), associated data = the message type (UTF-8). Hash: 'h:' + first 32 hex chars of HMAC-SHA256(mac_key, value UTF-8). Checked by synergo/tests/test_crypto.py and frontend/tests/e2e-crypto.test.ts; regenerate only on a deliberate format change.",
+  "version": 1,
+  "vectors": [
+    {
+      "passphrase": "correct horse battery staple",
+      "room": "K7Q2XM",
+      "salt": "synergo-e2e-v1:K7Q2XM",
+      "enc_key_hex": "0143510ef2fd601f0e752a6eae5c76a02b57642d03b2420970ba18002557fd1a",
+      "mac_key_hex": "98933ea434dbfb33f61ed46f94e21722425a274485f95bf9f934cf75e09d0eed",
+      "encryptions": [
+        {
+          "type": "activity",
+          "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
+          "nonce_hex": "000102030405060708090a0b",
+          "blob": "AAECAwQFBgcICQoLSSYwlz7HcKqSvY9n5immfEP7xnwhthgnno5OBTU13UNbQt-DEchrjkYjDfjLOahkj9siGn74MidnbryFK35H1Ay65IVzaOsfpE_1HokrbxpCDYKQ-mVDRgt1ZczUmShHYF0tbqGuqTtuO1jBCp-FGaCJpMGUjEaWyc0QtY0d3WiQ54MxZTIdzxe4ozqwnAPo_7HuOrEOBA"
+        },
+        {
+          "type": "intent",
+          "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
+          "nonce_hex": "0708090a0b0c0d0e0f101112",
+          "blob": "BwgJCgsMDQ4PEBES-zFS9s9bzBX-r9gWK837eoz2vl-NYZE9H-O03dyY0ANqD1S_4tsWB7vc4j23ZZ0L002f2x1jEj_RiZnha54w6Nb-hFE"
+        },
+        {
+          "type": "edit_check",
+          "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
+          "nonce_hex": "0e0f10111213141516171819",
+          "blob": "Dg8QERITFBUWFxgZFE5jgfUu1liBycYRkvQ7M6dUjrpScGJrYQ84KZeHJGMjtjk4oUU0cwFM2GI5Zl-jqnkCyzWYUK573SQRuHP2TBUk1ljOEHz59w"
+        }
+      ],
+      "hashes": [
+        {
+          "value": "server/room.py",
+          "token": "h:a310ae2683a4e35a2e8539485cac7ce7"
+        },
+        {
+          "value": "Room.join",
+          "token": "h:276a88c18029a27fa0403b73abd3252a"
+        },
+        {
+          "value": "main",
+          "token": "h:7974c821230650402444e12e65a5165c"
+        },
+        {
+          "value": "src/ünï.ts",
+          "token": "h:4a523b31fd357d226a530e38210efcfb"
+        }
+      ]
+    },
+    {
+      "passphrase": "pässwörd-ünïcode-🔑",
+      "room": "team-42",
+      "salt": "synergo-e2e-v1:TEAM-42",
+      "enc_key_hex": "489e2bd0ce810f3de85d36d98d1372b294cde64383137a000eb53ae12d55e55e",
+      "mac_key_hex": "8db8a0224dae938205d3e68846d09daebd585cbb3bc64ffdf3f930f9edeb84de",
+      "encryptions": [
+        {
+          "type": "activity",
+          "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
+          "nonce_hex": "101112131415161718191a1b",
+          "blob": "EBESExQVFhcYGRobgoJrsjCHrfLE4kJkOytvMrZ7GOoLpqitnwyqG1BciU-JWF7xsVWaUjoRf0JJjXFW5q0R_CCC7hy_ayg5LXCKb8VjbCPjUWj0x6O_Dw1X0BAyLjLCw7WhqA0tM70xxoWVUJsUyezOrQx5HUscVLrbpRU21S0M0OWXvDzDMkntyPXA-eYlyMtVuoCOg9l59BDjzN2z2x0gGQ"
+        },
+        {
+          "type": "intent",
+          "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
+          "nonce_hex": "1718191a1b1c1d1e1f202122",
+          "blob": "FxgZGhscHR4fICEi6pdku2CSY1u1iqaNpF3e5fVO6eBVJudUXX7wB6bborSlptzLprbedwNg2W7FvLX4BqsdOPj6qJmzHiaRWZ8wDKL1w8I"
+        },
+        {
+          "type": "edit_check",
+          "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
+          "nonce_hex": "1e1f20212223242526272829",
+          "blob": "Hh8gISIjJCUmJygpRDDmIHyIzLEUKE4xMJde3Hw9NriQwfLPmYaq8jqysD1ErOjwehnbmdClBhmgEkxk9SExCvu5wnWfZ53i6hS87T1lQeVxvZyoog"
+        }
+      ],
+      "hashes": [
+        {
+          "value": "server/room.py",
+          "token": "h:3874c335427748e7cd7e059506802eb1"
+        },
+        {
+          "value": "Room.join",
+          "token": "h:d795fea4bde4ac8902cb808a47c8ff3d"
+        },
+        {
+          "value": "main",
+          "token": "h:2903332d5b01771b38f7ca581800ea8c"
+        },
+        {
+          "value": "src/ünï.ts",
+          "token": "h:280d97f77db46e7fd553a6544feb4253"
+        }
+      ]
+    }
+  ],
+  "wrong_key": {
+    "passphrase": "not the room key",
+    "room": "K7Q2XM",
+    "blob_from_vector": 0,
+    "encryption": 0
+  }
+}

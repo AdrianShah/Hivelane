@@ -75,7 +75,7 @@ def test_project_file_values_and_root(tmp_path: Path) -> None:
     config = cfg.load_config(tmp_path)
     assert config.room == "TEAM42"
     assert config.relay == "wss://relay.example.com/ws"
-    assert config.room_settings() == {"block_window_seconds": 10.0, "warn_window_seconds": 30.5}
+    assert config.room_settings() == {"block_window_seconds": 10.0, "warn_window_seconds": 30.5, "e2e": False}
     assert config.ignore == ("*.lock",)
     assert config.share_diffs is False
     assert config.root == tmp_path.resolve()

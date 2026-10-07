@@ -71,8 +71,8 @@ class CommandFailed(Exception):
 
 # --- console output ----------------------------------------------------------
 
-MARKS = {"ok": "✔", "fail": "✖", "skip": "-", "info": "•"}
-ASCII_MARKS = {"ok": "[ok]", "fail": "[x]", "skip": "[-]", "info": "*"}
+MARKS = {"ok": "✔", "fail": "✖", "skip": "-", "info": "•", "warn": "!"}
+ASCII_MARKS = {"ok": "[ok]", "fail": "[x]", "skip": "[-]", "info": "*", "warn": "[!]"}
 # Applied only when the console cannot encode the original.
 ASCII_FALLBACKS = {
     "—": "-",
@@ -256,6 +256,15 @@ def relay_is_local(relay: str) -> bool:
     return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".localhost")
 
 
+def check_transport(relay: str, insecure: bool) -> None:
+    """Refuse a plaintext relay on another machine unless explicitly allowed."""
+    from synergo.config import transport_problem
+
+    problem = transport_problem(relay, insecure)
+    if problem:
+        raise ConfigError(problem)
+
+
 def dashboard_base(relay: str) -> str:
     override = os.environ.get(DASHBOARD_ENV, "").strip()
     if override:
@@ -268,11 +277,16 @@ def room_url(relay: str, room: str) -> str:
 
 
 def share_command(room: str, relay: str) -> str:
-    from synergo.config import DEFAULT_RELAY
+    """What a teammate runs to join. Never carries an e2e room key: that goes
+    to them separately (`synergo key set ROOM`), so a leaked share line alone
+    reads nothing."""
+    from synergo.config import DEFAULT_RELAY, transport_problem
 
     command = f"{INSTALL_COMMAND} && synergo up --room {room}"
     if relay != DEFAULT_RELAY:
         command += f" --relay {relay}"
+        if transport_problem(relay, False):
+            command += " --insecure"
     return command
 
 
@@ -417,6 +431,13 @@ def _retry_hint(raw: Optional[str]) -> str:
 
 def create_room(relay: str) -> str:
     """Ask the relay for a fresh room code (POST /rooms)."""
+    return create_room_with_owner(relay)[0]
+
+
+def create_room_with_owner(relay: str) -> tuple[str, Optional[str]]:
+    """(room code, owner token or None) from POST /rooms. The token makes
+    whoever holds it the room's owner (join approvals); a relay that predates
+    ownership sends none."""
     import httpx
 
     origin = http_origin(relay)
@@ -450,12 +471,14 @@ def create_room(relay: str) -> str:
     if response.status_code >= 400:
         raise ConfigError(f"the relay at {origin} refused to create a room (HTTP {response.status_code})")
     try:
-        room = response.json()["room_id"]
+        body = response.json()
+        room = body["room_id"]
     except (ValueError, KeyError, TypeError):
         raise ConfigError(f"unexpected answer from {url}: no room_id in the response") from None
     if not isinstance(room, str):
         raise ConfigError(f"unexpected answer from {url}: room_id is not a string")
-    return normalize_room(room)
+    owner = body.get("owner_token") if isinstance(body, dict) else None
+    return normalize_room(room), owner if isinstance(owner, str) and owner else None
 
 
 # --- daemon status helpers -------------------------------------------------------
@@ -487,19 +510,33 @@ def find_repo_entry(status: Any, root: Path) -> Optional[dict[str, Any]]:
     return None
 
 
+# How long `synergo up` keeps waiting while the relay holds the join for an
+# owner's approval (the relay gives up after 5 minutes; this is a little longer).
+APPROVAL_WAIT = 330.0
+
+
 def wait_for_repo(svc: Any, port: int, root: Path, timeout: Optional[float] = None) -> Optional[dict[str, Any]]:
     """Poll the daemon until this repo reports connected or fatal, or time runs
-    out. Returns the last entry seen (None if it never appeared)."""
+    out. Returns the last entry seen (None if it never appeared). A join the
+    relay holds for an owner's approval is reported once and waited out."""
     import time
 
     deadline = time.monotonic() + (CONNECT_WAIT if timeout is None else timeout)
     entry: Optional[dict[str, Any]] = None
+    told = False
     while True:
         found = find_repo_entry(svc.status(port), root)
         if found is not None:
             entry = found
             if entry.get("connected") or entry.get("fatal"):
                 return entry
+            if entry.get("awaiting_approval") and not told:
+                told = True
+                say(
+                    f"  {mark('info')} waiting for an owner to approve this join "
+                    f"(room {entry.get('room')}); Ctrl+C to stop waiting, the daemon keeps trying"
+                )
+                deadline = max(deadline, time.monotonic() + APPROVAL_WAIT)
         if time.monotonic() >= deadline:
             return entry
         time.sleep(POLL_INTERVAL)
@@ -525,6 +562,9 @@ def report_connection(entry: Optional[dict[str, Any]], name: str, log_hint: str)
     if entry.get("connected"):
         say(f"  {mark('ok')} connected as {entry.get('name') or name} ({_peers_text(entry.get('peers'))})")
         return True
+    if entry.get("awaiting_approval"):
+        say(f"  {mark('info')} still waiting for an owner to approve this join; check `synergo status`")
+        return True
     say(f"  {mark('info')} still connecting to the relay; the daemon keeps retrying in the background")
     say("      check progress with `synergo status`")
     return True
@@ -538,6 +578,7 @@ def cmd_join(args: argparse.Namespace) -> int:
 
     from synergo.daemon import Daemon
 
+    check_transport(args.server, getattr(args, "insecure", False))
     daemon = Daemon(
         room=args.room,
         name=args.name,
@@ -783,6 +824,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         config = cfg.load_config(root, relay=relay_flag)
     except cfg.ConfigFileError as exc:
         raise ConfigError(str(exc)) from None
+    insecure = bool(getattr(args, "insecure", False)) or config.insecure
+    check_transport(config.relay, insecure)
     name, name_source = resolve_name(args.name, config.name, root)
     svc = load_service()
 
@@ -805,13 +848,24 @@ def cmd_up(args: argparse.Namespace) -> int:
         room = existing
         say(f"  {mark('ok')} joining room {room} from {cfg.PROJECT_FILE}")
     else:
-        room = create_room(config.relay)
+        room, owner_token = create_room_with_owner(config.relay)
         say(f"  {mark('ok')} created room {room} on {config.relay}")
+        if owner_token:
+            try:
+                cfg.set_personal_secret("owner_tokens", room, owner_token)
+            except cfg.ConfigFileError as exc:
+                raise ConfigError(str(exc)) from None
+            say(
+                f"  {mark('ok')} you own room {room} (owner token saved to {cfg.personal_config_path()}); "
+                "`synergo room require-approval on` makes newcomers wait for you"
+            )
 
     on_file = project_file_values(root)
     updates: dict[str, Any] = {}
     if str(on_file.get("room", "")).upper() != room:
         updates["room"] = room
+    if getattr(args, "e2e", False) and on_file.get("e2e") is not True:
+        updates["e2e"] = True
     # The relay is recorded when asked for, or when a new room lives on a
     # non-default relay: teammates can only join it there.
     if relay_flag is not None or ("room" in updates and config.relay != cfg.DEFAULT_RELAY):
@@ -841,6 +895,14 @@ def cmd_up(args: argparse.Namespace) -> int:
     except cfg.ConfigFileError as exc:
         raise ConfigError(str(exc)) from None
 
+    if config.e2e and ensure_room_key(config, room):
+        # A key was just generated into the personal file: the registration
+        # below must carry it.
+        try:
+            config = cfg.load_config(root, relay=relay_flag, room=room, name=name)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+
     # 3. the daemon
     if args.foreground:
         print_summary(config, name_source)
@@ -864,6 +926,39 @@ def cmd_up(args: argparse.Namespace) -> int:
     return 0
 
 
+def ensure_room_key(config: SynergoConfig, room: str) -> bool:
+    """An e2e room needs its passphrase on this machine: use the configured
+    one, or (first teammate in) generate one, store it in the personal config
+    and show it once, to be handed to teammates out of band. True when a key
+    was generated (the caller's config predates it)."""
+    from synergo import config as cfg
+    from synergo import crypto
+
+    if not crypto.available():
+        raise ConfigError(
+            f"{cfg.PROJECT_FILE} turns on end-to-end encryption (e2e = true), which needs "
+            f"the e2e extra: {crypto.INSTALL_HINT}"
+        )
+    source = config.room_key_source(room)
+    if source is not None:
+        say(f"  {mark('ok')} end-to-end encrypted room (key from {source})")
+        return False
+    passphrase = crypto.generate_passphrase()
+    try:
+        path = cfg.set_personal_secret("room_keys", room, passphrase)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+    say(f"  {mark('ok')} end-to-end encrypted room: generated its key and saved it to {path}")
+    say()
+    say(f"  ROOM KEY   {passphrase}")
+    say("  This is the only time it is shown here (`synergo key show` prints it again).")
+    say("  Send it to each teammate over a separate channel from the room code (a password")
+    say(f"  manager, a DM): they run `synergo key set {room}` and paste it. The relay never sees it.")
+    say("  Dashboard viewers open the room link with #k=<key> appended, or paste the key when asked.")
+    say()
+    return True
+
+
 def print_summary(config: SynergoConfig, name_source: str) -> None:
     from synergo.config import DEFAULT_RELAY
 
@@ -873,9 +968,13 @@ def print_summary(config: SynergoConfig, name_source: str) -> None:
     say(f"  relay      {config.relay}" + ("" if config.relay != DEFAULT_RELAY else " (default)"))
     say(f"  name       {config.name}  (from {name_source})")
     say(f"  dashboard  {room_url(config.relay, room)}")
+    if config.e2e:
+        say("  e2e        on: paths, diffs and prompts are encrypted; the relay sees hashes")
     say()
     say("Share with teammates:")
     say(f"  {share_command(room, config.relay)}")
+    if config.e2e:
+        say(f"  and, separately (not in the same message), the room key: `synergo key show {room}`")
 
 
 def run_foreground(svc: Any, port: int, root: Path, config: SynergoConfig) -> int:
@@ -1081,6 +1180,25 @@ def _format_repo(repo: dict[str, Any]) -> list[str]:
     if contact:
         details.append(f"last relay contact {contact}")
     lines.append("      " + "; ".join(details))
+    flags = []
+    if repo.get("e2e"):
+        flags.append("end-to-end encrypted" if repo.get("e2e_key") else "end-to-end encrypted, NO KEY")
+    if repo.get("owner"):
+        policy = repo.get("require_approval")
+        flags.append("you own this room" + ("; joins need your approval" if policy else ""))
+    if flags:
+        lines.append("      " + "; ".join(flags))
+    waiting = repo.get("awaiting_approval")
+    if isinstance(waiting, dict):
+        lines.append(f"      {mark('info')} waiting for an owner to approve this join")
+    for request in repo.get("join_requests") or []:
+        if not isinstance(request, dict):
+            continue
+        rid = request.get("request_id", "?")
+        lines.append(
+            f"      {mark('info')} {request.get('name', 'someone')} ({request.get('agent', 'unknown')}) "
+            f"asks to join: `synergo room approve {rid}` or `synergo room deny {rid}`"
+        )
     return lines
 
 
@@ -1089,7 +1207,8 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     port = resolve_port(args.port)
     svc = load_service()
-    status = svc.status(port, timeout=STATUS_TIMEOUT)
+    with service_errors(svc, "could not read the daemon's status"):
+        status = svc.status(port, timeout=STATUS_TIMEOUT)
     if status is None:
         say(f"synergo: no daemon on 127.0.0.1:{port}; start one with `synergo up`")
         return 1
@@ -1251,20 +1370,89 @@ def run_doctor_checks(root_arg: Optional[str], port: int) -> list[Check]:
             )
         )
 
+    checks.append(_token_check())
+
     svc = load_service()
-    status = svc.status(port)
-    if status is None:
+    auth_error = getattr(svc, "DaemonAuthError", None)
+    try:
+        status = svc.status(port)
+    except Exception as exc:  # noqa: BLE001 - only the auth error is expected
+        if auth_error is None or not isinstance(exc, auth_error):
+            raise
+        checks.append(Check("Daemon running", "ok", f"port {port}"))
         checks.append(
-            Check("Daemon running", "fail", f"nothing answering on 127.0.0.1:{port}", f"run `synergo up` (logs: {svc.log_path()})")
+            Check("Daemon accepts this token", "fail", str(exc), "use the daemon's SYNERGO_HOME, or `synergo down` then `synergo up`")
         )
-        checks.append(Check("Repo connected", "skip", "daemon not running"))
+        checks.append(Check("Repo connected", "skip", "daemon refused the token"))
+        status = None
     else:
-        checks.append(Check("Daemon running", "ok", f"pid {status.get('pid', '?')}, port {port}"))
-        checks.append(_repo_check(status, root, port))
+        if status is None:
+            checks.append(
+                Check("Daemon running", "fail", f"nothing answering on 127.0.0.1:{port}", f"run `synergo up` (logs: {svc.log_path()})")
+            )
+            checks.append(Check("Repo connected", "skip", "daemon not running"))
+        else:
+            checks.append(Check("Daemon running", "ok", f"pid {status.get('pid', '?')}, port {port}"))
+            checks.append(_repo_check(status, root, port))
+
+    if config is not None and config.e2e:
+        checks.append(_e2e_check(config))
 
     relay = config.relay if config is not None else (os.environ.get(cfg.RELAY_ENV) or cfg.DEFAULT_RELAY)
+    checks.append(_transport_check(relay, bool(config is not None and config.insecure)))
     checks.extend(_relay_checks(relay))
     return checks
+
+
+def _token_check() -> Check:
+    """The per-install secret every daemon client presents (synergo.auth)."""
+    from synergo import auth
+
+    label = "Daemon token readable"
+    path = auth.token_path()
+    if not path.exists():
+        return Check(label, "skip", f"{path} not created yet (the daemon creates it on start)")
+    if auth.read_token(path) is None:
+        return Check(label, "fail", f"{path} is unreadable or not a token", f"delete {path}, then `synergo down` and `synergo up`")
+    if os.name != "nt":
+        mode = path.stat().st_mode & 0o777
+        if mode & 0o077:
+            return Check(label, "fail", f"{path} is readable by other users (mode {mode:o})", f"chmod 600 {path}")
+    return Check(label, "ok", str(path))
+
+
+def _transport_check(relay: str, insecure: bool) -> Check:
+    from synergo.config import transport_problem
+
+    label = "Relay transport encrypted"
+    if relay.startswith("wss://"):
+        return Check(label, "ok", "wss:// (TLS)")
+    if transport_problem(relay, False) is None:
+        return Check(label, "ok", "ws:// to this machine (never leaves it)")
+    if insecure:
+        return Check(
+            label,
+            "warn",
+            f"{relay} is plaintext (allowed by `insecure = true`): paths, diffs and prompts cross the network unencrypted",
+        )
+    return Check(label, "fail", f"{relay} is plaintext ws:// to another machine", "use a wss:// relay, or opt in with `insecure = true` on a trusted network")
+
+
+def _e2e_check(config: SynergoConfig) -> Check:
+    from synergo import crypto
+
+    label = "End-to-end room key"
+    if not crypto.available():
+        return Check(label, "fail", "e2e = true but the `cryptography` package is missing", crypto.INSTALL_HINT)
+    source = config.room_key_source()
+    if source is None:
+        return Check(
+            label,
+            "fail",
+            f"room {config.room} is end-to-end encrypted and this machine has no key for it",
+            f"get the key from a teammate and run `synergo key set {config.room}`",
+        )
+    return Check(label, "ok", f"from {source}")
 
 
 def _repo_check(status: dict[str, Any], root: Optional[Path], port: int) -> Check:
@@ -1305,6 +1493,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         say(line.rstrip())
         if check.failed and check.fix:
             say(f"      fix: {check.fix}")
+    for check in checks:
+        if check.status == "warn" and check.fix:
+            say(f"      note: {check.fix}")
     failed = sum(1 for c in checks if c.failed)
     say()
     if failed:
@@ -1388,6 +1579,241 @@ def cmd_githook(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- synergo relay: a relay (and dashboard) for a LAN or a hackathon ---------
+
+RELAY_EXTRA_INSTALL = 'pip install "synergo[relay]"'
+RELAY_DEFAULT_HOST = "0.0.0.0"
+RELAY_DEFAULT_PORT = 8000
+RELAY_STATIC_ENV = "SYNERGO_STATIC_DIR"
+
+
+def relay_missing_module() -> Optional[str]:
+    """The first module `synergo relay` needs but cannot import, or None.
+
+    `server` ships in the wheel; python-dotenv is what the `relay` extra adds.
+    """
+    import importlib.util
+
+    for module in ("server.main", "dotenv", "fastapi", "uvicorn"):
+        try:
+            if importlib.util.find_spec(module) is None:
+                return module.split(".")[0]
+        except (ImportError, ValueError):  # e.g. a stray non-package `server`
+            return module.split(".")[0]
+    return None
+
+
+def lan_address() -> Optional[str]:
+    """This machine's address on the local network, or None if it has none.
+
+    Connecting a UDP socket sends nothing; it only makes the OS pick the
+    interface it would route through.
+    """
+    import socket
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 9))  # TEST-NET-1: never actually contacted
+        address = probe.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        probe.close()
+    return None if address.startswith("127.") or address == "0.0.0.0" else address
+
+
+def relay_public_host(bind_host: str, lan: Optional[str]) -> str:
+    """The host teammates should dial for a relay bound to `bind_host`."""
+    if bind_host in ("0.0.0.0", "::", ""):
+        return lan or "localhost"
+    if ":" in bind_host and not bind_host.startswith("["):
+        return f"[{bind_host}]"
+    return bind_host
+
+
+def relay_join_command(relay_url: str) -> str:
+    """The line teammates run to use this relay. A ws:// relay on another
+    machine is refused without --insecure (synergo.config.transport_problem),
+    so the line carries it whenever they would need it."""
+    from synergo.config import transport_problem
+
+    command = f"synergo up --relay {relay_url}"
+    if transport_problem(relay_url, False):
+        command += " --insecure"
+    return command
+
+
+def find_dashboard_build(explicit: Optional[str]) -> Optional[Path]:
+    """A built dashboard to serve: --dashboard, $SYNERGO_STATIC_DIR, a build
+    bundled at server/static, or a source checkout's frontend/dist."""
+    from pathlib import Path
+
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    candidates = []
+    configured = os.environ.get(RELAY_STATIC_ENV, "").strip()
+    if configured:
+        candidates.append(Path(configured))
+    try:
+        import server
+
+        package = Path(server.__file__).resolve().parent
+        candidates += [package / "static", package.parent / "frontend" / "dist"]
+    except (ImportError, TypeError):
+        pass
+    for candidate in candidates:
+        if (candidate / "index.html").is_file():
+            return candidate.resolve()
+    return None
+
+
+def cmd_relay(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    missing = relay_missing_module()
+    if missing is not None:
+        raise CommandFailed(
+            f"the relay needs the {missing!r} module, which is not installed. "
+            f"Install the relay extra: {RELAY_EXTRA_INSTALL}"
+        )
+    port = args.port
+    if not 0 < port < 65536:
+        raise ConfigError(f"--port {port} is not a TCP port")
+
+    build = find_dashboard_build(args.dashboard)
+    if args.dashboard and (build is None or not (build / "index.html").is_file()):
+        raise ConfigError(
+            f"--dashboard {args.dashboard}: no index.html there "
+            "(build it with `npm ci && npm run build` in frontend/)"
+        )
+    state = Path(args.state).expanduser().resolve() if args.state else None
+
+    # The relay reads its configuration from the environment once, at import.
+    # A LAN relay is a development one unless SYNERGO_ENV says otherwise: the
+    # bundled dashboard is same-origin, so it needs no CORS_ORIGINS.
+    os.environ.setdefault("SYNERGO_ENV", "development")
+    if state is not None:
+        os.environ["SYNERGO_STATE_PATH"] = str(state)
+    if build is not None:
+        os.environ[RELAY_STATIC_ENV] = str(build)
+
+    import uvicorn
+
+    from server.main import app
+
+    public = relay_public_host(args.host, lan_address())
+    http_base = f"http://{public}:{port}"
+    relay_url = f"ws://{public}:{port}/ws"
+    say(f"synergo relay: listening on {args.host}:{port} (Ctrl+C to stop)")
+    if args.host in ("127.0.0.1", "localhost", "::1"):
+        say("  only this machine can connect; use --host 0.0.0.0 to let teammates in")
+    say(f"  teammates run:  {relay_join_command(relay_url)}")
+    if relay_join_command(relay_url).endswith(" --insecure"):
+        say("                  (--insecure: ws:// is unencrypted, so only on a network you trust;")
+        say("                  for TLS, put the relay behind Caddy and use wss://, see docs/self-hosting.md)")
+    if build is not None:
+        say(f"  dashboard:      {http_base}  (served from {build})")
+        say(f"  for `synergo open` links: export {DASHBOARD_ENV}={http_base}")
+    else:
+        say("  dashboard:      not bundled; build frontend/ and pass --dashboard frontend/dist")
+    if state is not None:
+        say(f"  room codes:     saved in {state}")
+    else:
+        say("  room codes:     in memory (pass --state relay.db to keep them across restarts)")
+    say("  anyone who can reach this port and has a room code can join that room")
+
+    try:
+        uvicorn.run(app, host=args.host, port=port, log_level=args.log_level)
+    except KeyboardInterrupt:
+        pass
+    say("synergo relay: stopped")
+    return 0
+
+
+# --- key / room: e2e room keys and room ownership ---------------------------------
+
+
+def _room_for(args: argparse.Namespace) -> str:
+    """ROOM from the command line, else the current repo's configured room."""
+    from synergo import config as cfg
+
+    if getattr(args, "room", None):
+        return normalize_room(args.room)
+    try:
+        start = project_root(getattr(args, "root", None))
+    except ConfigError:
+        start = None
+    config = cfg.load_config(start)
+    if not config.room:
+        raise ConfigError("no room given and none configured here; pass the room code")
+    return normalize_room(config.room)
+
+
+def cmd_key(args: argparse.Namespace) -> int:
+    import getpass
+
+    from synergo import config as cfg
+
+    room = _room_for(args)
+    if args.key_command == "show":
+        config = cfg.load_config()
+        key = config.room_key(room)
+        if key is None:
+            raise CommandFailed(f"no key for room {room} on this machine (`synergo key set {room}` stores one)")
+        source = config.room_key_source(room)
+        say(key)
+        say(f"(room {room}, from {source}; share it out of band, never with the room code)", err=True)
+        return 0
+    value = args.key
+    if value is None:
+        stdin = sys.stdin
+        if stdin is not None and stdin.isatty():
+            value = getpass.getpass(f"room key for {room} (input hidden): ")
+        else:
+            value = (stdin.readline() if stdin is not None else "").strip()
+    value = (value or "").strip()
+    if not value:
+        raise ConfigError("an empty room key is not a key")
+    path = cfg.set_personal_secret("room_keys", room, value)
+    say(f"synergo: saved the key for room {room} to {path} (owner-only)")
+    say("synergo: run `synergo up` in the repo to (re)connect with it")
+    return 0
+
+
+def _daemon_call(port: int, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    import urllib.error
+
+    svc = load_service()
+    if not svc.is_running(port):
+        raise CommandFailed(f"no daemon running on port {port}; run `synergo up` first")
+    with service_errors(svc, "the daemon refused"):
+        try:
+            reply = svc._request(port, "POST", path, body, timeout=svc.REGISTER_TIMEOUT)
+        except urllib.error.HTTPError as exc:
+            raise CommandFailed(svc._error_detail(exc)) from None
+        except OSError as exc:
+            raise CommandFailed(f"could not reach the daemon on port {port} ({exc})") from None
+    return reply if isinstance(reply, dict) else {}
+
+
+def cmd_room(args: argparse.Namespace) -> int:
+    port = resolve_port(args.port)
+    action = args.room_command
+    if action in ("approve", "deny"):
+        reply = _daemon_call(port, "/rooms/decide", {"request_id": args.request_id, "approve": action == "approve"})
+        verb = "approved" if action == "approve" else "denied"
+        say(f"synergo: {verb} join request {args.request_id} in room {reply.get('room', '?')}")
+        return 0
+    root = project_root(args.root)
+    on = args.state == "on"
+    reply = _daemon_call(port, "/rooms/policy", {"root": str(root), "require_approval": on})
+    if on:
+        say(f"synergo: room {reply.get('room', '?')} now holds newcomers until you approve them (`synergo status` lists them)")
+    else:
+        say(f"synergo: room {reply.get('room', '?')} lets anyone with the code join again")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Deferred: both modules import pydantic, which only the hook path (routed
     # around this parser in main) has to avoid.
@@ -1422,6 +1848,12 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
     up.add_argument("--no-hooks", action="store_true", help="do not install agent hooks")
     up.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
+    up.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
+    up.add_argument(
+        "--e2e",
+        action="store_true",
+        help="turn on end-to-end encryption for this repo's room (writes e2e = true to .synergo.toml)",
+    )
     up.set_defaults(func=cmd_up)
 
     down = sub.add_parser("down", help="stop the background daemon (hooks stay installed)")
@@ -1465,6 +1897,7 @@ def build_parser() -> argparse.ArgumentParser:
         run.add_argument("--name", required=True, help="your display name in the room")
         run.add_argument("--server", default=DEFAULT_SERVER, help=f"relay ws base (default {DEFAULT_SERVER})")
         run.add_argument("--agent", default="claude-code", choices=AGENT_KINDS, help="agent you are driving")
+        run.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
         run.add_argument("--port", type=int, default=None, help=f"loopback port (default {DEFAULT_PORT})")
         run.add_argument(
             "--root",
@@ -1474,6 +1907,37 @@ def build_parser() -> argparse.ArgumentParser:
             "around each agent's cwd); outside git, every teammate must pass one",
         )
         run.set_defaults(func=cmd_join)
+
+    key = sub.add_parser(
+        "key",
+        help="show or set an end-to-end encrypted room's key",
+        description="Rooms whose .synergo.toml says `e2e = true` encrypt paths, diffs and prompts "
+        "with a passphrase every teammate holds. It lives in your personal config (or "
+        "SYNERGO_ROOM_KEY), never in the repo.",
+    )
+    key_sub = key.add_subparsers(dest="key_command", required=True, metavar="ACTION")
+    key_show = key_sub.add_parser("show", help="print the room key (to hand to a teammate out of band)")
+    key_show.add_argument("room", nargs="?", default=None, metavar="CODE", help="room code (default: this repo's)")
+    key_show.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    key_show.set_defaults(func=cmd_key)
+    key_set = key_sub.add_parser("set", help="store a room key a teammate gave you")
+    key_set.add_argument("room", nargs="?", default=None, metavar="CODE", help="room code (default: this repo's)")
+    key_set.add_argument("key", nargs="?", default=None, help="the key (default: prompt, hidden, or read stdin)")
+    key_set.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    key_set.set_defaults(func=cmd_key)
+
+    room_cmd = sub.add_parser("room", help="room owner actions: approve joins, require approval")
+    room_sub = room_cmd.add_subparsers(dest="room_command", required=True, metavar="ACTION")
+    for action, text in (("approve", "let a waiting teammate in"), ("deny", "turn a waiting join away")):
+        p = room_sub.add_parser(action, help=text)
+        p.add_argument("request_id", help="the request id `synergo status` shows")
+        p.add_argument("--port", type=int, default=None, help=port_help)
+        p.set_defaults(func=cmd_room)
+    policy = room_sub.add_parser("require-approval", help="hold newcomers until an owner approves them")
+    policy.add_argument("state", choices=["on", "off"])
+    policy.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    policy.add_argument("--port", type=int, default=None, help=port_help)
+    policy.set_defaults(func=cmd_room)
 
     hook = sub.add_parser("hook", help="agent hook entrypoint and installation")
     hook_sub = hook.add_subparsers(dest="hook_command", required=True)
@@ -1538,6 +2002,25 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--port", type=int, default=None, help=port_help)
             p.add_argument("--strict", action="store_true", help="fail the commit when a teammate touched a staged file")
         p.set_defaults(func=cmd_githook)
+
+    relay_cmd = sub.add_parser(
+        "relay",
+        help="run a relay (and the dashboard, if built) for your LAN or a hackathon",
+        description="Run the Synergo relay in this terminal, serving the bundled dashboard when "
+        "a build is found, and print the line teammates use to join it. Needs the relay "
+        f"extra: {RELAY_EXTRA_INSTALL}. For an internet-facing deploy, see docs/self-hosting.md.",
+    )
+    relay_cmd.add_argument("--host", default=RELAY_DEFAULT_HOST, help=f"interface to listen on (default {RELAY_DEFAULT_HOST}: every interface)")
+    relay_cmd.add_argument("--port", type=int, default=RELAY_DEFAULT_PORT, help=f"TCP port (default {RELAY_DEFAULT_PORT})")
+    relay_cmd.add_argument("--state", default=None, metavar="PATH", help="SQLite file that keeps room codes across restarts (default: memory)")
+    relay_cmd.add_argument(
+        "--dashboard",
+        default=None,
+        metavar="DIR",
+        help=f"built dashboard to serve (default: ${RELAY_STATIC_ENV}, else a frontend/dist next to the relay)",
+    )
+    relay_cmd.add_argument("--log-level", default="info", choices=["critical", "error", "warning", "info", "debug"], help="uvicorn log level (default info)")
+    relay_cmd.set_defaults(func=cmd_relay)
 
     return parser
 

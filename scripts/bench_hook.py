@@ -190,7 +190,47 @@ def main(argv: Optional[list[str]] = None) -> int:
         finally:
             server.shutdown()
             server.server_close()
+
+        # The real daemon: token file read by the hook, Host + token checked
+        # by the daemon's guard, event routed (to no repo: an allow ack).
+        os.environ["SYNERGO_HOME"] = env["SYNERGO_HOME"]
+        report("real daemon (token auth)", time_real_daemon(command, stdin, env, args.runs, args.warmup))
     return 0
+
+
+def time_real_daemon(command: list[str], stdin: bytes, env: dict[str, str], runs: int, warmup: int) -> list[float]:
+    import asyncio
+    import contextlib
+    import io
+
+    from synergo.daemon import Daemon
+
+    port = unused_port()
+    daemon = Daemon(port=port)
+    daemon.ensure_token()
+    quiet = io.StringIO()
+
+    def serve() -> None:
+        with contextlib.redirect_stdout(quiet):
+            asyncio.run(daemon.run())
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 15
+    while True:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            if time.monotonic() > deadline:
+                raise SystemExit("the daemon did not come up")
+            time.sleep(0.05)
+    try:
+        env = dict(env, SYNERGO_PORT=str(port))
+        return time_runs(command, stdin, env, runs, warmup)
+    finally:
+        daemon.stop()
+        thread.join(10)
 
 
 if __name__ == "__main__":

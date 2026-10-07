@@ -4,10 +4,20 @@ import AddTeammate from './components/AddTeammate';
 import ConflictBanner from './components/ConflictBanner';
 import DeployModal from './components/DeployModal';
 import DetectionQuality from './components/DetectionQuality';
+import E2EBanner from './components/E2EBanner';
+import JoinRequestsBanner from './components/JoinRequestsBanner';
 import Lane from './components/Lane';
+import RoomAccessPanel from './components/RoomAccessPanel';
 import SharePanel from './components/SharePanel';
 import Sidebar, { type AppView } from './components/Sidebar';
 import { copyText } from './clipboard';
+import {
+  E2EDecoder,
+  forgetRoomKey,
+  rememberRoomKey,
+  takeRoomKey,
+  type E2EState,
+} from './e2e';
 import {
   aggregateQuality,
   applyFeedbackUpdate,
@@ -24,6 +34,12 @@ import {
   upCommand,
 } from './relayUrl';
 import {
+  createRoom,
+  isApprovalRefusal,
+  ownerToken,
+  spectatorJoin,
+} from './roomAccess';
+import {
   DEFAULT_ROOM_SETTINGS,
   describeSettingsSource,
   describeWindows,
@@ -33,9 +49,11 @@ import type {
   DecisionFeedback,
   DecisionScope,
   FeedEvent,
-  JoinMessage,
+  JoinDecision,
+  JoinRequest,
   LaneState,
   PlanUpdate,
+  RoomPolicy,
   RoomSettingsUpdate,
   ServerMessage,
 } from './types';
@@ -48,12 +66,6 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 /** How long a departed agent's greyed-out lane stays up before it is dropped. */
 const OFFLINE_LANE_TTL_MS = 10 * 60 * 1000;
-
-const SPECTATOR_JOIN: JoinMessage = {
-  type: 'join',
-  name: null,
-  role: 'spectator',
-};
 
 const BLANK_LANE: LaneState = {
   caption: null,
@@ -156,7 +168,14 @@ function relativeTime(ts: number): string {
   return `${Math.floor(delta / 3600)} hours ago`;
 }
 
-type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'room_missing';
+/** pending: held for an owner's approval; refused: an owner (or the clock) said no. */
+type ConnStatus =
+  | 'connecting'
+  | 'connected'
+  | 'disconnected'
+  | 'room_missing'
+  | 'pending'
+  | 'refused';
 
 const TOP_NAV = ['Cluster', 'Logs', 'Analytics', 'Config'] as const;
 
@@ -207,6 +226,39 @@ export default function App() {
   >({});
   const [feedback, setFeedback] = useState<FeedbackMap>({});
   const [myVotes, setMyVotes] = useState<Record<string, Vote>>({});
+  // End-to-end encrypted rooms: the passphrase (from #k= or pasted; never
+  // sent to the relay) and what the decoder could make of the room's frames.
+  const [e2eKey, setE2EKey] = useState<string | null>(null);
+  const [e2eState, setE2EState] = useState<E2EState>('off');
+  // Room access: this tab owns the room when it holds the owner token that
+  // POST /rooms returned (see roomAccess.ts).
+  const [isOwner, setIsOwner] = useState(false);
+  const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
+  // The relay's words while waiting for approval, or after being refused.
+  const [accessNotice, setAccessNotice] = useState<string | null>(null);
+  // Bumped by "Ask again" to reconnect after a refusal.
+  const [joinAttempt, setJoinAttempt] = useState(0);
+
+  const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      showToast('Not connected — try again');
+      return false;
+    }
+    ws.send(JSON.stringify(frame));
+    return true;
+  };
+
+  const decideJoin = (requestId: string, approve: boolean) => {
+    if (!sendAccessFrame({ type: 'join_decision', request_id: requestId, approve })) return;
+    // The relay confirms with join_resolved; drop it here at once anyway.
+    setJoinRequests((prev) => prev.filter((r) => r.request_id !== requestId));
+  };
+
+  const setApprovalPolicy = (value: boolean) => {
+    sendAccessFrame({ type: 'room_policy', require_approval: value });
+  };
 
   const sendVote = (decisionId: string, vote: Vote) => {
     if (myVotes[decisionId]) return;
@@ -244,6 +296,13 @@ export default function App() {
   );
 
   useEffect(() => {
+    // Before the canonical-link redirect below, which would drop a #k=
+    // fragment: the key is read, stripped from the address bar, and kept
+    // for this room in this tab only.
+    setE2EKey(takeRoomKey(roomId));
+  }, [roomId]);
+
+  useEffect(() => {
     // /r/abcd-2345 and friends settle on one canonical link, so the address
     // bar always matches what Share copies.
     if (roomId && rawCode !== roomId) {
@@ -271,9 +330,24 @@ export default function App() {
     setConflictHistory([]);
     setRoomSettings(null);
     setStatus('connecting');
+    setIsOwner(ownerToken(roomId) != null);
+    setRequireApproval(null);
+    setJoinRequests([]);
+    setAccessNotice(null);
 
     let cancelled = false;
     let roomMissing = false;
+    // Approval-required rooms: held at the door, and then refused (no retry:
+    // reconnecting would just queue another request for the owners).
+    let awaitingApproval = false;
+    let refused = false;
+    setE2EState('off');
+    // A new key reconnects: the relay's catch-up is then decrypted with it.
+    const e2e = new E2EDecoder(e2eKey, roomId, (state) => {
+      if (!cancelled) setE2EState(state);
+    });
+    // Decryption is async; one chain keeps frames applied in arrival order.
+    let e2eChain: Promise<void> = Promise.resolve();
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     // The relay rate-limits connection attempts. A flat retry sits at that
@@ -293,9 +367,11 @@ export default function App() {
     };
 
     const connect = () => {
-      if (cancelled || roomMissing) return;
+      if (cancelled || roomMissing || refused) return;
 
       setStatus('connecting');
+      // Pending requests and the policy come back in the catch-up.
+      setJoinRequests([]);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = () => {
@@ -304,8 +380,9 @@ export default function App() {
           return;
         }
         attempt = 0;
+        awaitingApproval = false;
         setStatus('connected');
-        ws.send(JSON.stringify(SPECTATOR_JOIN));
+        ws.send(JSON.stringify(spectatorJoin(roomId)));
       };
 
       ws.onmessage = (event) => {
@@ -316,6 +393,15 @@ export default function App() {
           console.warn('Invalid WS message', event.data);
           return;
         }
+
+        const applyDecoded = (item: FeedEvent) => {
+          e2eChain = e2eChain
+            .then(() => e2e.decode(item))
+            .then((decoded) => {
+              if (!cancelled) applyFeedEvent(decoded);
+            })
+            .catch((err: unknown) => console.warn('e2e: could not read a frame', err));
+        };
 
         const applyFeedEvent = (item: FeedEvent) => {
           switch (item.type) {
@@ -450,6 +536,10 @@ export default function App() {
               setRoomSettings(item);
               break;
 
+            case 'room_policy_update':
+              setRequireApproval(item.require_approval);
+              break;
+
             case 'conflict_alert':
               setConflicts((prev) => upsertConflict(prev, item));
               if (isActionableConflict(item)) {
@@ -466,6 +556,14 @@ export default function App() {
 
         switch (msg.type) {
           case 'room_rejected':
+            if (isApprovalRefusal(msg.reason, awaitingApproval)) {
+              refused = true;
+              awaitingApproval = false;
+              setStatus('refused');
+              setAccessNotice(msg.reason);
+              ws.close();
+              break;
+            }
             roomMissing = true;
             setStatus('room_missing');
             showToast(msg.reason);
@@ -474,7 +572,7 @@ export default function App() {
 
           case 'synergo_feed':
             for (const item of msg.events) {
-              applyFeedEvent(item);
+              applyDecoded(item);
             }
             break;
 
@@ -487,8 +585,31 @@ export default function App() {
           case 'plan_update':
           case 'decision_feedback_update':
           case 'room_settings':
+          case 'room_policy_update':
             // Catch-up frames still arrive as individual messages via send().
-            applyFeedEvent(msg);
+            applyDecoded(msg);
+            break;
+
+          case 'join_pending':
+            awaitingApproval = true;
+            setStatus('pending');
+            setAccessNotice(msg.reason);
+            break;
+
+          case 'join_resolved':
+            if (awaitingApproval) {
+              // Our own request: an owner let this dashboard in.
+              awaitingApproval = false;
+              setStatus('connected');
+              setAccessNotice(null);
+            }
+            setJoinRequests((prev) => prev.filter((r) => r.request_id !== msg.request_id));
+            break;
+
+          case 'join_request':
+            setJoinRequests((prev) =>
+              prev.some((r) => r.request_id === msg.request_id) ? prev : [...prev, msg],
+            );
             break;
 
           case 'rate_limited':
@@ -505,6 +626,11 @@ export default function App() {
       ws.onclose = (event) => {
         if (cancelled) return;
         wsRef.current = null;
+        if (refused || event.code === 4403) {
+          refused = true;
+          setStatus('refused');
+          return;
+        }
         if (roomMissing || event.code === 4404 || event.code === 4004) {
           roomMissing = true;
           setStatus('room_missing');
@@ -529,7 +655,7 @@ export default function App() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl]);
+  }, [wsUrl, e2eKey, roomId, joinAttempt]);
 
   const copyShareUrl = async () => {
     if (!(await copyText(roomLink(roomId)))) {
@@ -551,12 +677,7 @@ export default function App() {
     }
     setCreatingRoom(true);
     try {
-      const response = await fetch(`${relayHttpOrigin()}/rooms`, {
-        method: 'POST',
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = (await response.json()) as { room_id: string };
-      navigate(roomPath(data.room_id));
+      navigate(roomPath(await createRoom()));
     } catch {
       showToast('Could not create room');
       setCreatingRoom(false);
@@ -586,7 +707,11 @@ export default function App() {
         ? 'SERVER: CONNECTING'
         : status === 'room_missing'
           ? 'SERVER: ROOM GONE'
-          : 'SERVER: OFFLINE';
+          : status === 'pending'
+            ? 'SERVER: AWAITING APPROVAL'
+            : status === 'refused'
+              ? 'SERVER: NOT ADMITTED'
+              : 'SERVER: OFFLINE';
 
   const handleViewOverlap = (filePath: string) => {
     navigateTo('agents');
@@ -639,7 +764,7 @@ export default function App() {
                 className={`w-1.5 h-1.5 rounded-full ${
                   status === 'connected'
                     ? 'bg-emerald shadow-live'
-                    : status === 'connecting'
+                    : status === 'connecting' || status === 'pending'
                       ? 'bg-amber animate-pulse-dot'
                       : 'bg-error'
                 }`}
@@ -647,6 +772,15 @@ export default function App() {
               <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
                 {serverLabel}
               </span>
+              {roomSettings?.e2e ? (
+                <span
+                  className="text-[11px]"
+                  title="End-to-end encrypted room: the relay sees only hashes and ciphertext"
+                  aria-label="End-to-end encrypted"
+                >
+                  🔒
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -745,6 +879,53 @@ export default function App() {
         onResolve={handleResolve}
         onViewOverlap={handleViewOverlap}
       />
+
+      {roomSettings?.e2e || e2eState !== 'off' ? (
+        <E2EBanner
+          state={e2eState}
+          hasKey={e2eKey != null}
+          onKey={(key) => {
+            rememberRoomKey(roomId, key);
+            setE2EKey(key);
+          }}
+          onForget={() => {
+            forgetRoomKey(roomId);
+            setE2EKey(null);
+          }}
+        />
+      ) : null}
+
+      {isOwner ? (
+        <JoinRequestsBanner requests={joinRequests} onDecide={decideJoin} />
+      ) : null}
+
+      {status === 'pending' || status === 'refused' ? (
+        <div
+          className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+            <p className="text-[13px] text-on-surface m-0">
+              {status === 'pending'
+                ? (accessNotice ??
+                  "This room requires an owner's approval. Waiting for an owner to let this dashboard in…")
+                : `This dashboard was not let into room ${roomId}: ${
+                    accessNotice ?? 'an owner did not approve it'
+                  }.`}
+            </p>
+            {status === 'refused' ? (
+              <button
+                type="button"
+                className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold shrink-0"
+                onClick={() => setJoinAttempt((n) => n + 1)}
+              >
+                Ask again
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {status === 'room_missing' ? (
         <div className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40">
@@ -1140,6 +1321,15 @@ export default function App() {
                     {describeSettingsSource(roomSettings)}
                   </p>
                 </div>
+                <div className="h-px bg-outline-soft" />
+                <RoomAccessPanel
+                  isOwner={isOwner}
+                  requireApproval={requireApproval}
+                  requests={joinRequests}
+                  connected={status === 'connected'}
+                  onSetRequireApproval={setApprovalPolicy}
+                  onDecide={decideJoin}
+                />
                 <div className="h-px bg-outline-soft" />
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
