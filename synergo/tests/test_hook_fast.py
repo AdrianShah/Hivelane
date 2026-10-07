@@ -68,12 +68,13 @@ def unused_port() -> int:
 @pytest.fixture
 def stub_daemon() -> Iterator[tuple[int, dict[str, Any]]]:
     """A plain HTTP server answering /events with `state["ack"]` (JSON)."""
-    state: dict[str, Any] = {"ack": {"decision": "allow"}, "events": []}
+    state: dict[str, Any] = {"ack": {"decision": "allow"}, "events": [], "tokens": []}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
             body = self.rfile.read(int(self.headers.get("content-length") or 0))
             state["events"].append(json.loads(body))
+            state["tokens"].append(self.headers.get(hook_fast.TOKEN_HEADER))
             reply = json.dumps(state["ack"]).encode()
             self.send_response(200)
             self.send_header("content-type", "application/json")
@@ -149,12 +150,18 @@ def test_hook_never_imports_the_daemon_stack(
         }
     if scenario == "no-daemon":
         port = unused_port()
+    home = tmp_path / "home"
+    home.mkdir()
+    # Reading the token file is on the hot path too: it must stay import-free.
+    (home / "token").write_text("t" * 43, encoding="ascii")
 
-    roots, stdout = run_probe(pre_edit_payload(target), port, tmp_path / "home")
+    roots, stdout = run_probe(pre_edit_payload(target), port, home)
 
     assert not roots & HEAVY, f"hook imported {sorted(roots & HEAVY)}"
     assert not roots & SLOW_STDLIB, f"hook imported slow stdlib {sorted(roots & SLOW_STDLIB)}"
     # The scenario really exercised the path it claims to.
+    if scenario != "no-daemon":
+        assert state["tokens"] == ["t" * 43]
     if scenario == "allow":
         assert stdout == ""
     elif scenario == "block":
@@ -164,9 +171,12 @@ def test_hook_never_imports_the_daemon_stack(
 
 
 def test_constants_match_the_daemon() -> None:
+    from synergo import auth
     from synergo.daemon import DEFAULT_PORT
 
     assert hook_fast.DEFAULT_PORT == DEFAULT_PORT
+    assert hook_fast.TOKEN_FILENAME == auth.TOKEN_FILENAME
+    assert hook_fast.TOKEN_HEADER == auth.TOKEN_HEADER
     assert set(claude_code.EVENT_FIELDS) == set(NormalizedEvent.model_fields)
 
 
@@ -399,14 +409,17 @@ def test_malformed_acks_are_read_as_allow(wire: Any) -> None:
 
 
 @pytest.fixture
-def live_daemon() -> Iterator[tuple[Any, int]]:
-    """The real Daemon FastAPI app served by uvicorn, without a relay link."""
+def live_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[tuple[Any, int]]:
+    """The real Daemon FastAPI app served by uvicorn, without a relay link,
+    its token in tmp_path/home (where the hook subprocesses look too)."""
     import uvicorn
 
     from synergo.daemon import Daemon
 
+    monkeypatch.setenv("SYNERGO_HOME", str(tmp_path / "home"))
     port = unused_port()
     daemon = Daemon("TEAM42", "Ada", port=port)
+    daemon.ensure_token()
     config = uvicorn.Config(
         daemon.app, host="127.0.0.1", port=port, log_level="warning", lifespan="off", ws="none"
     )
@@ -456,6 +469,97 @@ def test_hook_round_trips_through_real_daemon(live_daemon: tuple[Any, int], tmp_
     assert result.returncode == 0
     assert result.stdout.decode() == legacy_render_response(received[-1], ack)
     assert received[-1].old_content == "def room():\n    return 'é'\n"
+
+
+def raw_request(port: int, head: str) -> tuple[int, bytes]:
+    """One hand-written HTTP/1.1 exchange: (status, body)."""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+        sock.sendall(head.encode("ascii"))
+        data = b""
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    status_line, _, rest = data.partition(b"\r\n")
+    return int(status_line.split()[1]), rest.partition(b"\r\n\r\n")[2]
+
+
+def test_daemon_demands_its_token_and_its_own_host(live_daemon: tuple[Any, int]) -> None:
+    daemon, port = live_daemon
+    token = daemon.token
+    body = '{"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}'
+
+    def post(headers: str) -> int:
+        return raw_request(
+            port,
+            f"POST /events HTTP/1.1\r\n{headers}Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n{body}",
+        )[0]
+
+    host = f"Host: 127.0.0.1:{port}\r\n"
+    assert post(host + f"X-Synergo-Token: {token}\r\n") == 200
+    assert post(f"Host: localhost:{port}\r\nX-Synergo-Token: {token}\r\n") == 200
+    assert post(host) == 401
+    assert post(host + "X-Synergo-Token: " + "x" * 43 + "\r\n") == 401
+    # DNS rebinding: right socket, right token even, wrong name.
+    assert post(f"Host: evil.example:{port}\r\nX-Synergo-Token: {token}\r\n") == 421
+    assert post(f"Host: 127.0.0.1:{port + 1}\r\nX-Synergo-Token: {token}\r\n") == 421
+    for path in ("/status", "/repos/remove", "/shutdown"):
+        method = "GET" if path == "/status" else "POST"
+        status, _ = raw_request(port, f"{method} {path} HTTP/1.1\r\n{host}Content-Length: 0\r\nConnection: close\r\n\r\n")
+        assert status == 401, path
+    # /health is the one unauthenticated route, and says nothing.
+    status, reply = raw_request(port, f"GET /health HTTP/1.1\r\n{host}Connection: close\r\n\r\n")
+    assert status == 200 and json.loads(reply) == {"ok": True, "service": "synergo-daemon"}
+    status, _ = raw_request(port, f"GET /health HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n")
+    assert status == 421
+
+
+def test_daemon_adopts_a_token_regenerated_on_disk(live_daemon: tuple[Any, int]) -> None:
+    from synergo import auth
+
+    daemon, port = live_daemon
+    old = daemon.token
+    auth.token_path().unlink()
+    new = auth.ensure_token()
+    assert new != old
+    assert hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}, port) == {
+        "decision": "allow", "reason": "", "file_path": None, "others": []
+    }
+    assert daemon.token == new
+
+
+def test_hook_with_a_refused_token_says_so_once(
+    live_daemon: tuple[Any, int], tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _daemon, port = live_daemon
+    # A hook under another SYNERGO_HOME than the daemon's: another token.
+    other = tmp_path / "other-home"
+    other.mkdir()
+    (other / "token").write_text("w" * 43, encoding="ascii")
+    monkeypatch.setenv("SYNERGO_HOME", str(other))
+    with pytest.raises(hook_fast.DaemonUnreachable) as caught:
+        hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}, port)
+    assert str(caught.value) == hook_fast.OFFLINE_UNAUTHORIZED
+
+    target = tmp_path / "a.py"
+    target.write_text("x\n", encoding="utf-8")
+    monkeypatch.setenv("SYNERGO_PORT", str(port))
+    for expected in ({"systemMessage": hook_fast.OFFLINE_UNAUTHORIZED}, None):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(pre_edit_payload(target))))
+        assert cli.main(["hook", "claude-code"]) == 0
+        out = capsys.readouterr().out
+        assert (json.loads(out) if out else None) == expected  # rate-limited after the first
+
+
+def test_missing_token_file_fails_open(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("SYNERGO_HOME", str(tmp_path / "nowhere"))
+    assert hook_fast.read_token() is None
+    (tmp_path / "nowhere").mkdir()
+    (tmp_path / "nowhere" / "token").write_text("not a token\r\nX-Evil: 1", encoding="ascii")
+    # Never written into a header: it would let the file inject request lines.
+    assert hook_fast.read_token() is None
 
 
 def test_unreachable_port_is_reported_quickly() -> None:

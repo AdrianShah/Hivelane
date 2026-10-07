@@ -24,6 +24,7 @@ from websockets.sync.client import connect as ws_connect
 
 from server import limits
 from server.main import app as relay_app
+from synergo import auth
 from synergo.daemon import Daemon
 
 LOOPBACK = "127.0.0.1"
@@ -144,14 +145,20 @@ class DaemonClient:
         self.base = f"http://{LOOPBACK}:{daemon.port}"
         self._http = http
 
+    @property
+    def headers(self) -> dict[str, str]:
+        # What every hook sends: the install's token (the daemon loads it from
+        # this test's private SYNERGO_HOME when it starts serving).
+        return {auth.TOKEN_HEADER: self.daemon.ensure_token()}
+
     def status(self) -> dict[str, Any] | None:
         try:
-            return self._http.get(f"{self.base}/status").json()
+            return self._http.get(f"{self.base}/status", headers=self.headers).json()
         except httpx.TransportError:
             return None
 
     def post(self, event: dict[str, Any]) -> dict[str, Any]:
-        response = self._http.post(f"{self.base}/events", json=event)
+        response = self._http.post(f"{self.base}/events", json=event, headers=self.headers)
         response.raise_for_status()
         return response.json()
 
@@ -273,9 +280,12 @@ class Cluster:
 
 
 @pytest.fixture
-def cluster(monkeypatch: pytest.MonkeyPatch) -> Iterator[Cluster]:
+def cluster(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Cluster]:
     # No captions from the network: the relay reads the key per call.
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    # The daemons' token (and anything else they keep) stays out of the real
+    # home; a test that needs its own home sets it after this.
+    monkeypatch.setenv("SYNERGO_HOME", str(tmp_path_factory.mktemp("synergo-home")))
     # The limiters are process-global; earlier tests must not have spent this
     # test's budget for 127.0.0.1.
     limits.room_creation_limiter.reset()

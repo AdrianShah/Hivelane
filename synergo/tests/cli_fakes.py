@@ -96,6 +96,19 @@ class FakeService:
     def log_path(self) -> Path:
         return Path("synergo-home") / "daemon.log"
 
+    # The owner endpoints (POST /rooms/decide, /rooms/policy) go through the
+    # raw request helper.
+    REGISTER_TIMEOUT = 15.0
+    replies: dict[str, Any] = {}
+
+    def _request(self, port: int, method: str, path: str, body: Any = None, timeout: float = 1.0) -> Any:
+        self.calls.append(("_request", method, path, body))
+        return self.replies.get(path, {})
+
+    @staticmethod
+    def _error_detail(exc: Any) -> str:
+        return str(exc)
+
     def install_autostart(self, port: int) -> str:
         self.calls.append(("install_autostart", port))
         return f"autostart installed for port {port}"
@@ -113,6 +126,8 @@ class FakeRelay:
     """Answers POST /rooms, GET /health and GET /readyz like server/main.py."""
 
     rooms: list[str] = field(default_factory=lambda: ["K7Q2XM", "P3RT8Z"])
+    # Returned with a created room when set, as a relay with ownership does.
+    owner_token: Optional[str] = None
     create_status: int = 200
     create_headers: dict[str, str] = field(default_factory=dict)
     health_status: int = 200
@@ -140,7 +155,10 @@ class FakeRelay:
                     json={"detail": "nope"},
                     headers={**headers, **self.create_headers},
                 )
-            return httpx.Response(200, json={"room_id": self.rooms.pop(0)}, headers=headers)
+            body: dict[str, Any] = {"room_id": self.rooms.pop(0)}
+            if self.owner_token:
+                body["owner_token"] = self.owner_token
+            return httpx.Response(200, json=body, headers=headers)
         if request.method == "GET" and path == "/health":
             return httpx.Response(self.health_status, json={"status": "ok", "rooms": 1}, headers=headers)
         if request.method == "GET" and path == "/readyz":

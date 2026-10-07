@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as vscode from "vscode";
 import { ActivityTracker, initials, tooltip } from "./activity";
 import {
+  DaemonAuthError,
   DaemonClient,
   DaemonStatus,
   EventAck,
@@ -19,6 +20,8 @@ const DOCS_URL = "https://github.com/synergo/synergo#readme";
 const POLL_MS = 5000;
 
 let status: DaemonStatus | undefined;
+// Set when the daemon answers but refuses our token (a different SYNERGO_HOME).
+let authProblem: string | undefined;
 let client: DaemonClient;
 const feeds = new Map<string, { feed: RelayFeed; tracker: ActivityTracker; repo: RepoStatus }>();
 const gate = new EditGate(60_000);
@@ -34,6 +37,11 @@ function port(): number {
   if (explicit) return explicit;
   const env = Number(process.env.SYNERGO_PORT);
   return Number.isFinite(env) && env > 0 ? env : cfg().get<number>("port", 4600);
+}
+
+function tokenPath(): string | undefined {
+  const configured = cfg().get<string>("tokenPath", "").trim();
+  return configured || undefined;
 }
 
 function sessionId(): string {
@@ -81,7 +89,7 @@ class PeerDecorations implements vscode.FileDecorationProvider {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  client = new DaemonClient(port());
+  client = new DaemonClient(port(), undefined, undefined, tokenPath());
   const decorations = new PeerDecorations();
   const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   bar.command = "synergo.menu";
@@ -122,15 +130,18 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   const poll = async () => {
+    authProblem = undefined;
     client.port = port();
+    client.setTokenPath(tokenPath());
     try {
       status = await client.status();
-    } catch {
+    } catch (e) {
       status = undefined;
+      if (e instanceof DaemonAuthError) authProblem = e.message;
     }
     const repo = activeRepo();
     bar.text = `$(organization) ${statusText(status, repo)}`;
-    bar.tooltip = repo?.fatal ? `Synergo: ${repo.fatal}` : status ? `Synergo daemon v${status.version} on port ${status.port}` : "Synergo daemon not reachable — click to start it";
+    bar.tooltip = authProblem ? `Synergo: ${authProblem}` : repo?.fatal ? `Synergo: ${repo.fatal}` : status ? `Synergo daemon v${status.version} on port ${status.port}` : "Synergo daemon not reachable — click to start it";
     syncFeeds();
     for (const { tracker, repo: r } of feeds.values()) {
       const gone = tracker.prune();

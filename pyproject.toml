@@ -51,9 +51,23 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# `synergo relay`: run the relay (server/, shipped in the wheel) on your own
+# machine. fastapi, uvicorn, websockets and pydantic are already core
+# dependencies; this adds what server/requirements.txt has on top, minus the
+# heavy Gemini SDK (see `gemini`).
+relay = ["python-dotenv>=1.0.1,<2", "uvicorn[standard]>=0.34,<1"]
+# AI captions and conflict summaries on a relay you run, with GEMINI_API_KEY:
+# synergo[relay,gemini]. Without it the relay uses deterministic placeholders.
+gemini = ["google-genai>=2.14,<3"]
+# Several relay instances sharing room codes, room leases and rate limits
+# through SYNERGO_REDIS_URL (docs/self-hosting.md#scaling-out).
+redis = ["redis>=5,<9"]
 # Exact symbol extraction for JS/TS/Go/Rust/Java/C#/Ruby (Python always uses
 # the stdlib ast); without it the daemon falls back to regex heuristics.
 symbols = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.0"]
+# End-to-end encrypted rooms (`e2e = true` in .synergo.toml): AES-256-GCM for
+# the daemon's message blobs (docs/security.md#end-to-end-encryption).
+e2e = ["cryptography>=42"]
 
 [project.urls]
 Homepage = "https://github.com/AdrianShah/Synergo"
@@ -69,14 +83,24 @@ synergo = "synergo.cli:main"
 path = "synergo/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["synergo"]
-# Tests run from the source tree; an installed CLI has no use for them.
-exclude = ["synergo/tests"]
+# server/ is the relay, for `synergo relay` (deps: the `relay` extra). Its
+# modules import each other relatively, so it works as an installed package;
+# the flat-module fallback they carry is for Render's rootDir=server only and
+# re-raises when imported as `server.*`.
+packages = ["synergo", "server"]
+# Tests run from the source tree; an installed CLI has no use for them, nor
+# for the relay's deploy-only pins.
+exclude = [
+    "synergo/tests",
+    "server/tests",
+    "server/requirements*.txt",
+    "server/runtime.txt",
+]
 
 [tool.hatch.build.targets.sdist]
 # Anchored with a leading slash: these are gitignore-style patterns, and a bare
 # "README.md" would sweep in every nested README in the repo.
-include = ["/synergo", "/pyproject.toml", "/README.md"]
+include = ["/synergo", "/server", "/pyproject.toml", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["synergo/tests", "server/tests", "tests/e2e"]

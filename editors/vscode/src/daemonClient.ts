@@ -1,4 +1,33 @@
+import * as fs from "fs";
 import * as http from "http";
+import * as os from "os";
+import * as path from "path";
+
+/** Header the daemon checks on every route but /health (synergo/auth.py). */
+export const TOKEN_HEADER = "x-synergo-token";
+
+/** Where the daemon keeps its per-install token: $SYNERGO_HOME/token, else ~/.synergo/token. */
+export function defaultTokenPath(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
+  const base = env.SYNERGO_HOME && env.SYNERGO_HOME.trim() ? env.SYNERGO_HOME : path.join(home, ".synergo");
+  return path.join(base, "token");
+}
+
+/** The token in `file`, or undefined when it is missing or not a token. */
+export function readToken(file: string): string | undefined {
+  try {
+    const text = fs.readFileSync(file, "ascii").trim();
+    return /^[A-Za-z0-9_-]{32,256}$/.test(text) ? text : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export class DaemonAuthError extends Error {
+  constructor(tokenFile: string) {
+    super(`the Synergo daemon refused this editor's token (${tokenFile}); is it running under another SYNERGO_HOME? Set synergo.tokenPath.`);
+    this.name = "DaemonAuthError";
+  }
+}
 
 export interface RepoStatus {
   root: string;
@@ -51,18 +80,56 @@ export interface EventAck {
 }
 
 export class DaemonClient {
-  constructor(public port: number, private host = "127.0.0.1", private timeoutMs = 3000) {}
+  private token: string | undefined;
+  tokenFile: string;
 
-  private request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  /** `tokenPath` defaults to defaultTokenPath(); the token is read now and re-read once on a 401. */
+  constructor(
+    public port: number,
+    private host = "127.0.0.1",
+    private timeoutMs = 3000,
+    tokenPath?: string
+  ) {
+    this.tokenFile = tokenPath || defaultTokenPath();
+    this.token = readToken(this.tokenFile);
+  }
+
+  /** Point at another token file (the setting changed) and read it. */
+  setTokenPath(tokenPath: string | undefined): void {
+    const next = tokenPath || defaultTokenPath();
+    if (next !== this.tokenFile) {
+      this.tokenFile = next;
+      this.token = readToken(next);
+    }
+  }
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    try {
+      return await this.once<T>(method, path, body);
+    } catch (e) {
+      if (!(e instanceof DaemonAuthError)) throw e;
+      // The daemon may have regenerated its token since we read it.
+      const fresh = readToken(this.tokenFile);
+      if (!fresh || fresh === this.token) throw e;
+      this.token = fresh;
+      return this.once<T>(method, path, body);
+    }
+  }
+
+  private once<T>(method: string, path: string, body?: unknown): Promise<T> {
     return new Promise((resolve, reject) => {
       const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
+      const headers: Record<string, string | number> = data
+        ? { "content-type": "application/json", "content-length": data.length }
+        : {};
+      if (this.token) headers[TOKEN_HEADER] = this.token;
       const req = http.request(
         {
           host: this.host,
           port: this.port,
           method,
           path,
-          headers: data ? { "content-type": "application/json", "content-length": data.length } : {},
+          headers,
           timeout: this.timeoutMs,
         },
         (res) => {
@@ -70,6 +137,10 @@ export class DaemonClient {
           res.on("data", (c) => chunks.push(c));
           res.on("end", () => {
             const text = Buffer.concat(chunks).toString("utf8");
+            if (res.statusCode === 401) {
+              reject(new DaemonAuthError(this.tokenFile));
+              return;
+            }
             if ((res.statusCode ?? 500) >= 400) {
               reject(new Error(`daemon ${method} ${path} -> ${res.statusCode}: ${text.slice(0, 200)}`));
               return;
