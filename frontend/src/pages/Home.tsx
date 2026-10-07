@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import {
   isValidRoomCode,
   normalizeRoomCode,
-  relayHttpOrigin,
   roomPath,
 } from '../relayUrl';
+import { createRoom } from '../roomAccess';
 import './Home.css';
 
 export default function Home() {
@@ -18,10 +18,8 @@ export default function Home() {
     setCreating(true);
     setError(null);
     try {
-      const response = await fetch(`${relayHttpOrigin()}/rooms`, { method: 'POST' });
-      if (!response.ok) throw new Error(`Server returned ${response.status}`);
-      const data = (await response.json()) as { room_id: string };
-      navigate(roomPath(data.room_id));
+      // Keeps the room's owner token in this browser (see roomAccess.ts).
+      navigate(roomPath(await createRoom()));
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(

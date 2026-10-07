@@ -10,7 +10,9 @@
     "intent": "#/$defs/IntentMessage",
     "edit_check": "#/$defs/EditCheckRequest",
     "plan": "#/$defs/PlanMessage",
-    "decision_feedback": "#/$defs/DecisionFeedback"
+    "decision_feedback": "#/$defs/DecisionFeedback",
+    "join_decision": "#/$defs/JoinDecision",
+    "room_policy": "#/$defs/RoomPolicy"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -28,6 +30,10 @@
     "plan_conflicts": "#/$defs/PlanConflicts",
     "plan_update": "#/$defs/PlanUpdate",
     "decision_feedback_update": "#/$defs/DecisionFeedbackUpdate",
+    "join_pending": "#/$defs/JoinPending",
+    "join_request": "#/$defs/JoinRequest",
+    "join_resolved": "#/$defs/JoinResolved",
+    "room_policy_update": "#/$defs/RoomPolicyUpdate",
     "synergo_feed": "#/$defs/SynergoFeed"
   },
   "oneOf": [
@@ -48,6 +54,12 @@
     },
     {
       "$ref": "#/$defs/DecisionFeedback"
+    },
+    {
+      "$ref": "#/$defs/JoinDecision"
+    },
+    {
+      "$ref": "#/$defs/RoomPolicy"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -93,6 +105,18 @@
     },
     {
       "$ref": "#/$defs/DecisionFeedbackUpdate"
+    },
+    {
+      "$ref": "#/$defs/JoinPending"
+    },
+    {
+      "$ref": "#/$defs/JoinRequest"
+    },
+    {
+      "$ref": "#/$defs/JoinResolved"
+    },
+    {
+      "$ref": "#/$defs/RoomPolicyUpdate"
     },
     {
       "$ref": "#/$defs/SynergoFeed"
@@ -165,6 +189,12 @@
         "base_commit": {
           "default": "",
           "title": "Base Commit",
+          "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
           "type": "string"
         }
       },
@@ -248,6 +278,12 @@
         "branch": {
           "default": "",
           "title": "Branch",
+          "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
           "type": "string"
         }
       },
@@ -422,6 +458,12 @@
           "default": "",
           "title": "Branch",
           "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -577,6 +619,12 @@
           "default": "",
           "title": "Decision Id",
           "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -656,6 +704,12 @@
           "maxLength": 64,
           "title": "Repo Id",
           "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -707,6 +761,12 @@
           "maxLength": 64,
           "title": "Repo Id",
           "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -715,6 +775,31 @@
         "timestamp"
       ],
       "title": "IntentUpdate",
+      "type": "object"
+    },
+    "JoinDecision": {
+      "description": "Owner -> relay: admit or decline a pending joiner. Ignored from a\nsocket that did not present the room's owner token.",
+      "properties": {
+        "type": {
+          "const": "join_decision",
+          "default": "join_decision",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "approve": {
+          "title": "Approve",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "request_id",
+        "approve"
+      ],
+      "title": "JoinDecision",
       "type": "object"
     },
     "JoinMessage": {
@@ -775,9 +860,123 @@
             }
           ],
           "default": null
+        },
+        "owner_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Token"
         }
       },
       "title": "JoinMessage",
+      "type": "object"
+    },
+    "JoinPending": {
+      "description": "Sent to a joiner held at the door of an approval-required room. The\nsocket stays open; the next frame is either the normal post-join traffic\n(approved) or room_rejected (declined, timed out, or the queue is full).",
+      "properties": {
+        "type": {
+          "const": "join_pending",
+          "default": "join_pending",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "reason"
+      ],
+      "title": "JoinPending",
+      "type": "object"
+    },
+    "JoinRequest": {
+      "description": "Sent to every owner socket when someone waits for approval. name is\n\"dashboard viewer\" for a spectator. Answered with join_decision.",
+      "properties": {
+        "type": {
+          "const": "join_request",
+          "default": "join_request",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "request_id",
+        "name"
+      ],
+      "title": "JoinRequest",
+      "type": "object"
+    },
+    "JoinResolved": {
+      "description": "How a pending join request ended. Sent to every owner socket, so each\nowner's list stays current: approved/declined by an owner (or approved\nbecause approval was switched off), timed_out, or withdrawn (the joiner\ndisconnected while waiting). Also sent to the joiner itself, with outcome\n\"approved\", the moment it is admitted: frames a joiner sends before that\nare discarded, so a client waits for it. Declined and timed-out joiners\nget room_rejected instead.",
+      "properties": {
+        "type": {
+          "const": "join_resolved",
+          "default": "join_resolved",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "approved",
+            "declined",
+            "timed_out",
+            "withdrawn"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "outcome"
+      ],
+      "title": "JoinResolved",
       "type": "object"
     },
     "NameRejected": {
@@ -860,6 +1059,12 @@
           ],
           "title": "Kind",
           "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -912,6 +1117,12 @@
         "seconds_ago": {
           "title": "Seconds Ago",
           "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -993,6 +1204,12 @@
           "minimum": 60,
           "title": "Ttl Seconds",
           "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -1069,6 +1286,12 @@
         "expires_at": {
           "title": "Expires At",
           "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
         }
       },
       "required": [
@@ -1101,6 +1324,46 @@
         "retry_after"
       ],
       "title": "RateLimited",
+      "type": "object"
+    },
+    "RoomPolicy": {
+      "description": "Owner -> relay: change who may join. Ignored from non-owners.",
+      "properties": {
+        "type": {
+          "const": "room_policy",
+          "default": "room_policy",
+          "title": "Type",
+          "type": "string"
+        },
+        "require_approval": {
+          "title": "Require Approval",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "require_approval"
+      ],
+      "title": "RoomPolicy",
+      "type": "object"
+    },
+    "RoomPolicyUpdate": {
+      "description": "The room's join policy, broadcast when an owner changes it and sent in\nevery spectator's catch-up.",
+      "properties": {
+        "type": {
+          "const": "room_policy_update",
+          "default": "room_policy_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "require_approval": {
+          "title": "Require Approval",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "require_approval"
+      ],
+      "title": "RoomPolicyUpdate",
       "type": "object"
     },
     "RoomRejected": {
@@ -1138,6 +1401,11 @@
           "minimum": 0,
           "title": "Warn Window Seconds",
           "type": "number"
+        },
+        "e2e": {
+          "default": false,
+          "title": "E2E",
+          "type": "boolean"
         }
       },
       "title": "RoomSettings",
@@ -1158,6 +1426,11 @@
         "warn_window_seconds": {
           "title": "Warn Window Seconds",
           "type": "number"
+        },
+        "e2e": {
+          "default": false,
+          "title": "E2E",
+          "type": "boolean"
         },
         "set_by": {
           "anyOf": [
