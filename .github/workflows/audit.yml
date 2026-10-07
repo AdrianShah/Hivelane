@@ -86,7 +86,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        dir: [frontend, editors/vscode, docs-site]
+        include:
+          - dir: frontend
+            flags: ""
+          # The extension ships only its runtime dependency (ws); vsce and its
+          # secretlint -> globby -> braces chain run on the packager's machine
+          # and carry an advisory with no fixed release yet.
+          - dir: editors/vscode
+            flags: "--omit=dev"
+          - dir: docs-site
+            flags: ""
     defaults:
       run:
         working-directory: ${{ matrix.dir }}
@@ -98,4 +107,4 @@ jobs:
       - name: Audit
         # High and critical fail; moderate and low are printed but pass, since
         # they are mostly dev-server and build-tool issues Dependabot handles.
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high ${{ matrix.flags }}
