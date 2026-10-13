@@ -10,6 +10,23 @@ import Lane from './components/Lane';
 import RoomAccessPanel from './components/RoomAccessPanel';
 import SharePanel from './components/SharePanel';
 import Sidebar, { type AppView } from './components/Sidebar';
+// Phase 5 dashboard views (heat map, timeline, filters, theme, shortcuts).
+import FilterBar from './components/FilterBar';
+import HeatMapView from './components/HeatMapView';
+import MobileNav from './components/MobileNav';
+import { PreventedCounter, ShareCardDialog } from './components/PreventedCounter';
+import ShortcutHelp from './components/ShortcutHelp';
+import ThemeToggle from './components/ThemeToggle';
+import TimelineView from './components/TimelineView';
+import { fileMatches, isFiltering, matchesLane } from './dashboard/filters';
+import { deriveLane } from './dashboard/laneFacts';
+import { useDashboardState, viewFromParam } from './dashboard/useDashboardState';
+import { readViewParam } from './dashboard/useUrlState';
+// Phase 5 notifications and replay (notifications.ts, replay.ts).
+import NotificationsSettings from './components/NotificationsSettings';
+import ReplayView from './components/ReplayView';
+import { notifyFeedEvent } from './notifications';
+import { publishHistoryChunk } from './replay';
 import { copyText } from './clipboard';
 import {
   E2EDecoder,
@@ -189,6 +206,8 @@ const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
 const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
   dashboard: 'Cluster',
   agents: 'Cluster',
+  timeline: 'Logs',
+  heatmap: 'Analytics',
   invite: 'Cluster',
   history: 'Logs',
   conflicts: 'Logs',
@@ -212,7 +231,10 @@ export default function App() {
   );
   const [status, setStatus] = useState<ConnStatus>('connecting');
   const [elapsed, setElapsed] = useState(0);
-  const [view, setView] = useState<AppView>('agents');
+  // The open view also lives in ?view= so a filtered view is a shareable link.
+  const [view, setView] = useState<AppView>(
+    () => (viewFromParam(readViewParam(window.location.search)) ?? 'agents') as AppView,
+  );
   const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Cluster');
   const [highlightFile, setHighlightFile] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -239,6 +261,15 @@ export default function App() {
   const [accessNotice, setAccessNotice] = useState<string | null>(null);
   // Bumped by "Ask again" to reconnect after a refusal.
   const [joinAttempt, setJoinAttempt] = useState(0);
+  // Session log, URL filters, prevented-collision stats, overlays, shortcuts.
+  const nowSeconds = Date.now() / 1000;
+  const dash = useDashboardState({
+    onNavigate: (next) => navigateTo(next),
+    feedback,
+    nowSeconds,
+  });
+  // useReducer's dispatch: stable, so the connection effect never reconnects for it.
+  const recordFeedEvent = dash.recordEvent;
 
   const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
     const ws = wsRef.current;
@@ -283,9 +314,20 @@ export default function App() {
 
   const navigateTo = (next: AppView) => {
     setView(next);
+    dash.syncViewParam(next);
     const mapped = VIEW_TO_TOP_NAV[next];
     if (mapped) setTopNav(mapped);
   };
+
+  useEffect(() => {
+    // Back/Forward (or a pasted link) changed ?view=: follow it. Views this
+    // build does not list in URL_VIEWS are left alone.
+    const fromUrl = viewFromParam(dash.viewParam) as AppView | null;
+    if (!fromUrl) return;
+    setView(fromUrl);
+    const mapped = VIEW_TO_TOP_NAV[fromUrl];
+    if (mapped) setTopNav(mapped);
+  }, [dash.viewParam]);
 
   const displayUsers = users;
   const displayConflicts = conflicts;
@@ -306,7 +348,8 @@ export default function App() {
     // /r/abcd-2345 and friends settle on one canonical link, so the address
     // bar always matches what Share copies.
     if (roomId && rawCode !== roomId) {
-      navigate(roomPath(roomId), { replace: true });
+      // Keep ?view= and filters: a shared filtered link survives the redirect.
+      navigate({ pathname: roomPath(roomId), search: window.location.search }, { replace: true });
     }
   }, [rawCode, roomId, navigate]);
 
@@ -328,6 +371,7 @@ export default function App() {
     setUsers({});
     setConflicts([]);
     setConflictHistory([]);
+    recordFeedEvent({ type: 'reset' });
     setRoomSettings(null);
     setStatus('connecting');
     setIsOwner(ownerToken(roomId) != null);
@@ -404,6 +448,8 @@ export default function App() {
         };
 
         const applyFeedEvent = (item: FeedEvent) => {
+          recordFeedEvent(item);
+          notifyFeedEvent(roomId, item); // browser notifications (notifications.ts)
           switch (item.type) {
             case 'user_joined':
               setUsers((prev) => {
@@ -576,6 +622,11 @@ export default function App() {
             }
             break;
 
+          case 'history_chunk':
+            // Room history for the replay view, decoded like live frames.
+            void publishHistoryChunk(msg, (item) => e2e.decode(item));
+            break;
+
           case 'user_joined':
           case 'user_left':
           case 'activity_update':
@@ -655,7 +706,7 @@ export default function App() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl, e2eKey, roomId, joinAttempt]);
+  }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent]);
 
   const copyShareUrl = async () => {
     if (!(await copyText(roomLink(roomId)))) {
@@ -740,10 +791,43 @@ export default function App() {
   const activeConflictCount = displayConflicts.length;
   const historyCount = historyRows.length;
 
+  // Phase 5: per-lane status and history from the session log, then filters
+  // (shared with the timeline and heat map, kept in the URL).
+  const laneDerived = Object.fromEntries(
+    displayUserIds.map((id) => [id, deriveLane(dash.log, id, displayUsers[id], nowSeconds)]),
+  );
+  const visibleLaneIds = displayUserIds.filter((id) =>
+    matchesLane(laneDerived[id].facts, dash.filters),
+  );
+  const laneFileFilter = dash.filters.file.trim()
+    ? (path: string) => fileMatches(dash.filters.file, path)
+    : undefined;
+  const filterBar = (
+    <FilterBar
+      filters={dash.filters}
+      onChange={dash.setFilters}
+      people={dash.people}
+      agentKinds={dash.agentKinds}
+      searchRef={dash.searchRef}
+      resultLabel={
+        view === 'agents' && isFiltering(dash.filters)
+          ? `${visibleLaneIds.length} of ${displayUserIds.length} lanes match`
+          : undefined
+      }
+    />
+  );
+  const preventedCounter = (
+    <PreventedCounter
+      prevention={dash.prevention}
+      stats={dash.stats}
+      onShare={() => dash.setShareOpen(true)}
+    />
+  );
+
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-background">
+    <div className="app-shell overflow-hidden flex flex-col bg-background">
       <header className="glass-header shrink-0 z-50">
-        <div className="flex items-center justify-between gap-4 px-5 h-[56px]">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-5 h-[56px]">
           <div className="flex items-center gap-3.5 min-w-0">
             <button
               type="button"
@@ -757,7 +841,7 @@ export default function App() {
               Synergo
             </button>
             <div
-              className="hidden sm:inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1"
+              className="inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1 min-h-[22px]"
               title={wsUrl}
             >
               <span
@@ -769,7 +853,7 @@ export default function App() {
                       : 'bg-error'
                 }`}
               />
-              <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
+              <span className="sr-only sm:not-sr-only text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
                 {serverLabel}
               </span>
               {roomSettings?.e2e ? (
@@ -796,7 +880,7 @@ export default function App() {
                 className={`relative text-[12px] font-medium transition-colors px-3 py-1.5 rounded-md ${
                   topNav === item
                     ? 'text-on-surface'
-                    : 'text-on-muted hover:text-on-surface hover:bg-white/[0.03]'
+                    : 'text-on-muted hover:text-on-surface hover:bg-ink/[0.04]'
                 }`}
               >
                 {item}
@@ -827,14 +911,30 @@ export default function App() {
               </div>
             </div>
 
+            <div className="hidden sm:flex items-center gap-1">
+              <ThemeToggle />
+              <button
+                type="button"
+                className="icon-btn p-1.5 hidden md:inline-flex"
+                title="Keyboard shortcuts (?)"
+                aria-label="Keyboard shortcuts"
+                onClick={() => dash.setHelpOpen(true)}
+              >
+                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+                  keyboard
+                </span>
+              </button>
+            </div>
+
             <div className="hidden sm:flex items-center gap-0.5 ml-0.5">
               <button
                 type="button"
                 className="icon-btn p-1.5"
                 title={copied ? 'Link copied' : 'Share session'}
+                aria-label={copied ? 'Room link copied' : 'Copy room link'}
                 onClick={() => void copyShareUrl()}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
                   {copied ? 'check' : 'screen_share'}
                 </span>
               </button>
@@ -855,9 +955,10 @@ export default function App() {
                 type="button"
                 className="icon-btn p-1.5"
                 title="Settings"
+                aria-label="Settings"
                 onClick={() => navigateTo('settings')}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
                   settings
                 </span>
               </button>
@@ -865,7 +966,7 @@ export default function App() {
 
             <button
               type="button"
-              className="deploy-btn rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
+              className="deploy-btn mobile-readonly rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
               onClick={() => navigateTo('invite')}
             >
               Invite teammates
@@ -963,9 +1064,9 @@ export default function App() {
           creatingRoom={creatingRoom}
         />
 
-        <main className="flex-1 overflow-y-auto custom-scrollbar relative workspace-canvas">
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar relative workspace-canvas pb-20 md:pb-0">
           {view === 'dashboard' ? (
-            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+            <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
                 Dashboard
               </h1>
@@ -973,6 +1074,7 @@ export default function App() {
                 Room overview for{' '}
                 <span className="font-mono text-primary">{roomId}</span>
               </p>
+              {preventedCounter}
               <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
                 {[
                   {
@@ -1043,40 +1145,59 @@ export default function App() {
           ) : null}
 
           {showAgentGrid ? (
-            <div className="p-6 lg:p-8">
+            <div className="p-4 sm:p-6 lg:p-8">
               <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
                     Synergo feed
                   </h1>
                   <p className="text-[13px] text-on-muted mt-1 mb-0">
-                    Side-by-side agent lanes with live status — prompts, captions,
-                    and diffs (Synergo feed, batched every 500ms).
+                    One lane per person: status, current intent, plan checklist and
+                    latest diffs (live, batched every 500 ms).
                   </p>
                 </div>
               </div>
               {hasLanes ? (
-                <div className="lane-grid">
-                  {displayUserIds.map((id, index) => (
-                    <Lane
-                      key={id}
-                      userId={id}
-                      state={displayUsers[id]}
-                      inConflict={conflictedUsers.has(id)}
-                      highlightFile={
-                        conflictedUsers.has(id) ? highlightFile : null
-                      }
-                      showArchitectureMap={index === 1}
-                      index={index}
-                      offlineSince={displayUsers[id].offlineSince}
-                      plan={displayUsers[id].plan}
-                      branch={displayUsers[id].branch}
-                      feedback={feedback}
-                      votes={myVotes}
-                      onVote={sendVote}
-                    />
-                  ))}
-                </div>
+                <>
+                  {filterBar}
+                  {visibleLaneIds.length === 0 ? (
+                    <div className="lane-shell rounded-2xl p-6 max-w-[46rem]">
+                      <p className="text-[14px] text-on-surface font-medium m-0">
+                        No lanes match these filters
+                      </p>
+                      <p className="text-[13px] text-on-muted mt-2 mb-0">
+                        Clear a filter or widen the search to see everyone again.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="lane-grid">
+                      {visibleLaneIds.map((id, index) => (
+                        <Lane
+                          key={id}
+                          userId={id}
+                          state={displayUsers[id]}
+                          inConflict={conflictedUsers.has(id)}
+                          highlightFile={
+                            conflictedUsers.has(id) ? highlightFile : null
+                          }
+                          index={index}
+                          offlineSince={displayUsers[id].offlineSince}
+                          plan={displayUsers[id].plan}
+                          branch={displayUsers[id].branch}
+                          feedback={feedback}
+                          votes={myVotes}
+                          onVote={sendVote}
+                          status={laneDerived[id].status}
+                          recentEdits={laneDerived[id].recentEdits}
+                          editedPlanFiles={laneDerived[id].editedPlanFiles}
+                          lastActivity={laneDerived[id].lastActivity}
+                          nowSeconds={nowSeconds}
+                          fileFilter={laneFileFilter}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <div className="max-w-[46rem] space-y-4">
                   <div className="lane-shell rounded-2xl p-6">
@@ -1099,6 +1220,30 @@ export default function App() {
                 </div>
               )}
             </div>
+          ) : null}
+
+          {view === 'timeline' ? (
+            <TimelineView
+              log={dash.log}
+              filters={dash.filters}
+              prevention={dash.prevention}
+              feedback={feedback}
+              votes={myVotes}
+              onVote={sendVote}
+              nowSeconds={nowSeconds}
+              filterBar={filterBar}
+              counter={preventedCounter}
+            />
+          ) : null}
+
+          {view === 'heatmap' ? (
+            <HeatMapView
+              log={dash.log}
+              filters={dash.filters}
+              nowSeconds={nowSeconds}
+              filterBar={filterBar}
+              onOpenFile={dash.showFileInTimeline}
+            />
           ) : null}
 
           {view === 'analytics' ? (
@@ -1201,6 +1346,20 @@ export default function App() {
             <AddTeammate roomId={roomId} settings={roomSettings} />
           ) : null}
 
+          {view === 'replay' ? (
+            <ReplayView
+              roomId={roomId}
+              historyHours={roomSettings?.history_hours ?? 0}
+              settingsKnown={roomSettings != null}
+              connected={status === 'connected'}
+              socketRef={wsRef}
+            />
+          ) : null}
+
+          {view === 'notifications' ? (
+            <NotificationsSettings roomId={roomId} e2e={roomSettings?.e2e ?? false} />
+          ) : null}
+
           {view === 'conflicts' || view === 'history' ? (
             <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
@@ -1209,10 +1368,10 @@ export default function App() {
               <p className="text-[13px] text-on-muted mb-6">
                 Overlaps across the agent cluster for this session.
               </p>
-              <div className="lane-shell rounded-2xl overflow-hidden">
-                <table className="w-full text-left border-collapse">
+              <div className="lane-shell rounded-2xl overflow-x-auto custom-scrollbar">
+                <table className="w-full min-w-[36rem] text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-outline-soft bg-black/25">
+                    <tr className="border-b border-outline-soft bg-shade/15">
                       <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
                         When
                       </th>
@@ -1248,7 +1407,7 @@ export default function App() {
                       ).map((c) => (
                         <tr
                           key={`${c.file_path}-${c.timestamp}`}
-                          className="hover:bg-white/[0.025] transition-colors"
+                          className="hover:bg-ink/[0.03] transition-colors"
                         >
                           <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
                             {relativeTime(c.timestamp)}
@@ -1322,6 +1481,54 @@ export default function App() {
                   </p>
                 </div>
                 <div className="h-px bg-outline-soft" />
+                <div>
+                  <span className="section-label" id="appearance-label">
+                    Appearance
+                  </span>
+                  <div className="mt-2 flex flex-wrap items-center gap-3">
+                    <ThemeToggle showLabels />
+                    <span className="hidden md:inline-flex">
+                      <button
+                        type="button"
+                        className="filter-chip"
+                        onClick={() => dash.setHelpOpen(true)}
+                      >
+                        <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
+                          keyboard
+                        </span>
+                        Keyboard shortcuts <kbd>?</kbd>
+                      </button>
+                    </span>
+                  </div>
+                </div>
+                <div className="h-px bg-outline-soft md:hidden" />
+                {/* Phones: the bottom bar's "More" lands here, so list the rest. */}
+                <nav className="md:hidden" aria-label="More views">
+                  <span className="section-label">More views</span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {(
+                      [
+                        ['dashboard', 'Dashboard'],
+                        ['analytics', 'Analytics'],
+                        ['history', 'History'],
+                        ['replay', 'Replay'],
+                        ['notifications', 'Notifications'],
+                        ['invite', 'Invite'],
+                        ['docs', 'Docs'],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        className="filter-chip"
+                        onClick={() => navigateTo(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </nav>
+                <div className="h-px bg-outline-soft" />
                 <RoomAccessPanel
                   isOwner={isOwner}
                   requireApproval={requireApproval}
@@ -1368,14 +1575,26 @@ export default function App() {
 
           <button
             type="button"
-            className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full flex items-center justify-center text-indigo-950 z-50"
+            className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full hidden md:flex items-center justify-center z-50"
             title="Invite teammates"
+            aria-label="Invite teammates"
             onClick={() => navigateTo('invite')}
           >
-            <span className="material-symbols-outlined text-[26px]">person_add</span>
+            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">
+              person_add
+            </span>
           </button>
         </main>
       </div>
+
+      <MobileNav view={view} onNavigate={navigateTo} conflictCount={displayConflicts.length} />
+      <ShareCardDialog
+        open={dash.shareOpen}
+        stats={dash.stats}
+        onClose={() => dash.setShareOpen(false)}
+        onNotice={showToast}
+      />
+      <ShortcutHelp open={dash.helpOpen} onClose={() => dash.setHelpOpen(false)} />
 
       <DeployModal
         open={deployOpen}
@@ -1385,7 +1604,9 @@ export default function App() {
       />
 
       {toast ? (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] rounded-full bg-surface-raised border border-outline-soft px-4 py-2 text-[12px] font-semibold text-on-surface shadow-card animate-fade-up">
+        <div
+          role="status"
+          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[110] rounded-full bg-surface-raised border border-outline-soft px-4 py-2 text-[12px] font-semibold text-on-surface shadow-card animate-fade-up">
           {toast}
         </div>
       ) : null}

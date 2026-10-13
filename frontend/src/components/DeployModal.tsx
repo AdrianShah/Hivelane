@@ -46,7 +46,7 @@ export default function DeployModal({
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 overlay-backdrop"
         aria-label="Close dialog"
         onClick={onClose}
       />
