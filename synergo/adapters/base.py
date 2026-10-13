@@ -215,21 +215,46 @@ CALL_TO_ACTION = {
 }
 
 
+def _queue_position(ack: dict[str, Any]) -> int:
+    position = ack.get("queue_position")
+    if isinstance(position, bool) or not isinstance(position, int) or position < 0:
+        return 0
+    return position
+
+
 def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]) -> str:
     """Human sentence naming who is in this file and what to do about it.
 
     The relay's reason is authoritative for the who-did-what clause because it
     distinguishes a peer who actually edited the file from one who has only
     declared intent — composing that here would misreport the second case.
+    A block then says where the agent stands in the file's wait queue, what
+    the relay suggests doing meanwhile (or the generic advice), and how to
+    wait for its turn from a shell; a warn adds the relay's suggestion.
     """
     others = ack.get("others") or []
-    path = ack.get("file_path") or fallback_path or "this file"
+    named = ack.get("file_path") or fallback_path
+    path = named or "this file"
     detail = ack.get("reason") or f"a teammate's agent is already working in {path}"
     if len(others) > 1:
         extra = len(others) - 1
         detail += f" (and {extra} other{'s' if extra > 1 else ''})"
 
-    message = f"{detail} — {CALL_TO_ACTION[decision]}"
+    suggestion = ack.get("suggestion")
+    suggestion = suggestion.strip() if isinstance(suggestion, str) else ""
+    if decision == "block":
+        steps = []
+        position = _queue_position(ack)
+        if position:
+            steps.append(f"you're #{position} in line")
+        steps.append(suggestion or CALL_TO_ACTION["block"])
+        if named:
+            steps.append(f"run `synergo wait {named}` to wait your turn")
+    else:
+        steps = [CALL_TO_ACTION[decision]]
+        if suggestion:
+            steps.append(suggestion)
+    message = f"{detail} — {'; '.join(steps)}"
     first = others[0] if others else None
     if isinstance(first, dict) and first.get("prompt"):
         message += f' (their task: "{first["prompt"]}")'

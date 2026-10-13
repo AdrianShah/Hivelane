@@ -40,3 +40,7 @@ class EventAck(BaseModel):
     reason: str = ""
     file_path: Optional[str] = None
     others: list[PeerTouch] = []
+    # From the relay's edit_check_response: the agent's place in the file's
+    # wait queue (1 = next; 0 = not queued) and something to do meanwhile.
+    queue_position: int = 0
+    suggestion: str = ""

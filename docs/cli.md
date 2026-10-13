@@ -197,6 +197,23 @@ Owner actions for a room this machine created (its owner token is stored in
 newcomer until an owner lets them in; pending requests and their ids appear in
 `synergo status`. Owners can also approve from the dashboard.
 
+## synergo wait
+
+```text
+synergo wait <FILE> [--timeout S] [--port PORT]
+```
+
+Blocks until FILE is free for this repo's room, then exits 0; exits 1 if it is
+still taken after `--timeout` seconds (default 90). A blocked agent is told to
+run it ("run `synergo wait server/room.py` to wait your turn"): the relay keeps
+a first-come, first-served [wait queue](protocol.md#wait-queues) per file,
+tells the teammate's agent someone is waiting, and hands the file over once
+their edit ages past the block window (or they leave). The waiting agent's next
+edit of the file is then let through with a note that it is its turn. FILE is
+absolute, relative to the current directory, or relative to the repo root (the
+form block messages print). With no daemon running, or a file synergo does not
+coordinate, there is nothing to wait for and it exits 0 at once.
+
 ## synergo relay
 
 ```text
