@@ -89,6 +89,10 @@ export interface EditDecision {
   scope?: DecisionScope;
   /** Non-empty for warn/block; key for decision_feedback votes. */
   decision_id?: string;
+  /** The requester's place in the file's wait queue (1 = next); 0 = not queued. */
+  queue_position?: number;
+  /** Actionable alternative the relay offered (free file nearby, tests, wait time). */
+  suggestion?: string;
   e2e?: string;
 }
 
@@ -188,6 +192,8 @@ export interface RoomSettingsUpdate {
   warn_window_seconds: number;
   /** The team committed `e2e = true`: payloads arrive encrypted in `e2e`. */
   e2e?: boolean;
+  /** Hours of events the relay keeps for history_request; 0 = none kept. */
+  history_hours?: number;
   set_by: string | null;
   timestamp: number;
 }
@@ -242,6 +248,19 @@ export interface RoomPolicyUpdate {
   require_approval: boolean;
 }
 
+/** Spectator → relay: replay the room's kept events newer than `since` (0 = all). */
+export interface HistoryRequest {
+  type: 'history_request';
+  since?: number;
+}
+
+/** Relay → spectator answer to history_request, in timestamp order; `done` marks the last chunk. */
+export interface HistoryChunk {
+  type: 'history_chunk';
+  events: FeedEvent[];
+  done: boolean;
+}
+
 /** Debounced room broadcast — one frame every ~500ms with queued events. */
 export interface SynergoFeed {
   type: 'synergo_feed';
@@ -266,6 +285,7 @@ export interface RoomSettings {
   block_window_seconds: number;
   warn_window_seconds: number;
   e2e?: boolean;
+  history_hours?: number;
 }
 
 /**
@@ -287,6 +307,7 @@ export interface JoinMessage {
 
 export type ServerMessage =
   | SynergoFeed
+  | HistoryChunk
   | ActivityUpdate
   | ConflictAlert
   | EditDecision

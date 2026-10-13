@@ -263,8 +263,8 @@ def test_post_rooms_with_settings_starts_the_room_on_them(relay: RoomManager) ->
 
     assert response.status_code == 200
     room_id = response.json()["room_id"]
-    # Echoed in full: the windows asked for, plus e2e at its default.
-    assert response.json()["settings"] == {**custom, "e2e": False}
+    # Echoed in full: the windows asked for, plus e2e and history at their defaults.
+    assert response.json()["settings"] == {**custom, "e2e": False, "history_hours": 0}
     with client.websocket_connect(f"/ws/{room_id}") as spectator:
         _spectate(spectator)
         caught_up = spectator.receive_json()

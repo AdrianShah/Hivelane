@@ -28,6 +28,7 @@ from pydantic import BaseModel, ValidationError, model_validator
 try:
     from . import config, limits, logging_config, metrics
     from . import dashboard, directory
+    from . import history, webhooks
     from .gemini import classify_conflict, generate_caption, heuristic_conflict_alert
     from .headers import SecurityHeadersMiddleware
     from .limits import check_room_creation, check_ws_attempt, client_ip
@@ -43,6 +44,7 @@ try:
         EditCheckRequest,
         EditCheckResponse,
         EditDecision,
+        FileRequest,
         IntentMessage,
         JoinDecision,
         JoinMessage,
@@ -66,6 +68,7 @@ try:
         FileOverlap,
         FileTouch,
         Room,
+        add_event_sink,
         hash_owner_token,
         new_owner_token,
         settings_problem,
@@ -88,9 +91,11 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     import config  # type: ignore[no-redef]
     import dashboard  # type: ignore[no-redef]
     import directory  # type: ignore[no-redef]
+    import history  # type: ignore[no-redef]
     import limits  # type: ignore[no-redef]
     import logging_config  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
+    import webhooks  # type: ignore[no-redef]
     from gemini import classify_conflict, generate_caption, heuristic_conflict_alert
     from headers import SecurityHeadersMiddleware  # type: ignore[no-redef]
     from limits import check_room_creation, check_ws_attempt, client_ip
@@ -106,6 +111,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         EditCheckRequest,
         EditCheckResponse,
         EditDecision,
+        FileRequest,
         IntentMessage,
         JoinDecision,
         JoinMessage,
@@ -129,6 +135,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         FileOverlap,
         FileTouch,
         Room,
+        add_event_sink,
         hash_owner_token,
         new_owner_token,
         settings_problem,
@@ -160,8 +167,9 @@ app.add_middleware(
     allow_origins=list(config.CORS_ORIGINS),
     allow_origin_regex=config.CORS_ORIGIN_REGEX,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    # DELETE and the owner-token header: the dashboard's webhook panel.
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", webhooks.OWNER_TOKEN_HEADER],
 )
 # Added after CORS so it wraps it: preflights and error responses get the
 # headers too. See headers.py for what is sent and why.
@@ -187,6 +195,16 @@ log.info(
 )
 
 room_manager = RoomManager()
+
+# --- owner webhooks (server/webhooks.py) ----------------------------------------
+# Looked up through room_manager on every call, so tests can swap it.
+webhook_service = webhooks.WebhookService(
+    load=lambda code: room_manager.load_webhooks(code),
+    save=lambda code, record: room_manager.save_webhooks(code, record),
+    owner_check=lambda code, token: room_manager.verify_owner_token(code, token),
+)
+webhooks.install(app, lambda: webhook_service)
+add_event_sink(lambda room, payload: webhook_service.observe(room, payload))
 
 metrics.register_gauge(
     "synergo_rooms_live",
@@ -676,11 +694,17 @@ async def apply_member_settings(
     teammate on a stale .synergo.toml (or a hostile client) must not be able
     to tell everyone else the room is cleartext again. Turning e2e off takes a
     new room.
+
+    history_hours follows "last join wins" only when the join states it: a
+    daemon that predates it, or a .synergo.toml without the key, keeps the
+    room's (server/history.py), so it cannot switch replay off by joining.
     """
     if room.settings.e2e and not settings.e2e:
         if "e2e" in settings.model_fields_set:
             log.info("Ignoring e2e=false from %s: a join cannot clear e2e", user_id)
         settings = settings.model_copy(update={"e2e": True})
+    if "history_hours" not in settings.model_fields_set:
+        settings = settings.model_copy(update={"history_hours": room.settings.history_hours})
     update = room.apply_settings(settings, set_by=user_id)
     if update is None:
         return
@@ -949,8 +973,28 @@ async def handle_edit_check(
         line_ranges=list(request.line_ranges),
         branch=request.branch,
     )
-    decision, peers, scope = verdict.decision, verdict.peers, verdict.scope
-    reason = _edit_check_reason(decision, request.file_path, peers, now, scope)
+    # The file's wait queue (server/file_queue.py) has the last word: it can
+    # hold back an edit no touch blocks (the file is promised to whoever is
+    # next in line), and it remembers who a block left waiting.
+    outcome = room.queue_edit_check(
+        user_id,
+        room.member_agent(user_id),
+        request.repo_id,
+        request.file_path,
+        verdict,
+        now,
+        e2e=request.e2e,
+        symbols=symbols,
+        line_ranges=list(request.line_ranges),
+        branch=request.branch,
+    )
+    decision, peers, scope = outcome.decision, outcome.peers, outcome.scope
+    reason = outcome.reason or _edit_check_reason(
+        decision, request.file_path, peers, now, scope
+    )
+    suggestion = room.edit_suggestion(
+        decision, user_id, request.repo_id, request.file_path, now, outcome.wait
+    )
     decision_id = "" if decision == "allow" else uuid.uuid4().hex
     response = EditCheckResponse(
         request_id=request.request_id,
@@ -972,6 +1016,8 @@ async def handle_edit_check(
         reason=reason,
         scope=scope,
         decision_id=decision_id,
+        queue_position=outcome.queue_position,
+        suggestion=suggestion,
     )
     # Recorded once the reply is ready and before it is sent, so anyone who
     # has seen the reply also sees it counted. The feed broadcast below is
@@ -979,6 +1025,10 @@ async def handle_edit_check(
     metrics.edit_check_seconds.observe(time.perf_counter() - started)
     metrics.edit_checks_total.inc((decision, scope))
     await room.send(socket, response)
+    # After the reply: the requester's hook is waiting on that, the holders
+    # being told someone waits is not urgent.
+    await room.deliver_queue_notices(outcome.notices)
+    room.ensure_queue_sweeper()
 
     if decision == "allow":
         return
@@ -999,9 +1049,33 @@ async def handle_edit_check(
             repo_id=request.repo_id,
             scope=scope,
             decision_id=decision_id,
+            queue_position=outcome.queue_position,
+            suggestion=suggestion,
             e2e=request.e2e,
         )
     )
+
+
+async def handle_file_request(room: Room, user_id: str, raw: dict) -> None:
+    """A member asks for a file someone else holds (`synergo wait`): it joins
+    the file's line and the holders hear about it, or, when the file is
+    already free and nobody is ahead, it is sent file_released at once."""
+    try:
+        request = FileRequest.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("file_request", user_id, exc)
+        return
+    now = time.time()
+    notices = room.queue_file_request(
+        user_id,
+        room.member_agent(user_id),
+        request.repo_id,
+        request.file_path,
+        now,
+        e2e=request.e2e,
+    )
+    await room.deliver_queue_notices(notices)
+    room.ensure_queue_sweeper()
 
 
 async def handle_join_decision(room: Room, socket: WebSocket, raw: dict) -> None:
@@ -1168,6 +1242,8 @@ async def serve_spectator(
                 await handle_join_decision(room, socket, raw)
             elif kind == "room_policy":
                 await handle_room_policy(room, room_id, socket, raw)
+            elif kind == "history_request":  # server/history.py
+                await history.handle_request(room, socket, raw)
     except FrameTooLarge:
         metrics.messages_dropped_total.inc("frame_too_large")
         await _close_frame_too_large(socket)
@@ -1217,6 +1293,10 @@ async def serve_member(
             if not isinstance(raw, dict):
                 metrics.messages_dropped_total.inc("invalid")
                 continue
+            # Lazy half of the wait-queue sweep (the room's sweeper task is
+            # the periodic half): lapsed holders release before this message
+            # is judged.
+            await room.tick_file_queues()
             kind = raw.get("type")
             if kind == "activity":
                 await handle_activity(room, user_id, raw)
@@ -1224,6 +1304,8 @@ async def serve_member(
                 await handle_intent(room, user_id, raw)
             elif kind == "edit_check":
                 await handle_edit_check(room, socket, user_id, raw)
+            elif kind == "file_request":
+                await handle_file_request(room, user_id, raw)
             elif kind == "plan":
                 await handle_plan(room, socket, user_id, raw)
             elif kind == "decision_feedback":
@@ -1232,6 +1314,8 @@ async def serve_member(
                 await handle_join_decision(room, socket, raw)
             elif kind == "room_policy":
                 await handle_room_policy(room, room_id, socket, raw)
+            elif kind == "history_request":  # server/history.py
+                await history.handle_request(room, socket, raw)
             else:
                 log.debug("Unhandled message type from %s: %s", user_id, kind)
     except FrameTooLarge:
@@ -1241,6 +1325,9 @@ async def serve_member(
         pass
     finally:
         room.remove_member(user_id)
+        # Files it held go to whoever waits for them; its places in line go.
+        with contextlib.suppress(Exception):
+            await room.tick_file_queues()
         log.info("%s left room %s (%d in room)", user_id, room_id, len(room.member_ids))
         await room.broadcast(UserLeft(user_id=user_id))
         _schedule_empty_room_cleanup(room_id)
