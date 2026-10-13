@@ -1,15 +1,19 @@
-import { useEffect, useId, useState } from 'react';
-import type { EditDecision, FileChange, LaneState, PlanUpdate } from '../types';
+import { useId, useState } from 'react';
+import type { LaneState, PlanUpdate } from '../types';
 import { decisionScope, scopeLabel, type FeedbackMap, type Vote } from '../detection';
-import ArchitectureMap from './ArchitectureMap';
+import type { LaneStatus } from '../dashboard/laneStatus';
+import { normPath } from '../dashboard/paths';
+import { clockTime, diffStat, relativeTime } from '../dashboard/people';
+import type { Touch } from '../dashboard/sessionLog';
 import DecisionFeedbackButtons from './DecisionFeedbackButtons';
+import DiffLines from './DiffLines';
+import { AgentBadge, PersonAvatar, StatusPill } from './PersonBits';
 
 interface LaneProps {
   userId: string;
   state: LaneState;
   inConflict?: boolean;
   highlightFile?: string | null;
-  showArchitectureMap?: boolean;
   index?: number;
   /**
    * When the agent's daemon left the room (ms epoch), or null while it is
@@ -26,115 +30,23 @@ interface LaneProps {
   /** This dashboard's own votes by decision_id. */
   votes?: Record<string, Vote>;
   onVote?: (decisionId: string, vote: Vote) => void;
+  /** editing / idle / blocked / offline (see dashboard/laneStatus.ts). */
+  status: LaneStatus;
+  /** The person's latest edits, newest first (at most five are shown). */
+  recentEdits: Touch[];
+  /** Plan files (normalised) this person edited since declaring the plan. */
+  editedPlanFiles: ReadonlySet<string>;
+  /** Latest activity, relay seconds. */
+  lastActivity: number | null;
+  nowSeconds: number;
+  /** When a file filter is active, diffs of other files are hidden. */
+  fileFilter?: (path: string) => boolean;
 }
 
-function normPath(p: string): string {
-  return p.replace(/\\/g, '/');
-}
+const MAX_DIFFS = 5;
 
-const AVATAR_COLORS = [
-  'from-teal-400/90 to-cyan-600',
-  'from-indigo-400/90 to-violet-600',
-  'from-emerald-400/90 to-teal-700',
-  'from-sky-400/90 to-blue-600',
-  'from-fuchsia-400/80 to-purple-700',
-];
-
-function avatarGradient(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/[\s_-]+/).filter(Boolean);
-  if (parts.length === 0) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[1][0]).toUpperCase();
-}
-
-function watchBadge(changes: FileChange[]): string {
-  if (changes.length === 0) return 'WORKSPACE';
-  const path = changes[0].file_path.replace(/\\/g, '/');
-  const parts = path.split('/').filter(Boolean);
-  if (parts.length >= 2) {
-    return `${parts[0]}/${parts[1]}`.toUpperCase();
-  }
-  return (parts[0] ?? 'WORKSPACE').toUpperCase();
-}
-
-function relativeTime(ts: number | null): string {
-  if (ts == null) return 'just now';
-  const delta = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) {
-    const m = Math.floor(delta / 60);
-    return `${m}m ago`;
-  }
-  const h = Math.floor(delta / 3600);
-  return `${h}h ago`;
-}
-
-function clockTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function decisionNote(decision: EditDecision): string | null {
-  if (decision.others.length === 0) return null;
-  return `${decision.others.join(', ')} editing`;
-}
-
-function shortHash(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) hash = (hash * 33 + seed.charCodeAt(i)) | 0;
-  return (Math.abs(hash) >>> 0).toString(16).slice(0, 6);
-}
-
-function DiffLines({ diff }: { diff: string }) {
-  if (!diff.trim()) {
-    return (
-      <div className="px-3 py-2.5 text-[11px] font-mono text-on-dim">(empty diff)</div>
-    );
-  }
-
-  const lines = diff.replace(/\r\n/g, '\n').split('\n');
-  let displayLine = 0;
-
-  return (
-    <div className="py-1.5 max-h-64 overflow-auto custom-scrollbar">
-      {lines.map((line, i) => {
-        let cls = 'diff-line diff-meta';
-        let showLn = true;
-
-        if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('diff ')) {
-          cls = 'diff-line diff-meta';
-          showLn = false;
-        } else if (line.startsWith('@@')) {
-          cls = 'diff-line diff-hunk';
-          showLn = false;
-          const match = /@@ -(\d+)/.exec(line);
-          if (match) displayLine = Number(match[1]);
-        } else if (line.startsWith('+')) {
-          cls = 'diff-line diff-add';
-          displayLine += 1;
-        } else if (line.startsWith('-')) {
-          cls = 'diff-line diff-del';
-        } else {
-          displayLine += 1;
-        }
-
-        const ln =
-          showLn && !line.startsWith('-') ? String(displayLine) : showLn ? '' : '';
-
-        return (
-          <div key={i} className={cls}>
-            <span className="ln">{ln}</span>
-            <span className="tx">{line.length === 0 ? ' ' : line}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
+function editKey(edit: Touch, i: number): string {
+  return `${edit.file_path}@${edit.timestamp}#${i}`;
 }
 
 export default function Lane({
@@ -142,7 +54,6 @@ export default function Lane({
   state,
   inConflict = false,
   highlightFile = null,
-  showArchitectureMap = false,
   index = 0,
   offlineSince = null,
   plan = null,
@@ -150,163 +61,166 @@ export default function Lane({
   feedback = {},
   votes = {},
   onVote,
+  status,
+  recentEdits,
+  editedPlanFiles,
+  lastActivity,
+  nowSeconds,
+  fileFilter,
 }: LaneProps) {
-  const editedPaths = new Set(state.changes.map((c) => normPath(c.file_path)));
-  const { caption, changes, prompt, intent, decisions, timestamp, agent } = state;
-  const activePrompt = prompt?.trim() ? prompt.trim() : null;
-  const activeIntent = intent?.trim() ? intent.trim() : null;
-  const showAgent = agent && agent !== 'unknown';
-  const badge = watchBadge(changes);
+  const { caption, prompt, intent, decisions, agent, changes, timestamp } = state;
+  const activeIntent = intent?.trim() || null;
+  const activePrompt = prompt?.trim() || null;
   const baseId = useId();
-  const [openFiles, setOpenFiles] = useState<Record<string, boolean>>({});
+  const [openEdits, setOpenEdits] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (!highlightFile) return;
-    setOpenFiles((prev) => ({ ...prev, [highlightFile]: true }));
-  }, [highlightFile]);
+  // Before the session log has an edit (e.g. a lane restored from catch-up),
+  // fall back to the lane's latest changes.
+  const edits: Touch[] = (
+    recentEdits.length > 0
+      ? recentEdits
+      : changes.map((c) => ({
+          user_id: userId,
+          agent,
+          file_path: normPath(c.file_path),
+          timestamp: timestamp ?? nowSeconds,
+          symbols: c.symbols ?? [],
+          diff: c.diff,
+          caption,
+          intent,
+        }))
+  )
+    .filter((edit) => (fileFilter ? fileFilter(edit.file_path) : true))
+    .slice(0, MAX_DIFFS);
 
-  const isOpen = (path: string) =>
-    openFiles[path] ?? (changes.length === 1 || highlightFile === path);
-
-  const toggle = (path: string) => {
-    setOpenFiles((prev) => ({
-      ...prev,
-      [path]: !isOpen(path),
-    }));
-  };
-
-  const commitId = shortHash(
-    `${userId}-${timestamp ?? 0}-${changes.map((c) => c.file_path).join(',')}`,
-  );
+  // "View overlap" highlights a file: its diff opens unless toggled by hand.
+  const highlight = highlightFile ? normPath(highlightFile) : null;
 
   const offline = offlineSince != null;
-  const offlineNote = offline
-    ? `offline since ${clockTime(offlineSince)} (${relativeTime(offlineSince / 1000)})`
-    : null;
-  const statusLabel = offline
-    ? 'Offline'
-    : inConflict
-      ? 'Conflict'
-      : changes.length > 0
-        ? 'Active'
-        : 'Live';
-  const statusClass = offline
-    ? 'is-offline'
-    : inConflict
-      ? 'is-conflict'
-      : changes.length > 0
-        ? 'is-live'
-        : 'is-idle';
-  const dotClass = offline ? 'bg-on-dim' : inConflict ? 'bg-error' : 'bg-emerald';
+  const lastSeen = offline
+    ? `offline since ${clockTime(offlineSince / 1000)} (${relativeTime(offlineSince / 1000, nowSeconds)})`
+    : lastActivity != null
+      ? `active ${relativeTime(lastActivity, nowSeconds)}`
+      : 'no activity yet';
+  const dotClass = offline
+    ? 'bg-on-dim'
+    : status === 'blocked' || inConflict
+      ? 'bg-error'
+      : status === 'editing'
+        ? 'bg-emerald status-dot-live'
+        : 'bg-amber';
+
+  const planFiles = plan?.files ?? [];
+  const planDone = planFiles.filter((f) => editedPlanFiles.has(normPath(f))).length;
 
   return (
     <article
       id={`lane-${userId}`}
-      className={`lane-shell rounded-2xl flex flex-col min-h-[440px] overflow-hidden animate-fade-up ${
+      className={`lane-shell rounded-2xl flex flex-col overflow-hidden animate-fade-up ${
         offline ? 'is-offline' : inConflict ? 'in-conflict' : ''
       }`}
-      style={{ animationDelay: `${index * 60}ms` }}
-      aria-label={offlineNote ? `${userId}, ${offlineNote}` : undefined}
+      style={{ animationDelay: `${Math.min(index, 8) * 60}ms` }}
+      aria-labelledby={`${baseId}-name`}
+      aria-describedby={`${baseId}-seen`}
     >
-      <header className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.06] bg-white/[0.03]">
-        <div className="relative shrink-0">
-          <div
-            className={`w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(userId)} flex items-center justify-center text-[11px] font-bold text-white ring-2 ring-white/15`}
-          >
-            {initials(userId)}
-          </div>
-          <span
-            className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#121a28] ${
-              offline
-                ? 'bg-on-dim'
-                : inConflict
-                  ? 'bg-error'
-                  : 'bg-emerald shadow-live status-dot-live'
-            }`}
-            title={offline ? 'Offline' : inConflict ? 'Conflict' : 'Online'}
-          />
-        </div>
+      <header className="lane-header flex items-start gap-3 px-4 sm:px-5 py-3.5">
+        <PersonAvatar userId={userId} dotClass={dotClass} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-[15px] font-semibold text-on-surface truncate tracking-tight m-0">
+            <h2
+              id={`${baseId}-name`}
+              className="text-[15px] font-semibold text-on-surface truncate tracking-tight m-0"
+            >
               {userId}
             </h2>
-            <span className={`agent-status-pill ${statusClass}`}>
-              <span className={`w-1.5 h-1.5 rounded-full ${dotClass}`} />
-              {statusLabel}
+            <StatusPill status={status} />
+            {inConflict && !offline ? (
+              <span className="agent-status-pill is-conflict" title="Overlapping edits right now">
+                <span className="material-symbols-outlined" aria-hidden="true">
+                  warning
+                </span>
+                Conflict
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap text-[11px] text-on-dim min-w-0">
+            <AgentBadge agent={agent} />
+            {branch ? (
+              <span className="branch-badge" title={`Branch: ${branch}`}>
+                <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
+                  call_split
+                </span>
+                <span className="sr-only">Branch </span>
+                <span className="truncate">{branch}</span>
+              </span>
+            ) : null}
+            <span id={`${baseId}-seen`} className={offline ? 'lane-offline-note' : ''}>
+              {lastSeen}
             </span>
           </div>
-          <p className="text-[11px] text-on-dim mt-1 mb-0 flex items-center gap-1.5 flex-wrap">
-            {showAgent ? (
-              <span className="font-mono text-lavender/90">{agent}</span>
-            ) : (
-              <span>{offline ? 'Agent' : 'Agent online'}</span>
-            )}
-            <span className="text-outline-soft">·</span>
-            {offlineNote ? (
-              <span className="lane-offline-note">{offlineNote}</span>
-            ) : (
-              <span>{relativeTime(timestamp)}</span>
-            )}
-          </p>
         </div>
-        <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-primary bg-primary/10 border border-primary/25 px-2.5 py-1 rounded-md uppercase truncate max-w-[42%] backdrop-blur-sm">
-          {badge}
-        </span>
-        {branch ? (
-          <span
-            className="branch-badge"
-            title={`Branch: ${branch}`}
-            aria-label={`Branch ${branch}`}
-          >
-            <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-              call_split
-            </span>
-            <span className="truncate">{branch}</span>
-          </span>
-        ) : null}
       </header>
 
-      <div className="flex flex-col gap-3.5 p-5 flex-1">
-        {activeIntent ? (
-          <p
-            className="m-0 flex items-center gap-1.5 text-[11.5px] min-w-0"
-            title={activeIntent}
-          >
-            <span className="material-symbols-outlined text-[14px] text-lavender/70 shrink-0">
+      <div className="flex flex-col gap-3 p-4 sm:p-5 flex-1 min-w-0">
+        <section aria-label="Current intent" className="min-w-0">
+          <p className="section-label m-0 mb-1 flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px] text-lavender" aria-hidden="true">
               my_location
             </span>
-            <span className="text-on-dim shrink-0">working on:</span>
-            <span className="text-on-muted truncate">{activeIntent}</span>
+            Working on
           </p>
-        ) : null}
+          {activeIntent || activePrompt ? (
+            <p
+              className="m-0 text-[13px] text-on-surface leading-snug line-clamp-3 break-words"
+              title={activeIntent ?? activePrompt ?? undefined}
+            >
+              {activeIntent ?? activePrompt}
+            </p>
+          ) : (
+            <p className="m-0 text-[12.5px] italic text-on-dim">No intent declared yet</p>
+          )}
+          {caption ? (
+            <p className="m-0 mt-1.5 text-[12px] text-on-muted leading-snug flex gap-1.5 min-w-0">
+              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
+                bolt
+              </span>
+              <span className="break-words min-w-0">{caption}</span>
+            </p>
+          ) : null}
+        </section>
 
         {plan ? (
-          <section className="plan-panel rounded-xl p-3" aria-label="Active plan">
-            <p className="m-0 flex items-center gap-1.5 text-[11.5px] min-w-0">
-              <span
-                className="material-symbols-outlined text-[14px] text-primary/80 shrink-0"
-                aria-hidden="true"
-              >
+          <section className="plan-panel rounded-xl p-3 min-w-0" aria-label="Plan checklist">
+            <div className="flex items-center gap-1.5 text-[11.5px] min-w-0">
+              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
                 checklist
               </span>
-              <span className="text-on-dim shrink-0">plan:</span>
-              <span className="text-on-muted truncate" title={plan.summary}>
-                {plan.summary || '(no summary)'}
+              <span className="text-on-muted truncate flex-1" title={plan.summary}>
+                {plan.summary || 'Declared plan'}
               </span>
-            </p>
-            {plan.files.length > 0 ? (
-              <ul className="list-none m-0 mt-2 p-0 flex flex-wrap gap-x-3 gap-y-1">
-                {plan.files.map((file) => {
-                  const edited = editedPaths.has(normPath(file));
+              {planFiles.length > 0 ? (
+                <span className="font-mono text-[10.5px] text-on-dim shrink-0 tabular-nums">
+                  {planDone}/{planFiles.length} edited
+                </span>
+              ) : null}
+            </div>
+            {planFiles.length > 0 ? (
+              <ul className="list-none m-0 mt-2 p-0 flex flex-col gap-1">
+                {planFiles.map((file) => {
+                  const edited = editedPlanFiles.has(normPath(file));
                   return (
-                    <li key={file} className="flex items-center gap-1.5 text-[11px] min-w-0">
-                      <span
-                        className={`plan-marker ${edited ? 'is-edited' : ''}`}
-                        role="img"
-                        aria-label={edited ? 'edited' : 'planned, not yet edited'}
-                      />
-                      <code className="font-mono text-on-muted truncate">{file}</code>
+                    <li key={file} className="flex items-center gap-2 text-[11.5px] min-w-0">
+                      <span className={`plan-check ${edited ? 'is-edited' : ''}`} aria-hidden="true">
+                        {edited ? (
+                          <span className="material-symbols-outlined text-[12px] leading-none">check</span>
+                        ) : null}
+                      </span>
+                      <code
+                        className={`font-mono truncate ${edited ? 'text-on-dim line-through decoration-1' : 'text-on-muted'}`}
+                      >
+                        {file}
+                      </code>
+                      <span className="sr-only">{edited ? '(edited)' : '(planned, not edited yet)'}</span>
                     </li>
                   );
                 })}
@@ -321,31 +235,28 @@ export default function Lane({
         ) : null}
 
         {decisions.length > 0 ? (
-          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5">
+          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="Recent Synergo decisions">
             {decisions.map((decision) => {
-              const note = decisionNote(decision);
               const blocked = decision.decision === 'block';
+              const others = decision.others.length ? `${decision.others.join(', ')} editing` : null;
               return (
                 <li
                   key={`${decision.file_path}-${decision.timestamp}`}
                   className={`decision-chip ${blocked ? 'is-block' : 'is-warn'}`}
                   title={decision.reason || undefined}
                 >
-                  <span className="material-symbols-outlined text-[13px]">
+                  <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
                     {blocked ? 'block' : 'warning'}
                   </span>
-                  <span className="font-semibold">
-                    {blocked ? 'blocked' : 'warned'}
+                  <span className="font-semibold">{blocked ? 'blocked' : 'warned'}</span>
+                  <span className="text-on-dim" aria-hidden="true">
+                    ·
                   </span>
-                  <span className="text-on-dim">·</span>
                   <code className="font-mono">{decision.file_path}</code>
-                  <span
-                    className={`scope-tag scope-${decisionScope(decision)}`}
-                    title={`Scope: ${decisionScope(decision)}`}
-                  >
+                  <span className={`scope-tag scope-${decisionScope(decision)}`} title={`Scope: ${decisionScope(decision)}`}>
                     {scopeLabel(decision)}
                   </span>
-                  {note ? <span className="text-on-dim">— {note}</span> : null}
+                  {others ? <span className="text-on-dim">— {others}</span> : null}
                   {decision.decision_id && onVote ? (
                     <DecisionFeedbackButtons
                       decisionId={decision.decision_id}
@@ -360,77 +271,70 @@ export default function Lane({
           </ul>
         ) : null}
 
-        <section className="prompt-panel rounded-xl p-3.5">
-          <div className="flex items-center gap-2 mb-2.5">
-            <span className="material-symbols-outlined text-primary text-[16px]">terminal</span>
-            <h3 className="section-label m-0">Active Prompt</h3>
-          </div>
-          <p className="m-0 font-mono text-[12.5px] text-on-muted leading-relaxed whitespace-pre-wrap break-words">
-            {activePrompt ? (
-              <span className="text-slate-300">&ldquo;{activePrompt}&rdquo;</span>
-            ) : (
-              <span className="italic text-on-dim">No prompt captured yet</span>
-            )}
+        <section aria-label="Latest diffs" className="min-w-0">
+          <p className="section-label m-0 mb-1.5 flex items-center gap-1">
+            <span className="material-symbols-outlined text-[14px] text-primary" aria-hidden="true">
+              difference
+            </span>
+            Last {MAX_DIFFS} diffs
           </p>
-        </section>
-
-        <section className="analysis-panel rounded-xl p-3.5 flex-1 flex flex-col gap-3.5">
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-lavender text-[16px]">bolt</span>
-            <h3 className="section-label m-0">AI Co-Pilot Analysis</h3>
-          </div>
-          <p className="m-0 text-[13.5px] text-on-surface/95 leading-relaxed font-medium">
-            {caption ?? 'Waiting for AI summary of recent edits…'}
-          </p>
-
-          {changes.length === 0 ? (
-            <p className="text-xs text-on-dim m-0">No file changes yet.</p>
+          {edits.length === 0 ? (
+            <p className="text-[12px] text-on-dim m-0">No file changes yet.</p>
           ) : (
-            <ul className="list-none m-0 p-0 flex flex-col gap-2.5">
-              {changes.map((change) => {
-                const open = isOpen(change.file_path);
-                const panelId = `${baseId}-${change.file_path}`;
-                const highlighted = highlightFile === change.file_path;
-
+            <ul className="list-none m-0 p-0 flex flex-col gap-1.5">
+              {edits.map((edit, i) => {
+                const key = editKey(edit, i);
+                const highlighted = highlight === edit.file_path;
+                const open = openEdits[key] ?? highlighted;
+                const panelId = `${baseId}-diff-${i}`;
+                const { added, removed } = diffStat(edit.diff);
                 return (
                   <li
-                    key={change.file_path}
-                    className={`diff-shell rounded-xl overflow-hidden transition-shadow ${
-                      highlighted ? 'ring-1 ring-amber/50 shadow-[0_0_20px_rgba(251,191,36,0.12)]' : ''
-                    }`}
+                    key={key}
+                    className={`diff-shell rounded-lg overflow-hidden ${highlighted ? 'highlight-ring' : ''}`}
                   >
                     <button
                       type="button"
-                      className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.025] transition-colors border-b border-outline/70"
+                      className="diff-toggle w-full flex items-center gap-2 px-3 py-2 text-left transition-colors min-w-0"
                       aria-expanded={open}
                       aria-controls={panelId}
-                      onClick={() => toggle(change.file_path)}
+                      onClick={() => setOpenEdits((prev) => ({ ...prev, [key]: !open }))}
                     >
                       <span
                         className={`material-symbols-outlined text-[16px] text-on-dim transition-transform duration-150 ${
                           open ? 'rotate-90' : ''
                         }`}
+                        aria-hidden="true"
                       >
                         chevron_right
                       </span>
-                      <code className="font-mono text-[11.5px] text-primary truncate flex-1">
-                        {change.file_path}
+                      <code className="font-mono text-[11.5px] text-primary truncate flex-1 min-w-0">
+                        {edit.file_path}
                       </code>
-                      {change.symbols && change.symbols.length > 0 ? (
+                      {edit.symbols.length > 0 ? (
                         <span
-                          className="symbol-list font-mono text-[10.5px] text-lavender/90 truncate max-w-[45%]"
-                          title={`Symbols: ${change.symbols.join(', ')}`}
+                          className="symbol-list font-mono text-[10.5px] text-lavender truncate max-w-[35%] hidden sm:inline"
+                          title={`Symbols: ${edit.symbols.join(', ')}`}
                         >
-                          {change.symbols.join(', ')}
+                          {edit.symbols.join(', ')}
                         </span>
                       ) : null}
-                      <span className="text-[10px] font-medium text-on-dim uppercase tracking-wider">
-                        Diff
+                      <span className="font-mono text-[10px] tabular-nums shrink-0">
+                        <span className="diff-stat-add">+{added}</span>{' '}
+                        <span className="diff-stat-del">−{removed}</span>
+                      </span>
+                      <span className="text-[10px] text-on-dim shrink-0 tabular-nums">
+                        {relativeTime(edit.timestamp, nowSeconds)}
                       </span>
                     </button>
                     {open ? (
                       <div id={panelId}>
-                        <DiffLines diff={change.diff} />
+                        {edit.symbols.length > 0 ? (
+                          <p className="m-0 px-3 pt-2 text-[10.5px] font-mono text-lavender break-words">
+                            symbols: {edit.symbols.join(', ')}
+                          </p>
+                        ) : null}
+                        <DiffLines diff={edit.diff} />
                       </div>
                     ) : null}
                   </li>
@@ -440,23 +344,6 @@ export default function Lane({
           )}
         </section>
       </div>
-
-      <footer className="mt-auto border-t border-outline-soft/80 px-5 py-3.5 bg-black/20">
-        {showArchitectureMap ? (
-          <ArchitectureMap />
-        ) : (
-          <p className="m-0 text-[11px] text-on-dim flex items-start gap-2 leading-relaxed">
-            <span className="material-symbols-outlined text-[15px] text-lavender/80 mt-px">
-              commit
-            </span>
-            <span>
-              Committed to <span className="text-lavender font-medium">@development</span>{' '}
-              <span className="font-mono text-on-muted/90">#{commitId}</span>
-              <span className="text-on-dim"> · {relativeTime(timestamp)}</span>
-            </span>
-          </p>
-        )}
-      </footer>
     </article>
   );
 }

@@ -1,10 +1,32 @@
 <!doctype html>
-<html class="dark" lang="en">
+<html class="dark" data-theme="dark" lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark light" />
     <title>Synergo — Multiplayer AI Agent Viewer</title>
+    <script>
+      // Theme before first paint (no flash). Same logic as src/dashboard/theme.ts;
+      // the key is THEME_STORAGE_KEY there. Storage may be blocked: then "system".
+      (function () {
+        var pref = 'system';
+        try {
+          var stored = window.localStorage.getItem('synergo:theme');
+          if (stored === 'light' || stored === 'dark' || stored === 'system') pref = stored;
+        } catch (e) {}
+        var dark = true;
+        if (pref === 'light') dark = false;
+        else if (pref === 'system' && window.matchMedia) {
+          dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        }
+        var root = document.documentElement;
+        root.setAttribute('data-theme', dark ? 'dark' : 'light');
+        root.setAttribute('data-theme-pref', pref);
+        root.classList.toggle('dark', dark);
+        root.style.colorScheme = dark ? 'dark' : 'light';
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link
       href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
@@ -15,41 +37,49 @@
       rel="stylesheet"
     />
     <script>
+      // Colours are theme tokens (src/index.css): rgb(var(--c-*) / alpha) keeps
+      // Tailwind's opacity modifiers (bg-primary/10) working in both themes.
+      var token = function (name) {
+        return 'rgb(var(--c-' + name + ') / <alpha-value>)';
+      };
       tailwind.config = {
         darkMode: 'class',
         theme: {
           extend: {
             colors: {
-              background: '#090E18',
-              surface: '#0E1522',
-              'surface-card': '#121A28',
-              'surface-raised': '#172032',
-              'surface-deep': '#080C14',
-              primary: '#5EEAD4',
-              lavender: '#A5B4FC',
-              'lavender-bright': '#C7D2FE',
-              indigo: '#818CF8',
-              emerald: '#34D399',
-              amber: '#FBBF24',
-              error: '#FB7185',
-              'error-deep': '#881337',
-              'on-surface': '#F8FAFC',
-              'on-muted': '#94A3B8',
-              'on-dim': '#64748B',
-              outline: '#1C2536',
-              'outline-soft': '#243044',
+              background: token('background'),
+              surface: token('surface'),
+              'surface-card': token('surface-card'),
+              'surface-raised': token('surface-raised'),
+              'surface-deep': token('surface-deep'),
+              primary: token('primary'),
+              lavender: token('lavender'),
+              'lavender-bright': token('lavender-bright'),
+              indigo: token('indigo'),
+              emerald: token('emerald'),
+              amber: token('amber'),
+              error: token('error'),
+              'error-deep': token('error-deep'),
+              'on-surface': token('on-surface'),
+              'on-muted': token('on-muted'),
+              'on-dim': token('on-dim'),
+              'on-accent': token('on-accent'),
+              outline: token('outline'),
+              'outline-soft': token('outline-soft'),
+              ink: token('ink'),
+              shade: token('shade'),
+              scrim: token('scrim'),
             },
             fontFamily: {
               sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
               mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
             },
             boxShadow: {
-              live: '0 0 0 3px rgba(52, 211, 153, 0.18)',
-              card: '0 1px 0 rgba(255,255,255,0.03) inset, 0 12px 40px rgba(0,0,0,0.28)',
-              'card-hover':
-                '0 1px 0 rgba(255,255,255,0.05) inset, 0 16px 48px rgba(0,0,0,0.35)',
-              conflict: '0 0 0 1px rgba(251, 113, 133, 0.35), 0 12px 40px rgba(136, 19, 55, 0.25)',
-              fab: '0 10px 30px rgba(129, 140, 248, 0.35)',
+              live: 'var(--shadow-live)',
+              card: 'var(--shadow-card)',
+              'card-hover': 'var(--shadow-card-hover)',
+              conflict: 'var(--shadow-conflict)',
+              fab: 'var(--fab-shadow)',
             },
             keyframes: {
               'fade-up': {
