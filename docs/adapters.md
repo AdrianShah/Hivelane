@@ -47,7 +47,11 @@ agent ◄─stdout + exit──┘
 2. `synergo/hook_fast.py` loads only your module and calls
    `normalize(payload)`. Each event it returns is posted to the local daemon,
    which asks the relay (for a `pre_edit`) and answers with an ack:
-   `{"decision": "allow" | "warn" | "block", "reason", "file_path", "others"}`.
+   `{"decision": "allow" | "warn" | "block", "reason", "file_path", "others",
+   "queue_position", "suggestion"}`. `base.ack_message` turns it into the
+   sentence every built-in adapter shows: who is in the file, the agent's
+   place in the file's wait queue, the relay's suggestion, and, on a block,
+   "run `synergo wait <file>` to wait your turn".
 3. When one call yields several events (a patch that touches three files),
    every one is checked and the strictest ack decides.
 4. `render(event, ack)` returns what to print and the exit status. Only exit
