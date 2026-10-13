@@ -12,6 +12,8 @@ them (room_manager validates them on the way back out), so adding a setting
 needs no schema change. Access control (the SHA-256 of the room's owner token
 and whether joins need an owner's approval; see Room.access_record) is a
 second opaque object of the same kind. The owner token itself is never stored.
+A room's owner-configured webhooks (server/webhooks.py) are a third: their
+URLs are credentials, so they are never logged.
 
 Stdlib only, so this works on any host with a writable disk and adds nothing to
 operate. With several relay instances, SYNERGO_REDIS_URL moves the registry
@@ -52,6 +54,9 @@ REDIS_KEY_PREFIX = "synergo:rooms"
 StoredSettings = dict[str, Any]
 # Same: {"owner_hash": str | None, "require_approval": bool}, read by Room.
 StoredAccess = dict[str, Any]
+# Same: {"hooks": [{"id", "url", "kind", "events", "created_at"}]}, read by
+# webhooks.WebhookService.
+StoredWebhooks = dict[str, Any]
 
 
 class RoomStore(Protocol):
@@ -84,6 +89,14 @@ class RoomStore(Protocol):
         """Replace a known room's access record; a no-op for an unknown code."""
         ...
 
+    def get_webhooks(self, room_id: str) -> Optional[StoredWebhooks]:
+        """The room's webhooks record, or None if it has none."""
+        ...
+
+    def set_webhooks(self, room_id: str, webhooks: StoredWebhooks) -> None:
+        """Replace a known room's webhooks record; a no-op for an unknown code."""
+        ...
+
     def remove(self, room_id: str) -> None: ...
 
     def count(self) -> int:
@@ -102,6 +115,7 @@ class MemoryRoomStore:
         self._created_at: dict[str, float] = {}
         self._settings: dict[str, StoredSettings] = {}
         self._access: dict[str, StoredAccess] = {}
+        self._webhooks: dict[str, StoredWebhooks] = {}
 
     def add(
         self,
@@ -110,6 +124,7 @@ class MemoryRoomStore:
         settings: Optional[StoredSettings] = None,
     ) -> None:
         self._created_at[room_id] = created_at
+        self._webhooks.pop(room_id, None)
         if settings is None:
             self._settings.pop(room_id, None)
         else:
@@ -135,10 +150,19 @@ class MemoryRoomStore:
         if room_id in self._created_at:
             self._access[room_id] = dict(access)
 
+    def get_webhooks(self, room_id: str) -> Optional[StoredWebhooks]:
+        webhooks = self._webhooks.get(room_id)
+        return None if webhooks is None else json.loads(json.dumps(webhooks))
+
+    def set_webhooks(self, room_id: str, webhooks: StoredWebhooks) -> None:
+        if room_id in self._created_at:
+            self._webhooks[room_id] = json.loads(json.dumps(webhooks))
+
     def remove(self, room_id: str) -> None:
         self._created_at.pop(room_id, None)
         self._settings.pop(room_id, None)
         self._access.pop(room_id, None)
+        self._webhooks.pop(room_id, None)
 
     def count(self) -> int:
         cutoff = time.time() - ROOM_TTL_SECONDS
@@ -155,6 +179,7 @@ class MemoryRoomStore:
             del self._created_at[room_id]
             self._settings.pop(room_id, None)
             self._access.pop(room_id, None)
+            self._webhooks.pop(room_id, None)
         return len(expired)
 
 
@@ -178,7 +203,8 @@ class SqliteRoomStore:
             "  room_id TEXT PRIMARY KEY,"
             "  created_at REAL NOT NULL,"
             "  settings TEXT,"
-            "  access TEXT"
+            "  access TEXT,"
+            "  webhooks TEXT"
             ")"
         )
         self._migrate()
@@ -199,6 +225,10 @@ class SqliteRoomStore:
         if "access" not in columns:
             self._conn.execute("ALTER TABLE rooms ADD COLUMN access TEXT")
             log.info("Migrated room registry at %s: added access column", self._path)
+        # Files from before webhooks: their rooms read back with none.
+        if "webhooks" not in columns:
+            self._conn.execute("ALTER TABLE rooms ADD COLUMN webhooks TEXT")
+            log.info("Migrated room registry at %s: added webhooks column", self._path)
 
     def add(
         self,
@@ -300,6 +330,31 @@ class SqliteRoomStore:
                 self._path,
             )
 
+    def get_webhooks(self, room_id: str) -> Optional[StoredWebhooks]:
+        try:
+            row = self._conn.execute(
+                "SELECT webhooks FROM rooms WHERE room_id = ?", (room_id,)
+            ).fetchone()
+        except sqlite3.Error:
+            log.exception(
+                "Could not read webhooks for room %s from %s", room_id, self._path
+            )
+            return None
+        return None if row is None else _decode_record(row[0], "webhooks", room_id)
+
+    def set_webhooks(self, room_id: str, webhooks: StoredWebhooks) -> None:
+        try:
+            self._conn.execute(
+                "UPDATE rooms SET webhooks = ? WHERE room_id = ?",
+                (json.dumps(webhooks, sort_keys=True), room_id),
+            )
+            self._conn.commit()
+        except sqlite3.Error:
+            # Not the record itself: webhook URLs are credentials.
+            log.exception(
+                "Could not persist webhooks for room %s at %s", room_id, self._path
+            )
+
     def remove(self, room_id: str) -> None:
         try:
             self._conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
@@ -350,6 +405,7 @@ class RedisRoomStore:
         <prefix>            sorted set, code -> created_at
         <prefix>:settings   hash, code -> settings JSON
         <prefix>:access     hash, code -> access JSON
+        <prefix>:webhooks   hash, code -> webhooks JSON
 
     The TTL is applied to the creation time, exactly as SqliteRoomStore does,
     and purge_expired trims the set and both hashes together. Each record kind
@@ -361,7 +417,7 @@ class RedisRoomStore:
     instances are unknown here until Redis is back.
     """
 
-    RECORDS = ("settings", "access")
+    RECORDS = ("settings", "access", "webhooks")
 
     def __init__(
         self,
@@ -400,6 +456,7 @@ class RedisRoomStore:
             pipe.zadd(self._index, {room_id: created_at})
             # Like SQLite's INSERT OR REPLACE: a re-added code starts over.
             pipe.hdel(self._record_keys["access"], room_id)
+            pipe.hdel(self._record_keys["webhooks"], room_id)
             if settings is None:
                 pipe.hdel(self._record_keys["settings"], room_id)
             else:
@@ -443,6 +500,13 @@ class RedisRoomStore:
     def set_access(self, room_id: str, access: StoredAccess) -> None:
         self.local.set_access(room_id, access)
         self._set("access", room_id, access)
+
+    def get_webhooks(self, room_id: str) -> Optional[StoredWebhooks]:
+        return self._get("webhooks", room_id, lambda: self.local.get_webhooks(room_id))
+
+    def set_webhooks(self, room_id: str, webhooks: StoredWebhooks) -> None:
+        self.local.set_webhooks(room_id, webhooks)
+        self._set("webhooks", room_id, webhooks)
 
     def remove(self, room_id: str) -> None:
         self.local.remove(room_id)

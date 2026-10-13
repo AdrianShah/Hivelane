@@ -61,6 +61,7 @@ export const SIDEBAR = [
     items: [
       { slug: 'adapters', file: 'docs/adapters.md', label: 'Agent adapters' },
       { slug: 'vscode', file: 'editors/vscode/README.md', label: 'VS Code / Cursor extension' },
+      { slug: 'notifications', file: 'docs/notifications.md', label: 'Notifications and replay' },
     ],
   },
   {

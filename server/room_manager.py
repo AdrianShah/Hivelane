@@ -6,25 +6,26 @@ multiplayer link — no accounts, no passwords, no sessions."""
 
 from __future__ import annotations
 
+import hmac
 import logging
 import re
 import secrets
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import ValidationError
 
 try:
     from .directory import RoomDirectory, RoomRoute, build_room_directory
     from .models import RoomSettings
-    from .room import Room, settings_problem
+    from .room import Room, hash_owner_token, settings_problem
     from .store import RoomStore, build_room_store
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
     from directory import RoomDirectory, RoomRoute, build_room_directory
     from models import RoomSettings
-    from room import Room, settings_problem
+    from room import Room, hash_owner_token, settings_problem
     from store import RoomStore, build_room_store
 
 log = logging.getLogger(__name__)
@@ -137,6 +138,7 @@ class RoomManager:
             room_id = _generate_code()
             if room_id not in self._rooms and not self._store.exists(room_id):
                 self._rooms[room_id] = Room(settings=settings)
+                self._rooms[room_id].code = room_id
                 self._store.add(
                     room_id,
                     time.time(),
@@ -170,6 +172,7 @@ class RoomManager:
         # Who owns the room and whether joins need approval are not live
         # activity either.
         room.load_access(self._store.get_access(normalized))
+        room.code = normalized
         self._rooms[normalized] = room
         log.info("Room %s revived after restart (%d room(s) live)", normalized, len(self._rooms))
         return room
@@ -182,11 +185,40 @@ class RoomManager:
         """Persist a room's owner-token hash and join policy (never the token)."""
         self._store.set_access(normalize_room_code(room_id), room.access_record())
 
+    # --- webhooks (server/webhooks.py) ----------------------------------------
+
+    def verify_owner_token(self, room_id: str, token: Optional[str]) -> bool:
+        """True if token is the owner token of a valid room code, live or not.
+
+        Read from the store for a room with no live state, so an owner can
+        manage webhooks without reviving (and so keeping alive) the room."""
+        if not token:
+            return False
+        normalized = normalize_room_code(room_id)
+        room = self._rooms.get(normalized)
+        if room is not None:
+            return room.verify_owner_token(token)
+        if not is_plausible_code(normalized) or not self._store.exists(normalized):
+            return False
+        access = self._store.get_access(normalized) or {}
+        owner_hash = access.get("owner_hash")
+        if not isinstance(owner_hash, str) or not owner_hash:
+            return False
+        return hmac.compare_digest(hash_owner_token(token), owner_hash)
+
+    def load_webhooks(self, room_id: str) -> Optional[dict[str, Any]]:
+        return self._store.get_webhooks(normalize_room_code(room_id))
+
+    def save_webhooks(self, room_id: str, record: dict[str, Any]) -> None:
+        self._store.set_webhooks(normalize_room_code(room_id), record)
+
     def cleanup_if_empty(self, room_id: str) -> None:
         normalized = normalize_room_code(room_id)
         room = self._rooms.get(normalized)
         if room is not None and room.is_empty:
             del self._rooms[normalized]
+            # Opt-in history (server/history.py) goes with the room's state.
+            room.history.clear()
             if self._directory.shared:
                 if self._claimed.pop(normalized, None) is not None:
                     self._directory.release(normalized)

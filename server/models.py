@@ -98,6 +98,10 @@ class RoomSettings(BaseModel):
     # paths into each message's e2e blob. The relay only stores and
     # broadcasts the flag so every client (and the dashboard) knows.
     e2e: bool = False
+    # Hours of room events the relay keeps for the dashboard's replay view
+    # (served on history_request). 0 keeps no history. Capped so a room
+    # cannot make the relay hold more than a day of events.
+    history_hours: float = Field(default=0, ge=0, le=24)
 
 
 class JoinMessage(BaseModel):
@@ -163,6 +167,28 @@ class EditCheckRequest(BaseModel):
     e2e: E2EBlob = ""
 
 
+class FileRequest(BaseModel):
+    """Ask the member(s) holding a file for it, and join the file's
+    wait queue (an edit_check that comes back block enqueues the sender
+    too). The relay answers, when the file frees up and the sender is
+    first in line, with file_released."""
+
+    type: Literal["file_request"] = "file_request"
+    file_path: str
+    repo_id: RepoId = ""
+    e2e: E2EBlob = ""
+
+
+class HistoryRequest(BaseModel):
+    """Spectator -> relay: replay the room's kept events newer than
+    since (0 = everything kept). Answered with history_chunk frames, the
+    last with done=true; a room keeping no history answers with one
+    empty, done chunk."""
+
+    type: Literal["history_request"] = "history_request"
+    since: float = 0
+
+
 # --- Server -> Client --------------------------------------------------------
 
 
@@ -202,6 +228,11 @@ class EditCheckResponse(BaseModel):
     reason: str = ""
     scope: DecisionScope = "file"
     decision_id: str = ""
+    # 1 = next in line for this file once its holder lapses; 0 = not queued.
+    queue_position: int = 0
+    # Something actionable to do meanwhile, built from room state (a free
+    # file nearby, the module's tests, or how long to wait). May be empty.
+    suggestion: str = ""
 
 
 class IntentUpdate(BaseModel):
@@ -230,6 +261,8 @@ class EditDecision(BaseModel):
     repo_id: RepoId = ""
     scope: DecisionScope = "file"
     decision_id: str = ""
+    queue_position: int = 0
+    suggestion: str = ""
     e2e: E2EBlob = ""
 
 
@@ -310,6 +343,7 @@ class RoomSettingsUpdate(BaseModel):
     block_window_seconds: float
     warn_window_seconds: float
     e2e: bool = False
+    history_hours: float = 0
     set_by: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
 
@@ -409,6 +443,43 @@ class RateLimited(BaseModel):
     type: Literal["rate_limited"] = "rate_limited"
     reason: str
     retry_after: int
+
+
+class FileRequested(BaseModel):
+    """Sent to each member currently holding file_path (its latest touch
+    is inside the block window) when someone asks for it: once per
+    requester per stay in the queue, whether the ask was an explicit
+    file_request or a blocked edit_check. by is the requester's name."""
+
+    type: Literal["file_requested"] = "file_requested"
+    file_path: str
+    repo_id: RepoId = ""
+    by: str
+    agent: AgentKind = "unknown"
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+
+
+class FileReleased(BaseModel):
+    """Sent to the first requester in a file's queue when the file frees
+    up: every holder's latest touch aged past the block window, or the
+    holders left. The recipient gets a short grace period in which later
+    requesters stay blocked behind it; then the next in line is released."""
+
+    type: Literal["file_released"] = "file_released"
+    file_path: str
+    repo_id: RepoId = ""
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+
+
+class HistoryChunk(BaseModel):
+    """Relay -> spectator answer to history_request: kept feed events in
+    timestamp order, in chunks; done marks the last chunk."""
+
+    type: Literal["history_chunk"] = "history_chunk"
+    events: list[dict]
+    done: bool
 
 
 class SynergoFeed(BaseModel):
