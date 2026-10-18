@@ -3,31 +3,126 @@
   "displayName": "Synergo",
   "description": "See which AI agents and teammates are editing your repo right now, and get warned before you collide.",
   "version": "0.1.0",
-  "publisher": "synergo",
-  "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/synergo/synergo" },
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other", "SCM Providers"],
-  "keywords": ["ai", "agents", "collaboration", "cursor", "claude"],
-  "activationEvents": ["onStartupFinished"],
+  "//": "TODO(owner): 'publisher' and 'repository' are suggestions; confirm the Marketplace/Open VSX publisher id and repo URL before running vsce/ovsx publish.",
+  "publisher": "adrianshah",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AdrianShah/Synergo",
+    "directory": "editors/vscode"
+  },
+  "bugs": {
+    "url": "https://github.com/AdrianShah/Synergo/issues"
+  },
+  "homepage": "https://github.com/AdrianShah/Synergo/tree/HEAD/editors/vscode#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "ai",
+    "agents",
+    "collaboration",
+    "cursor",
+    "claude"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Synergo sends file paths and saved diffs to the local daemon, so it only runs in trusted workspaces."
+    }
+  },
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "synergo.menu", "title": "Synergo: Menu" },
-      { "command": "synergo.checkFile", "title": "Synergo: Check this file" },
-      { "command": "synergo.whosHere", "title": "Synergo: Who's here" },
-      { "command": "synergo.openDashboard", "title": "Synergo: Open dashboard" },
-      { "command": "synergo.up", "title": "Synergo: Start daemon (synergo up)" }
+      {
+        "command": "synergo.menu",
+        "title": "Synergo: Menu"
+      },
+      {
+        "command": "synergo.checkFile",
+        "title": "Synergo: Check this file"
+      },
+      {
+        "command": "synergo.whosHere",
+        "title": "Synergo: Who's here"
+      },
+      {
+        "command": "synergo.openDashboard",
+        "title": "Synergo: Open dashboard"
+      },
+      {
+        "command": "synergo.up",
+        "title": "Synergo: Start daemon (synergo up)"
+      },
+      {
+        "command": "synergo.reconnect",
+        "title": "Synergo: Reconnect peer badges"
+      }
     ],
     "configuration": {
       "title": "Synergo",
       "properties": {
-        "synergo.port": { "type": "number", "default": 4600, "description": "Port of the local Synergo daemon (overrides SYNERGO_PORT)." },
-        "synergo.tokenPath": { "type": "string", "default": "", "description": "File holding the local daemon's access token. Empty: $SYNERGO_HOME/token, else ~/.synergo/token." },
-        "synergo.dashboardUrl": { "type": "string", "default": "http://localhost:5173", "description": "Base URL of the Synergo dashboard; rooms open at <url>/r/ROOM." },
-        "synergo.warnOnEdit": { "type": "boolean", "default": true, "description": "Ask the daemon before you start editing a file and warn if a peer is working on it." },
-        "synergo.shareHumanEdits": { "type": "boolean", "default": true, "description": "Share your saved edits with the room so agents and teammates see them." }
+        "synergo.port": {
+          "type": "number",
+          "default": 4600,
+          "description": "Port of the local Synergo daemon. Folder, workspace and user settings win in that order; unset, SYNERGO_PORT from the editor's environment is used, else 4600.",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "synergo.tokenPath": {
+          "type": "string",
+          "default": "",
+          "description": "File holding the local daemon's access token. Empty: $SYNERGO_HOME/token, else ~/.synergo/token."
+        },
+        "synergo.dashboardUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Base URL of the Synergo dashboard; rooms open at <url>/r/ROOM (with ?relay= when the relay is elsewhere). Empty: $SYNERGO_DASHBOARD, else http://localhost:5173 for a local relay and https://adrianshah.github.io/Synergo for any other."
+        },
+        "synergo.warnOnEdit": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask the daemon before you start editing a file and warn if a peer is working on it."
+        },
+        "synergo.shareHumanEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Share your saved edits with the room so agents and teammates see them."
+        },
+        "synergo.joinApprovalRooms": {
+          "type": "boolean",
+          "default": false,
+          "description": "In rooms that require an owner's approval, ask to join as a spectator so peer badges work. Off: badges stay off in those rooms and owners get no join requests from this editor. A declined request is never retried automatically."
+        }
       }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "synergo.checkFile",
+          "when": "resourceScheme == file",
+          "group": "navigation@90"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "synergo.checkFile",
+          "when": "resourceScheme == file && !explorerResourceIsFolder",
+          "group": "navigation@90"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "synergo.checkFile",
+          "when": "editorIsOpen"
+        }
+      ]
     }
   },
   "scripts": {
@@ -37,10 +132,12 @@
     "package": "vsce package",
     "vscode:prepublish": "npm run compile"
   },
-  "dependencies": { "ws": "^8.18.0" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
   "devDependencies": {
     "@types/node": "^20.11.0",
-    "@types/vscode": "^1.85.0",
+    "@types/vscode": "~1.85.0",
     "@types/ws": "^8.5.10",
     "@vscode/vsce": "^3.2.0",
     "typescript": "^5.4.0"

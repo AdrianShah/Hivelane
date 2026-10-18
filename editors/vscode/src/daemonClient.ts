@@ -16,10 +16,15 @@ export function defaultTokenPath(env: NodeJS.ProcessEnv = process.env, home: str
 export function readToken(file: string): string | undefined {
   try {
     const text = fs.readFileSync(file, "ascii").trim();
-    return /^[A-Za-z0-9_-]{32,256}$/.test(text) ? text : undefined;
+    return isValidToken(text) ? text : undefined;
   } catch {
     return undefined;
   }
+}
+
+/** Mirrors synergo/auth.py _valid: printable ASCII, no spaces, at least 32 characters. */
+export function isValidToken(text: string): boolean {
+  return /^[\x21-\x7e]{32,4096}$/.test(text);
 }
 
 export class DaemonAuthError extends Error {
@@ -40,6 +45,9 @@ export interface RepoStatus {
   queued_events?: number;
   repo_id?: string;
   fatal?: string | null;
+  e2e?: boolean;
+  require_approval?: boolean;
+  owner?: boolean;
   [key: string]: unknown;
 }
 
@@ -170,7 +178,11 @@ export class DaemonClient {
   }
 }
 
-const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+const foldCase = process.platform === "win32" || process.platform === "darwin";
+const norm = (p: string) => {
+  const s = p.replace(/\\/g, "/").replace(/\/+$/, "");
+  return foldCase ? s.toLowerCase() : s;
+};
 
 /** Choose the repo binding that contains `fsPath` (longest root wins). */
 export function repoForPath(status: DaemonStatus | undefined, fsPath: string): RepoStatus | undefined {
@@ -196,10 +208,11 @@ export function pathsOverlap(a: string, b: string): boolean {
 export function relativeTo(root: string, fsPath: string): string {
   const r = root.replace(/\\/g, "/").replace(/\/+$/, "");
   const p = fsPath.replace(/\\/g, "/");
-  return p.toLowerCase().startsWith(r.toLowerCase() + "/") ? p.slice(r.length + 1) : p;
+  return norm(p).startsWith(norm(r) + "/") ? p.slice(r.length + 1) : p;
 }
 
-export function statusText(status: DaemonStatus | undefined, repo: RepoStatus | undefined): string {
+export function statusText(status: DaemonStatus | undefined, repo: RepoStatus | undefined, authProblem?: boolean): string {
+  if (authProblem) return "Synergo: token mismatch";
   if (!status) return "Synergo: offline";
   if (!repo) return "Synergo: no room";
   if (!repo.connected) return `Synergo: ${repo.room} · connecting`;
@@ -222,4 +235,81 @@ export function describeAck(ack: EventAck): string {
 
 export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
+}
+
+export const DEFAULT_DASHBOARD = "https://adrianshah.github.io/Synergo";
+export const DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173";
+
+function httpUrl(wsOrHttp: string): URL {
+  return new URL(wsOrHttp.trim().replace(/^ws(s?):/i, "http$1:"));
+}
+
+/** Same test as synergo/cli.py relay_is_local. */
+export function relayIsLocal(relay: string): boolean {
+  let host = "";
+  try {
+    host = httpUrl(relay).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  } catch {
+    return false;
+  }
+  return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(host) || host.endsWith(".localhost");
+}
+
+/**
+ * Dashboard base the way the CLI picks it: the synergo.dashboardUrl setting,
+ * else $SYNERGO_DASHBOARD, else localhost:5173 for a local relay and the
+ * hosted dashboard for any other.
+ */
+export function dashboardBase(setting: string | undefined, relay: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
+  const chosen = (setting ?? "").trim() || (env.SYNERGO_DASHBOARD ?? "").trim();
+  if (chosen) return chosen.replace(/\/+$/, "");
+  return relay && relayIsLocal(relay) ? DEFAULT_DASHBOARD_LOCAL : DEFAULT_DASHBOARD;
+}
+
+/**
+ * Room link: <base>/r/ROOM, plus ?relay=<ws base> (as the dashboard's own
+ * room links carry) unless the dashboard is served by that relay itself.
+ */
+export function roomLink(base: string, room: string, relay?: string): string {
+  const code = room.trim().replace(/[\s-]+/g, "").toUpperCase();
+  const link = `${base.replace(/\/+$/, "")}/r/${encodeURIComponent(code)}`;
+  if (!relay) return link;
+  try {
+    if (httpUrl(relay).origin === new URL(base).origin) return link;
+  } catch {
+    return link;
+  }
+  return `${link}?relay=${encodeURIComponent(relay.trim().replace(/\/+$/, ""))}`;
+}
+
+/** Whether to open a spectator feed for a repo binding, and if not, why. */
+export function feedPlan(repo: RepoStatus, allowApprovalWait: boolean): { open: boolean; reason?: string } {
+  if (!repo.relay || !repo.room) return { open: false, reason: "no room" };
+  if (repo.fatal) return { open: false, reason: repo.fatal };
+  if (repo.e2e) return { open: false, reason: "peer badges are unavailable in end-to-end encrypted rooms" };
+  if (repo.require_approval && !allowApprovalWait)
+    return { open: false, reason: "this room requires an owner's approval; peer badges are off (enable synergo.joinApprovalRooms to request access)" };
+  return { open: true };
+}
+
+export interface InspectedNumber {
+  workspaceFolderValue?: unknown;
+  workspaceValue?: unknown;
+  globalValue?: unknown;
+}
+
+function validPort(v: unknown): number | undefined {
+  const n = typeof v === "string" && v.trim() ? Number(v) : v;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
+}
+
+/** Folder setting, then workspace, then user, then $SYNERGO_PORT, then 4600. */
+export function resolvePort(inspected: InspectedNumber | undefined, env: NodeJS.ProcessEnv = process.env): number {
+  return (
+    validPort(inspected?.workspaceFolderValue) ??
+    validPort(inspected?.workspaceValue) ??
+    validPort(inspected?.globalValue) ??
+    validPort(env.SYNERGO_PORT) ??
+    4600
+  );
 }

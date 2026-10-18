@@ -91,14 +91,14 @@ test("activity tracker ingests feeds, ignores self, expires", () => {
     100
   );
   assert.deepEqual(changed, ["src/auth.ts"]);
-  const touch = t.get("src\\Auth.ts", 112)!;
+  const touch = t.get("src\\Auth.ts", undefined, 112)!;
   assert.equal(touch.prompt, "fix login");
   assert.equal(tooltip(touch, 112), "sam (claude-code) edited 12 s ago: fix login");
-  assert.equal(t.get("src/mine.ts", 100), undefined);
+  assert.equal(t.get("src/mine.ts", undefined, 100), undefined);
   assert.deepEqual([...t.online.keys()].sort(), ["ana", "me", "sam"]);
   t.ingest({ type: "user_left", user_id: "ana" });
   assert.ok(!t.online.has("ana"));
-  assert.equal(t.get("src/auth.ts", 161), undefined);
+  assert.equal(t.get("src/auth.ts", undefined, 161), undefined);
   assert.deepEqual(t.prune(161), ["src/auth.ts"]);
   assert.deepEqual(t.ingest("not json"), []);
 });

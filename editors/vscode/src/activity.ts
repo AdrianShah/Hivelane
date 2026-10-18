@@ -14,7 +14,12 @@ export class ActivityTracker {
   private intents = new Map<string, { prompt: string; agent: string }>();
   readonly online = new Map<string, string>(); // user_id -> agent
 
-  constructor(public selfUserId: string | undefined = undefined, public windowSeconds = 60) {}
+  constructor(
+    public selfUserId: string | undefined = undefined,
+    public windowSeconds = 60,
+    /** Fold path case (Windows/macOS file systems); off on case-sensitive ones. */
+    public foldCase = defaultFoldCase()
+  ) {}
 
   /** Ingest a raw relay frame (JSON string or parsed). Returns changed (normalized) file paths. */
   ingest(frame: unknown, now = Date.now() / 1000): string[] {
@@ -39,15 +44,15 @@ export class ActivityTracker {
         const prompt = msg.prompt ?? msg.caption ?? this.intents.get(msg.user_id)?.prompt;
         for (const c of msg.changes ?? []) {
           if (!c?.file_path) continue;
-          const key = normalizeRel(c.file_path);
-          this.files.set(key, {
+          const rel = normalizeRel(c.file_path, this.foldCase);
+          this.files.set(touchKey(msg.repo_id, rel), {
             userId: msg.user_id,
             agent: msg.agent ?? "unknown",
             timestamp: msg.timestamp ?? now,
             prompt: prompt ?? undefined,
             repoId: msg.repo_id,
           });
-          changed.push(key);
+          changed.push(rel);
         }
         return changed;
       }
@@ -72,14 +77,29 @@ export class ActivityTracker {
     for (const [k, t] of this.files) {
       if (now - t.timestamp > this.windowSeconds) {
         this.files.delete(k);
-        gone.push(k);
+        gone.push(relOf(k));
       }
     }
     return gone;
   }
 
-  get(relPath: string, now = Date.now() / 1000): Touch | undefined {
-    const t = this.files.get(normalizeRel(relPath));
+  /**
+   * The latest touch on relPath. With repoId, only touches from that repo (or
+   * from peers that sent no repo_id) count, so a multi-repo room does not
+   * badge repo A's file for an edit in repo B.
+   */
+  get(relPath: string, repoId?: string, now = Date.now() / 1000): Touch | undefined {
+    const rel = normalizeRel(relPath, this.foldCase);
+    let t: Touch | undefined;
+    if (repoId) {
+      const own = this.files.get(touchKey(repoId, rel));
+      const unscoped = this.files.get(touchKey(undefined, rel));
+      t = own && unscoped ? (own.timestamp >= unscoped.timestamp ? own : unscoped) : own ?? unscoped;
+    } else {
+      for (const [k, v] of this.files) {
+        if (relOf(k) === rel && (!t || v.timestamp > t.timestamp)) t = v;
+      }
+    }
     if (!t || now - t.timestamp > this.windowSeconds) return undefined;
     return t;
   }
@@ -89,7 +109,7 @@ export class ActivityTracker {
   }
 
   paths(): string[] {
-    return [...this.files.keys()];
+    return [...new Set([...this.files.keys()].map((k) => relOf(k)))];
   }
 
   clear(): string[] {
@@ -101,8 +121,23 @@ export class ActivityTracker {
   }
 }
 
-export function normalizeRel(p: string): string {
-  return p.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").toLowerCase();
+export function defaultFoldCase(platform: string = process.platform): boolean {
+  return platform === "win32" || platform === "darwin";
+}
+
+const SEP = "\u0000";
+
+function touchKey(repoId: string | undefined, rel: string): string {
+  return `${repoId ?? ""}${SEP}${rel}`;
+}
+
+function relOf(key: string): string {
+  return key.slice(key.indexOf(SEP) + 1);
+}
+
+export function normalizeRel(p: string, foldCase = defaultFoldCase()): string {
+  const s = p.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "");
+  return foldCase ? s.toLowerCase() : s;
 }
 
 export function initials(userId: string): string {
