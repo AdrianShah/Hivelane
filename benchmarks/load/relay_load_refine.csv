@@ -1,0 +1,7 @@
+step,rooms,members_per_room,spectators_per_room,total_members,total_sockets,rate_per_member,offered_msgs_per_s,edit_checks,rtt_p50_ms,rtt_p95_ms,rtt_p99_ms,fanout_samples,fanout_p50_ms,fanout_p95_ms,fanout_p99_ms,relay_cpu_pct,relay_rss_mb,relay_rss_start_mb,frames_received_per_s,connect_errors,disconnects,timeouts,relay_alive,decisions,ok,step_seconds
+members-180 run1,30,6,1,180,210,2.0,360.0,2700,10.05,508.88,750.24,1954,373.0,1196.2,1416.9,40.9,93.0,85.1,659.0,0,0,0,True,"{""allow"": 449, ""block"": 2136, ""warn"": 115}",False,21.6
+members-180 run2,30,6,1,180,210,2.0,360.0,2700,8.92,42.86,65.46,2115,320.7,538.2,576.6,38.5,93.9,84.7,690.0,0,0,0,True,"{""allow"": 466, ""block"": 2126, ""warn"": 108}",True,21.5
+members-180 run3,30,6,1,180,210,2.0,360.0,2700,8.66,26.68,45.4,2140,317.4,528.4,546.0,39.8,93.1,84.8,697.0,0,0,0,True,"{""allow"": 431, ""block"": 2175, ""warn"": 94}",True,21.6
+members-240 rerun,40,6,1,240,280,2.0,480.0,3600,13.88,55.36,72.14,2827,314.6,572.4,602.5,54.9,107.0,96.0,920.0,0,0,0,True,"{""allow"": 535, ""block"": 2913, ""warn"": 152}",False,22.2
+room-size-35,1,35,2,35,37,2.0,70.0,525,7.24,52.09,75.85,850,333.4,584.5,613.3,25.4,62.0,58.9,363.0,0,0,0,True,"{""block"": 525}",False,20.8
+rooms-150x3,150,3,1,450,600,2.0,900.0,6750,22.89,72.72,91.67,5387,364.6,609.0,665.3,64.8,163.0,144.6,1332.0,0,0,0,True,"{""allow"": 2802, ""block"": 3485, ""warn"": 463}",False,25.6

@@ -394,8 +394,9 @@ def test_fallback_enforces_a_budget_changed_at_runtime() -> None:
     limiter = build_limiter(
         "t", limit=5, window_seconds=60, max_keys=8, store=RedisCounterStore(redis)
     )
-    limiter.limit = 0
+    limiter.limit = 1
 
+    assert limiter.check("ip", now=0.0).allowed
     assert not limiter.check("ip", now=0.0).allowed
 
 
@@ -779,7 +780,9 @@ def test_rate_limited_socket_is_refused_before_the_room_lookup(
 ) -> None:
     """An unknown room must not be distinguishable from a known one once the
     caller is throttled — otherwise the limiter leaks a brute-force oracle."""
-    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 0)
+    # 0 now means unlimited, so exhaust a budget of one instead.
+    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 1)
+    limits.ws_attempt_limiter.check("testclient")
     client = TestClient(app)
 
     with client.websocket_connect("/ws/ZZZZZZ") as refused:

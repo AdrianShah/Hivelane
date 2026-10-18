@@ -87,7 +87,8 @@ WebhookEvent = Literal["block", "warn", "conflict_alert", "join_request"]
 WEBHOOK_KINDS: tuple[str, ...] = ("slack", "discord", "generic")
 WEBHOOK_EVENTS: tuple[str, ...] = ("block", "warn", "conflict_alert", "join_request")
 
-MAX_WEBHOOKS_PER_ROOM = 3
+# SYNERGO_MAX_WEBHOOKS_PER_ROOM (at least 1).
+MAX_WEBHOOKS_PER_ROOM = config.MAX_WEBHOOKS_PER_ROOM
 MAX_URL_LENGTH = 2048
 OWNER_TOKEN_HEADER = "X-Synergo-Owner-Token"
 
@@ -103,11 +104,13 @@ ROOM_NOTICES_PER_MINUTE = 30
 # instance reaches this one within this long.
 CACHE_SECONDS = 30.0
 # Background deliveries in flight across the process; beyond it, dropped.
-MAX_IN_FLIGHT = 100
+# SYNERGO_WEBHOOK_MAX_IN_FLIGHT; 0 = unlimited.
+MAX_IN_FLIGHT = config.WEBHOOK_MAX_IN_FLIGHT
 # Owner API calls per client IP per minute (it is a room-code oracle otherwise).
 API_REQUESTS_PER_MINUTE = 30
 # Rooms whose notice budget is tracked at once (least recently used dropped).
-MAX_TRACKED_ROOMS = 1024
+# SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS; 0 = unlimited.
+MAX_TRACKED_ROOMS = config.WEBHOOK_MAX_TRACKED_ROOMS
 
 # Text caps inside payloads (Slack and Discord reject oversized fields).
 MAX_TEXT = 500
@@ -794,7 +797,7 @@ class WebhookService:
             loop = asyncio.get_running_loop()
         except RuntimeError:
             return
-        if len(self._tasks) >= MAX_IN_FLIGHT:
+        if MAX_IN_FLIGHT > 0 and len(self._tasks) >= MAX_IN_FLIGHT:
             deliveries_total.inc("dropped")
             log.warning("Too many webhook deliveries in flight; dropping one for room %s", code)
             return
@@ -808,7 +811,7 @@ class WebhookService:
         if bucket is None:
             bucket = TokenBucket(ROOM_NOTICES_PER_MINUTE, clock=self._clock)
             self._budgets[code] = bucket
-            while len(self._budgets) > MAX_TRACKED_ROOMS:
+            while MAX_TRACKED_ROOMS > 0 and len(self._budgets) > MAX_TRACKED_ROOMS:
                 self._budgets.popitem(last=False)
         else:
             self._budgets.move_to_end(code)

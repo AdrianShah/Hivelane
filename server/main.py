@@ -73,7 +73,7 @@ try:
         new_owner_token,
         settings_problem,
     )
-    from .room_manager import MAX_MEMBERS, RoomManager
+    from .room_manager import RoomManager, room_is_full
     from .sanitize import (
         MAX_FRAME_BYTES,
         cap_activity,
@@ -140,7 +140,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         new_owner_token,
         settings_problem,
     )
-    from room_manager import MAX_MEMBERS, RoomManager
+    from room_manager import RoomManager, room_is_full  # type: ignore[no-redef]
     from sanitize import (  # type: ignore[no-redef]
         MAX_FRAME_BYTES,
         cap_activity,
@@ -184,14 +184,17 @@ dashboard.install(app)
 
 log.info(
     "Synergo relay configured: env=%s cors_origins=%s cors_origin_regex=%s "
-    "trust_proxy_header=%s client_ip_from=%s room_message_limit=%d/min hsts=%s",
+    "trust_proxy_header=%s client_ip_from=%s room_message_limit=%s/min hsts=%s "
+    "max_rooms=%s max_members=%s",
     config.ENV,
     ", ".join(config.CORS_ORIGINS),
     config.CORS_ORIGIN_REGEX or "-",
     config.TRUST_PROXY_HEADER,
     limits.client_ip_source(),
-    config.ROOM_MESSAGE_LIMIT,
+    config.ROOM_MESSAGE_LIMIT or "unlimited",
     config.HSTS_ENABLED,
+    config.MAX_ROOMS or "unlimited",
+    config.MAX_MEMBERS or "unlimited",
 )
 
 room_manager = RoomManager()
@@ -315,6 +318,12 @@ async def receive_frame(socket: WebSocket) -> object:
     if message["type"] == "websocket.disconnect":
         raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
     text = message.get("text")
+    if not MAX_FRAME_BYTES:  # SYNERGO_MAX_FRAME_BYTES=0: uvicorn's cap only
+        raw = text if text is not None else message.get("bytes") or b""
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None
     if text is None:
         data = message.get("bytes") or b""
         if len(data) > MAX_FRAME_BYTES:
@@ -418,8 +427,9 @@ async def create_room(
     it may approve joiners and set the room's join policy.
 
     Unauthenticated, so it is rate-limited per IP: without that, a short script
-    can exhaust MAX_ROOMS and deny room creation to everyone for as long as the
-    empty-room grace period lasts.
+    can exhaust SYNERGO_MAX_ROOMS (when one is set) and deny room creation to
+    everyone for as long as the empty-room grace period lasts, or grow an
+    unlimited relay's memory.
     """
     allowance = check_room_creation(request)
     if not allowance.allowed:
@@ -484,6 +494,8 @@ async def readyz() -> dict[str, object]:
         # "memory" means per-instance limits: fine for one relay, a speed bump
         # only when several run behind a load balancer (see limits.py).
         "rate_limit_backend": limits.BACKEND,
+        # Capacity and rate limits in force, 0 meaning unlimited.
+        "limits": config.limits_summary(),
     }
 
 
@@ -659,7 +671,7 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             await room.send(socket, NameRejected(reason="Name taken"))
             continue
 
-        if len(room.member_ids) >= MAX_MEMBERS:
+        if room_is_full(room):
             metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Room full"))
             continue
@@ -671,7 +683,7 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
                 metrics.ws_rejections_total.inc("name")
                 await room.send(socket, NameRejected(reason="Name taken"))
                 continue
-            if len(room.member_ids) >= MAX_MEMBERS:
+            if room_is_full(room):
                 metrics.ws_rejections_total.inc("name")
                 await room.send(socket, NameRejected(reason="Room full"))
                 continue

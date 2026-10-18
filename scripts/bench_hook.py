@@ -6,6 +6,8 @@ N times as a subprocess with a representative PreToolUse payload against
 
   (a) no daemon listening (connection refused — the fail-open path), and
   (b) a stub HTTP server that answers every event with an allow ack,
+  (c) the real daemon (token auth, no room), and with --relay
+  (d) the real daemon connected to a real relay (edit_check round trip),
 
 and prints p50/p95 wall time for each, next to the cost of starting a bare
 interpreter, which no hook can beat.
@@ -160,6 +162,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--warmup", type=int, default=2, help="untimed runs first, to settle disk caches")
     parser.add_argument("--agent", default="claude-code", help="adapter to bench: claude-code or codex")
     parser.add_argument("--command", default=None, help="hook command line (default: the installed synergo script)")
+    parser.add_argument("--relay", action="store_true", help="also time the full hook -> daemon -> relay round trip")
     args = parser.parse_args(argv)
 
     command = shlex.split(args.command, posix=os.name != "nt") if args.command else default_command(args.agent)
@@ -195,7 +198,63 @@ def main(argv: Optional[list[str]] = None) -> int:
         # by the daemon's guard, event routed (to no repo: an allow ack).
         os.environ["SYNERGO_HOME"] = env["SYNERGO_HOME"]
         report("real daemon (token auth)", time_real_daemon(command, stdin, env, args.runs, args.warmup))
+
+        # The whole path: hook -> daemon (symbol extraction) -> relay
+        # edit_check round trip -> ack, against a relay on a free port.
+        if args.relay:
+            report("daemon + relay (edit_check)", time_relay_round_trip(command, stdin, env, work_path, args.runs, args.warmup))
     return 0
+
+
+def time_relay_round_trip(command: list[str], stdin: bytes, env: dict[str, str], work: Path, runs: int, warmup: int) -> list[float]:
+    import asyncio
+    import contextlib
+    import io
+    import urllib.request
+
+    from synergo.daemon import Daemon
+
+    relay_port = unused_port()
+    relay_env = dict(env, SYNERGO_ENV="development", ROOM_CREATE_LIMIT="0", WS_ATTEMPT_LIMIT="0")
+    relay = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", str(relay_port), "--log-level", "warning"],
+        cwd=Path(__file__).resolve().parents[1], env=relay_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while True:
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{relay_port}/health", timeout=1).read()
+                break
+            except OSError:
+                if time.monotonic() > deadline:
+                    raise SystemExit("the relay did not come up")
+                time.sleep(0.1)
+        request = urllib.request.Request(f"http://127.0.0.1:{relay_port}/rooms", data=b"", method="POST")
+        room = json.loads(urllib.request.urlopen(request, timeout=5).read())["room_id"]
+        port = unused_port()
+        daemon = Daemon(room, "bench", server=f"ws://127.0.0.1:{relay_port}/ws", port=port, root=str(work))
+        daemon.ensure_token()
+
+        def serve() -> None:
+            with contextlib.redirect_stdout(io.StringIO()):
+                asyncio.run(daemon.run())
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        deadline = time.monotonic() + 20
+        while not daemon._default.connection.connected:
+            if time.monotonic() > deadline:
+                raise SystemExit("the daemon did not reach the relay")
+            time.sleep(0.05)
+        try:
+            return time_runs(command, stdin, dict(env, SYNERGO_PORT=str(port)), runs, warmup)
+        finally:
+            daemon.stop()
+            thread.join(10)
+    finally:
+        relay.kill()
+        relay.wait()
 
 
 def time_real_daemon(command: list[str], stdin: bytes, env: dict[str, str], runs: int, warmup: int) -> list[float]:
