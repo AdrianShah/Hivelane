@@ -1,0 +1,56 @@
+[
+  {
+    "cmd": "D:\\Projects\\Synergo\\Synergo\\.venv\\Scripts\\python.exe -c pass",
+    "runs": 5,
+    "median_ms": 76.0,
+    "min_ms": 74.0,
+    "max_ms": 97.0,
+    "exit": 0,
+    "last_line": ""
+  },
+  {
+    "cmd": "--help",
+    "runs": 5,
+    "median_ms": 1068.0,
+    "min_ms": 1051.0,
+    "max_ms": 1108.0,
+    "exit": 0,
+    "last_line": "  --version   show program's version number and exit"
+  },
+  {
+    "cmd": "up --no-hooks -y (first run: create room, spawn daemon)",
+    "runs": 1,
+    "median_ms": 4565.0,
+    "min_ms": 4565.0,
+    "max_ms": 4565.0,
+    "exit": 0,
+    "last_line": "  pipx install synergo && synergo up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
+  },
+  {
+    "cmd": "up --no-hooks -y (re-run, daemon already up)",
+    "runs": 5,
+    "median_ms": 1335.0,
+    "min_ms": 1284.0,
+    "max_ms": 1492.0,
+    "exit": 0,
+    "last_line": "  pipx install synergo && synergo up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
+  },
+  {
+    "cmd": "status",
+    "runs": 5,
+    "median_ms": 1152.0,
+    "min_ms": 1118.0,
+    "max_ms": 1181.0,
+    "exit": 0,
+    "last_line": "      you own this room"
+  },
+  {
+    "cmd": "doctor",
+    "runs": 5,
+    "median_ms": 1577.0,
+    "min_ms": 1539.0,
+    "max_ms": 1602.0,
+    "exit": 1,
+    "last_line": "1 check failed."
+  }
+]

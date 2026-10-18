@@ -32,6 +32,45 @@ DEFAULT_ROOM_MESSAGE_LIMIT = 600
 # X-Forwarded-For (Render, a single nginx/Caddy/Traefik: 1).
 DEFAULT_TRUSTED_PROXY_HOPS = 1
 
+# --- capacity limits -----------------------------------------------------------
+# Every limit below (and the rate limits above) reads 0 as "unlimited".
+# docs/self-hosting.md#capacity-limits says which ones a public relay should
+# set, sized from the load test in docs/performance.md.
+#
+# Live rooms per process and named members per room. Unlimited by default: a
+# relay you run for your own team should not turn a teammate away. A public
+# relay sets both (and keeps ROOM_CREATE_LIMIT) to bound memory.
+DEFAULT_MAX_ROOMS = 0
+DEFAULT_MAX_MEMBERS = 0
+# Per-room bookkeeping, each bounded so one room cannot grow without limit.
+DEFAULT_MAX_PENDING_JOINS = 10  # joiners waiting for an owner's approval
+DEFAULT_MAX_TRACKED_DECISIONS = 1000  # warn/block decisions kept for votes (LRU)
+DEFAULT_MAX_KNOWN_PATHS = 512  # paths remembered for suggestions (LRU)
+# One file's wait line holds each member at most once, so with 0 it is bounded
+# by the room's membership.
+DEFAULT_FILE_QUEUE_MAX_LENGTH = 0
+DEFAULT_FILE_QUEUE_MAX_FILES = 256  # files with a wait line at once, per room
+# Opt-in replay history (server/history.py): per room, and process-wide.
+DEFAULT_HISTORY_MAX_EVENTS = 5000
+DEFAULT_HISTORY_MAX_BYTES = 8 * 1024 * 1024
+DEFAULT_HISTORY_TOTAL_MAX_BYTES = 128 * 1024 * 1024
+# Owner webhooks (server/webhooks.py). Webhooks per room is at least 1: each
+# one is an outbound request per matching event.
+DEFAULT_MAX_WEBHOOKS_PER_ROOM = 3
+DEFAULT_WEBHOOK_MAX_IN_FLIGHT = 100  # deliveries running at once, process-wide
+DEFAULT_WEBHOOK_MAX_TRACKED_ROOMS = 1024  # rooms with a notice budget (LRU)
+
+# --- per-message safety caps (server/sanitize.py) ------------------------------
+# These bound what one message can make the relay hold and fan out to every
+# socket in the room, so they keep their defaults unless you have a reason.
+DEFAULT_MAX_FRAME_BYTES = 512 * 1024  # any inbound frame; larger closes with 1009
+DEFAULT_MAX_DIFF_BYTES = 64 * 1024  # one file's diff in an activity message
+DEFAULT_MAX_TEXT_BYTES = 4 * 1024  # a prompt or a plan summary
+DEFAULT_MAX_FILES_PER_MESSAGE = 50  # files per activity message or plan
+DEFAULT_MAX_SYMBOLS_PER_MESSAGE = 64  # symbols per change, plan or edit check
+DEFAULT_MAX_LINE_RANGES_PER_MESSAGE = 256  # line ranges per change or edit check
+DEFAULT_MAX_PATH_CHARS = 1024  # longest path queued or remembered
+
 # Origins no real dashboard has. A CORS_ORIGIN_REGEX that matches any of them
 # matches everything, which production refuses (see _cors_wildcard_problem).
 _CORS_PROBE_ORIGINS = (
@@ -65,6 +104,27 @@ class Settings:
     trust_cloudflare: bool = False
     behind_fly: bool = False
     room_message_limit: int = DEFAULT_ROOM_MESSAGE_LIMIT
+    # Capacity limits; 0 = unlimited (see the DEFAULT_* constants above).
+    max_rooms: int = DEFAULT_MAX_ROOMS
+    max_members: int = DEFAULT_MAX_MEMBERS
+    max_pending_joins: int = DEFAULT_MAX_PENDING_JOINS
+    max_tracked_decisions: int = DEFAULT_MAX_TRACKED_DECISIONS
+    max_known_paths: int = DEFAULT_MAX_KNOWN_PATHS
+    file_queue_max_length: int = DEFAULT_FILE_QUEUE_MAX_LENGTH
+    file_queue_max_files: int = DEFAULT_FILE_QUEUE_MAX_FILES
+    history_max_events: int = DEFAULT_HISTORY_MAX_EVENTS
+    history_max_bytes: int = DEFAULT_HISTORY_MAX_BYTES
+    history_total_max_bytes: int = DEFAULT_HISTORY_TOTAL_MAX_BYTES
+    max_webhooks_per_room: int = DEFAULT_MAX_WEBHOOKS_PER_ROOM
+    webhook_max_in_flight: int = DEFAULT_WEBHOOK_MAX_IN_FLIGHT
+    webhook_max_tracked_rooms: int = DEFAULT_WEBHOOK_MAX_TRACKED_ROOMS
+    max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES
+    max_diff_bytes: int = DEFAULT_MAX_DIFF_BYTES
+    max_text_bytes: int = DEFAULT_MAX_TEXT_BYTES
+    max_files_per_message: int = DEFAULT_MAX_FILES_PER_MESSAGE
+    max_symbols_per_message: int = DEFAULT_MAX_SYMBOLS_PER_MESSAGE
+    max_line_ranges_per_message: int = DEFAULT_MAX_LINE_RANGES_PER_MESSAGE
+    max_path_chars: int = DEFAULT_MAX_PATH_CHARS
 
     @property
     def is_production(self) -> bool:
@@ -104,6 +164,61 @@ def _positive_int(env: Mapping[str, str], name: str, default: int) -> int:
     if value < 1:
         raise ConfigError(f"{name} must be at least 1, got {value}")
     return value
+
+
+def _limit(env: Mapping[str, str], name: str, default: int) -> int:
+    """A capacity or rate limit: a whole number, 0 meaning unlimited."""
+    raw = env.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer (0 = unlimited), got {raw!r}") from exc
+    if value < 0:
+        raise ConfigError(f"{name} must be 0 (unlimited) or more, got {value}")
+    return value
+
+
+# (Settings field, environment variable, default) for every capacity limit
+# that reads 0 as unlimited. Webhooks per room is not here: it is at least 1.
+LIMITS: tuple[tuple[str, str, int], ...] = (
+    ("max_rooms", "SYNERGO_MAX_ROOMS", DEFAULT_MAX_ROOMS),
+    ("max_members", "SYNERGO_MAX_MEMBERS", DEFAULT_MAX_MEMBERS),
+    ("max_pending_joins", "SYNERGO_MAX_PENDING_JOINS", DEFAULT_MAX_PENDING_JOINS),
+    ("max_tracked_decisions", "SYNERGO_MAX_TRACKED_DECISIONS", DEFAULT_MAX_TRACKED_DECISIONS),
+    ("max_known_paths", "SYNERGO_MAX_KNOWN_PATHS", DEFAULT_MAX_KNOWN_PATHS),
+    ("file_queue_max_length", "SYNERGO_FILE_QUEUE_MAX_LENGTH", DEFAULT_FILE_QUEUE_MAX_LENGTH),
+    ("file_queue_max_files", "SYNERGO_FILE_QUEUE_MAX_FILES", DEFAULT_FILE_QUEUE_MAX_FILES),
+    ("history_max_events", "SYNERGO_HISTORY_MAX_EVENTS", DEFAULT_HISTORY_MAX_EVENTS),
+    ("history_max_bytes", "SYNERGO_HISTORY_MAX_BYTES", DEFAULT_HISTORY_MAX_BYTES),
+    (
+        "history_total_max_bytes",
+        "SYNERGO_HISTORY_TOTAL_MAX_BYTES",
+        DEFAULT_HISTORY_TOTAL_MAX_BYTES,
+    ),
+    ("webhook_max_in_flight", "SYNERGO_WEBHOOK_MAX_IN_FLIGHT", DEFAULT_WEBHOOK_MAX_IN_FLIGHT),
+    (
+        "webhook_max_tracked_rooms",
+        "SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS",
+        DEFAULT_WEBHOOK_MAX_TRACKED_ROOMS,
+    ),
+    ("max_frame_bytes", "SYNERGO_MAX_FRAME_BYTES", DEFAULT_MAX_FRAME_BYTES),
+    ("max_diff_bytes", "SYNERGO_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES),
+    ("max_text_bytes", "SYNERGO_MAX_TEXT_BYTES", DEFAULT_MAX_TEXT_BYTES),
+    ("max_files_per_message", "SYNERGO_MAX_FILES_PER_MESSAGE", DEFAULT_MAX_FILES_PER_MESSAGE),
+    (
+        "max_symbols_per_message",
+        "SYNERGO_MAX_SYMBOLS_PER_MESSAGE",
+        DEFAULT_MAX_SYMBOLS_PER_MESSAGE,
+    ),
+    (
+        "max_line_ranges_per_message",
+        "SYNERGO_MAX_LINE_RANGES_PER_MESSAGE",
+        DEFAULT_MAX_LINE_RANGES_PER_MESSAGE,
+    ),
+    ("max_path_chars", "SYNERGO_MAX_PATH_CHARS", DEFAULT_MAX_PATH_CHARS),
+)
 
 
 def _redis_url(env: Mapping[str, str]) -> str | None:
@@ -189,19 +304,16 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         # proxy lets any client set the header and bypass rate limiting
         # entirely, so it stays off until a trusted proxy is known to be there.
         trust_proxy_header=_bool(env.get("TRUST_PROXY_HEADER"), default=False),
-        room_create_limit=_positive_int(
-            env, "ROOM_CREATE_LIMIT", DEFAULT_ROOM_CREATE_LIMIT
-        ),
+        # Rate limits: 0 switches one off (a private relay, a load test).
+        room_create_limit=_limit(env, "ROOM_CREATE_LIMIT", DEFAULT_ROOM_CREATE_LIMIT),
         room_create_window_seconds=_positive_int(
             env, "ROOM_CREATE_WINDOW_SECONDS", DEFAULT_ROOM_CREATE_WINDOW_SECONDS
         ),
-        ws_attempt_limit=_positive_int(
-            env, "WS_ATTEMPT_LIMIT", DEFAULT_WS_ATTEMPT_LIMIT
-        ),
+        ws_attempt_limit=_limit(env, "WS_ATTEMPT_LIMIT", DEFAULT_WS_ATTEMPT_LIMIT),
         ws_attempt_window_seconds=_positive_int(
             env, "WS_ATTEMPT_WINDOW_SECONDS", DEFAULT_WS_ATTEMPT_WINDOW_SECONDS
         ),
-        rate_limit_max_tracked_ips=_positive_int(
+        rate_limit_max_tracked_ips=_limit(
             env, "RATE_LIMIT_MAX_TRACKED_IPS", DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS
         ),
         redis_url=_redis_url(env),
@@ -216,9 +328,11 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         # Fly.io sets FLY_APP_NAME on every machine, and its proxy overwrites
         # Fly-Client-IP on every request, so that header cannot be forged.
         behind_fly=bool((env.get("FLY_APP_NAME") or "").strip()),
-        room_message_limit=_positive_int(
-            env, "ROOM_MESSAGE_LIMIT", DEFAULT_ROOM_MESSAGE_LIMIT
+        room_message_limit=_limit(env, "ROOM_MESSAGE_LIMIT", DEFAULT_ROOM_MESSAGE_LIMIT),
+        max_webhooks_per_room=_positive_int(
+            env, "SYNERGO_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
         ),
+        **{field: _limit(env, name, default) for field, name, default in LIMITS},
     )
 
 
@@ -241,3 +355,38 @@ TRUST_CLOUDFLARE: bool = SETTINGS.trust_cloudflare
 BEHIND_FLY: bool = SETTINGS.behind_fly
 ROOM_MESSAGE_LIMIT: int = SETTINGS.room_message_limit
 HSTS_ENABLED: bool = SETTINGS.hsts_enabled
+# Capacity limits (0 = unlimited). Each module copies the ones it enforces
+# into a constant of its own at import, so a test can patch that constant.
+MAX_ROOMS: int = SETTINGS.max_rooms
+MAX_MEMBERS: int = SETTINGS.max_members
+MAX_PENDING_JOINS: int = SETTINGS.max_pending_joins
+MAX_TRACKED_DECISIONS: int = SETTINGS.max_tracked_decisions
+MAX_KNOWN_PATHS: int = SETTINGS.max_known_paths
+FILE_QUEUE_MAX_LENGTH: int = SETTINGS.file_queue_max_length
+FILE_QUEUE_MAX_FILES: int = SETTINGS.file_queue_max_files
+HISTORY_MAX_EVENTS: int = SETTINGS.history_max_events
+HISTORY_MAX_BYTES: int = SETTINGS.history_max_bytes
+HISTORY_TOTAL_MAX_BYTES: int = SETTINGS.history_total_max_bytes
+MAX_WEBHOOKS_PER_ROOM: int = SETTINGS.max_webhooks_per_room
+WEBHOOK_MAX_IN_FLIGHT: int = SETTINGS.webhook_max_in_flight
+WEBHOOK_MAX_TRACKED_ROOMS: int = SETTINGS.webhook_max_tracked_rooms
+MAX_FRAME_BYTES: int = SETTINGS.max_frame_bytes
+MAX_DIFF_BYTES: int = SETTINGS.max_diff_bytes
+MAX_TEXT_BYTES: int = SETTINGS.max_text_bytes
+MAX_FILES_PER_MESSAGE: int = SETTINGS.max_files_per_message
+MAX_SYMBOLS_PER_MESSAGE: int = SETTINGS.max_symbols_per_message
+MAX_LINE_RANGES_PER_MESSAGE: int = SETTINGS.max_line_ranges_per_message
+MAX_PATH_CHARS: int = SETTINGS.max_path_chars
+
+
+def limits_summary(settings: Settings = SETTINGS) -> dict[str, int]:
+    """Every capacity and rate limit in force (0 = unlimited), for /readyz."""
+    summary = {field: getattr(settings, field) for field, _, _ in LIMITS}
+    summary.update(
+        max_webhooks_per_room=settings.max_webhooks_per_room,
+        room_create_limit=settings.room_create_limit,
+        ws_attempt_limit=settings.ws_attempt_limit,
+        room_message_limit=settings.room_message_limit,
+        rate_limit_max_tracked_ips=settings.rate_limit_max_tracked_ips,
+    )
+    return summary

@@ -230,7 +230,9 @@ def test_bad_name_is_counted_as_a_rejection() -> None:
 def test_rate_limited_connection_is_counted_as_a_rejection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 0)
+    # 0 now means unlimited, so exhaust a budget of one instead.
+    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 1)
+    limits.ws_attempt_limiter.check("testclient")
     client = TestClient(app)
 
     with client.websocket_connect("/ws/ZZZZZZ") as ws:

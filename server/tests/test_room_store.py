@@ -12,10 +12,10 @@ import pytest
 try:
     from server.models import RoomSettings
     from server.room import DEFAULT_SETTINGS
+    from server import room_manager as room_manager_module
     from server.room_manager import (
         CODE_ALPHABET,
         CODE_LENGTH,
-        MAX_ROOMS,
         RoomManager,
     )
     from server.store import (
@@ -29,10 +29,10 @@ try:
 except ImportError:  # Render rootDir=server
     from models import RoomSettings
     from room import DEFAULT_SETTINGS
+    import room_manager as room_manager_module  # type: ignore[no-redef]
     from room_manager import (
         CODE_ALPHABET,
         CODE_LENGTH,
-        MAX_ROOMS,
         RoomManager,
     )
     from store import (
@@ -45,9 +45,19 @@ except ImportError:  # Render rootDir=server
     )
 
 
+# A relay that sets SYNERGO_MAX_ROOMS (the default, 0, is unlimited).
+MAX_ROOMS = 100
+
+
 @pytest.fixture
 def state_path(tmp_path: Path) -> str:
     return str(tmp_path / "state" / "synergo.db")
+
+
+@pytest.fixture
+def room_cap(monkeypatch: pytest.MonkeyPatch) -> int:
+    monkeypatch.setattr(room_manager_module, "MAX_ROOMS", MAX_ROOMS)
+    return MAX_ROOMS
 
 
 def _assert_usable(manager: RoomManager, code: str) -> None:
@@ -161,7 +171,21 @@ def test_build_room_store_falls_back_when_the_path_is_unusable(
     assert isinstance(build_room_store(), MemoryRoomStore)
 
 
-def test_max_rooms_is_enforced_against_the_durable_count(state_path: str) -> None:
+def test_rooms_are_unlimited_by_default(state_path: str) -> None:
+    assert room_manager_module.MAX_ROOMS == 0
+    store = SqliteRoomStore(state_path)
+    now = time.time()
+    for index in range(MAX_ROOMS):
+        store.add(f"CODE{index:02d}", now)
+
+    manager = RoomManager(store=store)
+    assert manager.create_room()
+    assert store.count() == MAX_ROOMS + 1
+
+
+def test_max_rooms_is_enforced_against_the_durable_count(
+    state_path: str, room_cap: int
+) -> None:
     store: RoomStore = SqliteRoomStore(state_path)
     now = time.time()
     for index in range(MAX_ROOMS):
@@ -177,7 +201,7 @@ def test_max_rooms_is_enforced_against_the_durable_count(state_path: str) -> Non
     assert manager.create_room()
 
 
-def test_expired_codes_free_up_capacity(state_path: str) -> None:
+def test_expired_codes_free_up_capacity(state_path: str, room_cap: int) -> None:
     store = SqliteRoomStore(state_path)
     for index in range(MAX_ROOMS):
         store.add(f"CODE{index:02d}", time.time() - ROOM_TTL_SECONDS - 1)

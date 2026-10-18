@@ -78,7 +78,21 @@ FLUSH_GRACE = 1.0
 OLD_CONTENT_CACHE_SIZE = 512
 REPO_ROOT_CACHE_SIZE = 64
 ROUTE_CACHE_SIZE = 256
-OUTBOX_LIMIT = 500
+# Ordinary (non-priority) messages kept for the relay while it is unreachable,
+# per room connection; the oldest is dropped beyond it. SYNERGO_OUTBOX_LIMIT
+# overrides it, 0 meaning unlimited (a long outage then grows memory).
+DEFAULT_OUTBOX_LIMIT = 500
+
+
+def _outbox_limit(raw: Optional[str]) -> int:
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_OUTBOX_LIMIT
+    return value if value >= 0 else DEFAULT_OUTBOX_LIMIT
+
+
+OUTBOX_LIMIT = _outbox_limit(os.environ.get("SYNERGO_OUTBOX_LIMIT"))
 # Hex characters of repo identity sent on the wire: 64 bits is ample to keep
 # the handful of repos in one room apart, and short enough to read in logs.
 REPO_ID_LENGTH = 16
@@ -1301,7 +1315,7 @@ class RoomConnection:
         if isinstance(message, (EditCheckRequest, PlanMessage, FileRequest, JoinDecision, RoomPolicy)):
             self._priority_outbox.put_nowait(payload)
         else:
-            if self._outbox.qsize() >= OUTBOX_LIMIT:
+            if OUTBOX_LIMIT > 0 and self._outbox.qsize() >= OUTBOX_LIMIT:
                 self._outbox.get_nowait()
             self._outbox.put_nowait(payload)
         self._outbox_ready.set()

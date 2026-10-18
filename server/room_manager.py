@@ -16,6 +16,7 @@ from typing import Any, Optional
 from pydantic import ValidationError
 
 try:
+    from . import config
     from .directory import RoomDirectory, RoomRoute, build_room_directory
     from .models import RoomSettings
     from .room import Room, hash_owner_token, settings_problem
@@ -23,6 +24,7 @@ try:
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
+    import config  # type: ignore[no-redef]
     from directory import RoomDirectory, RoomRoute, build_room_directory
     from models import RoomSettings
     from room import Room, hash_owner_token, settings_problem
@@ -46,16 +48,20 @@ MAX_CODE_LENGTH = CODE_LENGTH
 _CODE_SEPARATORS = re.compile(r"[\s\-]+")
 _PLAUSIBLE_CODE = re.compile(rf"[A-Z0-9]{{{MIN_CODE_LENGTH},{MAX_CODE_LENGTH}}}")
 
-# Hard cap on room size: enough for a small hackathon team, small enough to
-# stop accidental (or malicious) pile-on in one workspace.
-MAX_MEMBERS = 6
-
-# Cap concurrent live rooms to bound memory and block ghost-room flooding.
-MAX_ROOMS = 100
+# Named members per room (SYNERGO_MAX_MEMBERS) and valid room codes on this
+# relay (SYNERGO_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
+# both to bound memory and ghost-room flooding (docs/self-hosting.md).
+MAX_MEMBERS = config.MAX_MEMBERS
+MAX_ROOMS = config.MAX_ROOMS
 
 # How long a room lease outlives the last socket in the room on this instance
 # (and covers a connection that has claimed it but not joined yet).
 RENEW_GRACE_SECONDS = 10.0
+
+
+def room_is_full(room: Room) -> bool:
+    """True when MAX_MEMBERS is set and the room already has that many."""
+    return MAX_MEMBERS > 0 and room.member_count >= MAX_MEMBERS
 
 
 def _generate_code() -> str:
@@ -131,8 +137,9 @@ class RoomManager:
         self._store.purge_expired(time.time())
         # The durable count is the one that matters: after a restart, live rooms
         # start at zero and would otherwise let the registry grow past the cap.
-        # The live count still bounds memory if the store is degraded.
-        if max(len(self._rooms), self._store.count()) >= MAX_ROOMS:
+        # The live count still bounds memory if the store is degraded. With no
+        # cap (the default) the store is not counted at all.
+        if MAX_ROOMS > 0 and max(len(self._rooms), self._store.count()) >= MAX_ROOMS:
             raise RuntimeError(f"Maximum number of rooms reached ({MAX_ROOMS})")
         for _ in range(10):  # collisions are astronomically unlikely; bound retries anyway
             room_id = _generate_code()

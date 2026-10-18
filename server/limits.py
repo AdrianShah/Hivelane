@@ -73,6 +73,8 @@ class FixedWindowLimiter:
 
     The key set is capped and evicts least-recently-seen keys first, so a
     flood of distinct source IPs cannot grow the limiter without bound.
+    A limit of 0 allows everything (and tracks nothing); max_keys of 0 does
+    not bound the key set.
     """
 
     def __init__(self, limit: int, window_seconds: float, max_keys: int) -> None:
@@ -90,6 +92,8 @@ class FixedWindowLimiter:
 
     def check(self, key: str, now: float | None = None) -> RateLimitResult:
         """Count one attempt against `key` and say whether it is allowed."""
+        if self.limit <= 0:
+            return RateLimitResult(True, 0)
         moment = time.monotonic() if now is None else now
 
         window = self._windows.get(key)
@@ -98,7 +102,7 @@ class FixedWindowLimiter:
             self._windows[key] = window
         self._windows.move_to_end(key)
 
-        while len(self._windows) > self.max_keys:
+        while self.max_keys > 0 and len(self._windows) > self.max_keys:
             self._windows.popitem(last=False)
 
         if window.count >= self.limit:
@@ -248,6 +252,8 @@ class RedisFixedWindowLimiter:
         `now` only drives the fallback: Redis keeps time for the shared
         windows, so instances whose clocks drift still agree on them.
         """
+        if self.limit <= 0:  # unlimited: no round trip to Redis
+            return RateLimitResult(True, 0)
         window_ms = max(1, math.ceil(self.window_seconds * 1000))
         hit = self.store.hit(f"{self.name}:{key}", window_ms)
         if hit is None:

@@ -174,7 +174,8 @@ A spectator: `{"type": "join"}`, or `{"type": "join", "name": null}`.
 
 The relay lowercases the name and strips everything but `a-z`, `0-9`, `_`
 and `-`. The result must be 1 to 20 characters, must not contain a blocked
-word, and must not already be in the room; a room holds at most 6 members.
+word, and must not already be in the room. A relay may cap members per room
+(`SYNERGO_MAX_MEMBERS`; unlimited by default), and then answers `Room full`.
 The cleaned-up name is the member's `user_id` in everything the relay sends.
 
 ### activity
@@ -679,8 +680,9 @@ adding one.
 ## Limits
 
 The relay bounds what one client can make it store and fan out. These are
-the current defaults; operators can change some of them, and clients should
-not depend on the exact numbers.
+the current defaults; operators can change all of them but the e2e blob
+and the per-member 0.5 s spacing ([docs/self-hosting.md](self-hosting.md#capacity-limits)),
+and clients should not depend on the exact numbers.
 
 | Limit | Default | Over the limit |
 |-------|---------|----------------|
@@ -694,9 +696,9 @@ not depend on the exact numbers.
 | `activity`, `intent`, `plan` from one member | one of each per 0.5 s | Dropped silently |
 | Inbound frames per room (`ROOM_MESSAGE_LIMIT`) | 600 per minute | Dropped silently |
 | Connection attempts per address (`WS_ATTEMPT_LIMIT`) | 30 per minute | `rate_limited`, close 4429 |
-| Members per room | 6 | `name_rejected` "Room full" |
+| Members per room (`SYNERGO_MAX_MEMBERS`) | unlimited by default | `name_rejected` "Room full" |
 | Joiners waiting for approval, per room | 10 | `room_rejected`, close 4403 |
-| Members waiting in one file's queue | 8 | Not queued (`queue_position: 0`); still blocked |
+| Members waiting in one file's queue (`SYNERGO_FILE_QUEUE_MAX_LENGTH`) | unlimited by default (each member once) | Not queued (`queue_position: 0`); still blocked |
 | Files with a wait queue, per room | 256 | Not queued (`queue_position: 0`); still blocked |
 | `history_request` per socket | one per 10 s | Ignored |
 | Kept history per room | 24 h, 5,000 events, 8 MB | Oldest events dropped |

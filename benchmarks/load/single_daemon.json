@@ -1,0 +1,28 @@
+{
+  "daemons": 1,
+  "per_room": 1,
+  "rooms": 1,
+  "rate_cycles_per_s": 4.0,
+  "seconds": 15.0,
+  "connect_all_s": 0.06,
+  "connected": 1,
+  "still_connected": 1,
+  "errors": 0,
+  "decisions": {
+    "allow": 56
+  },
+  "pre_edit": {
+    "n": 56,
+    "p50_ms": 1.75,
+    "p95_ms": 3.06,
+    "p99_ms": 3.46,
+    "mean_ms": 2.04
+  },
+  "post_edit": {
+    "n": 56,
+    "p50_ms": 4.61,
+    "p95_ms": 6.39,
+    "p99_ms": 6.7,
+    "mean_ms": 4.83
+  }
+}

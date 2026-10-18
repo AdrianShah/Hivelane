@@ -1,0 +1,41 @@
+{
+  "node": "v24.13.0",
+  "results": [
+    {
+      "events": 1000,
+      "reduce_total_ms": 9.5,
+      "reduce_per_event_us": 9.5,
+      "derived_views_ms": 2.16,
+      "file_tree_ms": 19.24,
+      "steady_frame_ms": 2.09,
+      "touches_kept": 600,
+      "timeline_kept": 200,
+      "blocks": 100,
+      "tree_children": 1
+    },
+    {
+      "events": 10000,
+      "reduce_total_ms": 253.3,
+      "reduce_per_event_us": 25.3,
+      "derived_views_ms": 1.29,
+      "file_tree_ms": 6.46,
+      "steady_frame_ms": 7.39,
+      "touches_kept": 3000,
+      "timeline_kept": 500,
+      "blocks": 250,
+      "tree_children": 1
+    },
+    {
+      "events": 50000,
+      "reduce_total_ms": 1220,
+      "reduce_per_event_us": 24.4,
+      "derived_views_ms": 1.99,
+      "file_tree_ms": 7.66,
+      "steady_frame_ms": 8.01,
+      "touches_kept": 3000,
+      "timeline_kept": 500,
+      "blocks": 250,
+      "tree_children": 1
+    }
+  ]
+}

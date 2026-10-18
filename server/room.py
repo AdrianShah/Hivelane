@@ -147,18 +147,21 @@ LINE_PROXIMITY = 10
 IMPORTS_SYMBOL = "<imports>"
 
 # Feedback is kept for this many recent decisions per room (LRU).
-MAX_TRACKED_DECISIONS = 1000
+# SYNERGO_MAX_TRACKED_DECISIONS; 0 = unlimited.
+MAX_TRACKED_DECISIONS = config.MAX_TRACKED_DECISIONS
 
 # Joiners that may wait for an owner's approval at once, per room. Bounded so a
 # script holding sockets open cannot grow the queue (or the owners' screens).
-MAX_PENDING_JOINS = 10
+# SYNERGO_MAX_PENDING_JOINS; 0 = unlimited.
+MAX_PENDING_JOINS = config.MAX_PENDING_JOINS
 
 # Bytes of randomness in an owner token (POST /rooms returns it once).
 OWNER_TOKEN_BYTES = 32
 
 # Paths this room has seen (edit checks, file requests), remembered per
 # (repo_id, path) for edit-check suggestions. Bounded LRU.
-MAX_KNOWN_PATHS = 512
+# SYNERGO_MAX_KNOWN_PATHS; 0 = unlimited.
+MAX_KNOWN_PATHS = config.MAX_KNOWN_PATHS
 
 
 def new_owner_token() -> str:
@@ -386,7 +389,10 @@ class Room:
         # request_id -> joiner waiting for approval, oldest first.
         self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
         # Inbound messages per minute, summed over every socket in the room.
-        self.message_quota = TokenBucket(config.ROOM_MESSAGE_LIMIT)
+        # None when ROOM_MESSAGE_LIMIT is 0 (unlimited).
+        self.message_quota: Optional[TokenBucket] = (
+            TokenBucket(config.ROOM_MESSAGE_LIMIT) if config.ROOM_MESSAGE_LIMIT > 0 else None
+        )
         # The room code, set by RoomManager ("" for a Room made elsewhere).
         self.code = ""
         # Opt-in replay buffer of broadcast feed events (history_hours > 0).
@@ -594,7 +600,7 @@ class Room:
         self, name: str, agent: AgentKind = "unknown", now: Optional[float] = None
     ) -> Optional[PendingJoin]:
         """Queue a joiner for approval, or None when MAX_PENDING_JOINS wait."""
-        if len(self._pending) >= MAX_PENDING_JOINS:
+        if MAX_PENDING_JOINS > 0 and len(self._pending) >= MAX_PENDING_JOINS:
             return None
         pending = PendingJoin(
             request_id=uuid.uuid4().hex,
@@ -664,7 +670,7 @@ class Room:
 
     def allow_message(self) -> bool:
         """Spend one unit of the room's inbound message quota."""
-        return self.message_quota.take()
+        return self.message_quota is None or self.message_quota.take()
 
     def is_activity_rate_limited(
         self,
@@ -1118,13 +1124,13 @@ class Room:
         if (
             not file_path
             or file_path.startswith(suggest.HASH_PREFIX)
-            or len(file_path) > MAX_QUEUED_PATH_CHARS
+            or (MAX_QUEUED_PATH_CHARS > 0 and len(file_path) > MAX_QUEUED_PATH_CHARS)
         ):
             return
         key = (repo_id, file_path)
         self._known_paths.pop(key, None)
         self._known_paths[key] = None
-        while len(self._known_paths) > MAX_KNOWN_PATHS:
+        while MAX_KNOWN_PATHS > 0 and len(self._known_paths) > MAX_KNOWN_PATHS:
             self._known_paths.popitem(last=False)
 
     def _queue_blockers(self, key: QueueKey, entry: QueueEntry, now: float) -> list[str]:
@@ -1461,7 +1467,7 @@ class Room:
         """Track a broadcast warn/block so dashboards can vote on it."""
         self._decisions[decision_id] = _DecisionVotes(scope=scope)
         self._decisions.move_to_end(decision_id)
-        while len(self._decisions) > MAX_TRACKED_DECISIONS:
+        while MAX_TRACKED_DECISIONS > 0 and len(self._decisions) > MAX_TRACKED_DECISIONS:
             self._decisions.popitem(last=False)
 
     def decision_scope(self, decision_id: str) -> Optional[DecisionScope]:

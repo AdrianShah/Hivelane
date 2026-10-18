@@ -45,11 +45,12 @@ from typing import Any
 from pydantic import ValidationError
 
 try:
-    from . import metrics
+    from . import config, metrics
     from .models import HistoryChunk, HistoryRequest
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
+    import config  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
     from models import HistoryChunk, HistoryRequest  # type: ignore[no-redef]
 
@@ -57,11 +58,12 @@ log = logging.getLogger(__name__)
 
 # Per-room bounds. Large enough for a busy afternoon (a member sends at most
 # two activity messages a second, and most frames are a few KB), small enough
-# that a room cannot make the relay hold more than this.
-HISTORY_MAX_EVENTS = 5000
-HISTORY_MAX_BYTES = 8 * 1024 * 1024
-# Across every room in this process.
-HISTORY_TOTAL_MAX_BYTES = 128 * 1024 * 1024
+# that a room cannot make the relay hold more than this. From server/config.py
+# (SYNERGO_HISTORY_MAX_EVENTS, SYNERGO_HISTORY_MAX_BYTES); 0 means no bound.
+HISTORY_MAX_EVENTS = config.HISTORY_MAX_EVENTS
+HISTORY_MAX_BYTES = config.HISTORY_MAX_BYTES
+# Across every room in this process (SYNERGO_HISTORY_TOTAL_MAX_BYTES).
+HISTORY_TOTAL_MAX_BYTES = config.HISTORY_TOTAL_MAX_BYTES
 # The same bound RoomSettings.history_hours has on the wire.
 MAX_HISTORY_HOURS = 24.0
 # Events per history_chunk frame: 200 typical events are well under the
@@ -179,7 +181,8 @@ class RoomHistory:
         while self._events and self._events[0].at < cutoff:
             self._drop_oldest()
         while self._events and (
-            len(self._events) > self.max_events or self._bytes > self.max_bytes
+            (self.max_events > 0 and len(self._events) > self.max_events)
+            or (self.max_bytes > 0 and self._bytes > self.max_bytes)
         ):
             self._drop_oldest()
 
@@ -200,7 +203,7 @@ class RoomHistory:
             except (TypeError, ValueError):
                 log.debug("History: skipping an event that is not JSON")
                 continue
-            if size > self.max_bytes:
+            if self.max_bytes > 0 and size > self.max_bytes:
                 log.debug("History: skipping a %d-byte event (cap %d)", size, self.max_bytes)
                 continue
             self._events.append(_Kept(moment, size, event))
@@ -211,6 +214,8 @@ class RoomHistory:
     def _enforce_process_cap(self) -> None:
         """Over the process-wide cap: the room adding events gives up its own
         oldest first, so a quiet room's replay is not erased by a busy one."""
+        if self.total_max_bytes <= 0:
+            return
         excess = total_bytes() - self.total_max_bytes
         while excess > 0 and self._events:
             excess -= self._events[0].size

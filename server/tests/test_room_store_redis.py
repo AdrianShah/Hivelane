@@ -14,7 +14,8 @@ import pytest
 
 try:
     from server.models import RoomSettings
-    from server.room_manager import MAX_ROOMS, RoomManager
+    from server import room_manager as room_manager_module
+    from server.room_manager import RoomManager
     from server.store import (
         REDIS_KEY_PREFIX,
         ROOM_STORE_ENV,
@@ -29,7 +30,8 @@ try:
     from server.tests.fake_redis import Clock, FakeRedis
 except ImportError:  # Render rootDir=server
     from models import RoomSettings
-    from room_manager import MAX_ROOMS, RoomManager
+    import room_manager as room_manager_module  # type: ignore[no-redef]
+    from room_manager import RoomManager
     from store import (
         REDIS_KEY_PREFIX,
         ROOM_STORE_ENV,
@@ -44,6 +46,8 @@ except ImportError:  # Render rootDir=server
     from tests.fake_redis import Clock, FakeRedis
 
 CUSTOM = RoomSettings(block_window_seconds=5.0, warn_window_seconds=30.0)
+# A relay that sets SYNERGO_MAX_ROOMS (the default, 0, is unlimited).
+MAX_ROOMS = 100
 ACCESS = {"owner_hash": "ab" * 32, "require_approval": True}
 
 StoreFactory = Callable[[], RoomStore]
@@ -149,7 +153,10 @@ def test_codes_survive_a_restart_over_the_same_store(make_store: StoreFactory) -
     assert revived.settings == CUSTOM
 
 
-def test_max_rooms_is_enforced_against_the_durable_count(make_store: StoreFactory) -> None:
+def test_max_rooms_is_enforced_against_the_durable_count(
+    make_store: StoreFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(room_manager_module, "MAX_ROOMS", MAX_ROOMS)
     store = make_store()
     now = time.time()
     for index in range(MAX_ROOMS):
