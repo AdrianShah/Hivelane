@@ -53,15 +53,17 @@ export default function Home() {
           </span>
           Synergo
         </div>
+        <span className="home__nav-note">Live collaboration radar</span>
       </header>
 
       <main className="home__hero">
         <div className="home__content">
-          <p className="home__eyebrow">Multiplayer AI agent viewer</p>
+          <p className="home__eyebrow">
+            <span className="home__eyebrow-dot" aria-hidden />
+            Multiplayer AI agent viewer
+          </p>
           <h1 className="home__headline">
-            Synergo
-            <br />
-            <em>See every agent, live.</em>
+            See every agent, <em>live.</em>
           </h1>
           <p className="home__sub">
             Create a room, run <code>synergo up</code> in each teammate&apos;s
@@ -77,9 +79,10 @@ export default function Home() {
               disabled={creating}
             >
               {creating ? 'Creating workspace…' : 'Create workspace'}
+              <span aria-hidden className="home__create-arrow">
+                →
+              </span>
             </button>
-
-            <div className="home__divider">or join</div>
 
             <form className="home__join" onSubmit={joinWorkspace}>
               <input
@@ -89,7 +92,7 @@ export default function Home() {
                   setJoinCode(event.target.value);
                   if (error) setError(null);
                 }}
-                placeholder="ROOM CODE"
+                placeholder="Room code"
                 maxLength={200}
                 autoCapitalize="characters"
                 autoComplete="off"
@@ -106,11 +109,60 @@ export default function Home() {
             </form>
           </div>
 
-          {error ? <p className="home__error">{error}</p> : null}
+          {error ? (
+            <p className="home__error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
+
+        {/* Illustrative preview of the dashboard: two lanes colliding on one file. */}
+        <figure className="home__preview" aria-label="Example: two agents editing the same file">
+          <div className="home__lane">
+            <div className="home__lane-head">
+              <span className="home__avatar">MR</span>
+              <div>
+                <strong>Maya R.</strong>
+                <span>claude · feat/billing</span>
+              </div>
+              <span className="home__live">live</span>
+            </div>
+            <p className="home__intent">Moving invoice totals into a shared helper</p>
+            <ul className="home__files">
+              <li>
+                src/billing/totals.ts <b>+42 −8</b>
+              </li>
+              <li className="is-hot">
+                src/api/invoice.ts <b>+6 −3</b>
+              </li>
+            </ul>
+          </div>
+          <div className="home__lane home__lane--offset">
+            <div className="home__lane-head">
+              <span className="home__avatar home__avatar--alt">TO</span>
+              <div>
+                <strong>Tomás O.</strong>
+                <span>codex · fix/rounding</span>
+              </div>
+              <span className="home__live">live</span>
+            </div>
+            <p className="home__intent">Rounding tax per line instead of per invoice</p>
+            <ul className="home__files">
+              <li className="is-hot">
+                src/api/invoice.ts <b>+11 −4</b>
+              </li>
+            </ul>
+          </div>
+          <figcaption className="home__alert">
+            Both agents are editing <code>src/api/invoice.ts</code>
+          </figcaption>
+        </figure>
       </main>
 
-      <footer className="home__footer">Synergo · live collaboration radar</footer>
+      <footer className="home__footer">
+        <span>Synergo</span>
+        <span>Live collaboration radar for AI agents</span>
+      </footer>
     </div>
   );
 }

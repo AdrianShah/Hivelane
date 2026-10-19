@@ -16,8 +16,8 @@ const TEAL = '#5eead4';
 const LAVENDER = '#a5b4fc';
 const ROSE = '#fb7185';
 const AMBER = '#fbbf24';
-const SANS = '"Plus Jakarta Sans", system-ui, sans-serif';
-const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const SANS = '"Geist", system-ui, sans-serif';
+const MONO = '"Geist Mono", ui-monospace, monospace';
 
 function roundRect(
   ctx: CanvasRenderingContext2D,

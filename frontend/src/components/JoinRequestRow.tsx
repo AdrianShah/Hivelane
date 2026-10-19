@@ -41,7 +41,7 @@ export default function JoinRequestRow({ request, onDecide }: JoinRequestRowProp
         </button>
         <button
           type="button"
-          className="rounded-xl border border-outline-soft px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-error hover:border-error/40 transition-colors"
+          className="rounded-xl border border-outline-soft px-4 py-1.5 text-[13px] font-semibold text-on-muted hover:text-error hover:border-error/40 transition-colors"
           onClick={() => onDecide(request.request_id, false)}
         >
           Deny

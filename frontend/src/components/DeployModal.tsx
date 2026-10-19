@@ -82,7 +82,7 @@ export default function DeployModal({
               </code>
               <button
                 type="button"
-                className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                 onClick={() => void copy(roomId, 'Room code')}
               >
                 Copy

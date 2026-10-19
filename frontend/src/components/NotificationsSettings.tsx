@@ -179,7 +179,7 @@ function BrowserNotifications({ roomId }: { roomId: string }) {
         </label>
         <button
           type="button"
-          className="rounded-lg border border-outline-soft px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
+          className="rounded-lg border border-outline-soft px-3 py-1.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
           onClick={() =>
             showNotice({
               title: 'Synergo notifications are on',
@@ -315,7 +315,7 @@ function Webhooks({ roomId, e2e }: { roomId: string; e2e: boolean }) {
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded-lg border border-outline-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-error hover:border-error/40 transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg border border-outline-soft px-2.5 py-1 text-[13px] font-semibold text-on-muted hover:text-error hover:border-error/40 transition-colors disabled:opacity-50"
                 disabled={busy}
                 onClick={() => void remove(hook)}
               >
