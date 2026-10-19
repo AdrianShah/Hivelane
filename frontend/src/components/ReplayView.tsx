@@ -232,7 +232,7 @@ export default function ReplayView({
         {enabled ? (
           <button
             type="button"
-            className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
+            className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
             disabled={!connected || cooldown}
             onClick={request}
           >

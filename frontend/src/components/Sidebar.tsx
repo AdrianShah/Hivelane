@@ -65,29 +65,27 @@ export default function Sidebar({
   const navigate = useNavigate();
 
   return (
-    <aside className="hidden md:flex flex-col w-[232px] shrink-0 glass-sidebar h-full py-6 px-3">
-      <div className="flex items-center gap-3 px-2.5 mb-8">
+    <aside className="hidden md:flex flex-col w-[220px] shrink-0 glass-sidebar h-full py-4 px-2">
+      <div className="flex items-center gap-2.5 px-2 mb-6">
         <button
           type="button"
-          className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgb(var(--c-ink)/0.06)] hover:border-lavender/40 transition-colors"
+          className="w-7 h-7 rounded-md bg-on-surface text-background text-[12px] font-semibold font-mono flex items-center justify-center"
           title="Back to home"
           onClick={() => navigate('/')}
         >
-          <span className="material-symbols-outlined text-lavender text-[20px]">
-            hub
-          </span>
+          S
         </button>
         <div className="min-w-0">
           <button
             type="button"
-            className="text-[13px] font-semibold text-on-surface truncate leading-tight tracking-tight hover:text-primary transition-colors text-left max-w-full"
+            className="text-[13px] font-medium text-on-surface truncate leading-tight tracking-tight hover:text-primary transition-colors text-left max-w-full"
             onClick={onCopyRoom}
             title="Copy shareable link"
           >
             {roomId || 'Synergo'}
           </button>
-          <p className="text-[10px] text-on-dim font-mono mt-1 tracking-wide tabular-nums">
-            {copied ? 'Link copied' : `Session ${formatElapsed(elapsedSeconds)}`}
+          <p className="text-[11px] text-on-dim font-mono mt-0.5 tabular-nums">
+            {copied ? 'Link copied' : formatElapsed(elapsedSeconds)}
           </p>
         </div>
       </div>
@@ -100,16 +98,16 @@ export default function Sidebar({
               key={item.id}
               type="button"
               onClick={() => onNavigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 ${
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-left transition-colors duration-150 ${
                 active
                   ? 'nav-active'
                   : 'text-on-muted hover:bg-ink/[0.04] hover:text-on-surface'
               }`}
             >
-              <span className="material-symbols-outlined text-[18px] opacity-90">
+              <span className="material-symbols-outlined text-[16px] opacity-80">
                 {item.icon}
               </span>
-              <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">
+              <span className="text-[13px] font-medium">
                 {item.label}
               </span>
               {item.id === 'conflicts' && conflictCount > 0 ? (
@@ -125,7 +123,7 @@ export default function Sidebar({
       <div className="mt-auto space-y-3 pt-5 border-t border-outline-soft/70 px-1">
         <button
           type="button"
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-outline-soft bg-surface-raised/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-on-muted hover:text-lavender-bright hover:border-lavender/35 hover:bg-lavender/5 transition-all duration-150 disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 rounded-md border border-outline-soft px-3 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors duration-150 disabled:opacity-50"
           onClick={onNewRoom}
           disabled={creatingRoom}
         >
@@ -135,7 +133,7 @@ export default function Sidebar({
         {onInvite ? (
           <button
             type="button"
-            className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-primary hover:bg-primary/10 transition-all duration-150"
+            className="w-full flex items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
             onClick={onInvite}
           >
             <span className="material-symbols-outlined text-base">person_add</span>
@@ -145,14 +143,14 @@ export default function Sidebar({
         <div className="flex items-center justify-between px-1.5">
           <button
             type="button"
-            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
             onClick={() => onNavigate('docs')}
           >
             Docs
           </button>
           <button
             type="button"
-            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
             onClick={() =>
               window.open(
                 `${relayHttpOrigin()}/docs`,

@@ -827,15 +827,15 @@ export default function App() {
   return (
     <div className="app-shell overflow-hidden flex flex-col bg-background">
       <header className="glass-header shrink-0 z-50">
-        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-5 h-[56px]">
-          <div className="flex items-center gap-3.5 min-w-0">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-4 h-12">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
-              className="inline-flex items-center gap-2 font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
+              className="inline-flex items-center gap-2 font-medium text-[13px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
               onClick={() => navigate('/')}
               title="Back to Synergo home"
             >
-              <span className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 text-primary text-[11px] font-bold font-mono inline-flex items-center justify-center">
+              <span className="w-5 h-5 rounded bg-on-surface text-background text-[10px] font-semibold font-mono inline-flex items-center justify-center">
                 S
               </span>
               Synergo
@@ -853,7 +853,7 @@ export default function App() {
                       : 'bg-error'
                 }`}
               />
-              <span className="sr-only sm:not-sr-only text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
+              <span className="sr-only sm:not-sr-only text-[12px] font-medium text-on-muted">
                 {serverLabel}
               </span>
               {roomSettings?.e2e ? (
@@ -885,7 +885,7 @@ export default function App() {
               >
                 {item}
                 {topNav === item ? (
-                  <span className="absolute left-3 right-3 -bottom-[11px] h-[2px] rounded-full bg-lavender" />
+                  <span className="absolute left-3 right-3 -bottom-[9px] h-px bg-on-surface" />
                 ) : null}
               </button>
             ))}
@@ -893,20 +893,16 @@ export default function App() {
 
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <div className="hidden md:flex items-center gap-2">
-              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
-                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
-                  Agents
-                </span>
-                <span className="font-mono text-[12px] font-bold text-primary tabular-nums">
-                  {String(onlineUserIds.length).padStart(2, '0')}
+              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
+                <span className="text-[12px] text-on-dim">Agents</span>
+                <span className="font-mono text-[12px] text-on-surface tabular-nums">
+                  {onlineUserIds.length}
                 </span>
               </div>
-              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
-                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
-                  Diffs
-                </span>
-                <span className="font-mono text-[12px] font-bold text-on-surface tabular-nums">
-                  {String(totalDiffs).padStart(2, '0')}
+              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
+                <span className="text-[12px] text-on-dim">Diffs</span>
+                <span className="font-mono text-[12px] text-on-surface tabular-nums">
+                  {totalDiffs}
                 </span>
               </div>
             </div>
@@ -966,7 +962,7 @@ export default function App() {
 
             <button
               type="button"
-              className="deploy-btn mobile-readonly rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
+              className="deploy-btn mobile-readonly px-3 py-1.5 text-[12px] font-medium ml-1"
               onClick={() => navigateTo('invite')}
             >
               Invite teammates
@@ -1066,16 +1062,16 @@ export default function App() {
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar relative workspace-canvas pb-20 md:pb-0">
           {view === 'dashboard' ? (
-            <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+            <div className="p-5 sm:p-8 lg:p-10 max-w-[1100px]">
+              <h1 className="text-[28px] font-medium tracking-[-0.03em] text-on-surface mb-1">
                 Dashboard
               </h1>
-              <p className="text-[13px] text-on-muted mb-6">
+              <p className="text-[14px] text-on-muted mb-8">
                 Room overview for{' '}
                 <span className="font-mono text-primary">{roomId}</span>
               </p>
               {preventedCounter}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px mb-8 bg-outline rounded-lg overflow-hidden border border-outline">
                 {[
                   {
                     label: 'Active agents',
@@ -1106,14 +1102,14 @@ export default function App() {
                     key={card.label}
                     type="button"
                     onClick={card.action}
-                    className="lane-shell rounded-2xl p-5 text-left hover:border-primary/30 transition-colors"
+                    className="bg-surface p-5 text-left hover:bg-surface-raised transition-colors"
                   >
                     <p className="section-label m-0">{card.label}</p>
-                    <p className="font-mono text-2xl font-bold text-on-surface mt-3 mb-1 capitalize">
+                    <p className="font-mono text-[28px] font-medium tracking-tight text-on-surface mt-3 mb-2 capitalize tabular-nums">
                       {card.value}
                     </p>
-                    <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
-                      {card.cta} →
+                    <span className="text-[13px] text-primary">
+                      {card.cta}
                     </span>
                   </button>
                 ))}
@@ -1121,21 +1117,21 @@ export default function App() {
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
-                  className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
+                  className="deploy-btn px-3.5 py-2 text-[13px] font-medium"
                   onClick={() => navigateTo('invite')}
                 >
                   Invite teammates
                 </button>
                 <button
                   type="button"
-                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
                   onClick={() => void copyShareUrl()}
                 >
                   Copy room link
                 </button>
                 <button
                   type="button"
-                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
                   onClick={() => navigateTo('agents')}
                 >
                   Open Synergo feed
@@ -1277,7 +1273,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                 onClick={() => navigateTo('history')}
               >
                 Open conflict history
@@ -1319,14 +1315,14 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
                     onClick={() => setDeployOpen(true)}
                   >
                     Copy CLI
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
                     onClick={() =>
                       window.open(
                         `${relayHttpOrigin()}/docs`,
@@ -1541,21 +1537,21 @@ export default function App() {
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => void copyShareUrl()}
                   >
                     Copy room link
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => navigateTo('invite')}
                   >
                     Invite teammates
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => void createNewRoom()}
                     disabled={creatingRoom}
                   >
@@ -1563,7 +1559,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => navigate('/')}
                   >
                     Leave room
