@@ -63,9 +63,11 @@ def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]
     }
 
 
-def _file_path(tool_input: dict[str, Any]) -> Optional[str]:
+def _file_path(tool_input: dict[str, Any], cwd: str = "") -> Optional[str]:
+    """The edited path, made absolute against cwd like every other adapter
+    (Write/Edit paths are absolute already; NotebookEdit's need not be)."""
     value = tool_input.get("file_path") or tool_input.get("notebook_path")
-    return value if isinstance(value, str) and value else None
+    return base.absolute(value, cwd) if isinstance(value, str) and value else None
 
 
 _read = base.read_text
@@ -126,7 +128,7 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
         return base.plan_event(AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool)
     if tool not in EDIT_TOOLS:
         return None
-    file_path = _file_path(tool_input)
+    file_path = _file_path(tool_input, cwd)
     if file_path is None:
         return None
 
@@ -150,13 +152,7 @@ def normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
 
 CALL_TO_ACTION = base.CALL_TO_ACTION
 _ack_message = base.ack_message
-
-
-def conflict_message(
-    ack: EventAck, decision: str, fallback_path: Optional[str] = None
-) -> str:
-    """Human sentence naming who is in this file and what to do about it."""
-    return _ack_message(ack.model_dump(), decision, fallback_path)
+ack_decision = base.ack_decision
 
 
 def render_ack(event: dict[str, Any], ack: Any) -> str:
@@ -168,12 +164,10 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
     """
     if event.get("kind") == "plan":
         return render_plan_ack(ack)
-    if event.get("kind") != "pre_edit" or not isinstance(ack, dict):
+    if event.get("kind") != "pre_edit":
         return ""
-    decision = ack.get("decision", "allow")
-    if decision not in DECISIONS or decision == "allow":
-        return ""
-    if not isinstance(ack.get("others", []), list):
+    decision = ack_decision(ack)
+    if decision == "allow":
         return ""
 
     message = _ack_message(ack, decision, event.get("file_path"))
@@ -220,9 +214,6 @@ def render_plan_ack(ack: Any) -> str:
     )
 
 
-ack_decision = base.ack_decision
-
-
 def render_response(event: NormalizedEvent, ack: EventAck) -> str:
     """Stdout for Claude Code. Empty string means "no output, proceed"."""
     return render_ack(event.model_dump(), ack.model_dump())
@@ -257,7 +248,7 @@ class ClaudeCodeAdapter(base.JsonHooksAdapter):
     config_subpath = (".claude", "settings.json")
 
     def hook_settings(self) -> dict[str, list[dict[str, Any]]]:
-        return hook_settings(HOOK_COMMAND)
+        return hook_settings(self.hook_command)
 
     def normalize(self, payload: Any) -> list[dict[str, Any]]:
         if not isinstance(payload, dict):
@@ -272,6 +263,8 @@ class ClaudeCodeAdapter(base.JsonHooksAdapter):
         try:
             return base.HookOutput(render_ack(event, ack))
         except Exception:  # noqa: BLE001
+            if event.get("kind") == "pre_edit" and base.ack_decision(ack) == "block":
+                return base.HookOutput(render_ack(event, {"decision": "block", "reason": base.GENERIC_BLOCK}))
             return base.PROCEED
 
     def render_notice(self, event: dict[str, Any], message: str) -> base.HookOutput:

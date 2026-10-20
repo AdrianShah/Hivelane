@@ -22,13 +22,16 @@ PREV_NAME = "pre-commit.synergo-prev"
 
 
 def hook_script() -> str:
-    python = sys.executable.replace("\\", "/")
+    import shlex
+
+    # Single-quoted for sh: a path with $, ` or " in it stays a path.
+    python = shlex.quote(sys.executable.replace("\\", "/"))
     return f"""#!/bin/sh
 {MARKER}: installed by `synergo githook install`; remove with `synergo githook uninstall`.
 if command -v synergo >/dev/null 2>&1; then
   synergo githook run || exit $?
-elif [ -x "{python}" ]; then
-  "{python}" -c "import sys; from synergo.cli import main; sys.exit(main(['githook', 'run']))" || exit $?
+elif [ -x {python} ]; then
+  {python} -c "import sys; from synergo.cli import main; sys.exit(main(['githook', 'run']))" || exit $?
 fi
 prev="$(dirname "$0")/{PREV_NAME}"
 if [ -f "$prev" ]; then

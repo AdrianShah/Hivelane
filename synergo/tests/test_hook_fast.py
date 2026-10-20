@@ -1,14 +1,13 @@
 """The stdlib-only hook hot path (synergo.hook_fast / synergo.hook_json).
 
 Three promises are checked here: the hook process never imports the daemon
-stack; its output is identical to the pydantic reference implementation it
+stack (probed per adapter in test_adapter_hook_path.py); its output is identical to the pydantic reference implementation it
 replaced; and its hand-rolled HTTP client really talks to the daemon's
 FastAPI/uvicorn endpoint.
 """
 
 from __future__ import annotations
 
-import ast
 import io
 import json
 import os
@@ -56,10 +55,18 @@ SLOW_STDLIB = {
 }
 
 
+# Sockets behind unused_port(): bound but never listening, and kept open for
+# the rest of the session so no other process (or test) can take the port
+# between picking it and connecting to it.
+_HELD_DEAD_PORTS: list[socket.socket] = []
+
+
 def unused_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
+    """A loopback port nothing listens on (a stopped daemon)."""
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    _HELD_DEAD_PORTS.append(sock)
+    return int(sock.getsockname()[1])
 
 
 # --- a stub daemon -------------------------------------------------------------
@@ -86,7 +93,10 @@ def stub_daemon() -> Iterator[tuple[int, dict[str, Any]]]:
             return
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    # A short poll interval: shutdown() otherwise waits up to 0.5 s per test.
+    thread = threading.Thread(
+        target=server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
     thread.start()
     try:
         yield int(server.server_address[1]), state
@@ -106,68 +116,7 @@ def pre_edit_payload(target: Path) -> dict[str, Any]:
 
 
 # --- 1. the hook process never imports the daemon stack -----------------------
-
-PROBE = r"""
-import sys
-before = set(sys.modules)
-from synergo import cli
-code = cli.main(["hook", "claude-code"])
-loaded = sorted(set(sys.modules) - before)
-sys.stderr.write("\nLOADED=" + repr(loaded) + "\nCODE=" + repr(code) + "\n")
-"""
-
-
-def run_probe(payload: dict[str, Any], port: int, home: Path) -> tuple[set[str], str]:
-    env = dict(os.environ, SYNERGO_PORT=str(port), SYNERGO_HOME=str(home))
-    result = subprocess.run(
-        [sys.executable, "-c", PROBE],
-        input=json.dumps(payload).encode(),
-        env=env,
-        capture_output=True,
-        timeout=30,
-    )
-    assert result.returncode == 0, result.stderr.decode(errors="replace")
-    stderr = result.stderr.decode(errors="replace")
-    loaded_line = next(line for line in stderr.splitlines() if line.startswith("LOADED="))
-    assert "CODE=0" in stderr
-    loaded = ast.literal_eval(loaded_line.removeprefix("LOADED="))
-    return {name.split(".")[0] for name in loaded}, result.stdout.decode()
-
-
-@pytest.mark.parametrize("scenario", ["allow", "block", "no-daemon"])
-def test_hook_never_imports_the_daemon_stack(
-    scenario: str, stub_daemon: tuple[int, dict[str, Any]], tmp_path: Path
-) -> None:
-    port, state = stub_daemon
-    target = tmp_path / "room.py"
-    target.write_text("def room():\n    pass\n", encoding="utf-8")
-    if scenario == "block":
-        state["ack"] = {
-            "decision": "block",
-            "reason": "Sam's cursor edited room.py 8s ago",
-            "file_path": "room.py",
-            "others": [{"user_id": "Sam", "agent": "cursor", "seconds_ago": 8.0, "prompt": "x"}],
-        }
-    if scenario == "no-daemon":
-        port = unused_port()
-    home = tmp_path / "home"
-    home.mkdir()
-    # Reading the token file is on the hot path too: it must stay import-free.
-    (home / "token").write_text("t" * 43, encoding="ascii")
-
-    roots, stdout = run_probe(pre_edit_payload(target), port, home)
-
-    assert not roots & HEAVY, f"hook imported {sorted(roots & HEAVY)}"
-    assert not roots & SLOW_STDLIB, f"hook imported slow stdlib {sorted(roots & SLOW_STDLIB)}"
-    # The scenario really exercised the path it claims to.
-    if scenario != "no-daemon":
-        assert state["tokens"] == ["t" * 43]
-    if scenario == "allow":
-        assert stdout == ""
-    elif scenario == "block":
-        assert json.loads(stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
-    else:
-        assert json.loads(stdout) == {"systemMessage": hook_fast.OFFLINE_NOT_RUNNING}
+# (the subprocess probe runs for every adapter in test_adapter_hook_path.py)
 
 
 def test_constants_match_the_daemon() -> None:
@@ -234,8 +183,11 @@ def legacy_normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
 
 
 def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
-    """claude_code.render_response as it was before the fast path, verbatim
-    (plus the Phase 5 `synergo wait` hint on a block)."""
+    """claude_code.render_response as it was before the fast path. Not fully
+    independent: it was extended in step with the features it checks (Phase
+    5's queue position, suggestion and `synergo wait` hint; the quoted,
+    sanitised teammate prompt), written out longhand here rather than
+    calling the code under test. The ACKS below exercise every branch."""
     if event.kind != "pre_edit" or ack.decision == "allow":
         return ""
     named = ack.file_path or event.file_path
@@ -244,11 +196,17 @@ def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
     if len(ack.others) > 1:
         extra = len(ack.others) - 1
         detail += f" (and {extra} other{'s' if extra > 1 else ''})"
-    message = f"{detail} — {claude_code.CALL_TO_ACTION[ack.decision]}"
-    if ack.decision == "block" and named:
-        message += f"; run `synergo wait {named}` to wait your turn"
+    if ack.decision == "block":
+        steps = [f"you're #{ack.queue_position} in line"] if ack.queue_position else []
+        steps.append(ack.suggestion or claude_code.CALL_TO_ACTION["block"])
+        if named:
+            steps.append(f"run `synergo wait {named}` to wait your turn")
+    else:
+        steps = [claude_code.CALL_TO_ACTION["warn"]] + ([ack.suggestion] if ack.suggestion else [])
+    message = f"{detail} — {'; '.join(steps)}"
     if ack.others and ack.others[0].prompt:
-        message += f' (their task: "{ack.others[0].prompt}")'
+        prompt = ack.others[0].prompt.replace('"', "'")  # these ACKS carry no control characters
+        message += f" (their task, in the teammate's own words: \"{prompt}\")"
     if ack.decision == "block":
         return json.dumps(
             {
@@ -336,6 +294,21 @@ ACKS: dict[str, EventAck] = {
         ],
     ),
     "block-nobody-nothing": EventAck(decision="block"),
+    "block-queued-with-suggestion": EventAck(
+        decision="block",
+        reason="Sam's cursor is editing server/room.py",
+        file_path="server/room.py",
+        queue_position=2,
+        suggestion="work on server/tests meanwhile",
+        others=[PeerTouch(user_id="Sam", agent="cursor", seconds_ago=1.0)],
+    ),
+    "warn-with-suggestion": EventAck(
+        decision="warn",
+        reason="Sam's cursor declared intent on server/room.py",
+        file_path="server/room.py",
+        suggestion="split the file first",
+        others=[PeerTouch(user_id="Sam", agent="cursor", seconds_ago=1.0)],
+    ),
 }
 
 
@@ -352,7 +325,7 @@ def test_fast_path_matches_reference_for_every_payload_and_ack(
             posted: list[dict[str, Any]] = []
             wire = json.loads(ack.model_dump_json())
 
-            def fake_post(event: dict[str, Any], port: int) -> Any:
+            def fake_post(event: dict[str, Any], port: int, timeout: float = 2.0) -> Any:
                 posted.append(event)
                 return wire
 
@@ -384,7 +357,7 @@ def test_plural_and_fallback_wording_is_pinned(tmp_path: Path) -> None:
     warn = json.loads(claude_code.render_response(event, ACKS["warn-many-no-reason"]))
     assert warn["hookSpecificOutput"]["additionalContext"] == (
         f"Synergo warning: a teammate's agent is already working in {target} (and 2 others)"
-        ' — check with them before you overlap (their task: "split the relay")'
+        " — check with them before you overlap (their task, in the teammate's own words: \"split the relay\")"
     )
     block = json.loads(claude_code.render_response(event, ACKS["block-two-missing-reason"]))
     assert block["hookSpecificOutput"]["permissionDecisionReason"] == (
@@ -421,14 +394,18 @@ def live_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[tup
     from synergo.daemon import Daemon
 
     monkeypatch.setenv("SYNERGO_HOME", str(tmp_path / "home"))
-    port = unused_port()
+    # Bind first and hand uvicorn the socket: no window in which another
+    # process could take a port picked by bind-and-release.
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    port = int(listener.getsockname()[1])
     daemon = Daemon("TEAM42", "Ada", port=port)
     daemon.ensure_token()
     config = uvicorn.Config(
         daemon.app, host="127.0.0.1", port=port, log_level="warning", lifespan="off", ws="none"
     )
     server = uvicorn.Server(config)
-    thread = threading.Thread(target=server.run, daemon=True)
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]}, daemon=True)
     thread.start()
     deadline = time.monotonic() + 15
     while not server.started:
@@ -440,6 +417,7 @@ def live_daemon(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[tup
     finally:
         server.should_exit = True
         thread.join(timeout=15)
+        listener.close()
 
 
 def test_hook_round_trips_through_real_daemon(live_daemon: tuple[Any, int], tmp_path: Path) -> None:
@@ -516,7 +494,7 @@ def test_daemon_demands_its_token_and_its_own_host(live_daemon: tuple[Any, int])
     # /health is the one unauthenticated route, and says nothing.
     status, reply = raw_request(port, f"GET /health HTTP/1.1\r\n{host}Connection: close\r\n\r\n")
     assert status == 200 and json.loads(reply) == {"ok": True, "service": "synergo-daemon"}
-    status, _ = raw_request(port, f"GET /health HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n")
+    status, _ = raw_request(port, "GET /health HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n")
     assert status == 421
 
 
@@ -590,7 +568,7 @@ def test_silent_daemon_is_reported_as_not_responding() -> None:
 def test_not_responding_daemon_notifies(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
-    def hang(event: dict[str, Any], port: int) -> Any:
+    def hang(event: dict[str, Any], port: int, timeout: float = 2.0) -> Any:
         raise hook_fast.DaemonUnreachable(hook_fast.OFFLINE_NOT_RESPONDING)
 
     monkeypatch.setattr(hook_fast, "post_event", hang)
@@ -619,14 +597,29 @@ def test_response_parsing(raw: bytes) -> None:
     "raw",
     [
         b"",
-        b"HTTP/1.1 500 Internal Server Error\r\ncontent-length: 2\r\n\r\n{}",
         b"HTTP/1.1 200 OK\r\ncontent-length: 50\r\n\r\n{}",
         b"garbage\r\n\r\n{}",
+        # finding 01 #41: a negative length sliced from the end; duplicates
+        # took the last value; other transfer codings went undecoded.
+        b'HTTP/1.1 200 OK\r\ncontent-length: -3\r\n\r\n{"decision":"block"}xyz',
+        b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\ncontent-length: 20\r\n\r\n{}",
+        b"HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip, chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
     ],
 )
 def test_bad_responses_raise(raw: bytes) -> None:
     with pytest.raises((hook_fast.BadResponse, ValueError)):
         hook_fast._parse_response(raw)
+
+
+@pytest.mark.parametrize("status", [b"422 Unprocessable Entity", b"500 Internal Server Error", b"404 Not Found"])
+def test_non_200_is_a_notice_not_a_silent_allow(status: bytes) -> None:
+    """finding 01 #12: version skew (an old daemon 422-ing a newer hook's
+    event) must not silently allow every edit forever."""
+    raw = b"HTTP/1.1 " + status + b"\r\ncontent-length: 2\r\n\r\n{}"
+    with pytest.raises(hook_fast.DaemonUnreachable) as caught:
+        hook_fast._parse_response(raw)
+    assert status[:3].decode() in str(caught.value)
+    assert not caught.value.not_running
 
 
 # --- hook_json -----------------------------------------------------------------
@@ -651,7 +644,8 @@ JSON_VALUES: list[Any] = [
     [1, "two", [3.0, None], {"k": False}],
     {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny"}},
     {"systemMessage": "Synergo: Sam — wait"},
-    {1: "int key", 2.5: "float key", True: "bool key", None: "none key"},
+    {1: "int key", 2.5: "float key", None: "none key"},
+    {True: "bool key", False: "other bool key"},
     (1, 2),
 ]
 

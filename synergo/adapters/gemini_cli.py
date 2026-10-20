@@ -18,13 +18,17 @@ say, and what this module relies on:
   "reason": ..., "systemMessage": ...}` (reason goes to the model,
   systemMessage to the terminal), or exit 2 with the reason on stderr. A
   `systemMessage` alone decides nothing, which is how a warn is rendered.
+  Limitation: that message is user-visible only, so unlike Claude Code and
+  Codex (`additionalContext`) the Gemini model itself never hears of a warn.
+- settings.json may carry comments (Gemini CLI accepts them): synergo reads
+  such a file but refuses to rewrite it, printing the entries to add by hand.
+- AfterTool with `tool_response.error` set (a failed `replace`) is not an
+  edit and posts nothing.
 
 Hence: can_block True, has_intent True, has_post_edit True.
 """
 
 from __future__ import annotations
-
-import os
 
 from synergo import hook_json
 from synergo.adapters import base
@@ -81,13 +85,14 @@ def normalize_payload(payload: Any) -> list[dict[str, Any]]:
     path = tool_input.get("file_path")
     if not isinstance(path, str) or not path:
         return []
-    if not os.path.isabs(path) and cwd:
-        path = os.path.join(cwd, path)
-    path = os.path.normpath(path)
+    path = base.absolute(path, cwd)
     if event_name == "BeforeTool":
         hints = base.string_hints(tool_input) if tool == "replace" else None
         return [base.make_event(AGENT, "pre_edit", session_id, cwd, file_path=path, tool=tool,
                                 old_content=base.read_text(path), edit_hints=hints)]
+    response = payload.get("tool_response")
+    if isinstance(response, dict) and response.get("error"):
+        return []  # the tool failed (say, old_string not found): nothing was edited
     return [base.make_event(AGENT, "post_edit", session_id, cwd, file_path=path, tool=tool,
                             new_content=base.read_text(path))]
 
@@ -116,7 +121,7 @@ class GeminiCliAdapter(base.JsonHooksAdapter):
     config_subpath = (".gemini", "settings.json")
 
     def hook_settings(self) -> dict[str, list[dict[str, Any]]]:
-        return hook_settings(HOOK_COMMAND)
+        return hook_settings(self.hook_command)
 
     def normalize(self, payload: Any) -> list[dict[str, Any]]:
         try:
@@ -128,6 +133,8 @@ class GeminiCliAdapter(base.JsonHooksAdapter):
         try:
             return base.HookOutput(render_ack(event, ack))
         except Exception:  # noqa: BLE001
+            if event.get("kind") == "pre_edit" and base.ack_decision(ack) == "block":
+                return base.HookOutput(render_ack(event, {"decision": "block", "reason": base.GENERIC_BLOCK}))
             return base.PROCEED
 
     def render_notice(self, event: dict[str, Any], message: str) -> base.HookOutput:

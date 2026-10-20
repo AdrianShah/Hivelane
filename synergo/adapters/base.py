@@ -25,9 +25,11 @@ exposes:
     install(scope_root) -> list[str]      events added ([] = already there)
     uninstall(scope_root) -> list[str]    events removed
     is_installed(scope_root) -> bool
-        scope_root None means the user's global config. Idempotent and
-        marker-based (HOOK_MARKER in the command); an unparseable config file
-        raises SettingsError and is never overwritten.
+        scope_root None means the user's global config. Idempotent; an entry
+        is synergo's when its command parses as `synergo hook <id>`
+        (parse_hook_command), and a user-customised command is kept on
+        reinstall. An unreadable or unparseable config file raises
+        SettingsError and is never overwritten.
 
 The hook path imports only this module's top half (stdlib, no json package,
 no pathlib); the install helpers import json/pathlib lazily.
@@ -35,11 +37,15 @@ no pathlib); the install helpers import json/pathlib lazily.
 
 from __future__ import annotations
 
+import os
+
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any, Optional
 
+# Display/back-compat only: ownership is decided by parse_hook_command, never
+# by this substring.
 HOOK_MARKER = "synergo hook"
 
 # Every NormalizedEvent field, so a dict built here serializes to exactly the
@@ -113,8 +119,11 @@ def string_hints(edits: Any, old_key: str = "old_string", new_key: str = "new_st
         if not isinstance(edit, dict):
             continue
         old, new = edit.get(old_key), edit.get(new_key)
-        if isinstance(old, str) and old and len(old) <= MAX_HINT_CHARS:
-            hints.append({"old": old, "new": new if isinstance(new, str) and len(new) <= MAX_HINT_CHARS else ""})
+        if not isinstance(new, str):
+            new = ""
+        # A too-long side drops the hint: "" for `new` would read as a deletion.
+        if isinstance(old, str) and old and len(old) <= MAX_HINT_CHARS and len(new) <= MAX_HINT_CHARS:
+            hints.append({"old": old, "new": new})
     return hints or None
 
 
@@ -144,6 +153,8 @@ def plan_candidates(text: str) -> tuple[list[str], list[str]]:
     text = text[:MAX_PLAN_TEXT]
     for raw in text.split():
         token = raw.strip(_TOKEN_STRIP).rstrip(".")
+        if "://" in token:
+            continue  # a URL, not a repo file
         if "." in token and token.lower().endswith(PLAN_FILE_EXTENSIONS) and token not in files:
             files.append(token)
     for index, chunk in enumerate(text.split("`")):
@@ -175,14 +186,42 @@ def plan_event(agent: str, session_id: str, cwd: str, summary: str, tool: Any = 
     )
 
 
+# Files larger than this, or binary (a NUL in the first BINARY_SNIFF_BYTES),
+# are sent as "content unknown" (None): a 30 MB log would blow the hook's time
+# budget before the request even left. Must match synergo.mcp_server.MAX_CONTENT
+# (asserted in the tests) so the hook, MCP and watch paths agree.
+MAX_CONTENT_BYTES = 256 * 1024
+BINARY_SNIFF_BYTES = 8192
+
+
 def read_text(path: str) -> Optional[str]:
-    # open() rather than pathlib: pathlib is a measurable slice of the hook's
-    # cold start.
+    """A file's text, or None when it is missing, binary, oversized or not
+    UTF-8. Never reads more than MAX_CONTENT_BYTES + 1 bytes.
+
+    open() rather than pathlib: pathlib is a measurable slice of the hook's
+    cold start. Newlines are normalised as text-mode reading would.
+    """
     try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return handle.read()
+        with open(path, "rb") as handle:
+            raw = handle.read(MAX_CONTENT_BYTES + 1)
     except (OSError, ValueError):
         return None
+    if len(raw) > MAX_CONTENT_BYTES or b"\0" in raw[:BINARY_SNIFF_BYTES]:
+        return None
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    if "\r" in text:
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text
+
+
+def absolute(path: str, cwd: str) -> str:
+    """`path` made absolute against the agent's cwd, normalised."""
+    if not os.path.isabs(path) and cwd:
+        path = os.path.join(cwd, path)
+    return os.path.normpath(path)
 
 
 def ack_decision(ack: Any) -> str:
@@ -213,6 +252,9 @@ CALL_TO_ACTION = {
     "block": "wait, or pick another file",
     "warn": "check with them before you overlap",
 }
+# What a block says when its own message could not be built: a block is never
+# rendered as an allow, even from a malformed ack.
+GENERIC_BLOCK = "a teammate's agent is already working in this file — " + CALL_TO_ACTION["block"]
 
 
 def _queue_position(ack: dict[str, Any]) -> int:
@@ -220,6 +262,53 @@ def _queue_position(ack: dict[str, Any]) -> int:
     if isinstance(position, bool) or not isinstance(position, int) or position < 0:
         return 0
     return position
+
+
+# Text from the room (a teammate's prompt, the relay's reason) reaches the
+# local model's context. Room members are semi-trusted at best, so it is capped,
+# flattened to one printable line and, for the free-form prompt, quoted as the
+# teammate's words rather than anything Synergo says.
+MAX_PROMPT_CHARS = 200
+MAX_REASON_CHARS = 400
+# Characters a model-suggested shell command may carry unquoted.
+_SAFE_PATH_CHARS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_./\\:@+=,%~"
+)
+_UNQUOTABLE_PATH_CHARS = frozenset('"`$!')
+
+
+def clean_text(value: Any, limit: int) -> str:
+    """One printable line of at most `limit` characters: control, format and
+    line-break characters become spaces, backticks and double quotes become
+    single quotes (so the text cannot open a code span or close our quotes),
+    runs of whitespace collapse."""
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    text = text[: limit * 4]
+    chars = []
+    for ch in text:
+        if ch in "`\"":
+            ch = "'"
+        elif not ch.isprintable():
+            ch = " "
+        chars.append(ch)
+    text = " ".join("".join(chars).split())
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def shell_path(path: str) -> Optional[str]:
+    """`path` as one shell word for a suggested command, or None when it
+    cannot be quoted safely for both sh and cmd."""
+    if not path or any(not ch.isprintable() for ch in path):
+        return None
+    if all(ch in _SAFE_PATH_CHARS for ch in path):
+        return path
+    if any(ch in _UNQUOTABLE_PATH_CHARS for ch in path):
+        return None
+    return f'"{path}"'
 
 
 def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]) -> str:
@@ -231,35 +320,40 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
     A block then says where the agent stands in the file's wait queue, what
     the relay suggests doing meanwhile (or the generic advice), and how to
     wait for its turn from a shell; a warn adds the relay's suggestion.
+    Everything taken from the ack is coerced to text and sanitised.
     """
     others = ack.get("others") or []
-    named = ack.get("file_path") or fallback_path
+    if not isinstance(others, list):
+        others = []
+    named_raw = ack.get("file_path") or fallback_path
+    named = clean_text(named_raw, MAX_REASON_CHARS) if named_raw else ""
     path = named or "this file"
-    detail = ack.get("reason") or f"a teammate's agent is already working in {path}"
+    detail = clean_text(ack.get("reason"), MAX_REASON_CHARS) or f"a teammate's agent is already working in {path}"
     if len(others) > 1:
         extra = len(others) - 1
         detail += f" (and {extra} other{'s' if extra > 1 else ''})"
 
-    suggestion = ack.get("suggestion")
-    suggestion = suggestion.strip() if isinstance(suggestion, str) else ""
+    suggestion = clean_text(ack.get("suggestion"), MAX_REASON_CHARS) if isinstance(ack.get("suggestion"), str) else ""
     if decision == "block":
         steps = []
         position = _queue_position(ack)
         if position:
             steps.append(f"you're #{position} in line")
         steps.append(suggestion or CALL_TO_ACTION["block"])
-        if named:
-            steps.append(f"run `synergo wait {named}` to wait your turn")
+        word = shell_path(named_raw) if isinstance(named_raw, str) else None
+        if word:
+            steps.append(f"run `synergo wait {word}` to wait your turn")
     else:
-        steps = [CALL_TO_ACTION[decision]]
+        steps = [CALL_TO_ACTION.get(decision, CALL_TO_ACTION["warn"])]
         if suggestion:
             steps.append(suggestion)
     message = f"{detail} — {'; '.join(steps)}"
     first = others[0] if others else None
     if isinstance(first, dict) and first.get("prompt"):
-        message += f' (their task: "{first["prompt"]}")'
+        prompt = clean_text(first["prompt"], MAX_PROMPT_CHARS)
+        if prompt:
+            message += f" (their task, in the teammate's own words: \"{prompt}\")"
     return message
-
 
 
 # --- shared install logic for Claude-Code-shaped JSON hook configs -------------
@@ -271,44 +365,254 @@ class SettingsError(Exception):
     """A config file exists but cannot be understood: never overwrite it."""
 
 
-def load_settings(path: Path) -> dict[str, Any]:
-    """Parse an existing JSON settings file, or raise SettingsError.
+class SettingsFormat:
+    """How a settings file was written, so a rewrite keeps it that way: its
+    encoding and byte-order mark, its line ending, and whether it carried
+    comments (which a rewrite would drop, so such a file is never rewritten)."""
 
-    Never returns {} for content it failed to understand: the caller writes this
-    file back, so a silent empty dict would replace the user's own settings.
+    __slots__ = ("encoding", "bom", "newline", "commented")
+
+    def __init__(self, encoding: str = "utf-8", bom: bytes = b"", newline: str = "\n", commented: bool = False) -> None:
+        self.encoding = encoding
+        self.bom = bom
+        self.newline = newline
+        self.commented = commented
+
+
+_BOMS: tuple[tuple[bytes, str], ...] = (
+    (b"\xef\xbb\xbf", "utf-8"),
+    (b"\xff\xfe", "utf-16-le"),
+    (b"\xfe\xff", "utf-16-be"),
+)
+
+
+def strip_json_comments(text: str) -> str:
+    """`text` with // and /* */ comments outside strings blanked out (the
+    JSONC that Gemini CLI, Cursor and VS Code accept). Line structure is kept
+    so a JSON error still points at the right line."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    in_string = False
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+            i += 1
+            continue
+        if ch == '"':
+            in_string = True
+            out.append(ch)
+            i += 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            chunk = text[i:] if end < 0 else text[i : end + 2]
+            out.append("".join(c if c == "\n" else " " for c in chunk))
+            i = n if end < 0 else end + 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
+def read_settings(path: Path) -> tuple[dict[str, Any], SettingsFormat]:
+    """Parse an existing JSON settings file and how it was written, or raise
+    SettingsError with a message fit for the user (never a traceback).
+
+    Accepts UTF-8 (with or without a BOM), UTF-16 with a BOM (what Windows
+    PowerShell 5.1's `>` writes) and comments. Never returns {} for content it
+    failed to understand: the caller writes this file back, so a silent empty
+    dict would replace the user's own settings.
     """
     import json
 
-    if not path.exists():
-        return {}
-    text = path.read_text(encoding="utf-8-sig").strip()
-    if not text:
-        return {}
+    fmt = SettingsFormat()
+    try:
+        if not path.exists():
+            return {}, fmt
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SettingsError(f"cannot read {path} ({exc.strerror or exc}) — fix it first") from None
+    for bom, encoding in _BOMS:
+        if raw.startswith(bom):
+            fmt.bom, fmt.encoding = bom, encoding
+            raw = raw[len(bom) :]
+            break
+    try:
+        text = raw.decode(fmt.encoding)
+    except UnicodeDecodeError:
+        raise SettingsError(
+            f"{path} is not UTF-8 or UTF-16 text — re-save it as UTF-8 first (synergo never rewrites a file it cannot read)"
+        ) from None
+    if "\r\n" in text:
+        fmt.newline = "\r\n"
+    if not text.strip():
+        return {}, fmt
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise SettingsError(f"{path} is not valid JSON ({exc}) — fix it first") from None
+        stripped = strip_json_comments(text)
+        if stripped == text:
+            raise SettingsError(f"{path} is not valid JSON ({exc}) — fix it first") from None
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError as exc2:
+            raise SettingsError(f"{path} is not valid JSON ({exc2}) — fix it first") from None
+        fmt.commented = True
     if not isinstance(data, dict):
         raise SettingsError(f"{path} does not contain a JSON object — refusing to overwrite")
-    return data
+    return data, fmt
 
 
-def save_settings(path: Path, settings: dict[str, Any]) -> None:
+def load_settings(path: Path) -> dict[str, Any]:
+    """Parse an existing JSON settings file, or raise SettingsError."""
+    return read_settings(path)[0]
+
+
+def save_settings(path: Path, settings: dict[str, Any], fmt: Optional[SettingsFormat] = None) -> None:
+    """Write `settings` back atomically (temp file + os.replace, so a crash or a
+    concurrent writer never sees a torn file), keeping the file's encoding,
+    BOM and line ending, and non-ASCII text as written."""
     import json
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    fmt = fmt or SettingsFormat()
+    if fmt.commented:
+        raise SettingsError(f"{path} has comments, which rewriting it would drop — refusing to overwrite")
+    text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
+    if fmt.newline != "\n":
+        text = text.replace("\n", fmt.newline)
+    data = fmt.bom + text.encode(fmt.encoding)
+    target = path.resolve() if path.is_symlink() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(f".{target.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
+    try:
+        with open(tmp, "xb") as handle:
+            handle.write(data)
+        os.replace(tmp, target)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# --- recognising synergo's own hook entries --------------------------------------
+# Structured, not a substring: the command is split into words and must invoke
+# synergo itself (`synergo`, an absolute path to it, `python -m synergo[.cli]`,
+# or any of those behind a wrapper such as `uv run`) followed by `hook <id>`
+# for a registered agent. `./lint-synergo hooks.sh` is not ours.
+
+SYNERGO_EXECUTABLES: tuple[str, ...] = ("synergo", "synergo.exe", "synergo.cmd", "synergo.bat")
+SYNERGO_MODULES: tuple[str, ...] = ("synergo", "synergo.cli")
+
+
+def split_command(command: str) -> list[str]:
+    """Whitespace-separated words, honouring '...' and "..." quoting (enough
+    for both sh and cmd command lines; backslashes are kept literally, as
+    Windows paths need)."""
+    words: list[str] = []
+    current: list[str] = []
+    quote = ""
+    started = False
+    for ch in command:
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                current.append(ch)
+        elif ch in "'\"":
+            quote = ch
+            started = True
+        elif ch.isspace():
+            if started or current:
+                words.append("".join(current))
+                current, started = [], False
+        else:
+            current.append(ch)
+    if started or current:
+        words.append("".join(current))
+    return words
+
+
+def parse_hook_command(command: Any) -> Optional[tuple[str, list[str], list[str]]]:
+    """(agent id, words before the synergo invocation, words after `hook
+    <id>`) when `command` runs `synergo hook <registered id>`, else None."""
+    if not isinstance(command, str) or "hook" not in command:
+        return None
+    from synergo.adapters import REGISTRY
+
+    words = split_command(command)
+    for index, word in enumerate(words):
+        name = _basename(word)
+        if name in SYNERGO_EXECUTABLES:
+            prefix, rest = words[:index], index + 1
+        elif (
+            word == "-m"
+            and index >= 1
+            and _basename(words[index - 1]).startswith(PYTHON_PREFIXES)
+            and index + 1 < len(words)
+            and words[index + 1] in SYNERGO_MODULES
+        ):
+            prefix, rest = words[: index - 1], index + 2
+        else:
+            continue
+        # Only launchers may come first (`uv run`, `env FOO=1`, ...): in
+        # `echo synergo hook x` synergo is an argument, not the command.
+        if not all(_launcher_word(w) for w in prefix):
+            return None
+        if rest + 1 < len(words) and words[rest] == "hook" and words[rest + 1] in REGISTRY:
+            return words[rest + 1], prefix, words[rest + 2 :]
+        return None
+    return None
+
+
+PYTHON_PREFIXES: tuple[str, ...] = ("python", "py")
+LAUNCHERS: tuple[str, ...] = (
+    "uv", "uvx", "pipx", "npx", "poetry", "pdm", "rye", "hatch", "run", "exec", "env", "--", "&", "call",
+)
+
+
+def _basename(word: str) -> str:
+    return word.replace("\\", "/").rsplit("/", 1)[-1].lower()
+
+
+def _launcher_word(word: str) -> bool:
+    name = _basename(word)
+    if name.endswith(".exe"):
+        name = name[:-4]
+    return name in LAUNCHERS or word.startswith("-") or ("=" in word and not word.startswith("="))
 
 
 def _is_synergo(hook: Any) -> bool:
-    return isinstance(hook, dict) and HOOK_MARKER in str(hook.get("command", ""))
+    return isinstance(hook, dict) and parse_hook_command(hook.get("command")) is not None
+
+
+def is_canonical_command(command: str, agent_id: str) -> bool:
+    """`command` is exactly what synergo writes by default (bare `synergo hook
+    <id>`), as opposed to a form the user customised: extra flags such as
+    --port, a wrapper, an absolute path."""
+    return split_command(command) == ["synergo", "hook", agent_id]
+
+
+def _entries(group: Any) -> Optional[list[Any]]:
+    """A group's hook list, or None when the group is not a well-formed one."""
+    if not isinstance(group, dict):
+        return None
+    entries = group.get("hooks")
+    return entries if isinstance(entries, list) else None
 
 
 def has_synergo(groups: list[Any]) -> bool:
-    for group in groups:
-        if isinstance(group, dict) and any(_is_synergo(h) for h in group.get("hooks") or []):
-            return True
-    return False
+    return any(any(_is_synergo(h) for h in _entries(g) or []) for g in groups)
 
 
 def has_synergo_hooks(settings: dict[str, Any], events: Any) -> bool:
@@ -319,36 +623,76 @@ def has_synergo_hooks(settings: dict[str, Any], events: Any) -> bool:
     return all(isinstance(hooks.get(e), list) and has_synergo(hooks[e]) for e in events)
 
 
+def _existing_command(entries: list[Any]) -> Optional[str]:
+    """The first synergo hook command among flat hook entries."""
+    for entry in entries:
+        if _is_synergo(entry):
+            return str(entry["command"])
+    return None
+
+
+def keep_user_command(existing: Optional[str], desired: str) -> str:
+    """The command a reinstall writes: the user's own when they customised
+    synergo's entry for the same agent (a --port, a wrapper, an absolute
+    path), otherwise synergo's current default."""
+    if existing is None:
+        return desired
+    mine, theirs = parse_hook_command(desired), parse_hook_command(existing)
+    if mine is None or theirs is None or mine[0] != theirs[0]:
+        return desired
+    return desired if is_canonical_command(existing, theirs[0]) else existing
+
+
+def _with_command(entries: list[Any], command: str) -> list[Any]:
+    return [{**e, "command": command} if _is_synergo(e) else e for e in entries]
+
+
 def merge_hooks(settings: dict[str, Any], desired: dict[str, list[dict[str, Any]]]) -> list[str]:
-    """Add synergo's hook entries without disturbing anything already there."""
+    """Add synergo's hook entries without disturbing anything already there.
+
+    An older synergo entry (a narrower matcher, another timeout) is upgraded
+    in place of being duplicated; a command the user customised is kept.
+    """
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         if hooks is not None:
             raise SettingsError("the existing `hooks` entry is not an object — refusing to overwrite")
         hooks = settings["hooks"] = {}
+    for event in desired:
+        # Checked up front, so a refusal leaves `settings` untouched.
+        if hooks.get(event) is not None and not isinstance(hooks[event], list):
+            raise SettingsError(f"hooks.{event} is not a list — refusing to overwrite")
     changes: list[str] = []
     for event, groups in desired.items():
         existing = hooks.get(event)
-        if not isinstance(existing, list):
-            existing = [] if existing is None else [existing]
-            hooks[event] = existing
-        if has_synergo(existing):
-            if all(group in existing for group in groups):
+        if existing is None:
+            existing = hooks[event] = []
+        current = None
+        for group in existing:
+            current = current or _existing_command(_entries(group) or [])
+        if current is not None:
+            wanted = [
+                {**g, "hooks": _with_command(g["hooks"], keep_user_command(current, _existing_command(g["hooks"]) or current))}
+                for g in groups
+            ]
+            if all(group in existing for group in wanted):
                 continue
-            # An older synergo entry (say, a narrower matcher): replace it.
             existing[:] = _without_synergo(existing)
+            groups = wanted
         existing.extend(groups)
         changes.append(event)
     return changes
 
 
 def _without_synergo(groups: list[Any]) -> list[Any]:
+    """`groups` minus synergo's entries; a group synergo emptied goes, any
+    other group (malformed, or empty to begin with) stays exactly as it was."""
     kept_groups: list[Any] = []
     for group in groups:
-        if not isinstance(group, dict):
+        entries = _entries(group)
+        if entries is None:
             kept_groups.append(group)
             continue
-        entries = group.get("hooks") or []
         kept = [hook for hook in entries if not _is_synergo(hook)]
         if len(kept) == len(entries):
             kept_groups.append(group)
@@ -366,45 +710,47 @@ def remove_hooks(settings: dict[str, Any]) -> list[str]:
         groups = hooks.get(event)
         if not isinstance(groups, list):
             continue
-        kept_groups: list[Any] = []
-        touched = False
-        for group in groups:
-            if not isinstance(group, dict):
-                kept_groups.append(group)
-                continue
-            entries = group.get("hooks") or []
-            kept = [hook for hook in entries if not _is_synergo(hook)]
-            if len(kept) != len(entries):
-                touched = True
-            if kept:
-                group["hooks"] = kept
-                kept_groups.append(group)
-        if touched:
-            changes.append(event)
+        kept_groups = _without_synergo(groups)
+        if kept_groups == groups:
+            continue
+        changes.append(event)
         if kept_groups:
             hooks[event] = kept_groups
         else:
             del hooks[event]
-    if not hooks:
+    if changes and not hooks:
         settings.pop("hooks", None)
     return changes
 
 
+def _refuse_commented(path: Path, desired: Optional[dict[str, Any]] = None) -> None:
+    import json
+
+    message = f"{path} has comments, which rewriting it would drop — refusing to overwrite."
+    if desired is not None:
+        message += f" Add synergo's entries by hand under \"hooks\":\n{json.dumps(desired, indent=2)}"
+    raise SettingsError(message)
+
+
 def install_json_hooks(path: Path, desired: dict[str, list[dict[str, Any]]]) -> list[str]:
-    settings = load_settings(path)
+    settings, fmt = read_settings(path)
     added = merge_hooks(settings, desired)
     if added:
-        save_settings(path, settings)
+        if fmt.commented:
+            _refuse_commented(path, desired)
+        save_settings(path, settings, fmt)
     return added
 
 
 def uninstall_json_hooks(path: Path) -> list[str]:
     if not path.exists():
         return []
-    settings = load_settings(path)
+    settings, fmt = read_settings(path)
     removed = remove_hooks(settings)
     if removed:
-        save_settings(path, settings)
+        if fmt.commented:
+            _refuse_commented(path)
+        save_settings(path, settings, fmt)
     return removed
 
 
@@ -413,6 +759,44 @@ def json_hooks_installed(path: Path, events: Any) -> bool:
         return has_synergo_hooks(load_settings(path), events)
     except (SettingsError, OSError, UnicodeDecodeError):
         return False
+
+
+# --- the command an installed hook runs ------------------------------------------
+
+
+def synergo_on_path() -> bool:
+    """Whether a bare `synergo` resolves on this PATH (a seam for tests). The
+    agent's own PATH may differ; this is the best evidence install has."""
+    import shutil
+
+    return shutil.which("synergo") is not None
+
+
+def _quoted(path: str) -> str:
+    # Double quotes work in sh and cmd alike, and keep a Windows path's
+    # backslashes literal in sh.
+    return f'"{path}"'
+
+
+def absolute_synergo() -> str:
+    """This install's synergo as an absolute command: the console script next
+    to the running interpreter, else `<python> -m synergo.cli`."""
+    import sys
+
+    scripts = os.path.dirname(os.path.abspath(sys.executable))
+    for name in ("synergo.exe", "synergo"):
+        candidate = os.path.join(scripts, name)
+        if os.path.isfile(candidate):
+            return _quoted(candidate)
+    return f"{_quoted(sys.executable)} -m synergo.cli"
+
+
+def hook_command_for(agent_id: str) -> str:
+    """`synergo hook <id>` when synergo is on PATH, else the same through an
+    absolute path, so the agent can run it from wherever it starts hooks."""
+    if synergo_on_path():
+        return f"synergo hook {agent_id}"
+    return f"{absolute_synergo()} hook {agent_id}"
 
 
 # --- the adapter object ----------------------------------------------------------
@@ -433,7 +817,8 @@ class Adapter:
 
     @property
     def hook_command(self) -> str:
-        return f"synergo hook {self.id}"
+        """The command install writes (see hook_command_for)."""
+        return hook_command_for(self.id)
 
     def detect(self) -> Any:
         """The synergo.detect.DetectedAgent for this agent, or None."""
@@ -452,7 +837,7 @@ class Adapter:
 
     def passthrough(self, payload: Any) -> str:
         """What to print when nothing else was rendered ("" = nothing). For
-        agents (Cursor) whose permission hooks read empty output as a block."""
+        agents (Cursor) whose permission hooks need some well-formed answer."""
         return ""
 
     def settings_path(self, scope: str, root: Any = None) -> Path:
@@ -480,10 +865,12 @@ class JsonHooksAdapter(Adapter):
     def settings_path(self, scope: str, root: Any = None) -> Path:
         from pathlib import Path
 
-        if scope == USER_SCOPE or root is None:
+        if scope == USER_SCOPE:
             from synergo import detect
 
             base = detect.home()
+        elif root is None:
+            raise ValueError("a project-scope settings path needs the project root")
         else:
             base = Path(root)
         return base.joinpath(*self.config_subpath)

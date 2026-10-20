@@ -31,8 +31,6 @@ response contract is the same as Claude Code's.
 
 from __future__ import annotations
 
-import os
-
 from synergo import hook_json
 from synergo.adapters import base
 
@@ -84,7 +82,12 @@ def patch_paths(patch: str) -> list[str]:
     """Every file a Codex patch touches, in order, without duplicates."""
     paths: list[str] = []
     for line in patch.splitlines():
-        stripped = line.strip()
+        # Headers only at column 0: hunk lines start with " ", "-", "+" or
+        # "@@", so a context line that merely contains header text (docs
+        # about the patch format, say) never names a file.
+        if not line.startswith("*** "):
+            continue
+        stripped = line.rstrip()
         for header in PATCH_FILE_HEADERS:
             if stripped.startswith(header):
                 path = stripped[len(header) :].strip()
@@ -117,9 +120,13 @@ def patch_hints(patch: str) -> dict[str, list[dict[str, str]]]:
 
     for line in patch.splitlines():
         if line.startswith("*** "):
+            stripped = line.rstrip()
+            if stripped.startswith(("*** Move to:", "*** End of File")):
+                # Still the same file's section: its hunks follow the Move
+                # header, and End of File only marks the last hunk's end.
+                continue
             flush_run()
             context.clear()
-            stripped = line.strip()
             current = None
             if stripped.startswith("*** Update File:"):
                 path = stripped[len("*** Update File:") :].strip()
@@ -159,10 +166,7 @@ def _edit_hints(tool_input: dict[str, Any], cwd: str) -> dict[str, list[dict[str
     return hints
 
 
-def _absolute(path: str, cwd: str) -> str:
-    if not os.path.isabs(path) and cwd:
-        path = os.path.join(cwd, path)
-    return os.path.normpath(path)
+_absolute = base.absolute
 
 
 def _tool_paths(tool_input: dict[str, Any], cwd: str) -> list[str]:
@@ -266,7 +270,7 @@ class CodexAdapter(base.JsonHooksAdapter):
     config_subpath = (".codex", "hooks.json")
 
     def hook_settings(self) -> dict[str, list[dict[str, Any]]]:
-        return hook_settings(HOOK_COMMAND)
+        return hook_settings(self.hook_command)
 
     def normalize(self, payload: Any) -> list[dict[str, Any]]:
         try:
@@ -278,6 +282,8 @@ class CodexAdapter(base.JsonHooksAdapter):
         try:
             return base.HookOutput(render_ack(event, ack))
         except Exception:  # noqa: BLE001
+            if event.get("kind") == "pre_edit" and base.ack_decision(ack) == "block":
+                return base.HookOutput(render_ack(event, {"decision": "block", "reason": base.GENERIC_BLOCK}))
             return base.PROCEED
 
     def render_notice(self, event: dict[str, Any], message: str) -> base.HookOutput:
