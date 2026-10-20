@@ -132,6 +132,8 @@ def test_label_values_are_escaped() -> None:
 # --- what is counted ----------------------------------------------------------
 
 
+# Reads each reply as the very next frame, ahead of any feed batch.
+@pytest.mark.real_feed_debounce
 def test_edit_checks_are_counted_by_decision_and_timed() -> None:
     client = TestClient(app)
     room_id = client.post("/rooms").json()["room_id"]

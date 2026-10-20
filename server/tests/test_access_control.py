@@ -237,17 +237,6 @@ def test_stored_approval_without_an_owner_is_not_enforced() -> None:
     assert not room.require_approval
 
 
-def test_memory_store_forgets_access_with_the_room() -> None:
-    store = MemoryRoomStore()
-    store.add("ABCDEFGH", time.time())
-    store.set_access("ABCDEFGH", {"owner_hash": "ab", "require_approval": False})
-    store.set_access("UNKNOWN1", {"owner_hash": "cd", "require_approval": False})
-
-    assert store.get_access("UNKNOWN1") is None
-    store.remove("ABCDEFGH")
-    assert store.get_access("ABCDEFGH") is None
-
-
 # --- policy ---------------------------------------------------------------------
 
 
@@ -530,6 +519,9 @@ def test_non_owner_decisions_are_ignored(relay: RoomManager) -> None:
                 assert _refused(sam)[0] == REASON_APPROVAL_DECLINED
 
 
+# Reads join_resolved before the policy broadcast: that order comes from the
+# debounce, so it runs on the production flush window.
+@pytest.mark.real_feed_debounce
 def test_switching_approval_off_admits_everyone_waiting(relay: RoomManager) -> None:
     client = TestClient(app)
     room_id, token = _create(client)

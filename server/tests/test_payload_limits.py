@@ -355,11 +355,12 @@ def test_messages_over_the_room_quota_are_dropped_and_counted(relay: RoomManager
 
     with client.websocket_connect(f"/ws/{room_id}") as sam:
         _join(sam, "sam")  # the join itself is not counted
-        for request_id in ("r1", "r2", "r3", "r4"):
-            sam.send_json({"type": "edit_check", "request_id": request_id, "file_path": "a.py"})
-        assert _next_event(sam, "edit_check_response")["request_id"] == "r1"
-        assert _next_event(sam, "edit_check_response")["request_id"] == "r2"
+        for decision_id in ("d1", "d2", "d3", "d4"):
+            sam.send_json({"type": "decision_feedback", "decision_id": decision_id, "useful": True})
         _wait_for(lambda: metrics.messages_dropped_total.value("room_quota") == 2)
+        # Edit checks never draw on the room quota: still answered.
+        sam.send_json({"type": "edit_check", "request_id": "r1", "file_path": "a.py"})
+        assert _next_event(sam, "edit_check_response")["request_id"] == "r1"
 
     scrape = client.get("/metrics").text
     assert 'synergo_messages_dropped_total{reason="room_quota"} 2' in scrape
@@ -376,10 +377,12 @@ def test_the_quota_is_shared_by_everyone_in_the_room(relay: RoomManager) -> None
         _join(sam, "sam")
         with client.websocket_connect(f"/ws/{room_id}") as priya:
             _join(priya, "priya")
-            sam.send_json({"type": "edit_check", "request_id": "s1", "file_path": "a.py"})
-            assert _next_event(sam, "edit_check_response")["request_id"] == "s1"
-            priya.send_json({"type": "edit_check", "request_id": "p1", "file_path": "a.py"})
+            sam.send_json({"type": "decision_feedback", "decision_id": "x", "useful": True})
+            priya.send_json({"type": "decision_feedback", "decision_id": "y", "useful": True})
             _wait_for(lambda: metrics.messages_dropped_total.value("room_quota") == 1)
+            # priya's edit check is unaffected by the exhausted room quota.
+            priya.send_json({"type": "edit_check", "request_id": "p1", "file_path": "a.py"})
+            assert _next_event(priya, "edit_check_response")["request_id"] == "p1"
 
 
 def test_dropped_message_reasons_start_at_zero() -> None:

@@ -10,7 +10,10 @@ import asyncio
 import fnmatch
 import hashlib
 import hmac
+import json
 import logging
+import os
+import re
 import secrets
 import time
 import uuid
@@ -24,6 +27,7 @@ from pydantic import BaseModel
 try:
     from . import config, suggest
     from .file_queue import (
+        CLAIM_MAX_SECONDS,
         MAX_QUEUED_PATH_CHARS,
         SWEEP_INTERVAL_SECONDS as QUEUE_SWEEP_INTERVAL_SECONDS,
         FileQueues,
@@ -52,12 +56,12 @@ try:
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
-        SynergoFeed,
     )
 except ImportError:  # Render rootDir=server
     import config  # type: ignore[no-redef]
     import suggest  # type: ignore[no-redef]
     from file_queue import (  # type: ignore[no-redef]
+        CLAIM_MAX_SECONDS,
         MAX_QUEUED_PATH_CHARS,
         SWEEP_INTERVAL_SECONDS as QUEUE_SWEEP_INTERVAL_SECONDS,
         FileQueues,
@@ -86,7 +90,6 @@ except ImportError:  # Render rootDir=server
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
-        SynergoFeed,
     )
 
 log = logging.getLogger(__name__)
@@ -142,9 +145,54 @@ BROADCAST_FLUSH_SECONDS = 0.5
 # merge context makes near-adjacent edits conflict too.
 LINE_PROXIMITY = 10
 
-# The symbol a client sends for an import-block edit. It intersects with
-# every symbol: two agents adding imports collide whatever else they touch.
+# The symbol a client sends for an import-block edit. It intersects only with
+# itself: two agents both adding imports collide, but one agent's import line
+# says nothing about a teammate editing an unrelated function.
 IMPORTS_SYMBOL = "<imports>"
+
+
+def _env_number(name: str, default: float) -> float:
+    """A relay-core knob from the environment; a bad value keeps the default."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logging.getLogger(__name__).warning("Ignoring %s=%r: not a number", name, raw)
+        return default
+    return value if value >= 0 else default
+
+
+# How long one outbound frame may take to reach one socket. A socket that
+# does not drain in time is dropped (closed) rather than allowed to hold up
+# the rest of the room. SYNERGO_SEND_TIMEOUT_SECONDS.
+SEND_TIMEOUT_SECONDS = _env_number("SYNERGO_SEND_TIMEOUT_SECONDS", 2.0)
+
+# Byte budget for one outbound frame. The daemon's websockets client refuses
+# frames over 1 MiB (and reconnects into the same traffic), so feeds are split
+# and derived e2e copies trimmed to stay under this.
+OUTBOUND_FRAME_BUDGET = int(_env_number("SYNERGO_OUTBOUND_FRAME_BYTES", 768 * 1024))
+
+# Per-room bounds on the touch table (files x members), so no member can grow
+# relay memory without limit: at most this many touches (oldest evicted), and
+# at most this many bytes of retained diffs and e2e blobs. 0 = unlimited.
+MAX_TOUCHES_PER_ROOM = int(_env_number("SYNERGO_MAX_TOUCHES_PER_ROOM", 5000))
+MAX_TOUCH_BYTES_PER_ROOM = int(_env_number("SYNERGO_MAX_TOUCH_BYTES_PER_ROOM", 64 * 1024 * 1024))
+# A touch keeps only this much of its diff: the diff is only read for Gemini
+# conflict classification, which uses the first 2,500 characters anyway.
+STORED_DIFF_BYTES = 4 * 1024
+# Paths longer than this are not tracked at all (real paths are far shorter;
+# an e2e hash is 34 characters). SYNERGO_MAX_PATH_CHARS.
+MAX_TRACKED_PATH_CHARS = config.MAX_PATH_CHARS
+# Symbols and line ranges a merged touch remembers (newest kept).
+MAX_SYMBOLS_PER_TOUCH = 256
+MAX_RANGES_PER_TOUCH = 256
+# Plans and intents kept per member (one per repo; oldest evicted).
+MAX_PLANS_PER_MEMBER = 8
+MAX_INTENTS_PER_MEMBER = 8
+# Joiners from one address that may wait for approval at once.
+MAX_PENDING_JOINS_PER_IP = int(_env_number("SYNERGO_MAX_PENDING_JOINS_PER_IP", 2))
 
 # Feedback is kept for this many recent decisions per room (LRU).
 # SYNERGO_MAX_TRACKED_DECISIONS; 0 = unlimited.
@@ -203,22 +251,53 @@ def is_always_warn_file(file_path: str) -> bool:
 
 
 def symbols_intersect(a: list[str], b: list[str]) -> bool:
-    """True when two symbol lists share a name; "<imports>" matches anything."""
+    """True when two symbol lists share a name. "<imports>" is a name like any
+    other: it matches only "<imports>" on the other side."""
     if not a or not b:
         return False
-    if IMPORTS_SYMBOL in a or IMPORTS_SYMBOL in b:
-        return True
-    return bool(set(a) & set(b))
+    return not set(a).isdisjoint(b)
+
+
+def plan_symbols_intersect(a: list[str], b: list[str]) -> bool:
+    """symbols_intersect for plans, which are not tied to one file: an import
+    edit is file-local, so "<imports>" never matches across plans or files."""
+    return symbols_intersect(
+        [s for s in a if s != IMPORTS_SYMBOL], [s for s in b if s != IMPORTS_SYMBOL]
+    )
+
+
+def _merged_ranges(ranges: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    out: list[tuple[int, int]] = []
+    for start, end in sorted((min(a, b), max(a, b)) for a, b in ranges):
+        if out and start <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], end))
+        else:
+            out.append((start, end))
+    return out
 
 
 def ranges_near(
     a: list[tuple[int, int]], b: list[tuple[int, int]], proximity: int = LINE_PROXIMITY
 ) -> bool:
-    """True when any range of a overlaps or lies within proximity lines of b."""
-    for a_start, a_end in a:
-        for b_start, b_end in b:
-            if a_start <= b_end + proximity and b_start <= a_end + proximity:
-                return True
+    """True when any range of a overlaps or lies within proximity lines of b.
+
+    Sorted sweep, O((n + m) log(n + m)): the queue sweep calls this for every
+    waiting entry against every touch, so the quadratic loop it replaced
+    could cost seconds per frame with 256 ranges a side."""
+    if not a or not b:
+        return False
+    xs = _merged_ranges(a)
+    ys = _merged_ranges(b)
+    i = j = 0
+    while i < len(xs) and j < len(ys):
+        a_start, a_end = xs[i]
+        b_start, b_end = ys[j]
+        if a_start <= b_end + proximity and b_start <= a_end + proximity:
+            return True
+        if a_end < b_end:
+            i += 1
+        else:
+            j += 1
     return False
 
 
@@ -267,6 +346,36 @@ class FileTouch:
     # The e2e blob of the message this touch came from, copied verbatim onto
     # the PeerTouch / PlanConflict a peer receives (see models.E2EBlob).
     e2e: str = ""
+    # When each symbol / line range was last edited. A peer's touch is the
+    # union of its batches inside the window, so a block on a function edited
+    # two batches ago is not lost when the latest batch edits another one.
+    # Empty for touches built elsewhere (plans, intents): then every symbol
+    # counts as edited at `timestamp`.
+    symbol_seen: dict[str, float] = field(default_factory=dict)
+    range_seen: list[tuple[int, int, float]] = field(default_factory=list)
+    # Bytes this touch holds in the room's touch budget.
+    cost: int = 0
+
+    def symbol_time(self, names: set[str]) -> float:
+        """When the newest of `names` (all in self.symbols) was edited."""
+        return max(
+            (self.symbol_seen.get(name, self.timestamp) for name in names),
+            default=self.timestamp,
+        )
+
+    def ranges_time(self, ranges: list[tuple[int, int]], proximity: int) -> Optional[float]:
+        """When the newest of this touch's ranges near `ranges` was edited,
+        or None when none is near."""
+        if not ranges_near(ranges, self.line_ranges, proximity):
+            return None
+        if not self.range_seen:
+            return self.timestamp
+        times = [
+            seen
+            for start, end, seen in self.range_seen
+            if ranges_near(ranges, [(start, end)], proximity)
+        ]
+        return max(times) if times else None
 
 
 @dataclass
@@ -313,6 +422,34 @@ class FileOverlap:
     other: FileTouch
 
 
+def _trim_per_member(store: dict, user_id: str, limit: int) -> None:
+    """Keep at most `limit` (user_id, repo) entries for user_id in an
+    insertion-ordered dict, dropping its oldest."""
+    keys = [key for key in store if key[0] == user_id]
+    for key in keys[: max(0, len(keys) - limit)]:
+        del store[key]
+
+
+_MENTION_CACHE: OrderedDict[tuple[str, ...], re.Pattern[str]] = OrderedDict()
+
+
+def _mention_pattern(needles: tuple[str, ...]) -> re.Pattern[str]:
+    """A regex matching any needle as a whole word (or path segment)."""
+    pattern = _MENTION_CACHE.get(needles)
+    if pattern is None:
+        alternatives = "|".join(re.escape(needle) for needle in needles)
+        pattern = re.compile(rf"(?<![a-z0-9_])(?:{alternatives})(?![a-z0-9_])")
+        _MENTION_CACHE[needles] = pattern
+        while len(_MENTION_CACHE) > 1024:
+            _MENTION_CACHE.popitem(last=False)
+    return pattern
+
+
+def _dumps(payload: object) -> str:
+    """One frame's text, exactly as Starlette's send_json would write it."""
+    return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+
 def _settle(decision: asyncio.Future, approve: bool) -> None:
     if not decision.done():
         decision.set_result(approve)
@@ -331,6 +468,8 @@ class PendingJoin:
     agent: AgentKind
     created_at: float
     decision: asyncio.Future
+    # Where the joiner connects from (bounds pending joins per address).
+    ip: str = ""
 
     def request(self) -> JoinRequest:
         return JoinRequest(
@@ -360,25 +499,54 @@ class Room:
         # is two different files. The path stays the outer key so a lookup by
         # path is still one dict hit.
         self._file_activity: dict[str, dict[tuple[str, str], FileTouch]] = {}
+        # Every touch, least recently updated first, keyed (path, repo, user):
+        # the eviction order for the per-room touch bounds.
+        self._touch_order: OrderedDict[tuple[str, str, str], None] = OrderedDict()
+        self._touch_bytes = 0
         # Message-clock timestamp of the last sweep (see _prune_file_activity).
         self._last_prune_at = 0.0
-        # Last broadcast activity per connected user (for spectator catch-up).
-        self._latest_updates: dict[str, ActivityUpdate] = {}
-        # Last declared intent per connected user (for spectator catch-up and
-        # the edit-check escalation heuristic).
-        self._latest_intents: dict[str, IntentUpdate] = {}
-        # Latest declared plan per connected member (replaced on each plan).
-        self._plans: dict[str, PlanUpdate] = {}
+        # Last broadcast activity per (user, repo) (for spectator catch-up).
+        self._latest_updates: dict[tuple[str, str], ActivityUpdate] = {}
+        # Last declared intent per (user, repo) (for spectator catch-up and
+        # the edit-check escalation heuristic). Per repo: a daemon serves
+        # several sessions and repos, and one repo's intent must not erase
+        # another's.
+        self._latest_intents: dict[tuple[str, str], IntentUpdate] = {}
+        # Latest declared plan per (member, repo), for the same reason.
+        self._plans: dict[tuple[str, str], PlanUpdate] = {}
         # decision_id -> votes, least recently used first; bounded.
         self._decisions: OrderedDict[str, _DecisionVotes] = OrderedDict()
-        # Last accepted activity timestamp per member (server rate limiting).
-        # (user_id, channel) -> last accepted timestamp; channels are
-        # rate-limited independently (see is_activity_rate_limited).
-        self._last_activity_at: dict[tuple[str, str], float] = {}
-        self._lock = asyncio.Lock()
+        # (user_id, channel, scope) -> last accepted time.monotonic(); each
+        # channel (and each repo within one) is limited independently (see
+        # is_activity_rate_limited).
+        self._last_activity_at: dict[tuple[str, str, str], float] = {}
         # Queued room broadcasts → flushed as one synergo_feed every 500ms.
+        # Appending never awaits; deliveries are serialized by _deliver_lock
+        # (so each socket sees feeds in order), which no broadcast() waits on.
         self._broadcast_queue: list[dict] = []
         self._flush_task: Optional[asyncio.Task] = None
+        self._deliver_lock = asyncio.Lock()
+        # Sockets that missed a send deadline: skipped by every later send
+        # and being closed; their handler's own cleanup removes them.
+        self._stalled: set[WebSocket] = set()
+        # Sockets still receiving their catch-up: feed frames for them are
+        # held here and sent, in order, once the catch-up is done.
+        self._catching_up: dict[WebSocket, list[str]] = {}
+        # Connections inside websocket_endpoint that are not (yet) members or
+        # spectators: mid-handshake, or waiting for approval. A room with any
+        # is not empty, so it is not evicted from under them.
+        self.connecting = 0
+        # True once anyone has completed a join (RoomManager evicts rooms that
+        # nobody ever joined after a short TTL).
+        self.ever_joined = False
+        # Coalesced activity broadcasts held back by the rate limit, per
+        # (user, repo), and the tasks that will publish them (server/main.py).
+        self.deferred_activity: dict[tuple[str, str], ActivityMessage] = {}
+        # Background caption tasks, chained per (user, repo) so captioned
+        # updates go out in the order their activity arrived.
+        self.caption_tail: dict[tuple[str, str], asyncio.Task] = {}
+        # Gemini calls running for this room (server/main.py caps them).
+        self.gemini_in_flight = 0
         # --- access control (see the "access" section) ---
         # SHA-256 of the owner token POST /rooms returned; None for rooms
         # created before owner tokens, which therefore have no owners.
@@ -388,11 +556,15 @@ class Room:
         self._owner_sockets: set[WebSocket] = set()
         # request_id -> joiner waiting for approval, oldest first.
         self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
-        # Inbound messages per minute, summed over every socket in the room.
-        # None when ROOM_MESSAGE_LIMIT is 0 (unlimited).
+        # Inbound member messages per minute, summed over every member in the
+        # room. None when ROOM_MESSAGE_LIMIT is 0 (unlimited). Edit checks
+        # and spectators have budgets of their own (edit_check_quota,
+        # spectator_quota), so neither a dashboard nor a noisy member's
+        # activity can starve the edit checks agents block on.
         self.message_quota: Optional[TokenBucket] = (
             TokenBucket(config.ROOM_MESSAGE_LIMIT) if config.ROOM_MESSAGE_LIMIT > 0 else None
         )
+        self._edit_check_quotas: dict[str, TokenBucket] = {}
         # The room code, set by RoomManager ("" for a Room made elsewhere).
         self.code = ""
         # Opt-in replay buffer of broadcast feed events (history_hours > 0).
@@ -431,32 +603,57 @@ class Room:
 
     @property
     def is_empty(self) -> bool:
-        """True once no members and no spectators remain — safe to evict from
-        the RoomManager."""
-        return not self._members and not self._spectators
+        """True once no members, spectators, connections still joining or
+        joiners waiting for approval remain — safe to evict from the
+        RoomManager."""
+        return (
+            not self._members
+            and not self._spectators
+            and self.connecting <= 0
+            and not self._pending
+        )
 
     def add_member(
         self, user_id: str, socket: WebSocket, agent: AgentKind = "unknown"
     ) -> None:
         self._members[user_id] = socket
         self._member_agents[user_id] = agent
+        self.ever_joined = True
 
     def member_agent(self, user_id: str) -> AgentKind:
         return self._member_agents.get(user_id, "unknown")
 
-    def remove_member(self, user_id: str) -> None:
-        socket = self._members.pop(user_id, None)
+    def member_socket(self, user_id: str) -> Optional[WebSocket]:
+        return self._members.get(user_id)
+
+    def remove_member(self, user_id: str, socket: Optional[WebSocket] = None) -> bool:
+        """Deregister user_id and everything it left behind. With `socket`,
+        only when that socket is still the one registered under the name: a
+        handler whose connection was replaced must not evict its successor.
+        Returns True when the member was removed."""
         if socket is not None:
-            self._owner_sockets.discard(socket)
+            self._stalled.discard(socket)
+            self._catching_up.pop(socket, None)
+            if self._members.get(user_id) is not socket:
+                return False
+        current = self._members.pop(user_id, None)
+        if current is not None:
+            self._owner_sockets.discard(current)
+            self._stalled.discard(current)
+            self._catching_up.pop(current, None)
         self._member_agents.pop(user_id, None)
-        self._latest_updates.pop(user_id, None)
-        self._latest_intents.pop(user_id, None)
-        self._plans.pop(user_id, None)
+        for store in (self._latest_updates, self._latest_intents, self._plans):
+            for key in [k for k in store if k[0] == user_id]:
+                del store[key]
         for key in [k for k in self._last_activity_at if k[0] == user_id]:
             self._last_activity_at.pop(key, None)
+        for key in [k for k in self.deferred_activity if k[0] == user_id]:
+            self.deferred_activity.pop(key, None)
+        self._edit_check_quotas.pop(user_id, None)
         # Its places in line and its claims; the files it held are released
         # by the next tick_file_queues().
         self.file_queues.remove_user(user_id)
+        return current is not None
 
     # --- settings ------------------------------------------------------------
 
@@ -524,10 +721,39 @@ class Room:
 
     def add_spectator(self, socket: WebSocket) -> None:
         self._spectators.add(socket)
+        self.ever_joined = True
 
     def remove_spectator(self, socket: WebSocket) -> None:
         self._spectators.discard(socket)
         self._owner_sockets.discard(socket)
+        self._stalled.discard(socket)
+        self._catching_up.pop(socket, None)
+
+    # --- catch-up ------------------------------------------------------------
+    #
+    # A socket added to the room starts receiving feeds at once, but its
+    # catch-up (a snapshot taken right after it was added) is still being
+    # sent. Feeds for it are held until the catch-up is out, so the snapshot
+    # never lands after newer state.
+
+    def begin_catch_up(self, socket: WebSocket) -> None:
+        self._catching_up.setdefault(socket, [])
+
+    async def finish_catch_up(self, socket: WebSocket) -> None:
+        """Send the feeds held during the catch-up, then go live."""
+        while True:
+            held = self._catching_up.get(socket)
+            if not held:
+                # Nothing held (or the socket is gone): live from here, with
+                # no await between this check and the switch.
+                self._catching_up.pop(socket, None)
+                return
+            self._catching_up[socket] = []
+            for text in held:
+                if not await self._send_text_with_timeout(socket, text):
+                    self._catching_up.pop(socket, None)
+                    self._drop_socket(None, socket)
+                    return
 
     # --- access --------------------------------------------------------------
     #
@@ -597,10 +823,23 @@ class Room:
         self._require_approval = bool(record.get("require_approval")) and self.has_owner
 
     def open_pending(
-        self, name: str, agent: AgentKind = "unknown", now: Optional[float] = None
+        self,
+        name: str,
+        agent: AgentKind = "unknown",
+        now: Optional[float] = None,
+        ip: str = "",
     ) -> Optional[PendingJoin]:
-        """Queue a joiner for approval, or None when MAX_PENDING_JOINS wait."""
+        """Queue a joiner for approval, or None when MAX_PENDING_JOINS wait
+        (or MAX_PENDING_JOINS_PER_IP from this joiner's address: one leaked
+        code must not let a single host squat every slot)."""
         if MAX_PENDING_JOINS > 0 and len(self._pending) >= MAX_PENDING_JOINS:
+            return None
+        if (
+            ip
+            and MAX_PENDING_JOINS_PER_IP > 0
+            and sum(1 for p in self._pending.values() if p.ip == ip)
+            >= MAX_PENDING_JOINS_PER_IP
+        ):
             return None
         pending = PendingJoin(
             request_id=uuid.uuid4().hex,
@@ -608,6 +847,7 @@ class Room:
             agent=agent,
             created_at=time.time() if now is None else now,
             decision=asyncio.get_running_loop().create_future(),
+            ip=ip,
         )
         self._pending[pending.request_id] = pending
         return pending
@@ -656,10 +896,11 @@ class Room:
         payload = message.model_dump()
         if payload.get("type") == "join_request":
             self._emit(payload)
-        for socket in list(self._owner_sockets):
-            try:
-                await socket.send_json(payload)
-            except Exception:
+        text = _dumps(payload)
+        owners = [s for s in self._owner_sockets if s not in self._stalled]
+        results = await self._send_to_all(owners, text)
+        for socket, ok in zip(owners, results):
+            if not ok:
                 log.warning("Dropping unreachable owner socket")
                 self._owner_sockets.discard(socket)
 
@@ -672,23 +913,38 @@ class Room:
         """Spend one unit of the room's inbound message quota."""
         return self.message_quota is None or self.message_quota.take()
 
+    def allow_edit_check(self, user_id: str) -> bool:
+        """Spend one unit of user_id's own edit-check budget (the room's
+        message limit, per member). Edit checks never draw on the shared room
+        quota, so nobody else's traffic can make them fail open."""
+        if config.ROOM_MESSAGE_LIMIT <= 0:
+            return True
+        bucket = self._edit_check_quotas.get(user_id)
+        if bucket is None:
+            bucket = self._edit_check_quotas[user_id] = TokenBucket(config.ROOM_MESSAGE_LIMIT)
+        return bucket.take()
+
     def is_activity_rate_limited(
         self,
         user_id: str,
         min_interval_seconds: float = 0.5,
         channel: str = "activity",
+        scope: str = "",
     ) -> bool:
         """Return True if this user sent this kind of message too recently.
 
-        On acceptance, records the current server time for the next check.
-        Each channel gets its own budget: an agent broadcasts its intent and
-        then edits within milliseconds, so a shared budget would drop the first
-        activity of every prompt.
+        On acceptance, records the current time for the next check. Each
+        channel gets its own budget: an agent broadcasts its intent and then
+        edits within milliseconds, so a shared budget would drop the first
+        activity of every prompt. `scope` (the repo_id) splits a channel
+        further: a daemon flushes one activity per repo back to back.
+
+        Monotonic: a wall-clock step backwards must not silence a member.
         """
-        now = time.time()
-        key = (user_id, channel)
-        last = self._last_activity_at.get(key, 0.0)
-        if now - last < min_interval_seconds:
+        now = time.monotonic()
+        key = (user_id, channel, scope)
+        last = self._last_activity_at.get(key)
+        if last is not None and now - last < min_interval_seconds:
             return True
         self._last_activity_at[key] = now
         return False
@@ -713,30 +969,130 @@ class Room:
                 for key, touch in touches.items()
                 if now - touch.timestamp > retention
             ]:
-                del touches[key]
-            if not touches:
-                del self._file_activity[file_path]
+                self._drop_touch(file_path, key)
+
+    def _drop_touch(self, file_path: str, key: tuple[str, str]) -> None:
+        touches = self._file_activity.get(file_path)
+        if touches is None:
+            return
+        touch = touches.pop(key, None)
+        if touch is not None:
+            self._touch_bytes -= touch.cost
+            self._touch_order.pop((file_path, *key), None)
+        if not touches:
+            del self._file_activity[file_path]
+
+    def _enforce_touch_bounds(self) -> None:
+        """Evict least recently updated touches past the per-room bounds."""
+        while self._touch_order and (
+            (MAX_TOUCHES_PER_ROOM > 0 and len(self._touch_order) > MAX_TOUCHES_PER_ROOM)
+            or (MAX_TOUCH_BYTES_PER_ROOM > 0 and self._touch_bytes > MAX_TOUCH_BYTES_PER_ROOM)
+        ):
+            file_path, repo_id, user_id = next(iter(self._touch_order))
+            self._drop_touch(file_path, (repo_id, user_id))
+
+    @property
+    def touch_count(self) -> int:
+        return len(self._touch_order)
+
+    @property
+    def touch_bytes(self) -> int:
+        return self._touch_bytes
 
     def record_activity(self, message: ActivityMessage) -> None:
+        """Merge a batch into each file's touch from this sender.
+
+        A touch is the union of the sender's batches on that file inside the
+        retention window: each symbol and line range keeps its own time, so a
+        batch that edits bar does not make an edit to foo two batches ago
+        invisible. A change without symbols (or ranges) resets that part to
+        unknown, so the file is judged whole: an edit somewhere unknown cannot
+        be called "a different function"."""
         self._prune_file_activity(message.timestamp)
-        for change in message.changes:
+        now = message.timestamp
+        horizon = self.retention_seconds
+        changes = [
+            change
+            for change in message.changes
+            if not (MAX_TRACKED_PATH_CHARS > 0 and len(change.file_path) > MAX_TRACKED_PATH_CHARS)
+        ]
+        # A message's e2e blob is one string shared by all its touches; charge
+        # each touch its share.
+        e2e_share = len(message.e2e) // max(1, len(changes))
+        key = (message.repo_id, message.user_id)
+        for change in changes:
             touches = self._file_activity.setdefault(change.file_path, {})
-            touches[(message.repo_id, message.user_id)] = FileTouch(
+            previous = touches.get(key)
+            symbol_seen: dict[str, float] = {}
+            range_seen: list[tuple[int, int, float]] = []
+            if change.symbols:
+                if previous is not None and previous.symbols:
+                    symbol_seen = {
+                        name: seen
+                        for name, seen in (
+                            previous.symbol_seen
+                            or {name: previous.timestamp for name in previous.symbols}
+                        ).items()
+                        if now - seen <= horizon
+                    }
+                for name in change.symbols:
+                    symbol_seen.pop(name, None)
+                    symbol_seen[name] = now
+                while len(symbol_seen) > MAX_SYMBOLS_PER_TOUCH:
+                    symbol_seen.pop(next(iter(symbol_seen)))
+            if change.line_ranges:
+                fresh = [(int(a), int(b)) for a, b in change.line_ranges]
+                if previous is not None and previous.line_ranges:
+                    earlier = previous.range_seen or [
+                        (a, b, previous.timestamp) for a, b in previous.line_ranges
+                    ]
+                    range_seen = [
+                        (a, b, seen)
+                        for a, b, seen in earlier
+                        if now - seen <= horizon and (a, b) not in fresh
+                    ]
+                range_seen.extend((a, b, now) for a, b in fresh)
+                del range_seen[:-MAX_RANGES_PER_TOUCH]
+            diff = change.diff
+            if len(diff) > STORED_DIFF_BYTES:
+                diff = diff[:STORED_DIFF_BYTES]
+            touch = FileTouch(
                 user_id=message.user_id,
                 file_path=change.file_path,
-                diff=change.diff,
+                diff=diff,
                 prompt=message.prompt,
-                timestamp=message.timestamp,
+                timestamp=now,
                 agent=message.agent,
                 repo_id=message.repo_id,
-                symbols=list(change.symbols),
-                line_ranges=[tuple(r) for r in change.line_ranges],
+                symbols=list(symbol_seen),
+                line_ranges=[(a, b) for a, b, _ in range_seen],
                 branch=message.branch,
                 e2e=message.e2e,
+                symbol_seen=symbol_seen,
+                range_seen=range_seen,
             )
+            touch.cost = (
+                len(diff)
+                + len(change.file_path)
+                + len(message.prompt or "")
+                + e2e_share
+                + 32 * (len(symbol_seen) + len(range_seen))
+                + 256
+            )
+            if previous is not None:
+                self._touch_bytes -= previous.cost
+            touches[key] = touch
+            self._touch_bytes += touch.cost
+            order_key = (change.file_path, *key)
+            self._touch_order.pop(order_key, None)
+            self._touch_order[order_key] = None
+        self._enforce_touch_bounds()
 
     def remember_update(self, update: ActivityUpdate) -> None:
-        self._latest_updates[update.user_id] = update
+        key = (update.user_id, update.repo_id)
+        self._latest_updates.pop(key, None)
+        self._latest_updates[key] = update
+        _trim_per_member(self._latest_updates, update.user_id, MAX_INTENTS_PER_MEMBER)
 
     def latest_updates(self) -> list[ActivityUpdate]:
         return list(self._latest_updates.values())
@@ -765,7 +1121,10 @@ class Room:
             repo_id=repo_id,
             e2e=e2e,
         )
-        self._latest_intents[user_id] = update
+        key = (user_id, repo_id)
+        self._latest_intents.pop(key, None)
+        self._latest_intents[key] = update
+        _trim_per_member(self._latest_intents, user_id, MAX_INTENTS_PER_MEMBER)
         return update
 
     def latest_intents(self) -> list[IntentUpdate]:
@@ -853,17 +1212,19 @@ class Room:
         needles = [basename]
         if len(stem) >= 3:
             needles.append(stem)
+        # Whole words only: the stem "app" must not match "happy" or
+        # "mapping", nor "form" match "format".
+        pattern = _mention_pattern(tuple(needles))
 
         matches: list[FileTouch] = []
-        for other_id, intent in self._latest_intents.items():
+        for (other_id, _repo), intent in self._latest_intents.items():
             if other_id == user_id or not self.is_active(other_id):
                 continue
             if intent.repo_id != repo_id:
                 continue
             if now - intent.timestamp > INTENT_WINDOW_SECONDS:
                 continue
-            text = intent.prompt.lower()
-            if not any(needle in text for needle in needles):
+            if not pattern.search(intent.prompt.lower()):
                 continue
             matches.append(
                 FileTouch(
@@ -922,24 +1283,36 @@ class Room:
             # Not a live collision, but a merge conflict waiting to happen.
             return "warn", "branch"
         block_window = self._settings.block_window_seconds
-        hard: Decision = (
-            "block" if block_window > 0 and now - touch.timestamp <= block_window else "warn"
-        )
-        if symbols and touch.symbols:
-            if symbols_intersect(symbols, touch.symbols):
-                return hard, "symbol"
+        warn_window = self._settings.warn_window_seconds
+
+        def hard_at(when: float) -> Decision:
+            # Each part of a merged touch is judged by its own age.
+            return "block" if block_window > 0 and now - when <= block_window else "warn"
+
+        hard = hard_at(touch.timestamp)
+        # Symbols edited before the warn window no longer describe the peer.
+        touch_symbols = [
+            name
+            for name in touch.symbols
+            if now - touch.symbol_seen.get(name, touch.timestamp) <= warn_window
+        ]
+        if symbols and touch_symbols:
+            shared = set(symbols).intersection(touch_symbols)
+            if shared:
+                return hard_at(touch.symbol_time(shared)), "symbol"
             if always_warn:
                 return hard, "file"
             # Symbol extraction can mislabel a hunk on a definition boundary;
             # literally overlapping lines are a collision whatever the names say.
-            if line_ranges and touch.line_ranges and ranges_near(
-                line_ranges, touch.line_ranges, proximity=0
-            ):
-                return hard, "lines"
+            if line_ranges and touch.line_ranges:
+                when = touch.ranges_time(line_ranges, 0)
+                if when is not None:
+                    return hard_at(when), "lines"
             return "warn", "symbol"
         if line_ranges and touch.line_ranges:
-            if ranges_near(line_ranges, touch.line_ranges):
-                return hard, "lines"
+            when = touch.ranges_time(line_ranges, LINE_PROXIMITY)
+            if when is not None:
+                return hard_at(when), "lines"
             if always_warn:
                 return hard, "file"
             return "warn", "lines"
@@ -1007,7 +1380,7 @@ class Room:
     def _active_plans(self, now: float, exclude: str, repo_id: str) -> list[PlanUpdate]:
         return [
             plan
-            for other_id, plan in self._plans.items()
+            for (other_id, _repo), plan in self._plans.items()
             if other_id != exclude
             and self.is_active(other_id)
             and plan.repo_id == repo_id
@@ -1022,10 +1395,15 @@ class Room:
         repo_id: str,
         symbols: list[str],
     ) -> list[FileTouch]:
-        """Active peers whose plan names this file or a requested symbol."""
+        """Active peers whose plan names this file, or (for a plan that names
+        no files) a requested symbol. A plan's symbols belong to its files:
+        `main` in a plan for api/server.py says nothing about cli/tool.py."""
         matches: list[FileTouch] = []
         for plan in self._active_plans(now, user_id, repo_id):
-            if file_path not in plan.files and not symbols_intersect(symbols, plan.symbols):
+            if plan.files:
+                if file_path not in plan.files:
+                    continue
+            elif not plan_symbols_intersect(symbols, plan.symbols):
                 continue
             matches.append(
                 FileTouch(
@@ -1061,18 +1439,27 @@ class Room:
             expires_at=now + message.ttl_seconds,
             e2e=message.e2e,
         )
-        self._plans[message.user_id] = update
+        key = (message.user_id, message.repo_id)
+        self._plans.pop(key, None)
+        self._plans[key] = update
+        _trim_per_member(self._plans, message.user_id, MAX_PLANS_PER_MEMBER)
         return update
 
     def plan_conflicts(self, plan: PlanUpdate, now: float) -> list[PlanConflict]:
         """Other members' active plans and recent edits this plan collides with,
-        by file or by symbol. One entry per (file, user, kind), newest first."""
+        by file, or by symbol where one side names no files (symbols are only
+        meaningful within the files they belong to). One entry per (file,
+        user, kind), newest first."""
         conflicts: dict[tuple[str, str, str], PlanConflict] = {}
         planned_files = set(plan.files)
         for other in self._active_plans(now, plan.user_id, plan.repo_id):
             shared = [f for f in other.files if f in planned_files]
-            if not shared and symbols_intersect(plan.symbols, other.symbols):
-                shared = list(other.files[:1]) or [""]
+            if (
+                not shared
+                and (not planned_files or not other.files)
+                and plan_symbols_intersect(plan.symbols, other.symbols)
+            ):
+                shared = list(other.files[:1]) or list(plan.files[:1]) or [""]
             for file_path in shared:
                 conflicts.setdefault(
                     (file_path, other.user_id, "planned"),
@@ -1093,9 +1480,10 @@ class Room:
                     continue
                 if not self.is_active(other_id) or now - touch.timestamp > window:
                     continue
-                if file_path not in planned_files and not symbols_intersect(
-                    plan.symbols, touch.symbols
-                ):
+                if planned_files:
+                    if file_path not in planned_files:
+                        continue
+                elif not plan_symbols_intersect(plan.symbols, touch.symbols):
                     continue
                 conflicts.setdefault(
                     (file_path, other_id, "edited"),
@@ -1114,7 +1502,11 @@ class Room:
     def active_plans(self, now: Optional[float] = None) -> list[PlanUpdate]:
         """Unexpired plans of connected members (spectator catch-up)."""
         now = time.time() if now is None else now
-        return [plan for plan in self._plans.values() if plan.expires_at > now]
+        return [
+            plan
+            for (user_id, _repo), plan in self._plans.items()
+            if plan.expires_at > now and self.is_active(user_id)
+        ]
 
     # --- wait queues (file_queue.py) -----------------------------------------
 
@@ -1256,7 +1648,9 @@ class Room:
         if claimers:
             taker, since = max(claimers.items(), key=lambda item: item[1])
             reason = f"{taker} just took {file_path} from the wait queue ({int(now - since)}s ago)"
-            wait = suggest.WaitHint(block_window - (now - since), f"{taker} just took it")
+            wait = suggest.WaitHint(
+                min(block_window, CLAIM_MAX_SECONDS) - (now - since), f"{taker} just took it"
+            )
             ahead = FileTouch(
                 user_id=taker,
                 file_path=file_path,
@@ -1316,6 +1710,8 @@ class Room:
         now: float,
         *,
         e2e: str = "",
+        branch: str = "",
+        symbols: Optional[list[str]] = None,
     ) -> list[QueueNotice]:
         """An explicit ask for a file: join its line and tell the holders, or,
         when nothing keeps the requester out and nobody is ahead of it,
@@ -1326,11 +1722,34 @@ class Room:
         self.remember_path(repo_id, file_path)
         queues = self.file_queues
         probe = queues.entry(key, user_id) or QueueEntry(
-            user_id=user_id, agent=agent, enqueued_at=now, refreshed_at=now
+            user_id=user_id,
+            agent=agent,
+            enqueued_at=now,
+            refreshed_at=now,
+            symbols=list(symbols or []),
+            branch=branch,
         )
+        if symbols:
+            probe.symbols = list(symbols)
+        if branch:
+            probe.branch = branch
         holders = self._queue_blockers(key, probe, now)
         head = queues.head(key)
-        if queues.enqueue(key, user_id, agent, now, e2e=e2e) == 0:
+        if (
+            queues.enqueue(
+                key, user_id, agent, now, e2e=e2e, symbols=symbols, branch=branch
+            )
+            == 0
+        ):
+            # The line (or the room's table of lines) is full. When nothing
+            # holds the file, say so at once; otherwise there is no frame for
+            # "line full", and the requester's own timeout answers it.
+            if not holders and head is None:
+                released = QueueEntry(
+                    user_id=user_id, agent=agent, enqueued_at=now, refreshed_at=now, e2e=e2e
+                )
+                released.released_at = now
+                return [QueueNotice("released", user_id, key, released, now)]
             return []
         entry = queues.entry(key, user_id)
         assert entry is not None
@@ -1362,7 +1781,7 @@ class Room:
                 ):
                     busy.add(path)
         own_plan: list[str] = []
-        for other_id, plan in self._plans.items():
+        for (other_id, _repo), plan in self._plans.items():
             if plan.repo_id != repo_id or plan.expires_at <= now or not self.is_active(other_id):
                 continue
             known.update(plan.files)
@@ -1417,11 +1836,13 @@ class Room:
         )
 
     async def deliver_queue_notices(self, notices: list[QueueNotice]) -> None:
-        """Point-to-point, immediately: someone is waiting, or it is their turn."""
+        """Point-to-point, immediately: someone is waiting, or it is their turn.
+        Each send is bounded by SEND_TIMEOUT_SECONDS, so a slow holder delays
+        the frame that triggered the sweep by at most that much."""
         for notice in notices:
             frame = self._queue_frame(notice)
             if await self.send_to_member(notice.to_user, frame):
-                log.info(
+                log.debug(
                     "%s for %s to %s",
                     frame.type,  # type: ignore[attr-defined]
                     notice.entry.user_id if notice.kind == "requested" else "the next in line",
@@ -1430,14 +1851,13 @@ class Room:
 
     async def send_to_member(self, user_id: str, message: BaseModel) -> bool:
         socket = self._members.get(user_id)
-        if socket is None:
+        if socket is None or socket in self._stalled:
             return False
-        try:
-            await socket.send_json(message.model_dump())
-        except Exception:
-            log.warning("Could not reach %s for a point-to-point frame", user_id)
-            return False
-        return True
+        if await self._send_text_with_timeout(socket, _dumps(message.model_dump())):
+            return True
+        log.warning("Could not reach %s for a point-to-point frame", user_id)
+        self._drop_socket(user_id, socket)
+        return False
 
     def ensure_queue_sweeper(self) -> None:
         """Run the once-a-second sweep while any line or claim exists. The
@@ -1499,28 +1919,33 @@ class Room:
     async def broadcast(self, message: BaseModel) -> None:
         """Queue a room-wide event and flush as a Synergo feed batch (~500ms).
 
-        Point-to-point replies still use send() and go out immediately.
+        Never waits on any socket: it only appends to the queue (async for the
+        callers' sake). Point-to-point replies still use send() and go out
+        immediately.
         """
         payload = message.model_dump()
         self._emit(payload)
-        async with self._lock:
-            self._broadcast_queue.append(payload)
-            if self._flush_task is None or self._flush_task.done():
-                self._flush_task = asyncio.create_task(self._flush_broadcast_queue())
+        self._broadcast_queue.append(payload)
+        if self._flush_task is None or self._flush_task.done():
+            self._flush_task = asyncio.create_task(self._flush_broadcast_queue())
 
     async def _flush_broadcast_queue(self) -> None:
         await asyncio.sleep(BROADCAST_FLUSH_SECONDS)
-        async with self._lock:
+        # Deliveries run one at a time, so every socket gets feeds in order.
+        # Each is bounded (SEND_TIMEOUT_SECONDS per socket, all sockets at
+        # once), so a flush waiting here waits at most that long.
+        async with self._deliver_lock:
             events = self._broadcast_queue
             self._broadcast_queue = []
-            self._flush_task = None
-        if not events:
-            return
-        feed = SynergoFeed(events=events)
-        log.debug("Flushing Synergo feed (%d event(s))", len(events))
-        # Kept exactly as spectators get them (a no-op while history is off).
-        self.history.record(events)
-        await self._deliver(feed.model_dump())
+            if self._flush_task is asyncio.current_task():
+                self._flush_task = None
+            if not events:
+                return
+            log.debug("Flushing Synergo feed (%d event(s))", len(events))
+            # Kept exactly as spectators get them (a no-op while history is off).
+            self.history.record(events)
+            for text in feed_frames(events):
+                await self._deliver_text(text)
 
     def _emit(self, payload: dict) -> None:
         for sink in list(_event_sinks):
@@ -1530,27 +1955,155 @@ class Room:
                 log.exception("Room event sink failed")
 
     async def _deliver(self, payload: dict) -> None:
-        targets = list(self._members.items()) + [(None, s) for s in self._spectators]
-        dead_members: list[str] = []
-        dead_spectators: list[WebSocket] = []
-        async with self._lock:
-            for user_id, socket in targets:
-                try:
-                    await socket.send_json(payload)
-                except Exception:
-                    log.warning("Dropping unreachable socket (user=%s)", user_id)
-                    if user_id is None:
-                        dead_spectators.append(socket)
-                    else:
-                        dead_members.append(user_id)
-        for user_id in dead_members:
-            dead = self._members.pop(user_id, None)
-            if dead is not None:
-                self._owner_sockets.discard(dead)
-            self._member_agents.pop(user_id, None)
-        for socket in dead_spectators:
+        """Send one frame to every member and spectator (see _deliver_text)."""
+        await self._deliver_text(_dumps(payload))
+
+    async def _deliver_text(self, text: str) -> None:
+        """Send one serialized frame to every member and spectator at once.
+
+        Serialized once, sent concurrently, each send bounded by
+        SEND_TIMEOUT_SECONDS. A socket that misses the deadline (or fails) is
+        dropped: skipped from then on and closed, so one stalled dashboard
+        or sleeping laptop cannot hold up the room. Membership itself is
+        left to the member's own handler, which removes it on disconnect
+        (removing by name here could evict a reconnected successor).
+        Sockets still receiving their catch-up get the frame afterwards."""
+        targets: list[tuple[Optional[str], WebSocket]] = [
+            (user_id, socket) for user_id, socket in self._members.items()
+        ]
+        targets.extend((None, socket) for socket in self._spectators)
+        live: list[tuple[Optional[str], WebSocket]] = []
+        for user_id, socket in targets:
+            if socket in self._stalled:
+                continue
+            held = self._catching_up.get(socket)
+            if held is not None:
+                held.append(text)
+                continue
+            live.append((user_id, socket))
+        if not live:
+            return
+        results = await self._send_to_all([socket for _, socket in live], text)
+        for (user_id, socket), ok in zip(live, results):
+            if not ok:
+                self._drop_socket(user_id, socket)
+
+    async def _send_to_all(self, sockets: list[WebSocket], text: str) -> list[bool]:
+        """Send to every socket at once (one slow socket costs at most
+        SEND_TIMEOUT_SECONDS, not one per socket). A single target is sent to
+        in the calling task: no extra task is needed, and a caller already
+        being cancelled (a handler's cleanup) still gets its frame out."""
+        if not sockets:
+            return []
+        if len(sockets) == 1:
+            return [await self._send_text_with_timeout(sockets[0], text)]
+        return list(
+            await asyncio.gather(
+                *(self._send_text_with_timeout(socket, text) for socket in sockets)
+            )
+        )
+
+    async def _send_text_with_timeout(self, socket: WebSocket, text: str) -> bool:
+        try:
+            if SEND_TIMEOUT_SECONDS > 0:
+                await asyncio.wait_for(_send_text(socket, text), SEND_TIMEOUT_SECONDS)
+            else:
+                await _send_text(socket, text)
+        except Exception:
+            return False
+        return True
+
+    def _drop_socket(self, user_id: Optional[str], socket: WebSocket) -> None:
+        """Stop sending to a socket that failed or stalled, and close it."""
+        if socket in self._stalled:
+            return
+        log.warning(
+            "Dropping unreachable or slow socket (%s)",
+            "spectator" if user_id is None else f"user={user_id}",
+        )
+        self._stalled.add(socket)
+        self._owner_sockets.discard(socket)
+        if user_id is None:
             self._spectators.discard(socket)
-            self._owner_sockets.discard(socket)
+        try:
+            asyncio.get_running_loop().create_task(_close_stalled(socket))
+        except RuntimeError:
+            pass
 
     async def send(self, socket: WebSocket, message: BaseModel) -> None:
         await socket.send_json(message.model_dump())
+
+
+async def _send_text(socket: WebSocket, text: str) -> None:
+    send_text = getattr(socket, "send_text", None)
+    if send_text is not None:
+        await send_text(text)
+    else:  # test doubles that only implement send_json
+        await socket.send_json(json.loads(text))
+
+
+# Close code for a socket dropped for missing a send deadline: "try again
+# later" (RFC 6455 1013). Clients reconnect as after any other drop.
+WS_CLOSE_TOO_SLOW = 1013
+
+
+async def _close_stalled(socket: WebSocket) -> None:
+    try:
+        await asyncio.wait_for(
+            socket.close(code=WS_CLOSE_TOO_SLOW, reason="Too slow to keep up"),
+            max(SEND_TIMEOUT_SECONDS, 1.0),
+        )
+    except Exception:
+        pass
+
+
+_FEED_HEAD = '{"type":"synergo_feed","events":['
+_FEED_TAIL = "]}"
+
+
+def feed_frames(events: list[dict], budget: Optional[int] = None) -> list[str]:
+    """The synergo_feed frame(s) for a batch of events, serialized once.
+
+    Split so that no frame exceeds `budget` bytes (OUTBOUND_FRAME_BUDGET): a
+    burst of large e2e activity would otherwise make one feed bigger than a
+    daemon accepts, and it would reconnect into the same feed. An event that
+    alone exceeds the budget goes in a frame of its own."""
+    limit = OUTBOUND_FRAME_BUDGET if budget is None else budget
+    frames: list[str] = []
+    chunk: list[str] = []
+    empty = len(_FEED_HEAD) + len(_FEED_TAIL)
+    size = empty
+    for event in events:
+        text = _dumps(event)
+        cost = len(text.encode("utf-8")) + 1
+        if chunk and limit > 0 and size + cost > limit:
+            frames.append(_FEED_HEAD + ",".join(chunk) + _FEED_TAIL)
+            chunk, size = [], empty
+        chunk.append(text)
+        size += cost
+    if chunk:
+        frames.append(_FEED_HEAD + ",".join(chunk) + _FEED_TAIL)
+    return frames
+
+
+def fit_e2e(records: list, base_bytes: int, budget: Optional[int] = None) -> int:
+    """Blank the e2e copies on derived records (PeerTouch, PlanConflict),
+    from the last one back, until the frame fits the outbound budget.
+
+    Each record otherwise carries a full copy of its peer's blob, so a reply
+    about many files can grow far past what a daemon accepts. Returns how
+    many copies were dropped; the records stay, with their plain fields."""
+    limit = OUTBOUND_FRAME_BUDGET if budget is None else budget
+    if limit <= 0:
+        return 0
+    total = base_bytes + sum(len(getattr(r, "e2e", "") or "") for r in records)
+    dropped = 0
+    for record in reversed(records):
+        if total <= limit:
+            break
+        blob = getattr(record, "e2e", "")
+        if blob:
+            total -= len(blob)
+            record.e2e = ""
+            dropped += 1
+    return dropped

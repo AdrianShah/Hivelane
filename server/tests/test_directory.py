@@ -12,7 +12,7 @@ import socket
 import threading
 import time
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Callable, Optional
 
 import pytest
 import uvicorn
@@ -477,13 +477,6 @@ def test_a_request_fly_already_replayed_is_never_replayed_again() -> None:
     assert router.taken_over == []
 
 
-def test_a_failed_replay_takes_the_room_over_and_serves_it_here() -> None:
-    router = FakeRouter(REMOTE)
-    client = TestClient(_app(router, fly_replay=True))
-
-    with client.websocket_connect("/ws/ABCDEFGH", headers={"fly-replay-failed": "machine stopped"}) as ws:
-        assert ws.receive_json() == {"served_here": "ABCDEFGH"}
-    assert router.taken_over == [("ABCDEFGH", "machine-b")]
 
 
 def test_http_and_other_paths_pass_through_untouched() -> None:
@@ -579,25 +572,39 @@ class FakeHolder:
         self.released += 1
 
 
+async def _until(predicate: Callable[[], bool], what: str, timeout: float = 5.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not predicate():
+        assert asyncio.get_running_loop().time() < deadline, f"timed out waiting for {what}"
+        await asyncio.sleep(0.005)
+
+
 def test_maintain_leases_renews_until_shutdown_then_releases() -> None:
     holder = FakeHolder(shares_rooms=True)
 
-    async def run() -> None:
+    async def run() -> int:
         async with maintain_leases(lambda: holder, interval=0.01):
-            await asyncio.sleep(0.2)
+            # Past the tick that raises: the loop keeps going.
+            await _until(lambda: holder.renewals >= 3, "three renewals")
+        at_shutdown = holder.renewals
+        await asyncio.sleep(0.05)  # several intervals: nothing renews any more
+        return at_shutdown
 
-    asyncio.run(run())
+    at_shutdown = asyncio.run(run())
 
-    assert holder.renewals >= 3
+    assert holder.renewals == at_shutdown
     assert holder.released == 1
 
 
 def test_maintain_leases_does_nothing_for_a_single_instance() -> None:
     holder = FakeHolder(shares_rooms=False)
+    # A sharing instance on the same interval proves the loop had time to tick.
+    control = FakeHolder(shares_rooms=True)
 
     async def run() -> None:
         async with maintain_leases(lambda: holder, interval=0.01):
-            await asyncio.sleep(0.05)
+            async with maintain_leases(lambda: control, interval=0.01):
+                await _until(lambda: control.renewals >= 3, "the control to renew")
 
     asyncio.run(run())
 
@@ -618,3 +625,123 @@ def test_the_relay_app_runs_lease_upkeep_in_its_lifespan(monkeypatch: pytest.Mon
         pass
 
     assert holder.released == 1
+
+
+# --- Fly replay headers are verified, not trusted (security review 04) -----------
+
+
+SECRET = b"k" * 32
+FAILED_HERE = "instance=machine-b;app=synergo;region=iad;replay_source=here;reason=timeout;elapsed_ms=5"
+
+
+def _verified_app(
+    router: FakeRouter, *, probe_result: bool = False, clock: Optional[Callable[[], float]] = None
+) -> tuple[FastAPI, list[str]]:
+    probed: list[str] = []
+
+    async def probe(owner: str) -> bool:
+        probed.append(owner)
+        return probe_result
+
+    app = FastAPI()
+
+    @app.websocket("/ws/{room_id}")
+    async def endpoint(socket: WebSocket, room_id: str) -> None:
+        await socket.accept()
+        await socket.send_json({"served_here": room_id})
+        await socket.close()
+
+    app.add_middleware(
+        RoomAffinityMiddleware,
+        router=lambda: router,
+        fly_replay=True,
+        secret=SECRET,
+        owner_probe=probe,
+        clock=clock or time.time,
+    )
+    return app, probed
+
+
+def test_replays_carry_a_signed_state() -> None:
+    from server.directory import replay_state_valid, parse_fly_fields
+
+    app, _ = _verified_app(FakeRouter(REMOTE))
+    with pytest.raises(WebSocketDenialResponse) as denied:
+        with TestClient(app).websocket_connect("/ws/ABCDEFGH"):
+            pass
+    fields = parse_fly_fields(denied.value.headers["fly-replay"])
+    assert fields["instance"] == "machine-b" and fields["fallback"] == "prefer_self"
+    assert replay_state_valid(SECRET, "ABCDEFGH", fields["state"], time.time())
+    assert not replay_state_valid(SECRET, "OTHERONE", fields["state"], time.time())
+
+
+def test_a_forged_fly_replay_src_is_routed_as_if_absent() -> None:
+    app, _ = _verified_app(FakeRouter(REMOTE))
+    with pytest.raises(WebSocketDenialResponse) as denied:
+        with TestClient(app).websocket_connect(
+            "/ws/ABCDEFGH", headers={"fly-replay-src": "instance=machine-a;region=iad;t=1;state=1.abc"}
+        ):
+            pass
+    assert denied.value.status_code == FLY_REPLAY_STATUS
+
+
+def test_a_genuine_replay_is_served_here() -> None:
+    from server.directory import sign_replay_state
+
+    state = sign_replay_state(SECRET, "ABCDEFGH", time.time())
+    app, _ = _verified_app(FakeRouter(REMOTE))
+    with TestClient(app).websocket_connect(
+        "/ws/ABCDEFGH", headers={"fly-replay-src": f"instance=machine-a;region=iad;t=1;state={state}"}
+    ) as ws:
+        assert ws.receive_json() == {"served_here": "ABCDEFGH"}
+
+
+def test_a_stale_replay_state_is_refused() -> None:
+    from server.directory import replay_state_valid, sign_replay_state
+
+    state = sign_replay_state(SECRET, "ABCDEFGH", 1000.0)
+    assert replay_state_valid(SECRET, "ABCDEFGH", state, 1010.0)
+    assert not replay_state_valid(SECRET, "ABCDEFGH", state, 1000.0 + 3600)
+
+
+def test_a_forged_fly_replay_failed_never_moves_the_lease() -> None:
+    router = FakeRouter(REMOTE)
+    app, probed = _verified_app(router)
+    client = TestClient(app)
+    for header in ("machine stopped", FAILED_HERE.replace("replay_source=here", "replay_source=evil")):
+        with client.websocket_connect("/ws/ABCDEFGH", headers={"fly-replay-failed": header}) as ws:
+            assert ws.receive_json() == {"served_here": "ABCDEFGH"}
+    assert router.taken_over == [] and probed == []
+
+
+def test_a_failed_replay_moves_the_lease_only_when_the_owner_is_unreachable() -> None:
+    router = FakeRouter(REMOTE)
+    app, probed = _verified_app(router, probe_result=True)  # owner answers
+    with TestClient(app).websocket_connect("/ws/ABCDEFGH", headers={"fly-replay-failed": FAILED_HERE}) as ws:
+        assert ws.receive_json() == {"served_here": "ABCDEFGH"}
+    assert probed == ["machine-b"] and router.taken_over == []
+
+    router = FakeRouter(REMOTE)
+    app, probed = _verified_app(router, probe_result=False)  # owner is gone
+    client = TestClient(app)
+    for _ in range(3):
+        with client.websocket_connect("/ws/ABCDEFGH", headers={"fly-replay-failed": FAILED_HERE}) as ws:
+            assert ws.receive_json() == {"served_here": "ABCDEFGH"}
+    # Taken over once; further fallbacks inside the interval do not repeat it.
+    assert router.taken_over == [("ABCDEFGH", "machine-b")]
+
+
+def test_routing_runs_in_a_thread_when_rooms_are_shared() -> None:
+    import threading
+
+    class Shared(FakeRouter):
+        shares_rooms = True
+
+        def route(self, room_id: str) -> RoomRoute:
+            self.thread = threading.current_thread()
+            return RoomRoute("ABCDEFGH", "here", True)
+
+    router = Shared(REMOTE)
+    with TestClient(_app(router, fly_replay=True)).websocket_connect("/ws/ABCDEFGH") as ws:
+        assert ws.receive_json() == {"served_here": "ABCDEFGH"}
+    assert router.thread is not threading.main_thread()

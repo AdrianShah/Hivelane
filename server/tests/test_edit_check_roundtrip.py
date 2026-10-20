@@ -52,6 +52,8 @@ def _next_feed_event(socket: Any, type_name: str) -> dict:
 
 
 def test_edit_check_blocks_on_a_peers_fresh_edit() -> None:
+    """Neither join nor activity carries a repo_id (an old client): they
+    validate, fall into the empty-id bucket and still coordinate."""
     client = TestClient(app)
     room_id = client.post("/rooms").json()["room_id"]
 
@@ -71,13 +73,14 @@ def test_edit_check_blocks_on_a_peers_fresh_edit() -> None:
             )
             # The feed batch carrying the activity proves the server recorded
             # the touch, so the edit_check below cannot race it.
-            _next_feed_event(sam, "activity_update")
+            update = _next_feed_event(sam, "activity_update")
 
             priya.send_json(
                 {"type": "edit_check", "request_id": "req-1", "file_path": FILE}
             )
             response = _next_frame(priya, "edit_check_response")
 
+    assert update["repo_id"] == ""
     assert response["request_id"] == "req-1"
     assert response["decision"] == "block"
     assert response["file_path"] == FILE

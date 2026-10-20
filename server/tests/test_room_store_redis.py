@@ -89,6 +89,7 @@ def test_expired_codes_do_not_resolve_and_are_purged(make_store: StoreFactory) -
     store.add("NEWCOD", time.time())
 
     assert store.exists("OLDCOD") is False
+    assert RoomManager(store=store).get("OLDCOD") is None
     assert store.count() == 1
 
     assert store.purge_expired(time.time()) == 1
@@ -162,9 +163,11 @@ def test_max_rooms_is_enforced_against_the_durable_count(
     for index in range(MAX_ROOMS):
         store.add(f"CODE{index:04d}", now)
 
+    # No live rooms at all, yet the cap still applies.
     manager = RoomManager(store=make_store())
     with pytest.raises(RuntimeError, match="Maximum number of rooms"):
         manager.create_room()
+    assert manager.room_count == 0
 
     store.remove("CODE0000")
     assert manager.create_room()

@@ -11,15 +11,20 @@ POST /rooms returned, checked against the stored SHA-256 in constant time):
 - At most MAX_WEBHOOKS_PER_ROOM per room. `kind` is "slack", "discord" or
   "generic" (the payload shape); `events` picks from "block", "warn",
   "conflict_alert", "join_request".
-- https:// only. A development relay (SYNERGO_ENV=development) also accepts
-  http:// to localhost, so a local receiver can be tested.
-- SSRF: outside development the host is resolved and every address it
+- https:// only. With SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1 (never in production)
+  http:// to localhost is accepted too, so a local receiver can be tested.
+- SSRF: in every environment (development included, unless
+  SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1) the host is resolved and every address it
   resolves to must be public (no private, loopback, link-local, CGNAT,
-  multicast or reserved ranges, IPv4-mapped/6to4/NAT64 forms included). This
+  multicast or reserved ranges, IPv4-mapped/compatible/6to4/Teredo/NAT64 forms
+  included). This
   is checked when the webhook is added and again before every delivery, and
   the delivery connects to the address that was checked (TLS still verifies
   the original host name), so DNS rebinding cannot swap in an internal one.
   Redirects are never followed and proxy environment variables are ignored.
+- The receiver's answer is its status line: the body is never read (nor
+  decompressed: Accept-Encoding: identity), so a receiver cannot make the
+  relay buffer a large or compressed response.
 - Webhooks are persisted with the room in the room store (the SQLite
   `webhooks` column or the Redis `webhooks` hash) and go when the room code
   does. URLs are secrets (a Slack or Discord URL is the credential): they are
@@ -64,7 +69,7 @@ except ImportError:  # pragma: no cover - httpx ships with the relay's dependenc
 
 try:
     from . import config, limits, metrics
-    from .limits import TokenBucket, client_ip
+    from .limits import TokenBucket, rate_key
     from .room_manager import normalize_room_code
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
@@ -72,7 +77,7 @@ except ImportError:  # Render rootDir=server
     import config  # type: ignore[no-redef]
     import limits  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
-    from limits import TokenBucket, client_ip  # type: ignore[no-redef]
+    from limits import TokenBucket, rate_key  # type: ignore[no-redef]
     from room_manager import normalize_room_code  # type: ignore[no-redef]
 
 log = logging.getLogger(__name__)
@@ -117,6 +122,10 @@ MAX_TEXT = 500
 MAX_PATH = 300
 
 USER_AGENT = "Synergo-Relay-Webhooks/1"
+
+# Rooms whose webhook list is cached at once (least recently used dropped),
+# so every code that ever emitted an event does not stay in memory.
+MAX_CACHED_ROOMS = 4096
 
 DELIVERY_OUTCOMES = ("delivered", "failed", "circuit_open", "rate_limited", "dropped")
 
@@ -178,8 +187,15 @@ def _is_loopback_name(host: str) -> bool:
         return False
 
 
-def parse_url(url: str, *, development: bool) -> Target:
-    """Validate a webhook URL's shape. Raises WebhookUrlError."""
+def parse_url(
+    url: str, *, allow_private: bool = False, development: Optional[bool] = None
+) -> Target:
+    """Validate a webhook URL's shape. Raises WebhookUrlError.
+
+    `allow_private` (SYNERGO_WEBHOOKS_ALLOW_PRIVATE) also accepts
+    http://localhost; `development` is its old name."""
+    if development is not None:
+        allow_private = development
     text = (url or "").strip()
     if not text or len(text) > MAX_URL_LENGTH:
         raise WebhookUrlError(f"url must be 1-{MAX_URL_LENGTH} characters")
@@ -197,10 +213,10 @@ def parse_url(url: str, *, development: bool) -> Target:
     if parts.fragment:
         raise WebhookUrlError("url must not have a #fragment")
     if scheme == "http":
-        if not (development and _is_loopback_name(host)):
+        if not (allow_private and _is_loopback_name(host)):
             raise WebhookUrlError(
-                "url must be https:// (http:// is accepted only for localhost on a "
-                "development relay)"
+                "url must be https:// (http:// is accepted only for localhost, with "
+                "SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1)"
             )
     elif scheme != "https":
         raise WebhookUrlError("url must be https://")
@@ -215,8 +231,15 @@ _NAT64 = (ipaddress.ip_network("64:ff9b::/96"), ipaddress.ip_network("64:ff9b:1:
 
 def is_public_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     """True only for globally routable unicast addresses. IPv6 forms that
-    embed an IPv4 address (mapped, 6to4, Teredo, NAT64) are judged by it."""
+    embed an IPv4 address (mapped, compatible ::a.b.c.d, translated
+    ::ffff:0:a.b.c.d, 6to4, Teredo, NAT64) are judged by it."""
     if isinstance(address, ipaddress.IPv6Address):
+        value = int(address)
+        if value >> 32 == 0 or value >> 32 == 0xFFFF0000:
+            # ::/96 (IPv4-compatible, deprecated) and ::ffff:0:0:0/96
+            # (IPv4-translated): the low 32 bits are an IPv4 address, which
+            # some stacks and tunnels still route to.
+            return is_public_address(ipaddress.IPv4Address(value & 0xFFFFFFFF))
         embedded = address.ipv4_mapped or address.sixtofour
         if embedded is None and address.teredo is not None:
             embedded = address.teredo[1]
@@ -238,13 +261,20 @@ async def system_resolver(host: str, port: int) -> list[str]:
 
 
 async def checked_addresses(
-    target: Target, *, resolver: Resolver, development: bool
+    target: Target,
+    *,
+    resolver: Resolver,
+    allow_private: bool = False,
+    development: Optional[bool] = None,
 ) -> list[str]:
     """Resolve the target and return the addresses to connect to, in order.
 
-    Outside development every address must be public: one private answer
-    among public ones is refused too, since which one a client picks is not
-    up to the relay. Raises WebhookUrlError."""
+    Unless `allow_private` (`development` is its old name), every address
+    must be public: one private answer among public ones is refused too,
+    since which one a client picks is not up to the relay. Raises
+    WebhookUrlError."""
+    if development is not None:
+        allow_private = development
     try:
         literal: Optional[ipaddress.IPv4Address | ipaddress.IPv6Address] = (
             ipaddress.ip_address(target.host)
@@ -268,7 +298,7 @@ async def checked_addresses(
             raise WebhookUrlError("url's host resolves to something that is not an IP") from None
     if not parsed:
         raise WebhookUrlError("url's host does not resolve")
-    if not development and not all(is_public_address(address) for address in parsed):
+    if not allow_private and not all(is_public_address(address) for address in parsed):
         raise WebhookUrlError(
             "url resolves to a private, loopback, link-local or otherwise "
             "non-public address"
@@ -276,22 +306,30 @@ async def checked_addresses(
     return list(dict.fromkeys(str(address) for address in parsed))
 
 
-async def checked_address(target: Target, *, resolver: Resolver, development: bool) -> str:
+async def checked_address(
+    target: Target,
+    *,
+    resolver: Resolver,
+    allow_private: bool = False,
+    development: Optional[bool] = None,
+) -> str:
     """The first address checked_addresses returns."""
-    addresses = await checked_addresses(target, resolver=resolver, development=development)
+    addresses = await checked_addresses(
+        target, resolver=resolver, allow_private=allow_private, development=development
+    )
     return addresses[0]
 
 
 def mask_url(url: str) -> str:
-    """What GET shows: scheme and host, and the last four characters."""
+    """What GET shows: scheme and host only. Nothing from the path: in a Slack
+    or Discord URL every character of it is part of the secret."""
     try:
         parts = urlsplit(url)
         host = parts.hostname or "?"
         scheme = parts.scheme or "https"
     except ValueError:
         return "…"
-    tail = url[-4:] if len(url) >= 16 else ""
-    return f"{scheme}://{host}/…{tail}"
+    return f"{scheme}://{host}/…"
 
 
 # --- stored webhooks -------------------------------------------------------------
@@ -485,15 +523,34 @@ _DISCORD_COLORS = {
 }
 
 
+def _defang(text: str) -> str:
+    """Break anything a chat client would turn into a clickable link: the
+    text comes from room members (paths, prompts, names) and from Gemini, so
+    a code holder could otherwise plant a phishing link in the owner's
+    channel. "https://x" becomes "https[:]//x", "www." becomes "www[.]"."""
+    return text.replace("://", "[:]//").replace("www.", "www[.]").replace("WWW.", "WWW[.]")
+
+
 def _slack_escape(text: str) -> str:
-    # Slack mrkdwn control characters; also defuses <!channel> and links.
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Slack mrkdwn control characters; also defuses <!channel> and <url|label>
+    # links. Bare URLs are auto-linked by Slack, so they are defanged too.
+    return _defang(text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+# Discord markdown that can carry a link or hide text: masked links
+# [label](url), emphasis, headings, spoilers, quotes, code.
+_DISCORD_MARKDOWN = str.maketrans({c: "\\" + c for c in "\\[]()*_~|>#`"})
+
+
+def _discord_escape(text: str) -> str:
+    """Discord markdown escaped and bare URLs defanged."""
+    return _defang(text).translate(_DISCORD_MARKDOWN)
 
 
 def _code(text: str) -> str:
     """Inline code in Slack mrkdwn / Discord markdown, so paths never render
     as links or formatting."""
-    return "`" + text.replace("`", "'") + "`"
+    return "`" + _defang(text.replace("`", "'")) + "`"
 
 
 def _detail_pairs(notice: Notice) -> list[tuple[str, str]]:
@@ -546,13 +603,13 @@ def format_slack(notice: Notice) -> dict[str, Any]:
             ],
         }
     )
-    return {"text": f"{title}: {notice.summary}", "blocks": blocks}
+    return {"text": f"{title}: {_slack_escape(notice.summary)}", "blocks": blocks}
 
 
 def format_discord(notice: Notice) -> dict[str, Any]:
     embed: dict[str, Any] = {
         "title": _TITLES[notice.event],
-        "description": _clip(notice.summary, 2000),
+        "description": _clip(_discord_escape(notice.summary), 2000),
         "color": _DISCORD_COLORS[notice.event],
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(notice.timestamp)),
         "footer": {
@@ -560,9 +617,20 @@ def format_discord(notice: Notice) -> dict[str, Any]:
             + (" · end-to-end encrypted" if notice.e2e else "")
         },
     }
-    fields = [{"name": name, "value": _clip(value, 1000), "inline": True} for name, value in _detail_pairs(notice)]
+    fields = [
+        {
+            "name": name,
+            # File values are already inline code (escaping inside it would
+            # show the backslashes); everything else is escaped markdown.
+            "value": _clip(value if value.startswith("`") else _discord_escape(value), 1000),
+            "inline": True,
+        }
+        for name, value in _detail_pairs(notice)
+    ]
     if notice.reason:
-        fields.append({"name": "Reason", "value": _clip(notice.reason, 1000), "inline": False})
+        fields.append(
+            {"name": "Reason", "value": _clip(_discord_escape(notice.reason), 1000), "inline": False}
+        )
     if fields:
         embed["fields"] = fields
     # Never ping anyone, whatever a name or path contains.
@@ -655,28 +723,45 @@ class WebhookService:
         owner_check: Callable[[str, Optional[str]], bool],
         transport_factory: Optional[TransportFactory] = None,
         resolver: Resolver = system_resolver,
+        allow_private: Optional[bool] = None,
         development: Optional[bool] = None,
         sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
         retry_backoff: tuple[float, ...] = RETRY_BACKOFF_SECONDS,
+        offload_io: Optional[bool] = None,
     ) -> None:
         self._load = load
         self._save = save
         self._owner_check = owner_check
         self.transport_factory = transport_factory
         self.resolver = resolver
-        self._development = development
+        # `development` is the old name of `allow_private`.
+        self._allow_private = allow_private if allow_private is not None else development
         self._sleep = sleep
         self._clock = clock
         self.retry_backoff = retry_backoff
-        self._cache: dict[str, _Cached] = {}
+        # Store reads and writes run in a worker thread when the store is
+        # Redis (each is a network round trip that would otherwise stall the
+        # event loop); with SQLite or memory they are fast enough inline.
+        self.offload_io = config.REDIS_URL is not None if offload_io is None else offload_io
+        self._cache: OrderedDict[str, _Cached] = OrderedDict()
         self._breakers: dict[str, _Breaker] = {}
         self._budgets: OrderedDict[str, TokenBucket] = OrderedDict()
         self._tasks: set[asyncio.Task] = set()
 
     @property
-    def development(self) -> bool:
-        return config.IS_DEVELOPMENT if self._development is None else self._development
+    def allow_private(self) -> bool:
+        """Whether webhooks may target private and loopback addresses
+        (SYNERGO_WEBHOOKS_ALLOW_PRIVATE). Off by default in every environment."""
+        return config.WEBHOOKS_ALLOW_PRIVATE if self._allow_private is None else self._allow_private
+
+    # Old name, kept for callers that still read it.
+    development = allow_private
+
+    async def _io(self, call: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        if self.offload_io:
+            return await asyncio.to_thread(call, *args, **kwargs)
+        return call(*args, **kwargs)
 
     # --- registry ------------------------------------------------------------
 
@@ -690,15 +775,25 @@ class WebhookService:
                 log.exception("Could not read webhooks for room %s", code)
                 record = None if cached is None else hooks_record(cached.hooks)
             cached = _Cached(now, hooks_from_record(record))
-            self._cache[code] = cached
+            self._remember(code, cached)
             live = {hook.id for entry in self._cache.values() for hook in entry.hooks}
             for hook_id in [h for h in self._breakers if h not in live]:
                 del self._breakers[hook_id]
+        else:
+            self._cache.move_to_end(code)
         return list(cached.hooks)
+
+    def _remember(self, code: str, entry: _Cached) -> None:
+        self._cache[code] = entry
+        self._cache.move_to_end(code)
+        while len(self._cache) > MAX_CACHED_ROOMS:
+            _, dropped = self._cache.popitem(last=False)
+            for hook in dropped.hooks:
+                self._breakers.pop(hook.id, None)
 
     def _store(self, code: str, hooks: list[Webhook]) -> None:
         self._save(code, hooks_record(hooks))
-        self._cache[code] = _Cached(self._clock(), list(hooks))
+        self._remember(code, _Cached(self._clock(), list(hooks)))
 
     def forget(self, code: str) -> None:
         """Drop what is cached for a room (it was evicted)."""
@@ -742,15 +837,17 @@ class WebhookService:
         return [self.public(hook) for hook in self.hooks(code, fresh=True)]
 
     async def add(self, code: str, body: WebhookCreate) -> Webhook:
-        hooks = self.hooks(code, fresh=True)
+        hooks = await self._io(self.hooks, code, fresh=True)
         if len(hooks) >= MAX_WEBHOOKS_PER_ROOM:
             raise WebhookError(409, f"A room has at most {MAX_WEBHOOKS_PER_ROOM} webhooks")
         url = body.url.strip()
         if any(hook.url == url for hook in hooks):
             raise WebhookError(409, "That webhook is already registered for this room")
         try:
-            target = parse_url(url, development=self.development)
-            await checked_address(target, resolver=self.resolver, development=self.development)
+            target = parse_url(url, allow_private=self.allow_private)
+            await checked_address(
+                target, resolver=self.resolver, allow_private=self.allow_private
+            )
         except WebhookUrlError as exc:
             raise WebhookError(422, str(exc)) from None
         hook = Webhook(
@@ -761,10 +858,10 @@ class WebhookService:
             created_at=time.time(),
         )
         # Re-read: another request may have added one while this one resolved.
-        hooks = self.hooks(code, fresh=True)
+        hooks = await self._io(self.hooks, code, fresh=True)
         if len(hooks) >= MAX_WEBHOOKS_PER_ROOM:
             raise WebhookError(409, f"A room has at most {MAX_WEBHOOKS_PER_ROOM} webhooks")
-        self._store(code, [*hooks, hook])
+        await self._io(self._store, code, [*hooks, hook])
         log.info("Room %s: webhook %s added (%s, %s)", code, hook.id, hook.kind, ",".join(hook.events))
         return hook
 
@@ -823,7 +920,7 @@ class WebhookService:
         kind = event_kind(payload)
         if kind is None:
             return 0
-        hooks = [hook for hook in self.hooks(code) if kind in hook.events]
+        hooks = [hook for hook in await self._io(self.hooks, code) if kind in hook.events]
         if not hooks:
             return 0
         if not self._budget(code).take():
@@ -880,9 +977,9 @@ class WebhookService:
         if httpx is None:
             return False, False, "httpx is not installed"
         try:
-            target = parse_url(hook.url, development=self.development)
+            target = parse_url(hook.url, allow_private=self.allow_private)
             addresses = await checked_addresses(
-                target, resolver=self.resolver, development=self.development
+                target, resolver=self.resolver, allow_private=self.allow_private
             )
         except WebhookUrlError as exc:
             # Not retried: the answer will be the same in a second.
@@ -891,14 +988,23 @@ class WebhookService:
             "Host": target.host_header(),
             "Content-Type": "application/json",
             "User-Agent": USER_AGENT,
+            # The body is never read, but a receiver must not even be invited
+            # to compress one.
+            "Accept-Encoding": "identity",
         }
         extensions = {"sni_hostname": target.host} if target.scheme == "https" else {}
         transport = self.transport_factory() if self.transport_factory is not None else None
 
-        async def post_to_first_reachable() -> httpx.Response:
+        async def post_to_first_reachable() -> int:
             # Every address was checked; one that refuses the connection (a
             # host with both IPv6 and IPv4, a receiver on only one) gives way
             # to the next. Anything after the connection is the answer.
+            #
+            # Streamed, and the body is never read: the status line is the
+            # whole answer. client.post() would buffer (and gunzip) whatever
+            # the receiver sends, so a hostile receiver could make one
+            # delivery hold hundreds of MB. Leaving the stream closes the
+            # connection without reading further.
             async with httpx.AsyncClient(
                 transport=transport,
                 timeout=httpx.Timeout(DELIVERY_TIMEOUT_SECONDS),
@@ -907,12 +1013,14 @@ class WebhookService:
             ) as client:
                 for index, address in enumerate(addresses):
                     try:
-                        return await client.post(
+                        async with client.stream(
+                            "POST",
                             target.pinned_url(address),
                             content=body,
                             headers=headers,
                             extensions=extensions,
-                        )
+                        ) as response:
+                            return response.status_code
                     except (httpx.ConnectError, httpx.ConnectTimeout):
                         if index == len(addresses) - 1:
                             raise
@@ -920,12 +1028,11 @@ class WebhookService:
 
         try:
             # One budget for the whole attempt, however many addresses it tries.
-            response = await asyncio.wait_for(post_to_first_reachable(), DELIVERY_TIMEOUT_SECONDS)
+            status = await asyncio.wait_for(post_to_first_reachable(), DELIVERY_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             return False, True, "timed out"
         except httpx.HTTPError as exc:
             return False, True, type(exc).__name__
-        status = response.status_code
         if 200 <= status < 300:
             return True, False, ""
         return False, status == 429 or status >= 500, f"HTTP {status}"
@@ -943,8 +1050,8 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
     """Add the owner API to app. `service_ref` is looked up per request, so
     tests can swap the service (and the room manager behind it)."""
 
-    def _guard(request: Request, code: str, token: Optional[str]) -> WebhookService:
-        allowance = api_limiter.check(client_ip(request))
+    async def _guard(request: Request, code: str, token: Optional[str]) -> WebhookService:
+        allowance = await limits.check_async(api_limiter, rate_key(request))
         if not allowance.allowed:
             raise HTTPException(
                 status_code=429,
@@ -953,7 +1060,7 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
             )
         service = service_ref()
         try:
-            service.authorize(code, token)
+            await service._io(service.authorize, code, token)
         except WebhookError as exc:
             raise HTTPException(status_code=exc.status, detail=exc.detail) from None
         return service
@@ -965,7 +1072,7 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
         request: Request,
         x_synergo_owner_token: Optional[str] = Header(default=None),
     ) -> dict[str, Any]:
-        service = _guard(request, code, x_synergo_owner_token)
+        service = await _guard(request, code, x_synergo_owner_token)
         try:
             hook = await service.add(normalize_room_code(code), body)
         except WebhookError as exc:
@@ -978,9 +1085,9 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
         request: Request,
         x_synergo_owner_token: Optional[str] = Header(default=None),
     ) -> dict[str, Any]:
-        service = _guard(request, code, x_synergo_owner_token)
+        service = await _guard(request, code, x_synergo_owner_token)
         return {
-            "webhooks": service.listing(normalize_room_code(code)),
+            "webhooks": await service._io(service.listing, normalize_room_code(code)),
             "max": MAX_WEBHOOKS_PER_ROOM,
             "kinds": list(WEBHOOK_KINDS),
             "events": list(WEBHOOK_EVENTS),
@@ -993,7 +1100,7 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
         request: Request,
         x_synergo_owner_token: Optional[str] = Header(default=None),
     ) -> Response:
-        service = _guard(request, code, x_synergo_owner_token)
-        if not service.remove(normalize_room_code(code), hook_id):
+        service = await _guard(request, code, x_synergo_owner_token)
+        if not await service._io(service.remove, normalize_room_code(code), hook_id):
             raise HTTPException(status_code=404, detail="No such webhook in this room")
         return Response(status_code=204)

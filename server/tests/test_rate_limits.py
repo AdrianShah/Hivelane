@@ -25,7 +25,6 @@ try:
     from server.limits import (
         FixedWindowLimiter,
         RedisCounterStore,
-        RedisFixedWindowLimiter,
         build_limiter,
         client_ip,
     )
@@ -36,7 +35,6 @@ except ImportError:  # Render rootDir=server
     from limits import (
         FixedWindowLimiter,
         RedisCounterStore,
-        RedisFixedWindowLimiter,
         build_limiter,
         client_ip,
     )

@@ -689,3 +689,108 @@ def test_a_failing_sink_never_breaks_the_broadcast() -> None:
         asyncio.run(scenario())
     finally:
         remove_event_sink(broken)
+
+
+# --- hardening (security review 04) ---------------------------------------------------
+
+
+class _Bomb(httpx.AsyncByteStream):
+    """A response body that records whether anyone read it."""
+
+    def __init__(self) -> None:
+        self.read = False
+
+    async def __aiter__(self):  # type: ignore[override]
+        self.read = True
+        yield b"\x1f\x8b" + b"\0" * 1024
+
+    async def aclose(self) -> None:
+        return None
+
+
+def test_the_response_body_is_never_read_or_decompressed(net: FakeNet) -> None:
+    service, _ = _service(net, load=lambda code: None, save=lambda code, record: None)
+    bomb = _Bomb()
+    net.responses = [httpx.Response(200, headers={"Content-Encoding": "gzip"}, stream=bomb)]
+    assert asyncio.run(service.deliver(_hook(GENERIC, "generic"), _notice()))
+    assert not bomb.read
+    assert net.requests[0].headers["accept-encoding"] == "identity"
+
+
+def test_ssrf_checks_are_on_by_default_in_every_environment(net: FakeNet) -> None:
+    # No allow_private / development argument: the default (config) applies.
+    assert webhooks.config.WEBHOOKS_ALLOW_PRIVATE is False
+    service = webhooks.WebhookService(
+        load=lambda code: None, save=lambda code, record: None, owner_check=lambda c, t: True
+    )
+    assert service.allow_private is False
+    with pytest.raises(webhooks.WebhookUrlError):
+        webhooks.parse_url("http://localhost:9000/hook")
+    net.addresses["box.lan"] = ["192.168.1.20"]
+    target = webhooks.parse_url("https://box.lan/hook")
+    with pytest.raises(webhooks.WebhookUrlError, match="non-public"):
+        asyncio.run(webhooks.checked_address(target, resolver=net.resolve))
+    # The explicit opt-in still works for a local receiver.
+    assert asyncio.run(
+        webhooks.checked_address(target, resolver=net.resolve, allow_private=True)
+    ) == "192.168.1.20"
+
+
+@pytest.mark.parametrize(
+    "address", ["::127.0.0.1", "::7f00:1", "::ffff:0:7f00:1", "::a00:1", "::ffff:0:a9fe:a9fe"]
+)
+def test_ipv4_compatible_and_translated_forms_are_judged_by_their_ipv4(address: str) -> None:
+    assert not webhooks.is_public_address(ipaddress.ip_address(address))
+
+
+def test_mask_url_shows_nothing_from_the_path() -> None:
+    assert webhooks.mask_url(SLACK) == "https://hooks.slack.com/…"
+    assert "1234" not in webhooks.mask_url(SLACK)
+
+
+def test_member_text_cannot_plant_links_in_slack_or_discord() -> None:
+    notice = _notice(reason="[Approve here](https://phish.example/x) or www.evil.example")
+    notice.summary = "see https://phish.example/login"
+    slack = json.dumps(webhooks.format_slack(notice))
+    assert "https://phish" not in slack and "www.evil" not in slack
+    assert "https[:]//phish" in slack
+    assert "https://phish" not in webhooks.format_slack(notice)["text"]
+    discord = webhooks.format_discord(notice)
+    embed = discord["embeds"][0]
+    reason = next(f["value"] for f in embed["fields"] if f["name"] == "Reason")
+    assert "](" not in reason and r"\[Approve here\]" in reason
+    assert "https://" not in json.dumps(discord)
+
+
+def test_the_webhook_cache_is_bounded(net: FakeNet, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks, "MAX_CACHED_ROOMS", 5)
+    service, _ = _service(net, load=lambda code: None, save=lambda code, record: None)
+    for n in range(20):
+        service.hooks(f"ROOM{n:04d}")
+    assert len(service._cache) == 5
+    assert list(service._cache) == [f"ROOM{n:04d}" for n in range(15, 20)]
+
+
+def test_store_io_can_run_off_the_event_loop(net: FakeNet) -> None:
+    import threading
+
+    threads: list[str] = []
+
+    def load(code: str) -> Optional[dict]:
+        threads.append(threading.current_thread().name)
+        return None
+
+    service = webhooks.WebhookService(
+        load=load,
+        save=lambda code, record: None,
+        owner_check=lambda c, t: True,
+        transport_factory=net.transport,
+        resolver=net.resolve,
+        offload_io=True,
+    )
+
+    async def run() -> int:
+        return await service.dispatch("ROOMCODE", False, _block())
+
+    asyncio.run(run())
+    assert threads and threads[0] != threading.main_thread().name

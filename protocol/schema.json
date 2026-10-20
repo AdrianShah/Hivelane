@@ -777,6 +777,19 @@
           "maxLength": 262144,
           "title": "E2E",
           "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
         }
       },
       "required": [
@@ -1357,6 +1370,16 @@
           },
           "title": "Conflicts",
           "type": "array"
+        },
+        "request_id": {
+          "default": "",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
         }
       },
       "title": "PlanConflicts",
@@ -1417,6 +1440,12 @@
           "default": "",
           "maxLength": 262144,
           "title": "E2E",
+          "type": "string"
+        },
+        "request_id": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Request Id",
           "type": "string"
         }
       },

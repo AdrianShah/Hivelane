@@ -51,9 +51,11 @@ DEFAULT_MAX_KNOWN_PATHS = 512  # paths remembered for suggestions (LRU)
 DEFAULT_FILE_QUEUE_MAX_LENGTH = 0
 DEFAULT_FILE_QUEUE_MAX_FILES = 256  # files with a wait line at once, per room
 # Opt-in replay history (server/history.py): per room, and process-wide.
+# The byte caps count compact JSON; Python objects take roughly 3-8x that in
+# resident memory, so the process-wide default keeps a 512 MB VM safe.
 DEFAULT_HISTORY_MAX_EVENTS = 5000
-DEFAULT_HISTORY_MAX_BYTES = 8 * 1024 * 1024
-DEFAULT_HISTORY_TOTAL_MAX_BYTES = 128 * 1024 * 1024
+DEFAULT_HISTORY_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_HISTORY_TOTAL_MAX_BYTES = 32 * 1024 * 1024
 # Owner webhooks (server/webhooks.py). Webhooks per room is at least 1: each
 # one is an outbound request per matching event.
 DEFAULT_MAX_WEBHOOKS_PER_ROOM = 3
@@ -78,6 +80,10 @@ _CORS_PROBE_ORIGINS = (
     "http://cors-wildcard-probe.invalid",
     "null",
 )
+
+# Per-message caps that production refuses to switch off (0 = unlimited):
+# without them one frame can make the relay buffer and fan out anything.
+NONZERO_IN_PRODUCTION = ("max_frame_bytes", "max_diff_bytes", "max_text_bytes")
 
 # Schemes redis-py's from_url understands. Checked here so a typo fails the boot
 # instead of quietly leaving every instance on its own per-process budget.
@@ -125,6 +131,10 @@ class Settings:
     max_symbols_per_message: int = DEFAULT_MAX_SYMBOLS_PER_MESSAGE
     max_line_ranges_per_message: int = DEFAULT_MAX_LINE_RANGES_PER_MESSAGE
     max_path_chars: int = DEFAULT_MAX_PATH_CHARS
+    # Webhooks may target private, loopback and link-local addresses (and
+    # http://localhost). Off unless SYNERGO_WEBHOOKS_ALLOW_PRIVATE is set, in
+    # every environment; production refuses it.
+    webhooks_allow_private: bool = False
 
     @property
     def is_production(self) -> bool:
@@ -238,6 +248,30 @@ def _redis_url(env: Mapping[str, str]) -> str | None:
     return raw
 
 
+# A quantifier (*, +, {n,m}) in an origin regex. What follows it must be a
+# literal dot, or the pattern also matches look-alike registrable domains:
+# r"https://.*example\.com" accepts https://evilexample.com.
+_QUANTIFIER = re.compile(r"(?<!\\)(?:[*+]|\{\d+(?:,\d*)?\})\??")
+# What a quantified digit run looks like (a port or a PR number): harmless.
+_DIGITS_BEFORE = (r"\d", "[0-9]")
+
+
+def _unanchored_wildcard(regex: str) -> bool:
+    """True when a wildcard in `regex` is not followed by a literal dot, so
+    a host label can run straight into the domain the author meant."""
+    for match in _QUANTIFIER.finditer(regex):
+        before = regex[: match.start()]
+        if before.endswith(_DIGITS_BEFORE):
+            continue
+        rest = regex[match.end() :].lstrip(")")
+        if rest.startswith(r"\."):
+            continue
+        # Anything else, a trailing wildcard included (https://app-.*), lets
+        # the host run on into a domain somebody else can register.
+        return True
+    return False
+
+
 def _cors_wildcard_problem(
     origins: tuple[str, ...], regex: str | None
 ) -> str | None:
@@ -254,6 +288,12 @@ def _cors_wildcard_problem(
     for probe in _CORS_PROBE_ORIGINS:
         if re.fullmatch(regex, probe):
             return f"CORS_ORIGIN_REGEX {regex!r} matches any origin (e.g. {probe!r})"
+    if _unanchored_wildcard(regex):
+        return (
+            f"CORS_ORIGIN_REGEX {regex!r} has a wildcard not followed by a literal "
+            r"dot, so it also matches look-alike domains (e.g. https://.*example\.com "
+            "accepts https://evilexample.com)"
+        )
     return None
 
 
@@ -294,6 +334,22 @@ def load_settings(env: Mapping[str, str]) -> Settings:
                 r"to your own domain (e.g. https://.*\.example\.com)."
             )
 
+    allow_private = _bool(env.get("SYNERGO_WEBHOOKS_ALLOW_PRIVATE"), default=False)
+    if allow_private and name == "production":
+        raise ConfigError(
+            "SYNERGO_WEBHOOKS_ALLOW_PRIVATE is for testing a local webhook receiver; "
+            "a production relay must not post to private or loopback addresses"
+        )
+    limits = {field: _limit(env, var, default) for field, var, default in LIMITS}
+    if name == "production":
+        for field in NONZERO_IN_PRODUCTION:
+            if limits[field] == 0:
+                var = next(v for f, v, _ in LIMITS if f == field)
+                raise ConfigError(
+                    f"{var}=0 (unlimited) is refused in production: it lets one "
+                    "message make the relay buffer and fan out anything"
+                )
+
     return Settings(
         env=name,
         cors_origins=origins,
@@ -332,7 +388,8 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         max_webhooks_per_room=_positive_int(
             env, "SYNERGO_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
         ),
-        **{field: _limit(env, name, default) for field, name, default in LIMITS},
+        webhooks_allow_private=allow_private,
+        **limits,
     )
 
 
@@ -377,6 +434,7 @@ MAX_FILES_PER_MESSAGE: int = SETTINGS.max_files_per_message
 MAX_SYMBOLS_PER_MESSAGE: int = SETTINGS.max_symbols_per_message
 MAX_LINE_RANGES_PER_MESSAGE: int = SETTINGS.max_line_ranges_per_message
 MAX_PATH_CHARS: int = SETTINGS.max_path_chars
+WEBHOOKS_ALLOW_PRIVATE: bool = SETTINGS.webhooks_allow_private
 
 
 def limits_summary(settings: Settings = SETTINGS) -> dict[str, int]:

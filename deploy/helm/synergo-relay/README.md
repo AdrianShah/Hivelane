@@ -32,7 +32,7 @@ it is the only dashboard, plus any dashboard hosted elsewhere.
 | `image.tag` | chart `appVersion` | `edge` follows `main`. |
 | `relay.env` | `production` | `SYNERGO_ENV`. |
 | `relay.corsOrigins` | (required) | `CORS_ORIGINS`, comma-separated exact origins. |
-| `relay.trustProxyHeader` | `true` | Read the client IP from `X-Forwarded-For` (the ingress controller's). Pair it with the proxy-hop settings in [docs/security.md](../../../docs/security.md) through `extraEnv`. |
+| `relay.trustProxyHeader` | `null` (follows `ingress.enabled`) | Read the client IP from `X-Forwarded-For` (the ingress controller's). Set `true` behind another proxy you run; never without one, since clients could forge their address. Pair it with the proxy-hop settings in [docs/security.md](../../../docs/security.md) through `extraEnv`. |
 | `relay.serveDashboard` | `true` | `false` serves the API only. |
 | `relay.redisUrl` | `""` | `SYNERGO_REDIS_URL`. Prefer `relay.existingSecret` when it has a password. |
 | `relay.existingSecret` | `""` | A Secret whose keys become env vars, e.g. `SYNERGO_REDIS_URL`, `GEMINI_API_KEY`. |

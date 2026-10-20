@@ -129,7 +129,7 @@ def test_dashboard_csp_allows_what_the_dashboard_needs_and_little_else() -> None
     )
 
     assert directives["default-src"] == "'self'"
-    assert directives["connect-src"] == "'self' ws: wss:"
+    assert directives["connect-src"] == "'self' ws: wss: https:"
     assert directives["img-src"] == "'self' data:"
     assert directives["style-src"].startswith("'self' 'unsafe-inline'")
     assert directives["frame-ancestors"] == "'none'"
