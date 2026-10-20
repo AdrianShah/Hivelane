@@ -67,25 +67,3 @@ def test_install_merges_and_is_idempotent(
 
     assert second == first
     assert "already installed" in capsys.readouterr().out
-
-
-def test_install_creates_missing_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.chdir(tmp_path)
-    assert cli.main(["hook", "install", "claude-code"]) == 0
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    assert set(settings["hooks"]) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
-
-
-def test_uninstall_removes_only_synergo_entries(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / ".claude" / "settings.json"
-    write_existing(path)
-    cli.main(["hook", "install", "claude-code"])
-
-    assert cli.main(["hook", "uninstall", "claude-code"]) == 0
-    settings = json.loads(path.read_text(encoding="utf-8"))
-
-    assert settings["model"] == "opus"
-    assert settings["hooks"] == {"PreToolUse": [UNRELATED]}

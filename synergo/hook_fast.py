@@ -54,6 +54,14 @@ LOOPBACK = "127.0.0.1"
 DEFAULT_PORT = 4600
 
 HOOK_POST_TIMEOUT = 2.0
+# One invocation's whole budget across every event it posts (a Codex patch
+# can touch many files). Every agent kills a PreToolUse hook after 5 s (the
+# timeout synergo installs), and a killed hook loses any block it found, so
+# posting stops here and the strictest ack so far decides. Leaves room for the
+# interpreter's own start-up.
+HOOK_TOTAL_BUDGET = 3.0
+# Below this much budget a further post is not worth starting.
+MIN_POST_BUDGET = 0.05
 # Loopback connects complete in the kernel even when the daemon's event loop is
 # busy, so a slow connect means nothing is listening. Windows retries a refused
 # loopback SYN for the full timeout instead of failing fast, so without this cap
@@ -69,8 +77,11 @@ STATE_FILENAME = "hook_state.json"
 TOKEN_FILENAME = "token"
 TOKEN_HEADER = "X-Synergo-Token"
 # The token is url-safe base64; anything else in the file is not ours and is
-# never written into a request header.
+# never written into a request header. The same rule as synergo.auth (asserted
+# in the tests): one token is valid for both or for neither.
 _TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+MIN_TOKEN_CHARS = 32
+MAX_TOKEN_CHARS = 512
 
 # Must match synergo.config.PROJECT_FILE (asserted in the tests); importing it
 # from there would pull tomllib into every hook.
@@ -94,6 +105,10 @@ OFFLINE_NOT_RUNNING = (
 OFFLINE_NOT_RESPONDING = (
     "Synergo offline: the local daemon isn't responding, so edits aren't being coordinated. "
     "Check `synergo status`, or restart it with `synergo up`."
+)
+OFFLINE_REJECTED = (
+    "Synergo offline: the local daemon rejected this hook's request (HTTP {status}), so edits "
+    "aren't being coordinated. Restart it with `synergo up` (an older daemon may still be running)."
 )
 OFFLINE_UNAUTHORIZED = (
     "Synergo offline: the local daemon refused this hook's token, so edits aren't being "
@@ -134,15 +149,26 @@ def _parse_response(raw: bytes) -> Any:
         # someone fixes the token. Worth the (rate-limited) offline notice.
         raise DaemonUnreachable(OFFLINE_UNAUTHORIZED)
     if parts[1] != b"200":
-        raise BadResponse(f"daemon answered {parts[1].decode(errors='replace')}")
+        # Version skew (an old daemon rejecting a newer hook's event with
+        # 422), a crashing daemon (500): every edit would be silently allowed
+        # forever, so it is worth the (rate-limited) notice.
+        raise DaemonUnreachable(OFFLINE_REJECTED.format(status=parts[1].decode("ascii", "replace")[:3]))
     headers: dict[bytes, bytes] = {}
     for line in lines[1:]:
         name, _, value = line.partition(b":")
-        headers[name.strip().lower()] = value.strip()
-    if headers.get(b"transfer-encoding", b"").lower() == b"chunked":
+        key = name.strip().lower()
+        if key == b"content-length" and key in headers:
+            raise BadResponse("duplicate Content-Length")
+        headers[key] = value.strip()
+    encoding = headers.get(b"transfer-encoding", b"").lower()
+    if encoding == b"chunked":
         body = _dechunk(body)
+    elif encoding:
+        raise BadResponse(f"unsupported Transfer-Encoding {encoding!r}")
     elif b"content-length" in headers:
         length = int(headers[b"content-length"])
+        if length < 0:
+            raise BadResponse("negative Content-Length")
         if len(body) < length:
             raise BadResponse("truncated body")
         body = body[:length]
@@ -162,20 +188,24 @@ def _dechunk(body: bytes) -> bytes:
         body = rest[size + 2 :]
 
 
-def _complete(raw: bytes) -> bool:
-    """True once a Content-Length response is fully read, so we need not wait
-    for the server's FIN."""
-    head, sep, body = raw.partition(b"\r\n\r\n")
-    if not sep:
-        return False
-    for line in head.split(b"\r\n")[1:]:
+def _expected_length(raw: Any) -> int:
+    """Total response size once the header is in and carries a Content-Length,
+    so we need not wait for the server's FIN; -1 while the header is still
+    incomplete; past MAX_RESPONSE_BYTES (read to EOF) without a usable length."""
+    end = raw.find(b"\r\n\r\n")
+    if end < 0:
+        return -1
+    for line in bytes(raw[:end]).split(b"\r\n")[1:]:
         name, _, value = line.partition(b":")
         if name.strip().lower() == b"content-length":
             try:
-                return len(body) >= int(value.strip())
+                length = int(value.strip())
             except ValueError:
-                return False
-    return False
+                break
+            if length >= 0:
+                return end + 4 + length
+            break
+    return MAX_RESPONSE_BYTES + 1
 
 
 def post_event(
@@ -211,10 +241,12 @@ def post_event(
             sock.settimeout(min(CONNECT_TIMEOUT, timeout))
             sock.connect((LOOPBACK, port))
         except OSError as exc:
+            # Refused, or (on Windows, which retries a refused loopback SYN
+            # until the timeout) a connect that never completes.
             raise DaemonUnreachable(OFFLINE_NOT_RUNNING, not_running=True) from exc
 
-        chunks: list[bytes] = []
-        received = 0
+        buffer = bytearray()
+        expected = -1  # total bytes once the header (with a Content-Length) is in
         try:
             sock.settimeout(max(deadline - time.monotonic(), 0.001))
             sock.sendall(request)
@@ -226,17 +258,20 @@ def post_event(
                 chunk = sock.recv(65536)
                 if not chunk:
                     break
-                chunks.append(chunk)
-                received += len(chunk)
-                if received > MAX_RESPONSE_BYTES:
+                buffer += chunk
+                if len(buffer) > MAX_RESPONSE_BYTES:
                     raise BadResponse("response too large")
-                if _complete(b"".join(chunks)):
+                # The header is parsed once, so a big body costs no
+                # re-scanning per recv.
+                if expected < 0:
+                    expected = _expected_length(buffer)
+                if 0 <= expected <= len(buffer):
                     break
         except TimeoutError as exc:
             raise DaemonUnreachable(OFFLINE_NOT_RESPONDING) from exc
     finally:
         sock.close()
-    return _parse_response(b"".join(chunks))
+    return _parse_response(bytes(buffer))
 
 
 # --- offline notice -----------------------------------------------------------
@@ -260,10 +295,10 @@ def read_token() -> Optional[str]:
     refusal fails open like any other."""
     try:
         with open(token_path(), encoding="ascii") as handle:
-            text = handle.read(256).strip()
+            text = handle.read(MAX_TOKEN_CHARS + 2).strip()
     except (OSError, ValueError):
         return None
-    if not text or not _TOKEN_CHARS.issuperset(text):
+    if not MIN_TOKEN_CHARS <= len(text) <= MAX_TOKEN_CHARS or not _TOKEN_CHARS.issuperset(text):
         return None
     return text
 
@@ -360,8 +395,28 @@ def claim_spawn(now: Optional[float] = None) -> bool:
         # little in the future, and that is still a fresh lock.
         if -SPAWN_LOCK_SECONDS < age < SPAWN_LOCK_SECONDS:
             return False
+        # Move the stale lock aside under a name of our own instead of
+        # removing it: between our stat and a remove, another hook may have
+        # replaced it with a fresh lock, which a plain remove would delete
+        # (letting both of us win). A rename is atomic, so we can look at
+        # what we actually took and hand back a fresh lock we took by mistake.
+        aside = f"{path}.{os.getpid()}.stale"
         try:
-            os.remove(path)
+            os.replace(path, aside)
+        except OSError:
+            return False  # someone else got to it first
+        try:
+            taken_age = now - os.stat(aside).st_mtime
+        except OSError:
+            taken_age = SPAWN_LOCK_SECONDS
+        if -SPAWN_LOCK_SECONDS < taken_age < SPAWN_LOCK_SECONDS:
+            try:
+                os.replace(aside, path)
+            except OSError:
+                pass
+            return False
+        try:
+            os.remove(aside)
         except OSError:
             pass
     try:
@@ -422,11 +477,9 @@ def spawn_daemon(port: int) -> Any:
             "close_fds": True,
         }
         if os.name == "nt":
-            flags = (
-                subprocess.DETACHED_PROCESS
-                | subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.CREATE_NO_WINDOW
-            )
+            # DETACHED_PROCESS already means no console (CREATE_NO_WINDOW is
+            # ignored alongside it, per the CreateProcess docs).
+            flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
             try:
                 # Out of any job object the hook runs in, so the daemon is not
                 # killed along with it; refused when the job forbids breakaway.
@@ -437,11 +490,9 @@ def spawn_daemon(port: int) -> Any:
                 process = subprocess.Popen(command, creationflags=flags, **options)
         else:
             process = subprocess.Popen(command, start_new_session=True, **options)
-    try:
-        with open(pid_path(), "w", encoding="ascii") as handle:
-            handle.write(str(process.pid))
-    except OSError:
-        pass
+    # No pid file write here: the daemon writes its own once it serves.
+    # Popen.pid is the pythonw.exe redirector's pid in a Windows venv, and a
+    # daemon that exits because one is already serving would leave it behind.
     return process
 
 
@@ -493,21 +544,37 @@ def run_agent(agent_id: str, port: int) -> int:
         if not events:
             return 0
         results: list[Any] = []
+        failure: Optional[tuple[dict[str, Any], DaemonUnreachable]] = None
+        deadline = time.monotonic() + HOOK_TOTAL_BUDGET
         for event in events:
+            remaining = deadline - time.monotonic()
+            if remaining < MIN_POST_BUDGET:
+                break  # out of budget: the strictest ack so far decides
             try:
-                ack = post_event(event, port)
+                ack = post_event(event, port, timeout=min(HOOK_POST_TIMEOUT, remaining))
             except DaemonUnreachable as exc:
-                if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
-                    return 0
-                notice = adapter.render_notice(event, str(exc))
-                if notice.stdout and claim_offline_notice():
-                    sys.stdout.write(notice.stdout)
-                    wrote = True
-                return 0
+                failure = (event, exc)
+                break
             except (BadResponse, ValueError, OSError):
                 ack = None  # unreadable ack: this file reads as allow
             results.append((event, ack))
+            if base.ack_decision(ack) == "block":
+                # One blocked file denies the whole call: checking the rest
+                # would only record claims for edits that never happen.
+                break
         chosen = base.strictest(results)
+        if failure is not None and (chosen is None or base.ack_decision(chosen[1]) == "allow"):
+            # Nothing stricter than allow was learnt before the daemon went
+            # away: this is the offline case. A block or warn already in hand
+            # still decides, below — it must never be lost to a later failure.
+            event, exc = failure
+            if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
+                return 0
+            notice = adapter.render_notice(event, str(exc))
+            if notice.stdout and claim_offline_notice():
+                sys.stdout.write(notice.stdout)
+                wrote = True
+            return 0
         if chosen is None:
             return 0
         output = adapter.render(chosen[0], chosen[1])
@@ -518,7 +585,8 @@ def run_agent(agent_id: str, port: int) -> int:
     except BaseException:
         return 0
     finally:
-        # Some agents (Cursor) read an empty answer as a block: say "carry on".
+        # Some agents (Cursor) need a well-formed answer even when synergo
+        # decides nothing; theirs is a no-decision form, never an approval.
         if not wrote and adapter is not None:
             try:
                 text = adapter.passthrough(payload)
@@ -527,7 +595,3 @@ def run_agent(agent_id: str, port: int) -> int:
             except BaseException:  # noqa: BLE001
                 pass
 
-
-def run_claude_code(port: int) -> int:
-    """Back-compat entry: `run_agent("claude-code", port)`."""
-    return run_agent("claude-code", port)

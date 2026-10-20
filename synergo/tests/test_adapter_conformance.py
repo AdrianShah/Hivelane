@@ -34,6 +34,12 @@ ACKS: dict[str, Any] = {
     },
 }
 GARBAGE_ACKS: list[Any] = [None, 1, "block", [], {"decision": "maybe"}, {"decision": "block", "others": "x"}, {}]
+# Well-typed decisions with badly typed fields: a block must still deny (T7).
+ODD_BLOCKS: list[Any] = [
+    {"decision": "block", "reason": {"x": 1}, "others": [{}, {}]},
+    {"decision": "block", "reason": 7, "file_path": ["a"], "others": ["Sam", 3]},
+    {"decision": "block", "suggestion": 5, "queue_position": "2", "others": [{"prompt": {"p": 1}}]},
+]
 
 
 def _sub(value: Any, tmp: str) -> Any:
@@ -150,11 +156,18 @@ def _is_allow(output: base.HookOutput) -> bool:
 
 
 def _approves(output: base.HookOutput) -> bool:
+    """Any agent's explicit approval: Claude Code / Codex `permissionDecision`,
+    Claude's legacy `decision: approve`, Gemini's `decision: allow`, Cursor's
+    `permission: allow`."""
     if not output.stdout:
         return False
     data = json.loads(output.stdout)
     hso = data.get("hookSpecificOutput") or {}
-    return hso.get("permissionDecision") == "allow" or data.get("decision") == "approve"
+    return (
+        hso.get("permissionDecision") == "allow"
+        or data.get("decision") in ("approve", "allow")
+        or data.get("permission") == "allow"  # Cursor
+    )
 
 
 def _denies(output: base.HookOutput) -> bool:
@@ -251,7 +264,9 @@ def test_install_idempotent_and_uninstall_clean(
     path = adapter.settings_path(scope, root)
     assert (fake_home if scope == "user" else root) in path.parents
     path.parent.mkdir(parents=True)
-    original = {"model": "x", "hooks": {"PreToolUse": [UNRELATED]}}
+    original: dict[str, Any] = {"model": "x", "hooks": {"PreToolUse": [UNRELATED]}}
+    if agent == "cursor":
+        original["version"] = 1  # Cursor requires it; install adds it when missing
     path.write_text(json.dumps(original, indent=2), encoding="utf-8")
 
     assert not adapter.is_installed(scope, root)

@@ -21,8 +21,12 @@ try:
     from _json import encode_basestring_ascii as _encode_str
     from _json import make_scanner as _make_scanner
 except ImportError:  # pragma: no cover - CPython always ships _json
-    from json.encoder import encode_basestring_ascii as _encode_str
-    from json.scanner import make_scanner as _make_scanner
+    # The pure-Python scanner reads parse_object/parse_array/parse_string off
+    # a real JSONDecoder, which _Context below is not: use one.
+    import json as _json_module
+
+    _encode_str = _json_module.encoder.encode_basestring_ascii
+    _make_scanner = None
 
 _WHITESPACE = " \t\n\r"
 _INF = float("inf")
@@ -41,7 +45,16 @@ class _Context:
     memo: dict[Any, Any] = {}
 
 
-_scan_once = _make_scanner(_Context())
+if _make_scanner is not None:
+    _scan_once = _make_scanner(_Context())
+else:  # pragma: no cover - non-CPython
+    _decoder = _json_module.JSONDecoder()
+
+    def _scan_once(text: str, start: int) -> Any:
+        try:
+            return _decoder.raw_decode(text, start)
+        except _json_module.JSONDecodeError as exc:
+            raise StopIteration(exc.pos) from None
 
 
 def loads(text: str | bytes) -> Any:

@@ -9,6 +9,7 @@ import socket
 import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -47,7 +48,10 @@ class StubDaemon:
 
         self.server = HTTPServer(("127.0.0.1", 0), Handler)
         self.port = self.server.server_address[1]
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        # A short poll interval: shutdown() otherwise waits up to 0.5 s.
+        threading.Thread(
+            target=self.server.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+        ).start()
 
     def close(self) -> None:
         self.server.shutdown()
@@ -61,10 +65,18 @@ def stub():
     s.close()
 
 
-def free_port() -> int:
+# Windows retries a refused loopback SYN for ~2 s; a short client timeout
+# keeps the daemon-down tests fast (the result is the same DaemonDown).
+DOWN_TIMEOUT = 0.25
+
+
+@pytest.fixture
+def dead_port() -> Iterator[int]:
+    """A port nothing listens on, held bound (not listening) for the whole
+    test so no other process can take it in the meantime."""
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+        yield s.getsockname()[1]
 
 
 def rpc(server: mcp_server.McpServer, lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -130,8 +142,9 @@ def test_mcp_tools(stub: StubDaemon, tmp_path: Path) -> None:
     assert "TEAM42" in text and "connected" in text and "bob" in text
 
 
-def test_mcp_daemon_down_is_tool_error(tmp_path: Path) -> None:
-    server = mcp_server.McpServer(mcp_server.DaemonClient(free_port(), timeout=1), cwd=str(tmp_path))
+def test_mcp_daemon_down_is_tool_error(tmp_path: Path, dead_port: int) -> None:
+    client = mcp_server.DaemonClient(dead_port, timeout=DOWN_TIMEOUT)
+    server = mcp_server.McpServer(client, cwd=str(tmp_path))
     result = call(server, "check_file", {"path": "a.py"})
     assert result["isError"] is True and "not reachable" in result["content"][0]["text"]
     assert call(server, "who_is_here")["isError"] is True
@@ -223,9 +236,10 @@ def test_githook_fresh_install(tmp_path: Path) -> None:
 
 
 @needs_git
-def test_githook_run_daemon_down(tmp_path: Path) -> None:
+def test_githook_run_daemon_down(tmp_path: Path, dead_port: int) -> None:
     root = git_repo(tmp_path)
-    assert githook.run(root, free_port(), strict=True) == 0
+    client = mcp_server.DaemonClient(dead_port, timeout=DOWN_TIMEOUT)
+    assert githook.run(root, dead_port, strict=True, client=client) == 0
 
 
 @needs_git

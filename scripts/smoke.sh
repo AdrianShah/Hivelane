@@ -18,14 +18,14 @@ export SYNERGO_HOME="$WORK/home"
 mkdir -p "$SYNERGO_HOME"
 
 cleanup() {
-  local pid i alive
+  local pid alive
   for pid in "${PIDS[@]:-}"; do
     [[ -n "$pid" ]] || continue
     kill "$pid" 2>/dev/null || true
   done
   # Wait for them to actually go: the daemon unwinds over several seconds, and a
   # back-to-back run would otherwise trip the preflight port guard.
-  for i in $(seq 1 60); do
+  for _ in $(seq 1 60); do
     alive=0
     for pid in "${PIDS[@]:-}"; do
       [[ -n "$pid" ]] || continue
@@ -45,8 +45,8 @@ trap cleanup EXIT
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 
 wait_for() {
-  local url=$1 label=$2 i
-  for i in $(seq 1 60); do
+  local url=$1 label=$2
+  for _ in $(seq 1 60); do
     curl -fsS "$url" >/dev/null 2>&1 && return 0
     sleep 0.5
   done
@@ -95,7 +95,7 @@ echo "== daemon adrian (cwd = repo root), daemon sam (cwd = repo/server)"
 start_daemon adrian claude-code "$PORT_A" "$REPO"
 start_daemon sam cursor "$PORT_B" "$REPO/server"
 
-for i in $(seq 1 40); do
+for _ in $(seq 1 40); do
   a=$(daemon_status "$PORT_A")
   b=$(daemon_status "$PORT_B")
   if [[ "$a" == *'"sam"'* && "$b" == *'"adrian"'* ]]; then break; fi
@@ -126,7 +126,7 @@ hook_event PostToolUse s-adrian "$REPO" "$PORT_A" >/dev/null
 
 echo "== sam attempts the same file from repo/server"
 decision=""
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   out=$(hook_event PreToolUse s-sam "$REPO/server" "$PORT_B" || true)
   if [[ -n "$out" ]]; then
     decision=$(printf '%s' "$out" | python3 -c '
