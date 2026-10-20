@@ -131,8 +131,12 @@ synergo open [--root PATH]
 
 Opens `<dashboard>/r/<ROOM>` in your browser. The dashboard base is
 `SYNERGO_DASHBOARD` if set, else the local dev server (`http://localhost:5173`)
-for a local relay, else `https://synergo.dev`. The URL is also printed for
-headless machines.
+for a local relay, else the hosted dashboard on GitHub Pages
+(`https://adrianshah.github.io/Synergo`). The URL is also printed for
+headless machines. A dashboard that is not served by the relay itself needs to
+be told which relay to use: add `?relay=<ws url>` to the link (for example
+`https://adrianshah.github.io/Synergo/r/K7M2PQ2X?relay=wss://relay.example.com/ws`);
+the dashboard remembers it for the rest of the browser tab.
 
 | Option | Description |
 |--------|-------------|

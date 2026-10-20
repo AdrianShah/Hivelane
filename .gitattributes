@@ -1,2 +1,5 @@
 graphify-out/graph.json merge=graphify
 graphify-out/graph.html -diff
+# Shell scripts run in Linux containers and CI (the image's entrypoint among
+# them): a CRLF checkout on Windows would break their #! line.
+*.sh text eol=lf

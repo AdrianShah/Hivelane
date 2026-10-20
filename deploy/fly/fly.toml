@@ -40,7 +40,7 @@ primary_region = "iad"
 [env]
   SYNERGO_ENV = "production"
   # On the volume mounted below, so room codes survive deploys and restarts.
-  SYNERGO_STATE_PATH = "/data/rooms.sqlite3"
+  SYNERGO_STATE_PATH = "/data/synergo.db"
   # Client IPs for rate limits: on Fly (FLY_APP_NAME is set) the relay reads
   # Fly-Client-IP, which Fly's edge overwrites on every request; this is the
   # fallback for anything without it. See docs/security.md.

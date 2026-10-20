@@ -5,7 +5,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
-import { BASE, BRANCH, REPO_URL, SITE, starlightSidebar } from './sources.mjs';
+import { BASE, BRANCH, REPO_PUBLIC, REPO_URL, SITE, starlightSidebar } from './sources.mjs';
 
 export default defineConfig({
   site: SITE,
@@ -16,10 +16,11 @@ export default defineConfig({
       description: 'Live coordination for parallel AI coding agents.',
       logo: { src: './src/assets/logo.svg', alt: 'Synergo' },
       favicon: '/favicon.svg',
-      social: [{ icon: 'github', label: 'GitHub', href: REPO_URL }],
+      // No GitHub links while the repo is private: they 404 for visitors.
+      social: REPO_PUBLIC ? [{ icon: 'github', label: 'GitHub', href: REPO_URL }] : [],
       // Synced pages carry their own editUrl (the real source under docs/);
       // this default only applies to pages written in docs-site/ itself.
-      editLink: { baseUrl: `${REPO_URL}/edit/${BRANCH}/docs-site/` },
+      ...(REPO_PUBLIC ? { editLink: { baseUrl: `${REPO_URL}/edit/${BRANCH}/docs-site/` } } : {}),
       lastUpdated: false,
       sidebar: starlightSidebar(),
     }),

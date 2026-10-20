@@ -1,64 +1,105 @@
 name: Deploy
 
+# Deploys the relay (and a separately hosted dashboard, if any) once CI has
+# passed for the exact commit: it runs on CI's completion instead of calling
+# ci.yml again, so a merge to main runs the test suite once, not twice.
+#
+#   staging      every successful CI run from a push to main
+#   production   every successful CI run from a push of a v* tag
+#
+# Deploy hooks only start a deploy, so the post-deploy check then polls the
+# relay's /readyz until it reports this commit (or, for production, the tag's
+# version) and fails the run if it never does.
+#
+# workflow_run always uses this file as it is on the default branch, and it is
+# limited below to CI runs triggered by `push`, so no pull-request code ever
+# runs with the deploy secrets.
 on:
-  push:
-    branches: [main]
-    tags: ["v*"]
-  workflow_dispatch:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main, "v*"]
 
 permissions:
   contents: read
 
 jobs:
-  verify:
-    # Same checks as CI, reused rather than duplicated: nothing deploys unverified.
-    uses: ./.github/workflows/ci.yml
-
   staging:
-    needs: verify
-    if: github.ref == 'refs/heads/main'
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: Staging
     concurrency:
       group: deploy-staging
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
       - name: Deploy relay
         env:
           HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
+          # Render deploy hooks accept ?ref=<sha> to build that commit; other
+          # hosts may not, so it is opt-in (repository variable).
+          DEPLOY_REF: ${{ vars.DEPLOY_HOOK_SENDS_REF == 'true' && github.event.workflow_run.head_sha || '' }}
         run: ./scripts/deploy_hook.sh relay "$HOOK"
       - name: Deploy dashboard
         env:
           HOOK: ${{ secrets.DASHBOARD_DEPLOY_HOOK_URL }}
+          DEPLOY_REF: ${{ vars.DEPLOY_HOOK_SENDS_REF == 'true' && github.event.workflow_run.head_sha || '' }}
         run: ./scripts/deploy_hook.sh dashboard "$HOOK"
-      - name: Smoke the deployed relay
+      - name: Wait for the new relay
         env:
           RELAY_URL: ${{ vars.RELAY_URL }}
-        run: ./scripts/post_deploy_check.sh "$RELAY_URL"
+          EXPECTED: ${{ github.event.workflow_run.head_sha }}
+        run: ./scripts/post_deploy_check.sh "$RELAY_URL" "$EXPECTED"
 
   production:
-    needs: verify
     # Tags only, matching the environment's deployment branch policy. Tagging is
     # the deliberate human step: required-reviewer gates need a paid plan on
     # private repos, so the tag is the approval.
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: Production
     concurrency:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Tag matches synergo.__version__
+        # The same check release.yml makes before publishing to PyPI, so a
+        # mistagged release never reaches production either.
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          version=$(python3 -c "import synergo; print(synergo.__version__)")
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "::error title=Version mismatch::Tag $TAG does not match synergo.__version__ ($version)."
+            exit 1
+          fi
       - name: Deploy relay
         env:
           HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
+          DEPLOY_REF: ${{ vars.DEPLOY_HOOK_SENDS_REF == 'true' && github.event.workflow_run.head_sha || '' }}
         run: ./scripts/deploy_hook.sh relay "$HOOK"
       - name: Deploy dashboard
         env:
           HOOK: ${{ secrets.DASHBOARD_DEPLOY_HOOK_URL }}
+          DEPLOY_REF: ${{ vars.DEPLOY_HOOK_SENDS_REF == 'true' && github.event.workflow_run.head_sha || '' }}
         run: ./scripts/deploy_hook.sh dashboard "$HOOK"
-      - name: Smoke the deployed relay
+      - name: Wait for the new relay
         env:
           RELAY_URL: ${{ vars.RELAY_URL }}
-        run: ./scripts/post_deploy_check.sh "$RELAY_URL"
+          EXPECTED: ${{ github.event.workflow_run.head_sha }}
+        run: ./scripts/post_deploy_check.sh "$RELAY_URL" "$EXPECTED"

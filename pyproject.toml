@@ -102,3 +102,68 @@ include = ["/synergo", "/server", "/pyproject.toml", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["synergo/tests", "server/tests", "tests/e2e"]
+markers = [
+    "real_feed_debounce: keep the relay's production BROADCAST_FLUSH_SECONDS (server/tests/conftest.py shortens it for every other test)",
+]
+
+[tool.coverage.run]
+# CI runs `pytest --cov` (server/requirements-dev.txt has pytest-cov); this keeps
+# the report to product code, not the tests that exercise it.
+source = ["synergo", "server"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "if __name__ == .__main__.:"]
+
+[tool.ruff]
+# Matches the code as written: 120-column lines (E501 is not enforced either; a
+# handful of long strings and URLs exceed it on purpose).
+target-version = "py312"
+line-length = 120
+extend-exclude = ["graphify-out", "brag-output", "frontend", "docs-site", "editors", "packaging"]
+
+[tool.ruff.lint]
+# Pyflakes + the pycodestyle error classes + bugbear: the rules that find bugs
+# rather than restyle code. Widen deliberately, one rule family per PR.
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+    "B905",  # zip() without strict=: every call site zips sequences built together
+    "E731",  # lambda assignment: used for small local callbacks
+    "E741",  # ambiguous names (l, I): readable in context
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures are imported into test modules and then shadowed by the
+# fixture argument of the same name; closures over loop variables in tests are
+# called inside the same iteration; `pytest.raises(Exception)` is intended where
+# any failure is the expected outcome.
+"**/tests/**" = ["F811", "B017", "B023"]
+"tests/**" = ["F811", "B017", "B023"]
+# One-off measurement scripts, not shipped.
+"scripts/**" = ["B007", "B009", "B023", "B904"]
+"benchmarks/**" = ["B007", "B009", "B904"]
+
+[tool.ruff.format]
+# `ruff format --check` runs in CI as information only until a one-off
+# reformatting PR lands (the tree predates the formatter); see ci.yml.
+quote-style = "double"
+
+[tool.mypy]
+# Pragmatic, not strict: catches wrong attribute names, bad call signatures and
+# None misuse in the shipped code. Tests are not type-checked.
+python_version = "3.12"
+files = ["synergo", "server"]
+exclude = ['(^|[\/])tests[\/]']
+ignore_missing_imports = true
+follow_imports = "silent"
+check_untyped_defs = false
+warn_unused_configs = true
+# server/ modules carry a flat-import fallback (try: from .x import y / except
+# ImportError: from x import y) for Render's rootDir=server, which mypy reads
+# as redefinitions.
+disable_error_code = ["no-redef"]
+warn_redundant_casts = true
+show_error_codes = true
+pretty = false

@@ -9,6 +9,15 @@ pipx install synergo      # or: uv tool install synergo
 synergo up                # in your repo: hooks, room, background daemon
 ```
 
+> **Not published yet.** The repository is private and `synergo` is not on
+> PyPI yet, so for now install from a checkout you have access to
+> (`pipx install .` or `uv tool install --editable .`). The install-script and
+> `raw.githubusercontent.com` URLs in [docs/install.md](docs/install.md) 404
+> for anyone without repo access until the repository is public or the
+> packages are published. The dashboard and docs are public at
+> <https://adrianshah.github.io/Synergo/> and
+> <https://adrianshah.github.io/Synergo/docs/>.
+
 ---
 
 ## Why Synergo
@@ -109,10 +118,11 @@ Full precedence and every command: [docs/cli.md](https://github.com/AdrianShah/S
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SYNERGO_RELAY` | `ws://localhost:8000/ws` | Relay WebSocket base used when no `--relay` is given. |
-| `SYNERGO_DASHBOARD` | local dev server for a local relay, else `https://synergo.dev` | Dashboard base for room links (`<dashboard>/r/<CODE>`) and `synergo open`. |
+| `SYNERGO_DASHBOARD` | local dev server for a local relay, else `https://adrianshah.github.io/Synergo` | Dashboard base for room links (`<dashboard>/r/<CODE>`) and `synergo open`. |
 | `SYNERGO_NAME` | git `user.name`, else the OS user | Your display name in rooms. |
 | `SYNERGO_PORT` | `4600` | Loopback port the daemon listens on and the hooks call. |
 | `SYNERGO_HOME` | `~/.synergo` | Personal config, daemon state and logs (`logs/daemon.log`). |
+| `SYNERGO_OUTBOX_LIMIT` | `500` | Messages the daemon keeps per room while the relay is unreachable (oldest dropped). `0` = unlimited. |
 
 ### Relay (`server/`)
 
@@ -125,9 +135,16 @@ Full precedence and every command: [docs/cli.md](https://github.com/AdrianShah/S
 | `TRUST_PROXY_HEADER` | `false` | Read the client IP from `X-Forwarded-For`. See the warning below. |
 | `TRUSTED_PROXY_HOPS` | `1` | With `TRUST_PROXY_HEADER`, how many `X-Forwarded-For` entries from the right your own proxies appended. The client IP is the entry that many hops in, never the client-supplied leftmost one. |
 | `TRUST_CLOUDFLARE` | `false` | Read the client IP from `CF-Connecting-IP`. On Fly (`FLY_APP_NAME` set) `Fly-Client-IP` is used automatically. |
-| `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS` | `10` / `3600` | Room creations allowed per IP per window. |
-| `WS_ATTEMPT_LIMIT` / `WS_ATTEMPT_WINDOW_SECONDS` | `30` / `60` | WebSocket connection attempts per IP per window. |
-| `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. |
+| `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS` | `10` / `3600` | Room creations allowed per IP per window. `0` = unlimited. |
+| `WS_ATTEMPT_LIMIT` / `WS_ATTEMPT_WINDOW_SECONDS` | `30` / `60` | WebSocket connection attempts per IP per window. `0` = unlimited. |
+| `ROOM_MESSAGE_LIMIT` | `600` | Inbound messages per minute per room, summed over every socket in it (token bucket). Raise it for rooms bigger than ~6 busy agents; `0` = unlimited. |
+| `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. `0` = unbounded. |
+| `SYNERGO_MAX_ROOMS` | `0` (unlimited) | Valid room codes this relay holds at once; `POST /rooms` answers 503 at the cap. |
+| `SYNERGO_MAX_MEMBERS` | `0` (unlimited) | Named members (agent connections) per room; the next joiner gets `Room full`. |
+| `SYNERGO_MAX_FRAME_BYTES`, `SYNERGO_MAX_DIFF_BYTES`, `SYNERGO_MAX_TEXT_BYTES`, `SYNERGO_MAX_FILES_PER_MESSAGE`, `SYNERGO_MAX_SYMBOLS_PER_MESSAGE`, `SYNERGO_MAX_LINE_RANGES_PER_MESSAGE`, `SYNERGO_MAX_PATH_CHARS` | 512 KiB, 64 KiB, 4 KiB, 50, 64, 256, 1024 | Per-message safety caps. Keep the defaults on a public relay. |
+| `SYNERGO_MAX_PENDING_JOINS`, `SYNERGO_MAX_TRACKED_DECISIONS`, `SYNERGO_MAX_KNOWN_PATHS`, `SYNERGO_FILE_QUEUE_MAX_LENGTH`, `SYNERGO_FILE_QUEUE_MAX_FILES` | 10, 1000, 512, 0, 256 | Per-room bookkeeping bounds. |
+| `SYNERGO_HISTORY_MAX_EVENTS`, `SYNERGO_HISTORY_MAX_BYTES`, `SYNERGO_HISTORY_TOTAL_MAX_BYTES` | 5000, 8 MiB, 128 MiB | Replay history bounds (per room, process-wide). |
+| `SYNERGO_MAX_WEBHOOKS_PER_ROOM`, `SYNERGO_WEBHOOK_MAX_IN_FLIGHT`, `SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS` | 3, 100, 1024 | Webhook bounds (webhooks per room is at least 1). |
 | `SYNERGO_REDIS_URL` | — | `redis://`, `rediss://` or `unix://` URL. Shares rate-limit counters, room codes and room-ownership leases across relay instances. Needs the `redis` package (included in the Docker image). |
 | `SYNERGO_ROOM_STORE` | — | Set to `local` to keep room codes in SQLite/memory even when `SYNERGO_REDIS_URL` is set (Redis for rate limits only). |
 | `SYNERGO_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's id in room-ownership leases. |
@@ -371,8 +388,11 @@ server/requirements-dev.txt` then `pytest -q`.
 | `Staging` | pushes to `main` | CI must pass |
 | `Production` | `v*` tags | CI must pass; tagging is the deliberate step |
 
-`.github/workflows/deploy.yml` reuses `ci.yml`, so nothing deploys on code that
-has not passed tests. Required-reviewer gates need a paid GitHub plan on private
+`.github/workflows/deploy.yml` runs when `ci.yml` completes successfully for a
+push to `main` or a `v*` tag, so nothing deploys on code that has not passed
+tests and the suite is not run a second time. After POSTing the deploy hook it
+waits until the relay's `/readyz` reports the deployed commit (`DEPLOY_HOOK_SENDS_REF=true`
+as a repository variable makes Render build that exact commit). Required-reviewer gates need a paid GitHub plan on private
 repos, so the tag stands in for approval — cut a release with `git tag v1.2.3 &&
 git push origin v1.2.3`.
 

@@ -15,6 +15,13 @@ whichever your machine already uses.
 | npm / npx | `npx synergo-cli up` | A launcher that runs `uvx`/`pipx run`. For trying it out; see below. |
 | From a checkout | `pipx install .` or `uv tool install --editable .` | For development, or before the first PyPI release. |
 
+> **Until the first release:** the repository is private and nothing is
+> published to PyPI, Homebrew, Scoop or npm yet. The PyPI, Homebrew, Scoop and
+> npm commands fail, and the install-script URLs on `raw.githubusercontent.com`
+> return 404 for anyone without access to the repository. Install from a
+> checkout instead (the last row). Everything else on this page applies once
+> the repository is public or the packages are published.
+
 Then, in a repository you work in:
 
 ```bash

@@ -26,6 +26,14 @@ from the same address. Every option below runs the same code: the repo's
 - **A persistent disk at `/data`** (`SYNERGO_STATE_PATH` points into it). The
   disk keeps room codes valid across restarts and deploys. Without it, every
   restart sends every team back to `synergo up` with a new room.
+  The relay runs as uid 10001. Hosts that mount the disk root-owned (Fly
+  volumes, Render disks) are handled by the image: its entrypoint starts as
+  root, chowns the state directory to 10001 and drops privileges before the
+  relay starts. If your platform starts the container as a non-root user,
+  mount the disk owned by uid/gid 10001 (Kubernetes: `fsGroup: 10001`, as the
+  Helm chart does); with `SYNERGO_ENV=production` the container refuses to
+  start on a state directory it cannot write rather than silently keeping
+  rooms in memory.
 - **WebSockets over TLS.** Clients connect to `wss://<host>/ws/<ROOM>`. The CLI
   refuses a plain `ws://` relay on another machine unless you pass
   `--insecure`.
@@ -360,7 +368,8 @@ each host does: [docs/security.md](security.md).
 `.github/workflows/deploy.yml` deploys staging on pushes to `main` and
 production on `v*` tags, after CI passes, by POSTing a host's deploy-hook URL
 (`RELAY_DEPLOY_HOOK_URL`, set per GitHub environment). It then polls
-`RELAY_URL/readyz`. Render provides deploy hooks. Fly needs a `flyctl deploy`
+`RELAY_URL/readyz` until the relay reports the deployed commit (or times out
+and fails the run). Render provides deploy hooks. Fly needs a `flyctl deploy`
 step instead (see the Fly README). A Compose host can expose a small webhook,
 or you can deploy it by hand.
 
@@ -389,6 +398,60 @@ pull a new tag.
   snapshot the volume. With Redis, they are in Redis (`synergo:rooms*` keys),
   so back Redis up instead. Losing them means teams run `synergo up` again and
   commit a new `.synergo.toml`.
+
+## Capacity limits
+
+Every capacity limit is an environment variable, and `0` always means
+unlimited. Out of the box a relay accepts **any number of rooms and any number
+of members per room**: a relay you run for your own team should never turn a
+teammate away. `/readyz` lists every limit in force under `limits`, and the
+startup log line shows `max_rooms` and `max_members`.
+
+A relay **open to the internet** should set the first group. The numbers below
+come from the load test in [docs/performance.md](performance.md) (one relay
+process on a 6-core desktop, every member sending 2 messages a second, which
+is 10-20x a real agent; target: edit-check p95 under 50 ms):
+
+| Variable | Default | Public relay | Why |
+|----------|---------|--------------|-----|
+| `SYNERGO_MAX_MEMBERS` | `0` (unlimited) | `25` | One room stayed under 50 ms p95 up to 25 busy members and failed at 35-50: fan-out is O(members x sockets). |
+| `SYNERGO_MAX_ROOMS` | `0` (unlimited) | `500` | Bounds memory (about 0.2 MB per connected socket, 52 MB idle) and ghost-room flooding. A process saturated at ~200 busy members (stress rate), so size instances by members, not rooms. |
+| `ROOM_CREATE_LIMIT` | `10` per IP per hour | keep | Without it one script fills `SYNERGO_MAX_ROOMS`. `0` turns it off. |
+| `WS_ATTEMPT_LIMIT` | `30` per IP per minute | keep | Makes room codes impractical to brute-force. `0` turns it off (load tests). |
+| `ROOM_MESSAGE_LIMIT` | `600` per room per minute | keep, or `100 x SYNERGO_MAX_MEMBERS` for big rooms | Shared by everyone in the room; 600 is ample for 25 real agents. `0` turns it off. |
+| `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | keep | Bounds the limiters' memory. `0` is unbounded. |
+
+Per-message safety caps bound what one message can make the relay hold and copy
+to every socket in the room. Keep the defaults unless you have a reason; on a
+public relay never set them to `0`:
+
+| Variable | Default | Over the limit |
+|----------|---------|----------------|
+| `SYNERGO_MAX_FRAME_BYTES` | 524288 (512 KiB) | Socket closed with 1009. Also run uvicorn with `--ws-max-size 1048576` so oversized frames are not read at all. |
+| `SYNERGO_MAX_DIFF_BYTES` | 65536 | Diff truncated |
+| `SYNERGO_MAX_TEXT_BYTES` | 4096 | Prompt or plan summary truncated |
+| `SYNERGO_MAX_FILES_PER_MESSAGE` | 50 | First 50 kept |
+| `SYNERGO_MAX_SYMBOLS_PER_MESSAGE` | 64 | First 64 kept |
+| `SYNERGO_MAX_LINE_RANGES_PER_MESSAGE` | 256 | First 256 kept |
+| `SYNERGO_MAX_PATH_CHARS` | 1024 | Longer paths are not queued or remembered |
+
+Per-room and process bookkeeping (defaults are fine for any size of room):
+
+| Variable | Default | Bounds |
+|----------|---------|--------|
+| `SYNERGO_MAX_PENDING_JOINS` | 10 | Joiners waiting for an owner's approval, per room |
+| `SYNERGO_MAX_TRACKED_DECISIONS` | 1000 | Warn/block decisions kept for votes, per room (LRU) |
+| `SYNERGO_MAX_KNOWN_PATHS` | 512 | Paths remembered for suggestions, per room (LRU) |
+| `SYNERGO_FILE_QUEUE_MAX_LENGTH` | 0 | Members in one file's wait line; 0 = bounded by the room (each member once) |
+| `SYNERGO_FILE_QUEUE_MAX_FILES` | 256 | Files with a wait line, per room |
+| `SYNERGO_HISTORY_MAX_EVENTS` / `SYNERGO_HISTORY_MAX_BYTES` | 5000 / 8 MiB | Replay history per room |
+| `SYNERGO_HISTORY_TOTAL_MAX_BYTES` | 128 MiB | Replay history across the process |
+| `SYNERGO_MAX_WEBHOOKS_PER_ROOM` | 3 | Owner webhooks per room (at least 1) |
+| `SYNERGO_WEBHOOK_MAX_IN_FLIGHT` | 100 | Webhook deliveries running at once |
+| `SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS` | 1024 | Rooms with a webhook notice budget (LRU) |
+
+On the client side, `SYNERGO_OUTBOX_LIMIT` (default 500, `0` = unlimited) is
+how many messages each daemon keeps per room while the relay is unreachable.
 
 ## Environment variables for hosting
 
