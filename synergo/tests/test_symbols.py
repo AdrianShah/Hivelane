@@ -3,6 +3,7 @@ languages, import blocks, changed/predicted line ranges and the size cap."""
 
 from __future__ import annotations
 
+import importlib.util
 import time
 
 import pytest
@@ -138,8 +139,14 @@ def test_heuristic_outlines(path: str) -> None:
         assert symbols_for_ranges(path, source, [(line, line)]) == [name], (path, line)
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("tree_sitter_language_pack") is None,
+    reason=(
+        "needs the optional `symbols` extra (pip install -e .[symbols]); the dev "
+        "install and CI do not include it, so this only runs where it is installed"
+    ),
+)
 def test_tree_sitter_matches_heuristic_when_installed(monkeypatch: pytest.MonkeyPatch) -> None:
-    pytest.importorskip("tree_sitter_language_pack")
     monkeypatch.setattr(symbols, "_ts_available", None)
     for path, (source, expected) in HEURISTIC_CASES.items():
         lang = symbols.language_for(path)
@@ -214,3 +221,83 @@ def test_signatures() -> None:
     js = "export function foo(a, b) {}\nconst bar = async (x) => x;\n"
     assert symbols.signatures("a.ts", js) == {"foo": "a, b", "bar": "x"}
     assert symbols.signatures("a.txt", "x") == {}
+
+
+# --- review fixes: one name format for both tiers, extents, line counting ------
+
+from synergo.tests.symbol_cases import CONFORMANCE, LANGS, defs_of  # noqa: E402
+
+
+@pytest.mark.parametrize("path", sorted(CONFORMANCE))
+def test_heuristic_conformance(path: str) -> None:
+    """Findings 21-25: bare JS calls, Rust generics, Ruby one-line/endless
+    defs, Go receivers/generics/grouped types, TS interface members and
+    generic arrows, block comments and regex literals."""
+    source, expected = CONFORMANCE[path]
+    assert defs_of(symbols._heuristic_outline(source, LANGS[path[path.rfind("."):]])) == expected
+
+
+@pytest.mark.parametrize("path", sorted(CONFORMANCE))
+def test_tree_sitter_conformance_when_installed(path: str) -> None:
+    pytest.importorskip("tree_sitter_language_pack")
+    from tree_sitter_language_pack import get_parser
+
+    source, expected = CONFORMANCE[path]
+    try:
+        parser = get_parser(LANGS[path[path.rfind("."):]])
+    except Exception:  # noqa: BLE001 - grammar download unavailable
+        pytest.skip("no grammar (offline?)")
+    assert defs_of(symbols._ts_outline(parser, source)) == expected
+
+
+def test_canonical_name() -> None:
+    assert symbols.canonical_name("Foo<T>") == "Foo"
+    assert symbols.canonical_name("Map<K, Vec<V>>") == "Map"
+    assert symbols.canonical_name("Stack[T]") == "Stack"
+    assert symbols.canonical_name("fmt::Display") == "Display"
+    assert symbols.canonical_name("check?") == "check?"
+
+
+def test_bare_call_in_semicolon_free_js_is_not_a_definition() -> None:
+    source = "function outer() {\n  const x = 1\n  doThing(x)\n  more(x)\n  return x\n}\n"
+    assert {symbols_for_ranges("a.js", source, [(n, n)])[0] for n in range(2, 6)} == {"outer"}
+
+
+def test_lines_are_counted_on_newlines_only() -> None:
+    """Finding 26: a form feed or U+2028 split lines in changed_line_ranges
+    but not in ast/predict_ranges, shifting post_edit by one per character."""
+    old = "def a():\n    return 1\n\x0c\ndef b():\n    s = 'x y'\n    return 2\n"
+    new = old.replace("return 2", "return 3")
+    assert changed_line_ranges(old, new) == [(6, 6)]
+    assert predict_ranges(old, "return 2") == [(6, 6)]
+    assert symbols_for_ranges("m.py", new, [(6, 6)]) == ["b"]
+    assert symbols.source_lines("a\r\nb\n") == ["a", "b"]
+
+
+def test_bom_python_uses_ast() -> None:
+    """Finding 27: a UTF-8 BOM made ast.parse fail."""
+    source = "﻿import os\n\n@dec\ndef f():\n    s = '''\ndef fake():\n'''\n    return 1\n"
+    assert symbols_for_ranges("m.py", source, [(1, 1)]) == [IMPORTS]
+    assert symbols_for_ranges("m.py", source, [(3, 3)]) == ["f"]
+    assert symbols_for_ranges("m.py", source, [(6, 8)]) == ["f"]
+
+
+def test_heuristic_python_keeps_decorators_and_skips_strings() -> None:
+    broken = "@dec\ndef f():\n    s = '''\ndef fake():\n'''\n    x = (\n"
+    outline = symbols._heuristic_python(broken)
+    assert [(d.name, d.start) for d in outline.defs] == [("f", 1)]
+
+
+def test_ast_sees_defs_and_imports_inside_compound_statements() -> None:
+    source = (
+        "try:\n    import fast\nexcept ImportError:\n    import slow as fast\n\n"
+        "if True:\n    def g():\n        return 1\n"
+    )
+    assert symbols_for_ranges("m.py", source, [(4, 4)]) == [IMPORTS]
+    assert symbols_for_ranges("m.py", source, [(8, 8)]) == ["g"]
+
+
+def test_size_limit_is_in_bytes() -> None:
+    big = "# " + "é" * (symbols.MAX_SOURCE_BYTES // 2 + 10) + "\nx = 1\n"
+    assert len(big) < symbols.MAX_SOURCE_BYTES
+    assert symbols_for_ranges("big.py", big, [(1, 1)]) == []

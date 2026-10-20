@@ -83,3 +83,31 @@ def test_no_repo_and_unborn_branch(tmp_path: Path) -> None:
     fresh.mkdir()
     git(fresh, "init", "-q", "-b", "trunk")
     assert gitinfo.read_head(fresh) == gitinfo.GitHead(branch="trunk", commit=None)
+
+
+def test_non_utf8_ref_file_does_not_raise(repo: Path) -> None:
+    """Finding 29: a non-UTF-8 HEAD raised UnicodeDecodeError out of head_for."""
+    (repo / ".git" / "HEAD").write_bytes(b"ref: refs/heads/\xff\xfe\n")
+    gitinfo.clear_cache()
+    assert gitinfo.head_for(repo) is None
+
+
+def test_reftable_repo(tmp_path: Path) -> None:
+    """Finding 29: git >= 2.45 `--ref-format=reftable` keeps refs in a binary
+    table; HEAD is a stub naming `refs/heads/.invalid`."""
+    root = tmp_path / "rt"
+    root.mkdir()
+    try:
+        git(root, "init", "-q", "--ref-format=reftable", "-b", "main")
+    except subprocess.CalledProcessError:
+        pytest.skip("git without reftable support")
+    (root / "a.txt").write_text("a\n")
+    git(root, "add", ".")
+    git(root, "commit", "-q", "-m", "one")
+    gitinfo.clear_cache()
+    head = gitinfo.head_for(root)
+    assert head == gitinfo.GitHead(branch="main", commit=git(root, "rev-parse", "HEAD"))
+    git(root, "checkout", "-q", "-b", "feature")
+    gitinfo.clear_cache()
+    head = gitinfo.read_head(root)
+    assert head is not None and head.branch == "feature"

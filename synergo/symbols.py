@@ -60,6 +60,42 @@ LANG_BY_EXT = {
 }
 
 
+def _source_bytes(source: str) -> int:
+    """UTF-8 size of source (the limits are in bytes, not characters)."""
+    if source.isascii():
+        return len(source)
+    return len(source.encode("utf-8", "replace"))
+
+
+def source_lines(source: str) -> list[str]:
+    """source split on "\\n" only (a trailing "\\r" dropped), the way ast,
+    tree-sitter, predict_ranges and symbols_for_ranges count lines.
+    str.splitlines() also breaks on \\x0c, \\x0b, \\x1c-\\x1e, \\x85, U+2028/9
+    and a lone \\r, which shifted every later line number by one each."""
+    lines = source.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return [line[:-1] if line.endswith("\r") else line for line in lines]
+
+
+_GENERIC_ARGS = re.compile(r"<[^<>]*>|\[[^\[\]]*\]")
+
+
+def canonical_name(name: str) -> str:
+    """One spelling of a definition name for both tiers: generic arguments
+    (`Foo<T>`, `Stack[T]`) removed and a path (`fmt::Display`, `a::Foo`) cut
+    to its last segment, so tree-sitter's `impl<T> Foo<T>` and the
+    heuristic's `Foo` are the same symbol on the relay."""
+    previous = None
+    while previous != name:
+        previous = name
+        name = _GENERIC_ARGS.sub("", name)
+    name = name.strip()
+    if "::" in name:
+        name = name.rsplit("::", 1)[-1]
+    return name.lstrip("&*").strip()
+
+
 def language_for(path: str) -> Optional[str]:
     dot = path.rfind(".")
     if dot == -1:
@@ -112,6 +148,17 @@ def merge_ranges(ranges: list[tuple[int, int]], gap: int = 0) -> list[tuple[int,
 # --- python (stdlib ast) -----------------------------------------------------------
 
 
+_PY_COMPOUND: tuple[type, ...] = (ast.If, ast.Try, ast.With, ast.AsyncWith) + (
+    (ast.TryStar,) if hasattr(ast, "TryStar") else ()
+)
+
+
+def _py_branches(node: ast.AST) -> list[list[ast.stmt]]:
+    branches = [getattr(node, "body", []), getattr(node, "orelse", []), getattr(node, "finalbody", [])]
+    branches.extend(handler.body for handler in getattr(node, "handlers", []))
+    return [b for b in branches if b]
+
+
 def _python_outline(source: str) -> Optional[Outline]:
     try:
         tree = ast.parse(source)
@@ -128,12 +175,12 @@ def _python_outline(source: str) -> Optional[Outline]:
                 start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
                 outline.defs.append(Definition(name, start, node.end_lineno or node.lineno))
                 visit(node.body, name + ".", False)
-            elif isinstance(node, (ast.If, ast.Try)) and top:
-                # `if TYPE_CHECKING:` / try-import blocks: imports inside still
-                # belong to the import block.
-                for child in ast.iter_child_nodes(node):
-                    if isinstance(child, (ast.Import, ast.ImportFrom)):
-                        outline.imports.append((child.lineno, child.end_lineno or child.lineno))
+            elif isinstance(node, _PY_COMPOUND):
+                # `if TYPE_CHECKING:`, try-import blocks (the `except` branch
+                # too), `with` blocks: imports inside still belong to the
+                # import block, and defs inside are still defs.
+                for branch in _py_branches(node):
+                    visit(branch, prefix, top)
 
     visit(tree.body, "", True)
     return outline.finalize()
@@ -171,16 +218,19 @@ _DECLS: dict[str, list[re.Pattern[str]]] = {
     "js": [
         re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?P<kw>class|interface|enum|namespace)\s+(?P<name>[A-Za-z_$][\w$]*)"),
         re.compile(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(?P<name>[A-Za-z_$][\w$]*)\s*[<(]"),
-        re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|\([^)]*\)\s*(?::[^=]+)?=>|[A-Za-z_$][\w$]*\s*=>)"),
-        re.compile(r"^\s*(?:(?:public|private|protected|static|async|readonly|override|abstract|get|set)\s+)*\*?(?P<name>[A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\([^;]*\)\s*(?::\s*[^={;]+)?\{?\s*$"),
+        re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+(?P<name>[A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(?:async\s+)?(?:function\b|(?:<[^>]*>\s*)?\([^)]*\)\s*(?::[^=]+)?=>|[A-Za-z_$][\w$]*\s*=>)"),
+        # A method (class or interface member). Only trusted directly inside a
+        # class or interface: in semicolon-free JS a bare call `doThing(x)`
+        # has exactly this shape (see _heuristic_outline).
+        re.compile(r"^\s*(?:(?:public|private|protected|static|async|readonly|override|abstract|get|set|declare)\s+)*\*?(?P<method>[A-Za-z_$][\w$]*)\s*\??\s*(?:<[^>]*>)?\s*\([^;]*\)\s*(?::\s*[^={;]+)?\{?\s*;?\s*$"),
     ],
     "go": [
-        re.compile(r"^func\s+\(\s*\w*\s*\*?\s*(?P<recv>\w+)[^)]*\)\s*(?P<name>\w+)\s*[(\[]"),
+        re.compile(r"^func\s+\((?:\w+\s+)?\*?\s*(?P<recv>\w+)[^)]*\)\s*(?P<name>\w+)\s*[(\[]"),
         re.compile(r"^func\s+(?P<name>\w+)\s*[(\[]"),
-        re.compile(r"^type\s+(?P<name>\w+)\s+(?:struct|interface)\b"),
+        re.compile(r"^type\s+(?P<name>\w+)(?:\s*\[[^\]]*\])?\s+(?:struct|interface)\b"),
     ],
     "rust": [
-        re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?impl(?:<[^>]*>)?\s+(?:[\w:<>, ]+\s+for\s+)?(?P<name>\w+)"),
+        re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?impl(?:<[^>]*>)?\s+(?:[\w:<>, ]+\s+for\s+)?(?P<name>[\w:]+)"),
         re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:struct|enum|trait|mod|union)\s+(?P<name>\w+)"),
         re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+|async\s+|unsafe\s+|extern\s+\"\w+\"\s+)*fn\s+(?P<name>\w+)"),
     ],
@@ -207,30 +257,129 @@ _IMPORT_LINE = {
     "ruby": re.compile(r"^\s*(?:require|require_relative|load)\b"),
 }
 
-_STRIP_STRINGS = re.compile(r"\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`[^`]*`|//.*$")
+# What may precede a `/` that starts a regex literal (rather than a division).
+_REGEX_PRECEDERS = frozenset("(,=:[!&|?{};+-*%<>~^")
 
 
-def _brace_end(lines: list[str], start: int) -> int:
-    """0-based last line of a block opening at or just after `start`."""
+class _BraceScanner:
+    """Counts braces line by line, skipping strings, `//` and `/* */`
+    comments (across lines), template literals (across lines) and, for JS,
+    regex literals: `function a(){ /* } */ ... }` and `/\\}/g` used to end the
+    block early."""
+
+    __slots__ = ("in_block_comment", "in_template", "js")
+
+    def __init__(self, js: bool) -> None:
+        self.in_block_comment = False
+        self.in_template = False
+        self.js = js
+
+    def braces(self, line: str) -> list[str]:
+        out: list[str] = []
+        i = 0
+        n = len(line)
+        last = ""  # last significant character, for regex detection
+        while i < n:
+            c = line[i]
+            if self.in_block_comment:
+                end = line.find("*/", i)
+                if end == -1:
+                    return out
+                self.in_block_comment = False
+                i = end + 2
+                continue
+            if self.in_template:
+                if c == "\\":
+                    i += 2
+                    continue
+                if c == "`":
+                    self.in_template = False
+                    last = "`"
+                i += 1
+                continue
+            if c == "/" and i + 1 < n and line[i + 1] == "/":
+                return out
+            if c == "/" and i + 1 < n and line[i + 1] == "*":
+                self.in_block_comment = True
+                i += 2
+                continue
+            if c == "`" and self.js:
+                self.in_template = True
+                i += 1
+                continue
+            if c in "\"'":
+                j = i + 1
+                while j < n and line[j] != c:
+                    j += 2 if line[j] == "\\" else 1
+                if j >= n:
+                    # Unterminated on this line (a Rust lifetime `'a`): only
+                    # the quote itself is skipped.
+                    i += 1
+                    continue
+                i = j + 1
+                last = c
+                continue
+            if c == "/" and self.js and (last == "" or last in _REGEX_PRECEDERS):
+                j = i + 1
+                in_class = False
+                while j < n:
+                    ch = line[j]
+                    if ch == "\\":
+                        j += 2
+                        continue
+                    if ch == "[":
+                        in_class = True
+                    elif ch == "]":
+                        in_class = False
+                    elif ch == "/" and not in_class:
+                        break
+                    j += 1
+                if j < n:
+                    i = j + 1
+                    last = "/"
+                    continue
+            if c in "{}":
+                out.append(c)
+            if not c.isspace():
+                last = c
+            i += 1
+        return out
+
+
+def _brace_end(lines: list[str], start: int, js: bool = False) -> int:
+    """0-based last line of a block opening at or just after `start`; `start`
+    itself when no block opens (a declaration without a body never runs to
+    the end of the file)."""
     depth = 0
     opened = False
+    scanner = _BraceScanner(js)
     for index in range(start, len(lines)):
-        text = _STRIP_STRINGS.sub("", lines[index])
-        for char in text:
+        for char in scanner.braces(lines[index]):
             if char == "{":
                 depth += 1
                 opened = True
-            elif char == "}":
+            else:
                 depth -= 1
                 if opened and depth <= 0:
                     return index
+                if not opened:
+                    return start  # the enclosing block closed first
         if not opened:
-            if index - start >= 3 or text.rstrip().endswith(";"):
+            if index - start >= 3 or lines[index].rstrip().endswith(";"):
                 return start
-    return len(lines) - 1
+    return len(lines) - 1 if opened else start
+
+
+_RUBY_ONE_LINE_DEF = re.compile(
+    # `def a; 1; end`, and the endless `def b = 2`, `def c(x) = x * 2` (not
+    # the setter `def x=(v)`).
+    r"^\s*def\s+(?:self\.)?\w+[?!]?(?:\s*\([^)]*\)\s*|\s+)=(?![=~>])|^\s*def\b[^#]*;[^#]*\bend\s*(?:#.*)?$"
+)
 
 
 def _ruby_end(lines: list[str], start: int) -> int:
+    if _RUBY_ONE_LINE_DEF.match(lines[start]):
+        return start
     indent = len(lines[start]) - len(lines[start].lstrip())
     for index in range(start + 1, len(lines)):
         stripped = lines[index].strip()
@@ -242,11 +391,13 @@ def _ruby_end(lines: list[str], start: int) -> int:
 
 def _heuristic_outline(source: str, lang: str) -> Outline:
     family = _FAMILY.get(lang, "js")
-    lines = source.splitlines()
+    lines = source_lines(source)
     outline = Outline()
-    raw: list[tuple[int, int, str, str]] = []  # start0, end0, name, recv
+    # start0, end0, name, recv, kind ("class"/"interface"/... or "method"), braced
+    raw: list[tuple[int, int, str, str, str, bool]] = []
     import_re = _IMPORT_LINE[family]
     in_go_import = False
+    in_go_types = False
     for index, line in enumerate(lines):
         if family == "go":
             if in_go_import:
@@ -257,6 +408,19 @@ def _heuristic_outline(source: str, lang: str) -> Outline:
             if re.match(r"^import\s*\($", line.strip()):
                 in_go_import = True
                 outline.imports.append((index + 1, index + 1))
+                continue
+            # A grouped `type ( A struct {...}; B interface {...} )`.
+            if in_go_types:
+                if line.startswith(")"):
+                    in_go_types = False
+                    continue
+                match = _GO_GROUPED_TYPE.match(line)
+                if match:
+                    end = _brace_end(lines, index)
+                    raw.append((index, end, canonical_name(match.group("name")), "", "type", True))
+                continue
+            if re.match(r"^type\s*\(\s*$", line):
+                in_go_types = True
                 continue
         if import_re.match(line):
             end = index
@@ -269,19 +433,41 @@ def _heuristic_outline(source: str, lang: str) -> Outline:
             match = pattern.match(line)
             if not match:
                 continue
-            name = match.group("name")
-            if name in _KEYWORDS:
+            groups = match.groupdict()
+            is_method = groups.get("method") is not None
+            name = groups["method"] if is_method else groups["name"]
+            # Statement keywords only look like declarations in C-like
+            # languages (Rust's `fn new` is a real definition).
+            if family in ("js", "java") and name in _KEYWORDS:
                 break
-            end = _ruby_end(lines, index) if family == "ruby" else _brace_end(lines, index)
-            recv = match.groupdict().get("recv") or ""
-            raw.append((index, end, name, recv))
+            if family == "ruby":
+                end = _ruby_end(lines, index)
+            else:
+                end = _brace_end(lines, index, js=family == "js")
+            braced = "{" in line or (
+                index + 1 < len(lines) and lines[index + 1].lstrip().startswith("{")
+            )
+            kind = "method" if is_method else (groups.get("kw") or "def")
+            if is_method and "abstract" in line.split("(", 1)[0]:
+                kind = "abstract-method"
+            recv = canonical_name(groups.get("recv") or "")
+            raw.append((index, end, canonical_name(name), recv, kind, braced))
             break
     # Qualify by containment.
     raw.sort(key=lambda r: (r[0], -r[1]))
-    stack: list[tuple[int, str]] = []  # (end0, qualified)
-    for start, end, name, recv in raw:
+    stack: list[tuple[int, str, str]] = []  # (end0, qualified, kind)
+    for start, end, name, recv, kind, braced in raw:
         while stack and stack[-1][0] < start:
             stack.pop()
+        if kind in ("method", "abstract-method"):
+            # Methods live directly in a class or an interface; anything else
+            # with this shape is a call statement. Interface members (and
+            # abstract methods) have no body; a class method has one.
+            parent = stack[-1][2] if stack else ""
+            if parent == "interface" or (parent == "class" and (braced or kind == "abstract-method")):
+                end = end if braced else start
+            else:
+                continue
         if recv:
             qualified = f"{recv}.{name}"
         elif stack:
@@ -289,8 +475,11 @@ def _heuristic_outline(source: str, lang: str) -> Outline:
         else:
             qualified = name
         outline.defs.append(Definition(qualified, start + 1, end + 1))
-        stack.append((end, qualified))
+        stack.append((end, qualified, kind))
     return outline.finalize()
+
+
+_GO_GROUPED_TYPE = re.compile(r"^\s+(?P<name>\w+)(?:\s*\[[^\]]*\])?\s+(?:struct|interface)\b")
 
 
 # --- tree-sitter (optional) ----------------------------------------------------------
@@ -302,13 +491,14 @@ _TS_DEF_TYPES = {
     "record_declaration", "struct_declaration", "function_item", "struct_item",
     "enum_item", "trait_item", "mod_item", "impl_item", "type_spec", "method",
     "singleton_method", "class", "module", "internal_module",
+    "method_signature", "abstract_method_signature",
 }
 # Definitions whose bodies are not searched for further definitions: walking
 # every expression node in Python is what makes a large file slow.
 _TS_LEAF_DEFS = {
     "function_declaration", "generator_function_declaration", "method_definition",
     "method_declaration", "constructor_declaration", "function_item", "method",
-    "singleton_method",
+    "singleton_method", "method_signature", "abstract_method_signature",
 }
 _TS_IMPORT_TYPES = {
     "import_statement", "import_declaration", "use_declaration", "using_directive",
@@ -379,7 +569,8 @@ def _ts_name(node: Any, source: bytes) -> Optional[str]:
         target = node.child_by_field_name("type")
     if target is None:
         return None
-    return source[target.start_byte : target.end_byte].decode("utf-8", "replace")
+    text = source[target.start_byte : target.end_byte].decode("utf-8", "replace")
+    return canonical_name(text) or None
 
 
 def _ts_outline(parser: Any, source: str) -> Optional[Outline]:
@@ -442,8 +633,12 @@ def outline_for(path: str, source: str) -> Optional[Outline]:
     """The file's definitions and import block, or None for an unknown
     language / oversized file."""
     lang = language_for(path)
-    if lang is None or len(source) > MAX_SOURCE_BYTES:
+    if lang is None or _source_bytes(source) > MAX_SOURCE_BYTES:
         return None
+    # A UTF-8 BOM (common from Windows editors) made ast.parse fail, so every
+    # BOM'd Python file got the heuristic. It is not on a line of its own, so
+    # dropping it shifts no line number.
+    source = source.removeprefix("﻿")
     key = (path, hashlib.sha1(source.encode("utf-8", "replace")).hexdigest())
     with _cache_lock:
         cached = _cache.get(key)
@@ -453,7 +648,7 @@ def outline_for(path: str, source: str) -> Optional[Outline]:
     outline: Optional[Outline] = None
     try:
         if lang == "python":
-            if len(source) <= PY_AST_MAX_BYTES:
+            if _source_bytes(source) <= PY_AST_MAX_BYTES:
                 outline = _python_outline(source)
             if outline is None:
                 outline = _heuristic_python(source)
@@ -473,12 +668,14 @@ def outline_for(path: str, source: str) -> Optional[Outline]:
 
 
 _PY_DEF = re.compile(r"^(?P<indent>\s*)(?:async\s+)?(?:def|class)\s+(?P<name>\w+)")
-_PY_IMPORT = re.compile(r"^(?:import|from\s+\S+\s+import)\b")
+_PY_IMPORT = re.compile(r"^﻿?(?:import|from\s+\S+\s+import)\b")
 
 
 def _heuristic_python(source: str) -> Outline:
-    """Indentation-based outline for Python that does not parse (mid-edit)."""
-    lines = source.splitlines()
+    """Indentation-based outline for Python that does not parse (mid-edit):
+    decorators belong to the definition below them, and lines inside a
+    triple-quoted string are neither definitions nor dedents."""
+    lines = source_lines(source)
     outline = Outline()
     stack: list[tuple[int, str, int]] = []  # indent, qualified, start0
 
@@ -488,7 +685,14 @@ def _heuristic_python(source: str) -> Outline:
             outline.defs.append(Definition(name, start + 1, last + 1))
 
     last_code = 0
+    in_string: Optional[str] = None  # the open triple quote
+    decorator_start: Optional[int] = None
     for index, line in enumerate(lines):
+        if in_string is not None:
+            last_code = index
+            if line.count(in_string) % 2 == 1:
+                in_string = None
+            continue
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -497,9 +701,20 @@ def _heuristic_python(source: str) -> Outline:
         if indent == 0 and _PY_IMPORT.match(stripped):
             outline.imports.append((index + 1, index + 1))
         match = _PY_DEF.match(line)
-        if match:
+        if stripped.startswith("@"):
+            if decorator_start is None:
+                decorator_start = index
+        elif match:
             prefix = stack[-1][1] + "." if stack else ""
-            stack.append((indent, prefix + match.group("name"), index))
+            start = decorator_start if decorator_start is not None else index
+            stack.append((indent, prefix + match.group("name"), start))
+            decorator_start = None
+        else:
+            decorator_start = None
+        for quote in ('"""', "'''"):
+            if line.count(quote) % 2 == 1:
+                in_string = quote
+                break
         last_code = index
     close(-1, last_code)
     return outline.finalize()
@@ -541,7 +756,8 @@ def changed_line_ranges(old: str, new: str) -> list[tuple[int, int]]:
     A pure deletion maps to the line just before it (or line 1)."""
     if old == new:
         return []
-    a, b = old.splitlines(), new.splitlines()
+    # Split on "\n" only, like every other line count here (see source_lines).
+    a, b = source_lines(old), source_lines(new)
     # The unchanged head and tail are cut off before diffing: SequenceMatcher
     # is quadratic on files full of repeated lines, a typical edit is local.
     head = 0
@@ -595,8 +811,9 @@ def signatures(path: str, source: str) -> dict[str, str]:
     """Top-level function/method name -> parameter text (Python exact; other
     languages via a declaration-line regex). Used by synergo.depgraph."""
     lang = language_for(path)
-    if lang is None or len(source) > MAX_SOURCE_BYTES:
+    if lang is None or _source_bytes(source) > MAX_SOURCE_BYTES:
         return {}
+    source = source.removeprefix("﻿")
     key = ("sig:" + path, hashlib.sha1(source.encode("utf-8", "replace")).hexdigest())
     with _cache_lock:
         cached = _sig_cache.get(key)
