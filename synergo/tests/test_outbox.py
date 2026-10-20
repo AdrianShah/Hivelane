@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import json
 
-import pytest
 
 from synergo.daemon import Daemon
 from synergo.protocol import ActivityMessage, EditCheckRequest, FileChange

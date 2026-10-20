@@ -14,6 +14,15 @@ def make_daemon() -> Daemon:
     return Daemon("TEAM42", "Ada", agent="claude-code", port=4699, batch_seconds=0.05)
 
 
+async def flushed(daemon: Daemon) -> None:
+    """Wait for the pending post_edit batch to be flushed (the debounce task
+    itself, not a guess at how long it takes)."""
+    task = daemon.connection._batch_task
+    assert task is not None, "no post_edit batch was scheduled"
+    await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+    assert not daemon.connection._batch
+
+
 def drain(daemon: Daemon) -> list[dict]:
     """Priority first, matching the order the real drain sends in."""
     messages: list[dict] = []
@@ -44,7 +53,7 @@ def test_post_edits_batch_into_one_activity(tmp_path: Path) -> None:
                     new_content=new,
                 )
             )
-        await asyncio.sleep(0.2)
+        await flushed(daemon)
         return drain(daemon)
 
     messages = asyncio.run(scenario())
@@ -94,7 +103,7 @@ def test_pre_edit_cache_feeds_the_later_diff(tmp_path: Path) -> None:
                 new_content="value = 2\n",
             )
         )
-        await asyncio.sleep(0.2)
+        await flushed(daemon)
         return drain(daemon)
 
     messages = asyncio.run(scenario())
@@ -119,7 +128,7 @@ def test_post_edit_without_cache_is_a_whole_file_diff(tmp_path: Path) -> None:
                 new_content="one\ntwo\n",
             )
         )
-        await asyncio.sleep(0.2)
+        await flushed(daemon)
         return drain(daemon)
 
     change = asyncio.run(scenario())[0]["changes"][0]

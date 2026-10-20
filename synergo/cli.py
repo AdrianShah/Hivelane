@@ -43,7 +43,7 @@ WAIT_TIMEOUT = 90.0
 WAIT_SLICE = 5.0
 
 DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173"
-DEFAULT_DASHBOARD = "https://synergo.dev"
+DEFAULT_DASHBOARD = "https://adrianshah.github.io/Synergo"
 DASHBOARD_ENV = "SYNERGO_DASHBOARD"
 INSTALL_COMMAND = "pipx install synergo"
 
@@ -276,7 +276,15 @@ def dashboard_base(relay: str) -> str:
 
 
 def room_url(relay: str, room: str) -> str:
-    return f"{dashboard_base(relay)}/r/{room}"
+    """The dashboard link for room. A non-local relay rides along as
+    ?relay=<url-encoded>, so whoever opens the link reaches the relay the
+    room lives on (frontend/src/relayUrl.ts reads it)."""
+    url = f"{dashboard_base(relay)}/r/{room}"
+    if relay and not relay_is_local(relay):
+        from urllib.parse import quote
+
+        url += "?relay=" + quote(relay.strip(), safe="")
+    return url
 
 
 def share_command(room: str, relay: str) -> str:
@@ -619,9 +627,6 @@ def cmd_hook_agent(args: argparse.Namespace) -> int:
     return run_hook(args.port, args.hook_command)
 
 
-cmd_hook_claude_code = cmd_hook_agent
-
-
 def parse_hook_args(argv: Sequence[str]) -> Optional[int]:
     """The hook's only flag, `--port N` / `--port=N`, parsed by hand.
 
@@ -658,21 +663,74 @@ def run_hook_fast_path(argv: Sequence[str], agent: str = "claude-code") -> int:
     return run_hook(port_arg, agent)
 
 
+HOOK_ADMIN_COMMANDS = ("install", "uninstall")
+
+
+def route_hook(rest: Sequence[str]) -> Optional[int]:
+    """`synergo hook ...` routing, before argparse ever sees it.
+
+    An agent invocation (`hook <id> ...`) goes down the fast path. Anything
+    else that is not `install`/`uninstall` or a help request is an agent hook
+    synergo does not understand — an id from a newer (or older) synergo, a
+    typo, a missing id — and exits 0 with a note on stderr: argparse would
+    exit 2, which every supported agent reads as "block this edit", stalling
+    every edit until someone removes the hook. None means "let argparse
+    handle it" (install, uninstall, --help).
+    """
+    if any(a in HOOK_HELP_FLAGS for a in rest):
+        return None
+    if rest and rest[0] in HOOK_ADMIN_COMMANDS:
+        return None
+    from synergo.adapters import REGISTRY
+
+    if rest and rest[0] in REGISTRY:
+        return run_hook_fast_path(rest[1:], rest[0])
+    try:
+        known = ", ".join(REGISTRY)
+        what = f"unknown agent {rest[0]!r}" if rest else "no agent given"
+        print(
+            f"synergo: hook: {what} (this synergo knows: {known}) — proceeding without coordination",
+            file=sys.stderr,
+        )
+    except Exception:  # noqa: BLE001 - a broken stderr must not change the exit code
+        pass
+    return 0
+
+
 # --- hook install / uninstall ------------------------------------------------
 # The JSON merge logic lives in synergo.adapters.base, shared by every adapter
 # whose hooks config is Claude-Code-shaped; these wrappers keep cli's
 # ConfigError contract.
 
 
-def settings_path(global_scope: bool, agent: str = "claude-code") -> Path:
+def hook_scope(global_scope: bool) -> tuple[str, Optional[Path]]:
+    """(scope, root) for `synergo hook install/uninstall`: the user's config,
+    or the project's — the git repo around the cwd (where the agent reads its
+    project config), else the cwd itself."""
     from pathlib import Path
 
+    if global_scope:
+        return "user", None
+    return "project", find_git_root() or Path.cwd()
+
+
+def settings_path(global_scope: bool, agent: str = "claude-code") -> Path:
     from synergo import adapters
 
-    adapter = adapters.load(agent)
-    if global_scope:
-        return adapter.settings_path("user", None)
-    return adapter.settings_path("project", Path.cwd())
+    return adapters.load(agent).settings_path(*hook_scope(global_scope))
+
+
+def path_warning(command: str) -> Optional[str]:
+    """A note for the user when the installed hook had to use an absolute
+    command because `synergo` is not on PATH."""
+    from synergo.adapters import base
+
+    if base.synergo_on_path():
+        return None
+    return (
+        f"`synergo` is not on PATH here, so the hook runs {command.rsplit(' hook ', 1)[0]} by absolute path. "
+        "If this settings file is shared with teammates, put synergo on PATH and reinstall instead."
+    )
 
 
 def load_settings(path: Path) -> dict[str, Any]:
@@ -719,12 +777,10 @@ def cmd_hook_install(args: argparse.Namespace) -> int:
     from synergo import adapters
 
     adapter = adapters.load(args.target)
-    from pathlib import Path
-
     from synergo.adapters import base
 
     path = settings_path(args.global_scope, args.target)
-    scope, root = ("user", None) if args.global_scope else ("project", Path.cwd())
+    scope, root = hook_scope(args.global_scope)
     try:
         # Through the adapter: not every agent's file has Claude Code's shape.
         changes = adapter.install(scope, root)
@@ -733,22 +789,24 @@ def cmd_hook_install(args: argparse.Namespace) -> int:
     if not changes:
         print(f"synergo: hooks already installed in {path} — nothing to do")
         return 0
+    command = adapter.hook_command
     print(f"synergo: added hooks to {path}")
     for event in changes:
-        print(f"  + {event} -> {adapter.hook_command}")
+        print(f"  + {event} -> {command}")
+    warning = path_warning(command)
+    if warning:
+        print(f"  ! {warning}")
     if args.target == "codex":
         print("  Codex asks you to review and trust new hooks (`/hooks`) before they run.")
     return 0
 
 
 def cmd_hook_uninstall(args: argparse.Namespace) -> int:
-    from pathlib import Path
-
     from synergo import adapters
     from synergo.adapters import base
 
     path = settings_path(args.global_scope, args.target)
-    scope, root = ("user", None) if args.global_scope else ("project", Path.cwd())
+    scope, root = hook_scope(args.global_scope)
     try:
         changes = adapters.load(args.target).uninstall(scope, root)
     except base.SettingsError as exc:
@@ -785,16 +843,37 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('skip')} {primary.label}: hooks not installed")
 
     scope = detect.HookScope.project(root)
+    # One agent's unreadable config must not stop the others' hooks or the
+    # rest of `up`; only the primary agent's is fatal, after the others ran.
+    primary_error: Optional[ConfigError] = None
+    wrote_any = False
     for spec, evidence in targets:
         if skip:
             say(f"  {mark('skip')} {spec.label} ({evidence}): hooks not installed (--no-hooks)")
             continue
-        result = spec.install(scope)
+        try:
+            result = spec.install(scope)
+        except (ConfigError, OSError) as exc:
+            error = exc if isinstance(exc, ConfigError) else ConfigError(f"cannot write {spec.label}'s hooks: {exc}")
+            if spec.id == detect.PRIMARY_AGENT:
+                primary_error = error
+            else:
+                say(f"  {mark('fail')} {spec.label} ({evidence}): hooks not installed — {error}")
+            continue
         where = display_path(result.path, root)
         if result.changed:
+            wrote_any = True
             say(f"  {mark('ok')} {spec.label} ({evidence}): added hooks to {where} ({', '.join(result.added)})")
         else:
             say(f"  {mark('ok')} {spec.label} ({evidence}): hooks already in {where}")
+    if wrote_any:
+        from synergo.adapters import base
+
+        warning = path_warning(base.hook_command_for(detect.PRIMARY_AGENT))
+        if warning:
+            say(f"  {mark('warn')} {warning}")
+    if primary_error is not None:
+        raise primary_error
     for agent in found:
         if not agent.has_adapter:
             hint = agent.spec.note or "adapter coming soon"
@@ -839,6 +918,7 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     # 2. the room: --room > .synergo.toml > a new one from the relay
     existing = config.room.upper() if config.room else None
+    created_room = False
     if room_flag is not None:
         room = room_flag
         if existing and existing != room and not confirm(
@@ -852,6 +932,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         say(f"  {mark('ok')} joining room {room} from {cfg.PROJECT_FILE}")
     else:
         room, owner_token = create_room_with_owner(config.relay)
+        created_room = True
         say(f"  {mark('ok')} created room {room} on {config.relay}")
         if owner_token:
             try:
@@ -898,7 +979,11 @@ def cmd_up(args: argparse.Namespace) -> int:
     except cfg.ConfigFileError as exc:
         raise ConfigError(str(exc)) from None
 
-    if config.e2e and ensure_room_key(config, room):
+    # A key is generated only for a room this run made e2e (it created the
+    # room, or just wrote `e2e = true`): anyone else is joining a team that
+    # already has one, and a fresh key would silently split them from it.
+    may_generate = created_room or "e2e" in updates
+    if config.e2e and ensure_room_key(config, room, may_generate=may_generate):
         # A key was just generated into the personal file: the registration
         # below must carry it.
         try:
@@ -929,11 +1014,28 @@ def cmd_up(args: argparse.Namespace) -> int:
     return 0
 
 
-def ensure_room_key(config: SynergoConfig, room: str) -> bool:
+def warn_weak_key(passphrase: str, what: str) -> None:
+    """Say so when a room key is guessable: the relay holds ciphertext it can
+    test guesses against offline, so a human passphrase protects little."""
+    from synergo import crypto
+
+    problem = getattr(crypto, "passphrase_problem", None)
+    reason = problem(passphrase) if problem is not None else None
+    if reason:
+        say(
+            f"synergo: warning: {what} is weak ({reason}); a generated key "
+            "(`synergo up --e2e` in a new room) is far safer",
+            err=True,
+        )
+
+
+def ensure_room_key(config: SynergoConfig, room: str, *, may_generate: bool = True) -> bool:
     """An e2e room needs its passphrase on this machine: use the configured
-    one, or (first teammate in) generate one, store it in the personal config
-    and show it once, to be handed to teammates out of band. True when a key
-    was generated (the caller's config predates it)."""
+    one, or (first teammate in, may_generate) generate one, store it in the
+    personal config and show it once, to be handed to teammates out of band.
+    Joining an existing e2e room without its key is an error naming
+    `synergo key set`. True when a key was generated (the caller's config
+    predates it)."""
     from synergo import config as cfg
     from synergo import crypto
 
@@ -943,9 +1045,24 @@ def ensure_room_key(config: SynergoConfig, room: str) -> bool:
             f"the e2e extra: {crypto.INSTALL_HINT}"
         )
     source = config.room_key_source(room)
-    if source is not None:
+    if source is not None and not (may_generate and source == cfg.ROOM_KEY_ENV):
         say(f"  {mark('ok')} end-to-end encrypted room (key from {source})")
+        if source.startswith(cfg.ROOM_KEY_ENV):
+            warn_weak_key(config.room_key(room) or "", source)
         return False
+    if not may_generate:
+        raise ConfigError(
+            f"room {room} is end-to-end encrypted (e2e = true in {cfg.PROJECT_FILE}) and this "
+            f"machine has no key for it. Ask a teammate for the room key (`synergo key show {room}` "
+            f"on their machine), run `synergo key set {room}` and paste it, then `synergo up` again"
+        )
+    if source == cfg.ROOM_KEY_ENV:
+        # SYNERGO_ROOM_KEY belongs to some other room; it must not quietly
+        # become the key of a brand-new one.
+        raise ConfigError(
+            f"{cfg.ROOM_KEY_ENV} is set, and would become the key of the new e2e room {room}. "
+            f"Unset it (or set {cfg.room_key_env_name(room)} instead) and run `synergo up` again"
+        )
     passphrase = crypto.generate_passphrase()
     try:
         path = cfg.set_personal_secret("room_keys", room, passphrase)
@@ -1777,6 +1894,7 @@ def cmd_key(args: argparse.Namespace) -> int:
     value = (value or "").strip()
     if not value:
         raise ConfigError("an empty room key is not a key")
+    warn_weak_key(value, f"the key for room {room}")
     path = cfg.set_personal_secret("room_keys", room, value)
     say(f"synergo: saved the key for room {room} to {path} (owner-only)")
     say("synergo: run `synergo up` in the repo to (re)connect with it")
@@ -1866,14 +1984,28 @@ def cmd_wait(args: argparse.Namespace) -> int:
             return 1
 
 
+def poll_interval(raw: str) -> float:
+    """--interval: a positive number of seconds (0 would busy-loop, and a
+    negative one crashes the poll loop's sleep)."""
+    import argparse
+    import math
+
+    try:
+        value = float(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not a number of seconds") from None
+    if not math.isfinite(value) or value < 0.05 or value > 3600:
+        raise argparse.ArgumentTypeError("the interval must be between 0.05 and 3600 seconds")
+    return value
+
+
 def build_parser() -> argparse.ArgumentParser:
-    # Deferred: both modules import pydantic, which only the hook path (routed
-    # around this parser in main) has to avoid.
+    # synergo.constants, not synergo.daemon/protocol: those import fastapi,
+    # uvicorn and pydantic, which cost every command (even --help) a second.
     import argparse
 
     from synergo import __version__
-    from synergo.daemon import DEFAULT_SERVER
-    from synergo.protocol import AGENT_KINDS
+    from synergo.constants import AGENT_KINDS, DEFAULT_SERVER
 
     parser = argparse.ArgumentParser(
         prog="synergo",
@@ -2019,7 +2151,10 @@ def build_parser() -> argparse.ArgumentParser:
     install = hook_sub.add_parser("install", help="install synergo hooks into an agent's hooks config")
     install.add_argument("target", choices=list(adapters.ids()))
     install.add_argument(
-        "--global", dest="global_scope", action="store_true", help="use the user-level config (~/.claude, ~/.codex)"
+        "--global",
+        dest="global_scope",
+        action="store_true",
+        help="use the user-level config (~/.claude, ~/.codex, ~/.cursor, ~/.gemini)",
     )
     install.set_defaults(func=cmd_hook_install)
 
@@ -2037,7 +2172,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     watch_cmd = sub.add_parser("watch", help="observe-only file watcher for agents without hooks (e.g. aider)")
     watch_cmd.add_argument("--agent", default="unknown", help="agent id, e.g. aider")
-    watch_cmd.add_argument("--interval", type=float, default=1.0, help="poll interval in seconds (default 1)")
+    watch_cmd.add_argument("--interval", type=poll_interval, default=1.0, help="poll interval in seconds (default 1)")
     watch_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
     watch_cmd.add_argument("--port", type=int, default=None, help=port_help)
     watch_cmd.set_defaults(func=cmd_watch)
@@ -2050,7 +2185,7 @@ def build_parser() -> argparse.ArgumentParser:
         "Exits with COMMAND's exit code.",
     )
     run_cmd.add_argument("--agent", default=None, help="agent id reported to the room (default: the command name, e.g. aider; unknown ids read as unknown)")
-    run_cmd.add_argument("--interval", type=float, default=1.0, help="poll interval in seconds (default 1)")
+    run_cmd.add_argument("--interval", type=poll_interval, default=1.0, help="poll interval in seconds (default 1)")
     run_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
     run_cmd.add_argument("--port", type=int, default=None, help=port_help)
     run_cmd.add_argument("cmd", nargs=argparse.REMAINDER, metavar="COMMAND [ARGS...]", help="command to run, e.g. aider -m 'fix the login bug'")
@@ -2092,11 +2227,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if len(argv) >= 2 and argv[0] == "hook" and not any(a in HOOK_HELP_FLAGS for a in argv[2:]):
-        from synergo.adapters import REGISTRY
-
-        if argv[1] in REGISTRY:
-            return run_hook_fast_path(argv[2:], argv[1])
+    if argv and argv[0] == "hook":
+        routed = route_hook(argv[1:])
+        if routed is not None:
+            return routed
     args = build_parser().parse_args(argv)
 
     from synergo.config import ConfigFileError
@@ -2109,6 +2243,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except CommandFailed as exc:
         say(f"synergo: {exc}", err=True)
         return 1
+    except Exception as exc:
+        # A daemon problem outside any `service_errors` block (a token the
+        # daemon refuses, say) is still reported, not a traceback.
+        service = sys.modules.get("synergo.service")
+        error_type = getattr(service, "ServiceError", None)
+        if error_type is not None and isinstance(exc, error_type):
+            say(f"synergo: {exc}", err=True)
+            return 1
+        raise
 
 
 if __name__ == "__main__":

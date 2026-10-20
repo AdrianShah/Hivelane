@@ -177,7 +177,7 @@ TOOLS: list[dict[str, Any]] = [
 
 class McpServer:
     def __init__(self, client: DaemonClient, agent: str = "unknown", cwd: Optional[str] = None) -> None:
-        from synergo.protocol import AGENT_KINDS
+        from synergo.constants import AGENT_KINDS
 
         self.client = client
         self.agent = agent if agent in AGENT_KINDS or agent == "unknown" else "unknown"
@@ -201,7 +201,13 @@ class McpServer:
 
     def check_file(self, args: dict[str, Any]) -> str:
         path = str(args["path"])
-        ack = self.client.post_event(self._event("pre_edit", file_path=self._abs(path)))
+        full = self._abs(path)
+        # The current content, as hook adapters send it: the daemon keeps it
+        # as the "before" of this session's report_edit, which can then share
+        # a real diff and the symbols changed instead of the whole file.
+        old = read_text(Path(full))
+        extra: dict[str, Any] = {"old_content": old} if old is not None else {}
+        ack = self.client.post_event(self._event("pre_edit", file_path=full, **extra))
         return format_ack(ack, path)
 
     def declare_intent(self, args: dict[str, Any]) -> str:
@@ -260,7 +266,9 @@ class McpServer:
         is_request = "id" in msg
         if method is None:
             return None  # a response to us; we send no requests
-        params = msg.get("params") or {}
+        params = msg.get("params")
+        if not isinstance(params, dict):
+            params = {}
         try:
             result = self._dispatch(method, params)
         except _RpcError as exc:
@@ -293,7 +301,8 @@ class McpServer:
             if handler is None:
                 raise _RpcError(-32602, f"unknown tool: {name}")
             try:
-                text = handler(params.get("arguments") or {})
+                arguments = params.get("arguments")
+                text = handler(arguments if isinstance(arguments, dict) else {})
                 return {"content": [{"type": "text", "text": text}], "isError": False}
             except KeyError as exc:
                 return {"content": [{"type": "text", "text": f"missing argument: {exc}"}], "isError": True}

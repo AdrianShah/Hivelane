@@ -8,7 +8,7 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from websockets.asyncio.server import ServerConnection
@@ -22,13 +22,14 @@ SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
 class PlanRelay(StubRelay):
-    """StubRelay that also answers plan frames with `plan_reply` after
-    `plan_delay` seconds, and can push frames to connected clients."""
+    """StubRelay that also answers plan frames with `plan_reply` (held until
+    `plan_gate` is set, when there is one), and can push frames to connected
+    clients."""
 
     def __init__(self) -> None:
         super().__init__()
         self.plan_reply: dict[str, Any] = {"type": "plan_conflicts", "conflicts": []}
-        self.plan_delay = 0.0
+        self.plan_gate: Optional[asyncio.Event] = None
         self.sockets: list[ServerConnection] = []
 
     async def _handler(self, ws: ServerConnection) -> None:
@@ -38,6 +39,7 @@ class PlanRelay(StubRelay):
             data = json.loads(raw)
             if data.get("type") == "join":
                 self.joins[room].append(data)
+                await ws.send(json.dumps({"type": "user_joined", "user_id": str(data.get("name") or "").lower(), "agent": data.get("agent") or "unknown"}))
                 continue
             self.frames[room].append(data)
             if data.get("type") == "edit_check":
@@ -46,8 +48,8 @@ class PlanRelay(StubRelay):
                     "decision": "allow", "file_path": data["file_path"],
                 }))
             elif data.get("type") == "plan":
-                if self.plan_delay:
-                    await asyncio.sleep(self.plan_delay)
+                if self.plan_gate is not None:
+                    await self.plan_gate.wait()
                 await ws.send(json.dumps(self.plan_reply))
 
     async def push(self, frame: dict[str, Any]) -> None:
@@ -155,13 +157,14 @@ def test_late_plan_conflicts_ride_on_the_next_ack(tmp_path: Path, monkeypatch: p
 
     async def scenario() -> None:
         async with PlanRelay() as relay:
-            relay.plan_delay = 0.4
+            relay.plan_gate = asyncio.Event()
             relay.plan_reply = {"type": "plan_conflicts", "conflicts": [
                 {"file_path": "server/room.py", "user_id": "kai", "kind": "planned", "seconds_ago": 5},
             ]}
             daemon = await started(repo, relay, edit_check_timeout=0.1)
             ack = await daemon.handle_event(event("plan", repo, summary="x", files=["server/room.py"]))
             assert ack.decision == "allow"  # the reply missed it
+            relay.plan_gate.set()  # ...and only now arrives, late
             conn = daemon._connections()[0]
             await wait_for(lambda: conn._session_notes, "late conflicts")
             conn.edit_check_timeout = 1.5

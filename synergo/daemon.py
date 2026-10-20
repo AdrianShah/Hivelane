@@ -16,15 +16,20 @@ behind `synergo serve` / the background service.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
+import functools
 import getpass
 import hashlib
 import hmac
 import json
 import os
+import random
 import re
+import signal
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from collections import OrderedDict
@@ -42,7 +47,13 @@ from websockets.asyncio.client import connect as ws_connect
 
 from synergo import __version__, auth, crypto, gitinfo, redact, symbols
 from synergo.depgraph import DepTracker
-from synergo.config import ConfigFileError, SynergoConfig, load_config, transport_problem
+from synergo.config import (
+    ConfigFileError,
+    SynergoConfig,
+    load_config,
+    room_key_env_name,
+    transport_problem,
+)
 from synergo.events import EventAck, NormalizedEvent
 from synergo.protocol import (
     AGENT_KINDS,
@@ -64,9 +75,10 @@ from synergo.protocol import (
     RoomSettings,
 )
 
+from synergo.constants import DEFAULT_SERVER
+
 LOOPBACK = "127.0.0.1"
 DEFAULT_PORT = 4600
-DEFAULT_SERVER = "ws://localhost:8000/ws"
 
 BATCH_SECONDS = 1.5
 EDIT_CHECK_TIMEOUT = 1.5
@@ -76,6 +88,35 @@ SHUTDOWN_GRACE = 5.0
 # before closing the socket anyway.
 FLUSH_GRACE = 1.0
 OLD_CONTENT_CACHE_SIZE = 512
+# Total characters of whole-file contents the pre_edit cache may hold; files
+# larger than symbols.MAX_SOURCE_BYTES are not cached at all (they would get
+# neither symbols nor a diff anyway).
+OLD_CONTENT_BUDGET = 32 * 1024 * 1024
+
+# Size caps, kept under the relay's (server/config.py) so it never has to cut
+# or refuse what we send. A frame over the relay's 512 KB closes the socket
+# (1009), so frames are kept well under it.
+MAX_FRAME_BYTES = 400 * 1024
+# One file's diff (the relay keeps 64 KB); longer ones are truncated, with
+# TRUNCATED_MARKER appended.
+MAX_DIFF_BYTES = 60 * 1024
+# A prompt or plan summary (the relay keeps 4 KB).
+MAX_TEXT_BYTES = 4 * 1024
+# Files per activity message (the relay keeps 50).
+MAX_FILES_PER_MESSAGE = 50
+# Above this, old+new content is not diffed at all (difflib is roughly
+# quadratic): the change goes out path-only, still detected as an overlap.
+MAX_DIFF_INPUT_BYTES = 512 * 1024
+TRUNCATED_MARKER = chr(10) + "[... truncated by synergo]"
+# The relay drops a member's activity, intent or plan sent less than 0.5 s
+# after the previous one of the same kind (server/main.py
+# ACTIVITY_MIN_INTERVAL_SECONDS); sends of those kinds are spaced by this.
+PACED_KINDS = ("activity", "intent", "plan")
+SEND_SPACING = 0.6
+# A connection only counts as stable (and the reconnect backoff resets) after
+# being admitted for this long; a relay that accepts then drops is backed off.
+STABLE_SECONDS = 30.0
+BACKOFF_JITTER = 0.2
 REPO_ROOT_CACHE_SIZE = 64
 ROUTE_CACHE_SIZE = 256
 # Ordinary (non-priority) messages kept for the relay while it is unreachable,
@@ -116,7 +157,9 @@ MAX_PLAN_FILES = 50
 # h:-token -> real name memory for an e2e room (own sends, teammates' blobs).
 E2E_NAME_CACHE_SIZE = 4096
 # Headroom under the relay's blob limit for JSON and base64 overhead.
-E2E_BLOB_BUDGET = E2E_MAX_CHARS - 1024
+# v2 seal pads the plaintext (powers of two to 16 KiB, then 16 KiB steps),
+# adding up to 16 KiB before base64 (~21.8 K characters).
+E2E_BLOB_BUDGET = E2E_MAX_CHARS - 24 * 1024
 # Diffs inside an envelope that would not fit are cut to this many characters.
 E2E_DIFF_FALLBACK_CHARS = 4000
 # A join request the owner has not answered is forgotten after this long (the
@@ -171,6 +214,67 @@ def unified_diff(file_path: str, old: str, new: str) -> str:
         n=2,
     )
     return "".join(lines).strip()
+
+
+def truncate_utf8(text: str, limit: int, marker: str = TRUNCATED_MARKER) -> str:
+    """text cut to at most limit UTF-8 bytes (marker included), on a
+    character boundary; unchanged when it already fits."""
+    if limit <= 0 or len(text) * 4 <= limit:
+        return text
+    data = text.encode("utf-8", "replace")
+    if len(data) <= limit:
+        return text
+    room = max(0, limit - len(marker.encode("utf-8")))
+    return data[:room].decode("utf-8", "ignore") + marker
+
+
+def clean_text(text: Optional[str]) -> Optional[str]:
+    """text with lone surrogates (a JS agent's half-cut emoji) replaced, so it
+    can be encoded: one unencodable prompt must not poison every later send."""
+    if not text:
+        return text
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return text.encode("utf-8", "surrogatepass").decode("utf-8", "replace")
+    return text
+
+
+def capped_diff(file_path: str, old: str, new: str, redactor: Optional[redact.Redactor] = None) -> str:
+    """unified_diff, redacted, then truncated to MAX_DIFF_BYTES; skipped ("")
+    above MAX_DIFF_INPUT_BYTES of input. Redaction runs before the cut, so a
+    secret straddling it cannot slip past half-matched. Blocking."""
+    if len(old) + len(new) > MAX_DIFF_INPUT_BYTES:
+        return ""
+    diff = unified_diff(file_path, old, new)
+    if diff and redactor is not None:
+        # Secrets out, and a sensitive file's diff withheld entirely; the
+        # path still goes, so overlaps on it are still detected.
+        diff = redactor.diff(file_path, diff)
+    return truncate_utf8(diff, MAX_DIFF_BYTES)
+
+
+def _post_edit_work(
+    rel: str,
+    old: str,
+    new: str,
+    known_old: bool,
+    share_diffs: bool,
+    redactor: redact.Redactor,
+    deps: DepTracker,
+    repo_id: str,
+) -> tuple[list[str], list[tuple[int, int]], str]:
+    """(symbols, line ranges, diff) of a finished edit. Without a known old
+    version every line would count as changed, which says nothing, so no
+    symbols are sent; without share_diffs the content stays here (the path
+    still goes out, so overlaps are still detected)."""
+    names: list[str] = []
+    ranges: list[tuple[int, int]] = []
+    if known_old:
+        names, ranges = change_symbols(rel, old, new)
+        deps.record_local(rel, old, new, repo_id)
+    diff = capped_diff(rel, old, new, redactor) if share_diffs else ""
+    return names, ranges, diff
 
 
 def relative_path(file_path: str, cwd: str) -> str:
@@ -380,27 +484,52 @@ def compute_repo_id(root: Path) -> str:
     return ""
 
 
-_repo_ids: dict[str, str] = {}
+# str(root) -> (repo_id, the git metadata signature it was computed under).
+_repo_ids: dict[str, tuple[str, tuple[int, ...]]] = {}
+
+
+def _identity_signature(root: Path) -> tuple[int, ...]:
+    """mtimes of the git files a repo identity derives from: .git/config
+    (`git remote add origin` after `synergo up` changes the id) and HEAD's
+    reflog (the first commit gives an origin-less repo its id). A stat or
+    two, cheap enough for the hook path."""
+    git = root / ".git"
+    out: list[int] = []
+    for path in (git / "config", git / "logs" / "HEAD", git):
+        try:
+            out.append(path.stat().st_mtime_ns)
+        except OSError:
+            out.append(0)
+    return tuple(out)
 
 
 def cached_repo_id(root: Optional[Path]) -> Optional[str]:
-    """The cached id for root, "" for no root, or None if not computed yet."""
-    if root is None:
-        return ""
-    return _repo_ids.get(str(root))
-
-
-def repo_id_for(root: Optional[Path]) -> str:
-    """compute_repo_id, at most once per root for the life of the process.
-
-    A repo's origin and root commit practically never change under a running
-    daemon, and the pre_edit hook path cannot afford a git subprocess per call.
-    """
+    """The cached id for root, "" for no root, or None if not computed yet
+    (or the repo's remote / first commit changed since)."""
     if root is None:
         return ""
     cached = _repo_ids.get(str(root))
+    if cached is None:
+        return None
+    if cached[1] != _identity_signature(root):
+        return None
+    return cached[0]
+
+
+def repo_id_for(root: Optional[Path]) -> str:
+    """compute_repo_id, once per root until its git identity files change.
+
+    The pre_edit hook path cannot afford a git subprocess per call, but a repo
+    that gains an origin under a running daemon (`git init`, `synergo up`,
+    then `git remote add origin`) must switch to the id its teammates' clones
+    compute, or the relay sees two repos and reports no overlaps.
+    """
+    if root is None:
+        return ""
+    cached = cached_repo_id(root)
     if cached is not None:
         return cached
+    signature = _identity_signature(root)
     # Only a directory that is itself a repo root gets an identity. An explicit
     # --root that is not one must not inherit an enclosing repo's (a dotfiles
     # repo in $HOME, say): teammates would then get different ids for the same
@@ -408,7 +537,7 @@ def repo_id_for(root: Optional[Path]) -> str:
     repo_id = compute_repo_id(root) if (root / ".git").exists() else ""
     if len(_repo_ids) > REPO_ROOT_CACHE_SIZE:
         _repo_ids.clear()
-    _repo_ids[str(root)] = repo_id
+    _repo_ids[str(root)] = (repo_id, signature)
     return repo_id
 
 
@@ -563,6 +692,18 @@ class IgnoreRules:
 # --- one room ----------------------------------------------------------------------
 
 
+async def _close_quietly(socket: Any) -> None:
+    try:
+        await asyncio.wait_for(socket.close(), timeout=2.0)
+    except Exception:  # noqa: BLE001 - best effort
+        pass
+
+
+class RelayGone(Exception):
+    """The relay link a hook's question went out on dropped before the answer
+    came: the hook fails open at once instead of waiting out its timeout."""
+
+
 @dataclass(eq=False)
 class RepoBinding:
     """How events from one repo are handled, and which connection carries them.
@@ -621,9 +762,14 @@ class RoomConnection:
         # which is fatal rather than a fallback to cleartext).
         self.e2e_required = bool(settings is not None and settings.e2e)
         self.e2e_key = e2e_key
+        # sha256 of the passphrase e2e_key came from (repos sharing this
+        # connection must agree on it).
+        self.key_fingerprint: Optional[str] = None
         # h:-token -> the name it hashes, learned from our own sends and from
         # teammates' decrypted blobs, so relay reasons read in real names.
         self._names: OrderedDict[str, str] = OrderedDict()
+        # e2e repo tokens we sent -> our repo_id (_wire_repo_id).
+        self._repo_tokens: dict[str, str] = {}
         # user_id -> that teammate's latest decrypted task (intent or plan).
         self._peer_tasks: dict[str, str] = {}
         # Room ownership (the token POST /rooms returned to whoever created
@@ -636,6 +782,10 @@ class RoomConnection:
         # The room's join policy as last broadcast (None: never heard).
         self.require_approval: Optional[bool] = None
 
+        # Admitted to the room: set on the relay's first ordinary frame after
+        # our join (it always sends the joiner its own user_joined), not when
+        # the join was merely written, so a join about to be refused or held
+        # never reads as connected; cleared on fatal and on disconnect.
         self.connected = False
         self.fatal: Optional[str] = None
         self.fatal_at: Optional[float] = None
@@ -647,8 +797,11 @@ class RoomConnection:
         self.last_relay_contact: Optional[float] = None
         # Unix seconds the current relay connection was established, or None.
         self.connected_since: Optional[float] = None
-        # Identity of the repo this connection was opened for, sent on join.
+        # Identity of the repo this connection was opened for, sent on join
+        # (re-read from repo_root before every connect: a remote added since
+        # changes it).
         self.repo_id = ""
+        self.repo_root: Optional[Path] = None
 
         self._stop = asyncio.Event()
         self._closed = False
@@ -666,8 +819,14 @@ class RoomConnection:
         # request_id -> the repo-relative path asked about (the reply names it
         # by hash in an e2e room).
         self._pending_paths: dict[str, str] = {}
+        # edit_checks whose hook gave up (timed out, link dropped): not sent
+        # if still queued (a late one has side effects on the relay's queues).
+        self._abandoned: OrderedDict[str, None] = OrderedDict()
         self._peers: set[str] = set()
         self._old_content: OrderedDict[tuple[str, str], str] = OrderedDict()
+        self._old_content_chars = 0
+        # Kind -> monotonic time of its last send, for SEND_SPACING.
+        self._last_sent: dict[str, float] = {}
 
         # (repo_id, path key) -> latest change. Keyed by repo as well so one
         # flush can split into one activity message per repo.
@@ -679,8 +838,13 @@ class RoomConnection:
         self.deps = DepTracker()
         # repo_id -> (branch, HEAD commit) seen at the last post_edit.
         self._heads: dict[str, tuple[str, str]] = {}
-        # Plan events waiting for the relay's plan_conflicts reply, in order.
-        self._plan_waiters: list[tuple[str, asyncio.Future[PlanConflicts]]] = []
+        # Plan events waiting for the relay's plan_conflicts reply, in the
+        # order sent: request_id -> (session_id, future, monotonic sent-at).
+        # A relay that echoes request_id is paired exactly; one that does not
+        # is answered first-in-first-out.
+        self._plan_waiters: OrderedDict[
+            str, tuple[str, asyncio.Future[PlanConflicts], float]
+        ] = OrderedDict()
         # session_id -> notes (plan conflicts, someone waiting for a file we
         # hold) to surface on that session's next pre_edit ack. "*:<repo_id>"
         # holds notes for whichever session in that repo comes first.
@@ -704,7 +868,7 @@ class RoomConnection:
     @property
     def live(self) -> bool:
         """Joined and admitted: worth asking the relay before an edit."""
-        return self.connected and self.awaiting_approval is None
+        return self.connected and self.awaiting_approval is None and self.fatal is None
 
     # --- end-to-end encryption -----------------------------------------------
 
@@ -723,6 +887,23 @@ class RoomConnection:
         while len(self._names) > E2E_NAME_CACHE_SIZE:
             self._names.popitem(last=False)
 
+    def _wire_repo_id(self, repo_id: str) -> str:
+        """repo_id as sent: in an e2e room a keyed token (equality kept, so
+        clones still group; a guessed origin URL can no longer be confirmed)."""
+        key = self.e2e_key
+        token_of = getattr(key, "repo_token", None)
+        if key is None or not repo_id or token_of is None:
+            return repo_id
+        token = token_of(repo_id)
+        self._repo_tokens[token] = repo_id
+        while len(self._repo_tokens) > REPO_ROOT_CACHE_SIZE:
+            self._repo_tokens.pop(next(iter(self._repo_tokens)))
+        return token
+
+    def _local_repo_id(self, wire: str) -> str:
+        """A repo_id from the relay as our own id, when it is one of our tokens."""
+        return self._repo_tokens.get(wire, wire)
+
     def reveal(self, text: Optional[str]) -> Optional[str]:
         """text with every h:-token we know replaced by its real name."""
         if not text or self.e2e_key is None or "h:" not in text:
@@ -734,14 +915,17 @@ class RoomConnection:
         key = self.e2e_key
         if key is None:
             return
-        names: list[str] = []
-        for change in envelope.get("changes") or []:
+        def listed(value: Any) -> list[Any]:
+            return value if isinstance(value, list) else []
+
+        names: list[Any] = []
+        for change in listed(envelope.get("changes")):
             if isinstance(change, dict):
                 names.append(change.get("file_path"))
-                names.extend(change.get("symbols") or [])
+                names.extend(listed(change.get("symbols")))
         names.append(envelope.get("file_path"))
-        names.extend(envelope.get("files") or [])
-        names.extend(envelope.get("symbols") or [])
+        names.extend(listed(envelope.get("files")))
+        names.extend(listed(envelope.get("symbols")))
         names.append(envelope.get("branch"))
         for name in names:
             if isinstance(name, str) and name and name != symbols.IMPORTS:
@@ -774,10 +958,14 @@ class RoomConnection:
             # edit_check blob (no new envelope type for dashboards to learn).
             rel = message.file_path
             blob = key.seal("edit_check", {"v": 1, "file_path": rel, "symbols": [], "branch": ""})
-            return message.model_copy(update={"file_path": self._hash(rel), "e2e": blob})
+            return message.model_copy(
+                update={"file_path": self._hash(rel), "e2e": blob, "repo_id": self._wire_repo_id(message.repo_id)}
+            )
         if isinstance(message, IntentMessage):
             blob = key.seal("intent", {"v": 1, "prompt": message.prompt})
-            return message.model_copy(update={"prompt": "", "e2e": blob})
+            return message.model_copy(
+                update={"prompt": "", "e2e": blob, "repo_id": self._wire_repo_id(message.repo_id)}
+            )
         if isinstance(message, EditCheckRequest):
             rel = message.file_path
             names, ranges = list(message.symbols), list(message.line_ranges)
@@ -797,6 +985,7 @@ class RoomConnection:
                     "line_ranges": ranges,
                     "branch": self._hash(message.branch),
                     "e2e": blob,
+                    "repo_id": self._wire_repo_id(message.repo_id),
                 }
             )
         if isinstance(message, PlanMessage):
@@ -817,6 +1006,7 @@ class RoomConnection:
                     "symbols": [self._hash(s) for s in message.symbols],
                     "branch": self._hash(message.branch),
                     "e2e": blob,
+                    "repo_id": self._wire_repo_id(message.repo_id),
                 }
             )
         # ActivityMessage
@@ -839,6 +1029,7 @@ class RoomConnection:
                 "branch": self._hash(message.branch),
                 "base_commit": self._hash(message.base_commit),
                 "e2e": blob,
+                "repo_id": self._wire_repo_id(message.repo_id),
             }
         )
 
@@ -973,11 +1164,13 @@ class RoomConnection:
     ) -> EventAck:
         if not event.prompt:
             return EventAck()
-        # Redacted before it is remembered: the prompt rides on every later
-        # activity message too.
-        prompt = (redactor or redact.DEFAULT).text(event.prompt) or ""
-        self._last_prompt = prompt
-        self._send(IntentMessage(user_id=self.name, prompt=prompt, repo_id=repo_id))
+        # Redacted (and capped, and made encodable) before it is remembered:
+        # the prompt rides on every later activity message too, so one huge
+        # or unencodable prompt would otherwise break each of those as well.
+        prompt = (redactor or redact.DEFAULT).text(clean_text(event.prompt)) or ""
+        prompt = truncate_utf8(prompt, MAX_TEXT_BYTES)
+        if self._send(IntentMessage(user_id=self.name, prompt=prompt, repo_id=repo_id)):
+            self._last_prompt = prompt
         return EventAck()
 
     async def _handle_plan(
@@ -990,7 +1183,7 @@ class RoomConnection:
         summary = (event.summary or "").strip()
         if not self.live or (not summary and not event.files):
             return EventAck()
-        summary = binding.redactor.text(summary) or ""
+        summary = truncate_utf8(binding.redactor.text(clean_text(summary)) or "", MAX_TEXT_BYTES)
         tracked = await asyncio.to_thread(tracked_files, root) if root is not None else []
         files = [
             f for f in resolve_plan_files(event.files or [], tracked) if not binding.ignore.matches(f)
@@ -999,21 +1192,30 @@ class RoomConnection:
             return EventAck()
         head = gitinfo.head_for(root)
         future: asyncio.Future[PlanConflicts] = asyncio.get_running_loop().create_future()
-        self._plan_waiters.append((event.session_id, future))
-        self._send(
-            PlanMessage(
-                user_id=self.name,
-                summary=summary[:2000],
-                files=files,
-                symbols=list(event.symbols or [])[:50],
-                repo_id=repo_id,
-                branch=(head.branch or "") if head else "",
-            )
-        )
+        request_id = uuid.uuid4().hex
+        fields: dict[str, Any] = {
+            "user_id": self.name,
+            "summary": summary[:2000],
+            "files": files,
+            "symbols": [clean_text(s) or "" for s in (event.symbols or [])][:50],
+            "repo_id": repo_id,
+            "branch": (head.branch or "") if head else "",
+        }
+        if "request_id" in PlanMessage.model_fields:
+            # The relay echoes it on plan_conflicts, so replies pair exactly
+            # even when one is never sent (rate-limited, invalid plan).
+            fields["request_id"] = request_id
+        self._prune_plan_waiters()
+        self._plan_waiters[request_id] = (event.session_id, future, time.monotonic())
+        if not self._send(PlanMessage(**fields)):
+            self._plan_waiters.pop(request_id, None)
+            return EventAck()
         try:
             conflicts = await asyncio.wait_for(asyncio.shield(future), timeout=self.edit_check_timeout)
         except asyncio.TimeoutError:
             future.cancel()  # tells _on_plan_conflicts to keep the note for later
+            return EventAck()
+        except RelayGone:
             return EventAck()
         note = plan_conflict_note(conflicts)
         return EventAck(decision="warn", reason=note) if note else EventAck()
@@ -1036,7 +1238,7 @@ class RoomConnection:
         future: asyncio.Future[EditCheckResponse] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         self._pending_paths[request_id] = rel
-        self._send(
+        sent = self._send(
             EditCheckRequest(
                 request_id=request_id,
                 file_path=rel,
@@ -1046,11 +1248,16 @@ class RoomConnection:
                 branch=branch,
             )
         )
-        try:
-            response = await asyncio.wait_for(future, timeout=self.edit_check_timeout)
-        except asyncio.TimeoutError:
+        if not sent:
             self._pending.pop(request_id, None)
             self._pending_paths.pop(request_id, None)
+            return EventAck(file_path=rel)
+        try:
+            response = await asyncio.wait_for(future, timeout=self.edit_check_timeout)
+        except (asyncio.TimeoutError, RelayGone):
+            self._pending.pop(request_id, None)
+            self._pending_paths.pop(request_id, None)
+            self._abandon(request_id)
             return EventAck(file_path=rel)
         key = (repo_id, rel)
         if response.decision == "block":
@@ -1140,7 +1347,7 @@ class RoomConnection:
         rel = self._frame_path(data)
         if not rel:
             return
-        key = (str(data.get("repo_id") or ""), rel)
+        key = (self._local_repo_id(str(data.get("repo_id") or "")), rel)
         queued = self._queued.pop(key, None)
         sessions = set(queued["sessions"]) if queued else set()
         self._remember_bounded(self._released, key, {"at": time.time(), "sessions": sessions})
@@ -1152,7 +1359,7 @@ class RoomConnection:
         rel = self._frame_path(data)
         if not rel:
             return
-        repo_id = str(data.get("repo_id") or "")
+        repo_id = self._local_repo_id(str(data.get("repo_id") or ""))
         by = str(data.get("by") or "a teammate")
         agent = str(data.get("agent") or "unknown")
         session = self._last_editor.get((repo_id, rel))
@@ -1209,48 +1416,64 @@ class RoomConnection:
         old = event.old_content
         known_old = old is not None or (event.session_id, rel) in self._old_content
         if old is None:
-            old = self._old_content.pop((event.session_id, rel), "")
+            old = self._forget_old((event.session_id, rel)) or ""
+        else:
+            self._forget_old((event.session_id, rel))
         new = event.new_content or ""
         # Which definitions changed. Without a known old version every line
         # would count as changed, which says nothing, so nothing is sent.
-        names: list[str] = []
-        ranges: list[tuple[int, int]] = []
-        if known_old and old != new:
-            if max(len(old), len(new)) > INLINE_SYMBOLS_BYTES:
-                names, ranges = await asyncio.to_thread(change_symbols, rel, old, new)
-                await asyncio.to_thread(self.deps.record_local, rel, old, new, repo_id)
-            else:
-                names, ranges = change_symbols(rel, old, new)
-                self.deps.record_local(rel, old, new, repo_id)
-        if share_diffs:
-            diff = unified_diff(rel, old, new)
-            changed = bool(diff)
-            # Secrets out, and a sensitive file's diff withheld entirely; the
-            # path still goes, so overlaps on it are still detected.
-            if diff:
-                diff = (redactor or redact.DEFAULT).diff(rel, diff)
+        if old == new:
+            return EventAck(file_path=rel)
+        # Symbols, the diff and its redaction are CPU work (difflib is about
+        # quadratic): above a small size it all runs in a worker thread, so a
+        # big file never stalls the loop every other hook and the relay
+        # keepalive share. Content past the caps goes out path-only.
+        work = functools.partial(
+            _post_edit_work,
+            rel,
+            old,
+            new,
+            known_old,
+            share_diffs,
+            redactor or redact.DEFAULT,
+            self.deps,
+            repo_id,
+        )
+        if max(len(old), len(new)) > INLINE_SYMBOLS_BYTES:
+            names, ranges, diff = await asyncio.to_thread(work)
         else:
-            # The path still goes out, so overlaps are still detected; the
-            # content of the change stays on this machine.
-            diff = ""
-            changed = old != new
-        if changed:
-            previous = self._batch.get((repo_id, rel))
-            if previous is not None:
-                # Two edits to one file inside a batch: report both edits' symbols.
-                names = list(dict.fromkeys([*previous.symbols, *names]))[: symbols.MAX_SYMBOLS]
-            self._batch[(repo_id, rel)] = FileChange(
-                file_path=rel, diff=diff, symbols=names, line_ranges=ranges
-            )
-            self._schedule_flush()
+            names, ranges, diff = work()
+        previous = self._batch.get((repo_id, rel))
+        if previous is not None:
+            # Two edits to one file inside a batch: report both edits' symbols.
+            names = list(dict.fromkeys([*previous.symbols, *names]))[: symbols.MAX_SYMBOLS]
+        self._batch[(repo_id, rel)] = FileChange(
+            file_path=rel, diff=diff, symbols=names, line_ranges=ranges
+        )
+        self._schedule_flush()
         return EventAck(file_path=rel)
 
     def _remember_old(self, session_id: str, rel: str, content: str) -> None:
         key = (session_id, rel)
-        self._old_content.pop(key, None)
+        self._forget_old(key)
+        if len(content) > symbols.MAX_SOURCE_BYTES:
+            # Too big for symbols, and its diff would be skipped too: caching
+            # it only costs memory (a pre_edit with no post_edit never frees it).
+            return
         self._old_content[key] = content
-        while len(self._old_content) > OLD_CONTENT_CACHE_SIZE:
-            self._old_content.popitem(last=False)
+        self._old_content_chars += len(content)
+        while self._old_content and (
+            len(self._old_content) > OLD_CONTENT_CACHE_SIZE
+            or self._old_content_chars > OLD_CONTENT_BUDGET
+        ):
+            _, dropped = self._old_content.popitem(last=False)
+            self._old_content_chars -= len(dropped)
+
+    def _forget_old(self, key: tuple[str, str]) -> Optional[str]:
+        content = self._old_content.pop(key, None)
+        if content is not None:
+            self._old_content_chars -= len(content)
+        return content
 
     # --- post_edit batching --------------------------------------------------
 
@@ -1276,19 +1499,22 @@ class RoomConnection:
         for (repo_id, _), change in self._batch.items():
             by_repo.setdefault(repo_id, []).append(change)
         self._batch.clear()
+        prompt = self._last_prompt
+        budget = MAX_FRAME_BYTES - 4096 - len((prompt or "").encode("utf-8", "replace")) * 2
         for repo_id, changes in by_repo.items():
             branch, commit = self._heads.get(repo_id, ("", ""))
-            self._send(
-                ActivityMessage(
-                    user_id=self.name,
-                    prompt=self._last_prompt,
-                    changes=changes,
-                    agent=self.agent,
-                    repo_id=repo_id,
-                    branch=branch,
-                    base_commit=commit,
+            for chunk in _chunk_changes(changes, budget):
+                self._send(
+                    ActivityMessage(
+                        user_id=self.name,
+                        prompt=prompt,
+                        changes=chunk,
+                        agent=self.agent,
+                        repo_id=repo_id,
+                        branch=branch,
+                        base_commit=commit,
+                    )
                 )
-            )
 
     # --- relay socket --------------------------------------------------------
 
@@ -1301,14 +1527,29 @@ class RoomConnection:
         | FileRequest
         | JoinDecision
         | RoomPolicy,
-    ) -> None:
+    ) -> bool:
+        """Queue message for the relay; False when it cannot go (an e2e room
+        without a key, or a message that cannot be encoded or made to fit a
+        frame). Never raises: a caller's batch must not die with one message."""
         sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest)
-        if self.e2e_key is not None and isinstance(message, sealable):
-            message = self._seal(message)
-        elif self.e2e_required and isinstance(message, sealable):
+        if self.e2e_required and self.e2e_key is None and isinstance(message, sealable):
             # An e2e room without a key: never fall back to cleartext.
-            return
-        payload = message.model_dump_json()
+            return False
+        try:
+            payload = self._encode(message)
+        except Exception as exc:  # noqa: BLE001 - one bad message, not the connection
+            print(
+                f"synergo: room {self.room}: not sending a {getattr(message, 'type', '?')} message ({exc!r})",
+                file=sys.stderr,
+            )
+            return False
+        if payload is None:
+            print(
+                f"synergo: room {self.room}: not sending a {getattr(message, 'type', '?')} message "
+                f"larger than {MAX_FRAME_BYTES} bytes",
+                file=sys.stderr,
+            )
+            return False
         # A plan ack, like an edit_check, has an agent hook waiting on it; an
         # owner's decision has a teammate waiting at the door; a file_request
         # has `synergo wait` (and so an agent) waiting on it.
@@ -1319,12 +1560,35 @@ class RoomConnection:
                 self._outbox.get_nowait()
             self._outbox.put_nowait(payload)
         self._outbox_ready.set()
+        return True
+
+    def _encode(self, message: Any) -> Optional[str]:
+        """message as the JSON frame to send (sealed in an e2e room), or None
+        when even its slimmest form is over MAX_FRAME_BYTES."""
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest)
+        sealed = self._seal(message) if self.e2e_key is not None and isinstance(message, sealable) else message
+        payload = sealed.model_dump_json()
+        if len(payload) <= MAX_FRAME_BYTES // 4 or len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
+            return payload
+        if isinstance(message, ActivityMessage):
+            # Path-only, with a short prompt: overlaps are still detected.
+            slim = message.model_copy(
+                update={
+                    "prompt": truncate_utf8(message.prompt or "", 500) or None,
+                    "changes": [c.model_copy(update={"diff": ""}) for c in message.changes],
+                }
+            )
+            sealed = self._seal(slim) if self.e2e_key is not None else slim
+            payload = sealed.model_dump_json()
+            if len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
+                return payload
+        return None
 
     def _join_payload(self) -> str:
         payload = JoinMessage(
             name=self.name,
             agent=self.agent,
-            repo_id=self.repo_id,
+            repo_id=self._wire_repo_id(self.repo_id),
             settings=self.settings,
             owner_token=self.owner_token,
         ).model_dump(mode="json")
@@ -1378,7 +1642,7 @@ class RoomConnection:
             return (
                 f"room {self.room} is end-to-end encrypted (e2e = true in .synergo.toml) but no "
                 "room key is configured on this machine. Get the key from a teammate and run "
-                f"`synergo key set {self.room}` (or set SYNERGO_ROOM_KEY), then `synergo up` again"
+                f"`synergo key set {self.room}` (or set {room_key_env_name(self.room)}), then `synergo up` again"
             )
         if not crypto.available():
             return f"room {self.room} is end-to-end encrypted, which needs the e2e extra: {crypto.INSTALL_HINT}"
@@ -1401,6 +1665,31 @@ class RoomConnection:
     def _set_fatal(self, message: str) -> None:
         self.fatal = message
         self.fatal_at = time.monotonic()
+        # Not connected from this moment, though the socket still closes.
+        self.connected = False
+        self._fail_open_waiters()
+
+    def fail(self, message: str) -> None:
+        """Go fatal now, closing the socket if one is open (a frame-driven
+        fatal ends the receive loop by itself; this one may not get a frame)."""
+        self._set_fatal(message)
+        socket = self._socket
+        if socket is not None:
+            asyncio.get_running_loop().create_task(_close_quietly(socket))
+
+    def _fail_open_waiters(self) -> None:
+        """Answer every hook still waiting on the relay with "allow" now
+        rather than at its timeout: the link they were asked over is gone."""
+        for request_id, future in list(self._pending.items()):
+            self._abandon(request_id)
+            if not future.done():
+                future.set_exception(RelayGone())
+        self._pending.clear()
+        self._pending_paths.clear()
+        for _session, plan_future, _at in self._plan_waiters.values():
+            if not plan_future.done():
+                plan_future.set_exception(RelayGone())
+        self._plan_waiters.clear()
 
     async def _relay_loop(self) -> None:
         problem = self._e2e_problem()
@@ -1409,7 +1698,12 @@ class RoomConnection:
             return
         backoff = 1.0
         while not self._stop.is_set():
+            admitted_since: Optional[float] = None
             try:
+                if self.repo_root is not None:
+                    # A remote added (or a first commit made) since the last
+                    # join changes the identity teammates' clones compute.
+                    self.repo_id = await asyncio.to_thread(repo_id_for, self.repo_root)
                 async with ws_connect(self.ws_url) as socket:
                     self._socket = socket
                     # A fresh join: any approval wait belonged to the old socket,
@@ -1418,15 +1712,16 @@ class RoomConnection:
                     self._queued.clear()
                     self._released.clear()
                     await socket.send(self._join_payload())
-                    self.connected = True
-                    self.connected_since = time.time()
-                    self.last_relay_contact = self.connected_since
-                    backoff = 1.0
-                    print(f"synergo: connected to room {self.room} as {self.name}")
+                    # Not `connected` yet: that waits for the relay's first
+                    # ordinary frame (_admit), so a join it is about to refuse
+                    # or hold never reads as connected.
+                    self.last_relay_contact = time.time()
                     drain = asyncio.create_task(self._drain(socket))
                     try:
                         async for raw in socket:
                             self._handle_frame(raw)
+                            if self.connected_since is not None:
+                                admitted_since = self.connected_since
                             if self.fatal:
                                 break
                     finally:
@@ -1440,42 +1735,108 @@ class RoomConnection:
                         f"synergo: relay connection lost for room {self.room} ({exc})",
                         file=sys.stderr,
                     )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - a bug must cost a reconnect, not the room
+                print(
+                    f"synergo: room {self.room}: internal error in the relay connection ({exc!r}); reconnecting",
+                    file=sys.stderr,
+                )
             finally:
                 self._socket = None
                 self.connected = False
                 self.connected_since = None
+                # Hooks still waiting on the dropped link fail open now.
+                self._fail_open_waiters()
 
             if self.fatal or self._stop.is_set():
                 return
+            if admitted_since is not None and time.time() - admitted_since >= STABLE_SECONDS:
+                # Only a link that held reset the backoff: a relay (or proxy)
+                # that admits and then drops at once must not get hammered.
+                backoff = 1.0
             if self.retry_after > 0:
                 backoff = max(backoff, self.retry_after)
                 self.retry_after = 0.0
+            # Jittered, so a relay restart is not met by every daemon at once.
+            delay = backoff * random.uniform(1 - BACKOFF_JITTER, 1 + BACKOFF_JITTER)
             print(
-                f"synergo: reconnecting to room {self.room} in {backoff:.0f}s",
+                f"synergo: reconnecting to room {self.room} in {delay:.0f}s",
                 file=sys.stderr,
             )
             try:
-                await asyncio.wait_for(self._stop.wait(), timeout=backoff)
+                await asyncio.wait_for(self._stop.wait(), timeout=delay)
             except asyncio.TimeoutError:
                 pass
             backoff = min(backoff * 2, MAX_BACKOFF)
 
+    def _admit(self) -> None:
+        """The relay answered our join with room traffic: we are in."""
+        if self.connected or self._socket is None or self.fatal is not None:
+            return
+        self.connected = True
+        self.connected_since = time.time()
+        print(f"synergo: connected to room {self.room} as {self.name}")
+
+    def _not_before(self, payload: str) -> float:
+        """Monotonic time payload may go out: the relay silently drops an
+        activity, intent or plan sent within 0.5 s of the previous one of its
+        kind, so those are spaced SEND_SPACING apart (a reconnect's backlog
+        then arrives whole instead of mostly dropped)."""
+        kind = _payload_kind(payload)
+        if kind not in PACED_KINDS:
+            return 0.0
+        last = self._last_sent.get(kind)
+        return 0.0 if last is None else last + SEND_SPACING
+
+    def _is_stale(self, payload: str) -> bool:
+        """An edit_check whose hook already gave up: sending it late would
+        still queue us behind (or claim) a file teammates wait for."""
+        if _payload_kind(payload) != "edit_check":
+            return False
+        try:
+            request_id = json.loads(payload).get("request_id")
+        except (ValueError, AttributeError):
+            return False
+        return isinstance(request_id, str) and request_id in self._abandoned
+
+    def _abandon(self, request_id: str) -> None:
+        self._abandoned[request_id] = None
+        while len(self._abandoned) > QUEUE_MEMORY:
+            self._abandoned.popitem(last=False)
+
     async def _next_payload(self) -> str:
         """Next payload to send: any retained in-flight one, then priority, then bulk.
 
-        The ready event is cleared before the queues are polled so a put landing
-        during the poll either shows up in the poll or leaves the event set.
+        A queue whose head is not due yet (SEND_SPACING) is skipped until it
+        is, keeping each queue's order. The ready event is cleared before the
+        queues are polled so a put landing during the poll either shows up in
+        the poll or leaves the event set.
         """
         while True:
             if self._inflight is not None:
                 return self._inflight
             self._outbox_ready.clear()
+            now = time.monotonic()
+            wake: Optional[float] = None
             for queue in (self._priority_outbox, self._outbox):
-                try:
+                while not queue.empty():
+                    head = _peek(queue)
+                    if head is not None and self._is_stale(head):
+                        queue.get_nowait()
+                        continue
+                    due = self._not_before(head) if head is not None else 0.0
+                    if due > now:
+                        wake = due if wake is None else min(wake, due)
+                        break
                     return queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    continue
-            await self._outbox_ready.wait()
+            if wake is None:
+                await self._outbox_ready.wait()
+            else:
+                try:
+                    await asyncio.wait_for(self._outbox_ready.wait(), timeout=wake - now)
+                except asyncio.TimeoutError:
+                    pass
 
     async def _drain(self, socket: Any) -> None:
         while True:
@@ -1483,6 +1844,9 @@ class RoomConnection:
             self._inflight = payload
             await socket.send(payload)
             self._inflight = None
+            kind = _payload_kind(payload)
+            if kind in PACED_KINDS:
+                self._last_sent[kind] = time.monotonic()
             self.last_relay_contact = time.time()
 
     async def close(self, grace: float = SHUTDOWN_GRACE) -> None:
@@ -1500,13 +1864,13 @@ class RoomConnection:
         task = self._task
         if task is None:
             return
-        if not self.connected:
+        if self._socket is None:
             # Connecting or backing off: there is nothing to deliver over a
             # socket that does not exist, so do not wait out a connect timeout.
             task.cancel()
         else:
             deadline = time.monotonic() + min(grace, FLUSH_GRACE)
-            while self.connected and self._has_backlog() and time.monotonic() < deadline:
+            while self._socket is not None and self._has_backlog() and time.monotonic() < deadline:
                 await asyncio.sleep(0.02)
             socket = self._socket
             if socket is not None:
@@ -1539,14 +1903,44 @@ class RoomConnection:
             self._dispatch_frame(data)
         except ValidationError as exc:
             print(f"synergo: ignoring malformed relay frame: {exc}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 - see above: one frame, never the link
+            kind = data.get("type")
+            print(
+                f"synergo: ignoring a relay frame that could not be handled "
+                f"({kind if isinstance(kind, str) else '?'}: {exc!r})",
+                file=sys.stderr,
+            )
 
-    def _on_plan_conflicts(self, conflicts: PlanConflicts) -> None:
-        """Replies arrive in the order plans were sent. One whose plan ack is
-        still waiting goes on that ack; otherwise it is kept as a note for the
-        session's next pre_edit ack."""
-        if not self._plan_waiters:
-            return
-        session_id, future = self._plan_waiters.pop(0)
+    def _prune_plan_waiters(self) -> None:
+        """Forget plans whose reply is long overdue (the relay sends none for a
+        rate-limited or invalid plan), so the FIFO fallback stays in step and
+        the table stays small."""
+        cutoff = time.monotonic() - max(self.edit_check_timeout * 4, 30.0)
+        for request_id, (_session, future, sent_at) in list(self._plan_waiters.items()):
+            if sent_at < cutoff:
+                self._plan_waiters.pop(request_id, None)
+                if not future.done():
+                    future.cancel()
+        while len(self._plan_waiters) > 64:
+            _, (_session, future, _at) = self._plan_waiters.popitem(last=False)
+            if not future.done():
+                future.cancel()
+
+    def _on_plan_conflicts(self, conflicts: PlanConflicts, request_id: Optional[str] = None) -> None:
+        """Pair a reply with its plan: by the request_id the relay echoes, or
+        (a relay that does not) the oldest plan still waiting. One whose plan
+        ack is still waiting goes on that ack; otherwise it is kept as a note
+        for the session's next pre_edit ack."""
+        if request_id:
+            waiter = self._plan_waiters.pop(request_id, None)
+            if waiter is None:
+                return
+        else:
+            self._prune_plan_waiters()
+            if not self._plan_waiters:
+                return
+            _, waiter = self._plan_waiters.popitem(last=False)
+        session_id, future, _sent_at = waiter
         if self.e2e_key is not None:
             conflicts = self._open_plan_conflicts(conflicts)
         if not future.done():
@@ -1562,7 +1956,7 @@ class RoomConnection:
         if not isinstance(user_id, str) or user_id in self._self_ids:
             return
         at = event.get("timestamp")
-        repo_id = str(event.get("repo_id") or "")
+        repo_id = self._local_repo_id(str(event.get("repo_id") or ""))
         for change in event.get("changes") or []:
             if isinstance(change, dict) and change.get("diff") and change.get("file_path"):
                 self.deps.record_peer_diff(
@@ -1575,13 +1969,17 @@ class RoomConnection:
 
     def _note_peers(self, event: dict[str, Any]) -> None:
         user_id = event.get("user_id")
+        if not isinstance(user_id, str):
+            user_id = None
         if event.get("type") == "user_left":
-            self._peers.discard(user_id)
+            if user_id:
+                self._peers.discard(user_id)
             return
         if user_id and user_id not in self._self_ids:
             self._peers.add(user_id)
-        for other in event.get("users") or []:
-            if other not in self._self_ids:
+        users = event.get("users")
+        for other in users if isinstance(users, list) else []:
+            if isinstance(other, str) and other and other not in self._self_ids:
                 self._peers.add(other)
 
     def _on_join_request(self, data: dict[str, Any]) -> None:
@@ -1636,11 +2034,15 @@ class RoomConnection:
                 + (f" ({data['reason']})" if data.get("reason") else "")
             )
             return
-        if self.awaiting_approval is not None and kind not in ("room_rejected", "rate_limited"):
-            # Anything else after join_pending is the room's normal traffic:
-            # an owner let us in.
-            print(f"synergo: room {self.room}: join approved")
-            self.awaiting_approval = None
+        if kind not in _NOT_ADMISSION:
+            if self.awaiting_approval is not None:
+                # Anything else after join_pending is the room's normal
+                # traffic: an owner let us in.
+                print(f"synergo: room {self.room}: join approved")
+                self.awaiting_approval = None
+            # The relay's first ordinary frame (it sends the joiner its own
+            # user_joined) is what admits us.
+            self._admit()
 
         if kind == "join_request":
             self._on_join_request(data)
@@ -1670,7 +2072,10 @@ class RoomConnection:
             return
 
         if kind == "plan_conflicts":
-            self._on_plan_conflicts(PlanConflicts.model_validate(data))
+            echoed = data.get("request_id")
+            self._on_plan_conflicts(
+                PlanConflicts.model_validate(data), echoed if isinstance(echoed, str) else None
+            )
             return
 
         if kind == "synergo_feed":
@@ -1696,7 +2101,10 @@ class RoomConnection:
         if kind == "rate_limited":
             # Not fatal: the relay is throttling, not refusing. Honour its window
             # so reconnecting does not keep the limiter pinned.
-            self.retry_after = float(data.get("retry_after") or 0)
+            try:
+                self.retry_after = min(max(float(data.get("retry_after") or 0), 0.0), 3600.0)
+            except (TypeError, ValueError):
+                self.retry_after = 0.0
             print(
                 f"synergo: relay is throttling connections ({data.get('reason', '')})",
                 file=sys.stderr,
@@ -1722,6 +2130,56 @@ class RoomConnection:
                 f"the relay rejected room {self.room!r}: {data.get('reason', '')}\n"
                 "Check the room code, or have a teammate create the room first."
             )
+
+
+# Relay frames that answer a join without admitting it.
+_NOT_ADMISSION = frozenset(
+    {"join_pending", "room_rejected", "name_rejected", "version_rejected", "rate_limited"}
+)
+
+
+def _payload_kind(payload: str) -> str:
+    """The "type" of a frame we serialised (pydantic writes it first)."""
+    prefix = '{"type":"'
+    if payload.startswith(prefix):
+        end = payload.find('"', len(prefix))
+        if end > 0:
+            return payload[len(prefix) : end]
+    try:
+        kind = json.loads(payload).get("type")
+    except (ValueError, AttributeError):
+        return ""
+    return kind if isinstance(kind, str) else ""
+
+
+def _peek(queue: asyncio.Queue[str]) -> Optional[str]:
+    """The next item of queue without taking it (None if it cannot tell)."""
+    items = getattr(queue, "_queue", None)
+    try:
+        return items[0] if items else None
+    except (TypeError, IndexError, KeyError):
+        return None
+
+
+def _chunk_changes(changes: list[FileChange], budget: int) -> list[list[FileChange]]:
+    """changes split into activity-message-sized groups: at most
+    MAX_FILES_PER_MESSAGE files, and roughly budget bytes of JSON each (a
+    frame over the relay's cap closes the socket and loses the batch)."""
+    chunks: list[list[FileChange]] = []
+    current: list[FileChange] = []
+    size = 0
+    budget = max(budget, 16 * 1024)
+    for change in changes:
+        # JSON escaping (newlines, quotes) roughly doubles a diff at worst.
+        cost = 256 + len(change.file_path) + 64 * len(change.symbols) + 2 * len(change.diff.encode("utf-8", "replace"))
+        if current and (len(current) >= MAX_FILES_PER_MESSAGE or size + cost > budget):
+            chunks.append(current)
+            current, size = [], 0
+        current.append(change)
+        size += cost
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 def _seal_activity(key: crypto.RoomKey, message: ActivityMessage) -> str:
@@ -1753,7 +2211,17 @@ def _seal_activity(key: crypto.RoomKey, message: ActivityMessage) -> str:
         blob = key.seal("activity", envelope(limit, prompt))
         if len(blob) <= E2E_BLOB_BUDGET:
             return blob
-    return blob
+    # Still over (a great many files or symbols): paths alone. Never a blob
+    # past the relay's limit, which would drop the whole activity.
+    bare = {
+        "v": 1,
+        "prompt": None,
+        "branch": message.branch,
+        "base_commit": message.base_commit,
+        "changes": [{"file_path": c.file_path, "diff": "", "symbols": []} for c in message.changes],
+    }
+    blob = key.seal("activity", bare)
+    return blob if len(blob) <= E2E_BLOB_BUDGET else ""
 
 
 def with_note(ack: EventAck, note: str) -> EventAck:
@@ -2021,7 +2489,6 @@ class Daemon:
         # until registered again, or `synergo disconnect` would not stick.
         self._disabled: set[Path] = set()
         self._discovering: dict[str, asyncio.Task[Optional[RepoBinding]]] = {}
-        self._closing: set[asyncio.Task[None]] = set()
         # Where single-room mode was started, for display in /status.
         self._anchor: Optional[Path] = None
 
@@ -2420,7 +2887,9 @@ class Daemon:
                 share_diffs=config.share_diffs,
                 redact=config.redact,
                 redact_patterns=config.redact_patterns,
-                room_key=config.room_key(),
+                # Never the bare SYNERGO_ROOM_KEY of whoever started the
+                # daemon: it is one room's key, and this may be another room.
+                room_key=config.room_key(generic_env=False),
                 owner_token=config.owner_token(),
                 auto=True,
             )
@@ -2490,7 +2959,9 @@ class Daemon:
         ignore = tuple(ignore)
         redact_patterns = tuple(redact_patterns)
         redactor = _redactor(redact, redact_patterns)
-        e2e_key = _room_key(room_settings, room_key, room)
+        # Off the event loop: the v2 KDF stretches the passphrase (~0.5 s
+        # the first time per room), and every hook shares this loop.
+        e2e_key = await asyncio.to_thread(_room_key, room_settings, room_key, room)
         # Warm the per-root identity cache off the event loop, so neither the
         # join nor the first hook from this repo waits on git.
         repo_id = await asyncio.to_thread(repo_id_for, key)
@@ -2519,11 +2990,34 @@ class Daemon:
             await self._unbind(existing)
         self._disabled.discard(key)
 
+        key_fingerprint = (
+            hashlib.sha256(room_key.encode("utf-8")).hexdigest() if e2e_key is not None and room_key else None
+        )
         conn = self._shared_connection(relay, room, name, agent)
         if conn is not None:
             # One socket per name per room: a repo joining it brings what it
-            # knows (a key for the same room, an owner token) to the shared link.
-            conn.e2e_key = conn.e2e_key or e2e_key
+            # knows (e2e, a key for the same room, an owner token) to the
+            # shared link. Encryption is per room, so it is only ever turned
+            # on here: one repo's e2e = true covers every repo on the link,
+            # never cleartext because another repo registered first.
+            if (
+                key_fingerprint is not None
+                and conn.key_fingerprint is not None
+                and conn.key_fingerprint != key_fingerprint
+            ):
+                raise ValueError(
+                    f"room {room} is already joined on this machine with a different room key; "
+                    f"run `synergo key set {room}` with the team's key so every repo uses the same one"
+                )
+            if conn.e2e_key is None and e2e_key is not None:
+                conn.e2e_key = e2e_key
+                conn.key_fingerprint = key_fingerprint
+            if room_settings is not None and room_settings.e2e and not conn.e2e_required:
+                conn.e2e_required = True
+                conn.settings = room_settings
+            problem = conn._e2e_problem()
+            if problem:
+                conn.fail(problem)
             conn.owner_token = conn.owner_token or owner_token
         if conn is None:
             conn = RoomConnection(
@@ -2542,6 +3036,8 @@ class Daemon:
                 owner_token=owner_token,
             )
             conn.repo_id = repo_id
+            conn.repo_root = key
+            conn.key_fingerprint = key_fingerprint
             if self._running:
                 self._start_connection(conn)
         binding = RepoBinding(
@@ -2660,6 +3156,40 @@ class Daemon:
         else:
             loop.call_soon_threadsafe(self._stopping.set)
 
+    @contextlib.contextmanager
+    def _capture_signals(self) -> Any:
+        """While serving: the first SIGINT/SIGTERM (Ctrl+C, `systemctl stop`,
+        launchd, `synergo down`'s kill) stops gracefully, flushing batched
+        edits; a second one interrupts at once."""
+        if threading.current_thread() is not threading.main_thread():
+            yield
+            return
+        wanted: list[int] = [signal.SIGINT, signal.SIGTERM]
+        if hasattr(signal, "SIGBREAK"):
+            wanted.append(signal.SIGBREAK)  # Ctrl+Break on Windows
+        original: dict[int, Any] = {}
+        sig: int
+
+        def handler(signum: int, _frame: Any) -> None:
+            if self._stopping.is_set():
+                raise KeyboardInterrupt
+            print(f"synergo: {signal.Signals(signum).name} received; shutting down")
+            self.stop()
+
+        for sig in wanted:
+            try:
+                original[sig] = signal.signal(sig, handler)
+            except (OSError, ValueError):
+                continue
+        try:
+            yield
+        finally:
+            for sig, previous in original.items():
+                try:
+                    signal.signal(sig, previous)
+                except (OSError, ValueError):
+                    pass
+
     async def run(self) -> int:
         default = self._default
         if default is not None:
@@ -2680,6 +3210,10 @@ class Daemon:
             access_log=False,
         )
         server = uvicorn.Server(config)
+        # Our own SIGINT/SIGTERM handling, not uvicorn's: its handler only
+        # stops the HTTP side and re-raises the signal afterwards, which skips
+        # aclose() (batched edits lost) and, for SIGTERM, the pid file cleanup.
+        server.capture_signals = self._capture_signals  # type: ignore[method-assign]
         print(f"synergo: listening on http://{LOOPBACK}:{self.port}")
         if default is not None:
             conn = default.connection

@@ -29,6 +29,9 @@ ROOM = "SECRET1"
 E2E = {"block_window_seconds": 20, "warn_window_seconds": 60, "e2e": True}
 
 
+REFUSALS = ("join_pending", "room_rejected", "name_rejected", "version_rejected", "rate_limited")
+
+
 class ScriptedRelay:
     """Records joins and frames; answers edit_check through `on_check` and
     plans with `plan_reply`; push() sends any frame to a room's sockets."""
@@ -66,6 +69,10 @@ class ScriptedRelay:
                     self.joins[room].append(data)
                     if self.on_join is not None:
                         await ws.send(json.dumps(self.on_join))
+                    if (self.on_join or {}).get("type") not in REFUSALS:
+                        # Like the real relay: the joiner hears its own
+                        # user_joined, which is what admits it.
+                        await ws.send(json.dumps({"type": "user_joined", "user_id": str(data.get("name") or "").lower(), "agent": data.get("agent") or "unknown"}))
                     continue
                 self.frames[room].append(data)
                 if data.get("type") == "edit_check":
@@ -176,11 +183,18 @@ def test_nothing_secret_reaches_the_relay(tmp_path: Path) -> None:
 
 # --- end-to-end encrypted rooms ---------------------------------------------------------
 
+# AES-GCM comes from the optional e2e extra; `pip install -e .[dev]` alone does
+# not pull in cryptography (CI only has it through google-genai's deps).
+needs_crypto = pytest.mark.skipif(
+    not crypto.available(), reason="needs the e2e extra (cryptography)"
+)
+
 
 def peer_blob(kind: str, envelope: dict[str, Any]) -> str:
     return crypto.derive(PASSPHRASE, ROOM).seal(kind, envelope)
 
 
+@needs_crypto
 def test_an_e2e_room_sees_hashes_and_ciphertext_only(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
     key = crypto.derive(PASSPHRASE, ROOM)
@@ -262,6 +276,7 @@ def test_an_e2e_room_sees_hashes_and_ciphertext_only(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+@needs_crypto
 def test_plan_conflicts_and_feed_blobs_are_opened(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
     key = crypto.derive(PASSPHRASE, ROOM)
@@ -305,6 +320,7 @@ def test_plan_conflicts_and_feed_blobs_are_opened(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+@needs_crypto
 def test_a_wrong_key_reads_nothing_and_breaks_nothing(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
 
@@ -329,6 +345,7 @@ def test_a_wrong_key_reads_nothing_and_breaks_nothing(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+@needs_crypto
 def test_an_e2e_room_without_a_key_refuses_to_join(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
 
@@ -349,6 +366,7 @@ def test_an_e2e_room_without_a_key_refuses_to_join(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+@needs_crypto
 def test_a_room_turned_e2e_by_a_teammate_stops_cleartext(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
 

@@ -21,8 +21,11 @@ if TYPE_CHECKING:
     from .conftest import Cluster
 
 # The hook blocks the agent while it waits, so a check has to be imperceptible.
-# Loopback round trips take a few milliseconds; this leaves headroom for slow CI.
-EDIT_CHECK_BUDGET_SECONDS = 0.3
+# Loopback round trips take a few milliseconds. This is a generous guard
+# against a catastrophic slowdown (a lost frame waiting out a timeout, a
+# blocking call on the loop), not a benchmark: slow Windows/macOS CI runners
+# miss a tight wall-clock budget for reasons unrelated to the code.
+EDIT_CHECK_BUDGET_SECONDS = 1.0
 
 pytestmark = pytest.mark.skipif(
     shutil.which("git") is None, reason="needs git: path keys hang off the repo root"

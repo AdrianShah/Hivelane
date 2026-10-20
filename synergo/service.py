@@ -281,6 +281,61 @@ def _pid_alive(pid: Optional[int]) -> bool:
     return True
 
 
+def _looks_like_daemon(pid: int) -> bool:
+    """Whether pid plausibly is a synergo daemon (a recorded pid may have been
+    reused by an unrelated process, which must never be killed). Checks the
+    command line where the OS shows it (Linux /proc, `ps` elsewhere on POSIX)
+    and the executable's name on Windows; True when it cannot tell."""
+    command = ""
+    try:
+        if os.name == "nt":
+            command = _windows_image_name(pid)
+        elif Path(f"/proc/{pid}/cmdline").exists():
+            command = Path(f"/proc/{pid}/cmdline").read_bytes().replace(bytes(1), b" ").decode("utf-8", "replace")
+        else:
+            result = subprocess.run(
+                ["ps", "-o", "command=", "-p", str(pid)],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+            command = result.stdout
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return True
+    if not command.strip():
+        return True
+    lowered = command.lower()
+    return "synergo" in lowered or "python" in lowered
+
+
+def _windows_image_name(pid: int) -> str:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.QueryFullProcessImageNameW.argtypes = (
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.OpenProcess(0x1000, False, pid)
+    if not handle:
+        return ""
+    try:
+        size = wintypes.DWORD(1024)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not kernel32.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
+            return ""
+        return buffer.value
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _wait_dead(pid: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while _pid_alive(pid):
@@ -391,7 +446,7 @@ def stop(port: int, timeout: float = 5.0) -> bool:
         # Nothing answers. A live pid only counts as ours if something still
         # holds the port (a hung daemon); otherwise the pid may have been
         # reused by an unrelated process, which must not be killed.
-        if pid and _pid_alive(pid) and _port_accepts(port):
+        if pid and _pid_alive(pid) and _port_accepts(port) and _looks_like_daemon(pid):
             _kill(pid)
             _wait_dead(pid, timeout)
         if not _port_accepts(port):
@@ -562,11 +617,22 @@ def serve(port: int, *, log_file: bool = False) -> int:
     if log_file:
         print(f"synergo: daemon {pid} starting (log {log_path()})")
     try:
-        return asyncio.run(daemon.run())
+        code = asyncio.run(daemon.run())
     except KeyboardInterrupt:
         return 0
     finally:
         _remove_pid(only_if=pid)
+    if code != 0 and _port_accepts(port) and not health(port, timeout=0.5):
+        # Another program holds the port. Exit 0: launchd (KeepAlive on a
+        # failed exit) and systemd (Restart=on-failure) would otherwise
+        # restart us every few seconds, forever, to fail the same way.
+        print(
+            f"synergo: port {port} is in use by another program; not serving "
+            "(set SYNERGO_PORT to use another port)",
+            file=sys.stderr,
+        )
+        return 0
+    return code
 
 
 # --- autostart ---------------------------------------------------------------------
@@ -627,6 +693,15 @@ def launchd_plist(port: int) -> str:
     return plistlib.dumps(plist).decode("utf-8")
 
 
+def _systemd_path(path: str) -> str:
+    """A path for a systemd path setting (WorkingDirectory=). systemd does not
+    unquote those (only Exec*= and Environment= are split and unquoted), so
+    a quoted value is not absolute and the unit is rejected. Written bare:
+    the value runs to the end of the line, spaces included; only % (a
+    specifier) needs escaping."""
+    return path.replace("%", "%%")
+
+
 def _systemd_quote(arg: str) -> str:
     escaped = arg.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
     return f'"{escaped}"'
@@ -637,8 +712,12 @@ def systemd_unit(port: int) -> str:
     lines = [
         "[Unit]",
         "Description=Synergo daemon (coordinates AI coding agents across your repos)",
-        "After=network-online.target",
-        "Wants=network-online.target",
+        # network-online.target does not exist in a user manager; the
+        # daemon reconnects on its own once the network is up.
+        # A port held by something else exits 0 (no restart loop); anything
+        # else that keeps failing gives up after 5 tries in 5 minutes.
+        "StartLimitIntervalSec=300",
+        "StartLimitBurst=5",
         "",
         "[Service]",
         "Type=simple",
@@ -646,7 +725,7 @@ def systemd_unit(port: int) -> str:
         # Restart after a crash, not after `synergo down` (a clean exit).
         "Restart=on-failure",
         "RestartSec=5",
-        f"WorkingDirectory={_systemd_quote(str(synergo_home()))}",
+        f"WorkingDirectory={_systemd_path(str(synergo_home()))}",
     ]
     for key, value in _home_override().items():
         lines.append(f"Environment={_systemd_quote(f'{key}={value}')}")

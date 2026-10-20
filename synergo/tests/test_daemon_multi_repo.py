@@ -62,6 +62,10 @@ class StubRelay:
                     self.joins[room].append(data)
                     if room in self.reject:
                         await ws.send(json.dumps(self.reject[room]))
+                    else:
+                        # Like the real relay: the joiner hears its own
+                        # user_joined, which is what admits it.
+                        await ws.send(json.dumps({"type": "user_joined", "user_id": str(data.get("name") or "").lower(), "agent": data.get("agent") or "unknown"}))
                     continue
                 self.frames[room].append(data)
                 if data.get("type") == "edit_check":
@@ -218,8 +222,17 @@ def test_repos_in_one_room_share_one_connection(tmp_path: Path) -> None:
 
             # Dropping one repo keeps the shared connection up for the other.
             assert await daemon.unregister(one) is True
-            assert relay.closed["TEAM"] == 0
             assert [r["root"] for r in daemon.status()["repos"]] == [str(two)]
+            assert daemon.status()["repos"][0]["connected"]
+            # The relay only notices a close asynchronously, so prove the
+            # socket is still up by using it: a later edit in the other repo
+            # still arrives, over the same single join.
+            await daemon.handle_event(
+                event("post_edit", two, two / "src" / "y.py", old_content="a\n", new_content="b\n")
+            )
+            await wait_for(lambda: len(relay.of_type("TEAM", "activity")) == 3, "a third activity")
+            assert len(relay.joins["TEAM"]) == 1
+            assert relay.closed["TEAM"] == 0
             await daemon.aclose()
             await wait_for(lambda: relay.closed["TEAM"] == 1, "the socket to close")
 
@@ -319,8 +332,23 @@ def test_unconfigured_directories_are_cached_briefly(
         return real(cwd)
 
     monkeypatch.setattr(daemon_module, "discover_repo", counting)
-    monkeypatch.setattr(daemon_module, "NEGATIVE_CACHE_SECONDS", 0.2)
     plain = make_repo(tmp_path / "plain")
+
+    # An injected clock for the daemon module only (asyncio keeps the real
+    # one), so the cache window is crossed by advancing it, not by sleeping.
+    real_time = daemon_module.time
+
+    class Clock:
+        now = real_time.monotonic()
+
+        def monotonic(self) -> float:
+            return self.now
+
+        def __getattr__(self, name: str) -> Any:
+            return getattr(real_time, name)
+
+    clock = Clock()
+    monkeypatch.setattr(daemon_module, "time", clock)
 
     async def scenario() -> None:
         daemon = Daemon()
@@ -328,7 +356,10 @@ def test_unconfigured_directories_are_cached_briefly(
         for _ in range(3):
             await daemon.handle_event(event("pre_edit", plain, plain / "a.py"))
         assert len(calls) == 1
-        await asyncio.sleep(0.3)
+        clock.now += daemon_module.NEGATIVE_CACHE_SECONDS - 1
+        await daemon.handle_event(event("pre_edit", plain, plain / "a.py"))
+        assert len(calls) == 1
+        clock.now += 2
         await daemon.handle_event(event("pre_edit", plain, plain / "a.py"))
         assert len(calls) == 2
         await daemon.aclose()

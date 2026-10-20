@@ -165,6 +165,11 @@ class FileRequest(BaseModel):
     file_path: str
     repo_id: RepoId = ""
     e2e: E2EBlob = ""
+    # Optional, like an edit_check's: what the requester means to edit, so
+    # holders are judged at the same granularity (a teammate on another
+    # branch, or in another function, does not hold the file).
+    branch: str = ""
+    symbols: list[str] = []
 
 
 class HistoryRequest(BaseModel):
@@ -255,6 +260,9 @@ class PlanMessage(BaseModel):
     branch: str = ""
     ttl_seconds: float = Field(1800, ge=60, le=86400)
     e2e: E2EBlob = ""
+    # Echoed on the plan_conflicts reply, so a client with several plans in
+    # flight can match each reply to its plan. Optional: "" when unset.
+    request_id: str = Field("", max_length=128)
 
 
 class DecisionFeedback(BaseModel):
@@ -276,6 +284,12 @@ class PlanConflict(BaseModel):
 class PlanConflicts(BaseModel):
     type: Literal["plan_conflicts"] = "plan_conflicts"
     conflicts: list[PlanConflict] = []
+    # The plan's request_id ("" for a plan that sent none). Every plan gets
+    # exactly one reply, even one the relay did not record.
+    request_id: str = ""
+    # Why the plan was not recorded ("rate_limited", "invalid"); "" when it
+    # was, in which case conflicts is the full answer.
+    reason: str = ""
 
 
 class PlanUpdate(BaseModel):
