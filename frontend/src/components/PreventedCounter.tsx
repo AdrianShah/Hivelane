@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { PREVENTION_WINDOW_SECONDS, type PreventionSummary } from '../dashboard/prevented';
 import {
   canCopyImage,
@@ -103,19 +104,8 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
     };
   }, [open, snapshot]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, [open, onClose]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(open, onClose, panelRef, closeRef);
 
   if (!open) return null;
 
@@ -143,7 +133,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <button type="button" className="absolute inset-0 overlay-backdrop" aria-label="Close dialog" tabIndex={-1} onClick={onClose} />
-      <div className="relative w-full max-w-3xl dialog-panel rounded-2xl p-4 sm:p-6 animate-fade-up max-h-full overflow-y-auto custom-scrollbar">
+      <div ref={panelRef} className="relative w-full max-w-3xl dialog-panel rounded-2xl p-4 sm:p-6 animate-fade-up max-h-full overflow-y-auto custom-scrollbar">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 id={titleId} className="text-lg font-bold tracking-tight m-0">

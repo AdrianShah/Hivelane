@@ -77,6 +77,11 @@ function textParam(params: URLSearchParams, key: string): string {
   return (params.get(key) ?? '').trim().slice(0, MAX_TEXT);
 }
 
+/** Free-text filters as the URL keeps them (trimmed): equal means "no change". */
+export function sameFilterText(a: string, b: string): boolean {
+  return a.trim() === b.trim();
+}
+
 export function parseFilters(params: URLSearchParams): DashboardFilters {
   return {
     people: listParam(params, FILTER_PARAMS.people),

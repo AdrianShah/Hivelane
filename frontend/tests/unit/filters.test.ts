@@ -12,6 +12,7 @@ import {
   matchesTimelineEntry,
   matchesTouch,
   parseFilters,
+  sameFilterText,
   textMatches,
   toggleValue,
   writeFilters,
@@ -116,4 +117,13 @@ test('touch and lane matching', () => {
   assert.equal(matchesLane(lane, f({ types: ['warn'], scopes: ['lines'] })), true);
   assert.equal(matchesLane(lane, f({ types: ['block'] })), false);
   assert.equal(matchesLane(lane, f({ q: 'callback oauth' })), true);
+});
+
+test('a trailing space in a draft is not a change from the URL (finding 06-9)', () => {
+  // writeFilters trims; the draft "login " must survive its own round trip.
+  const url = writeFilters(new URLSearchParams(), { ...EMPTY_FILTERS, q: 'login ' });
+  const back = parseFilters(url).q;
+  assert.equal(back, 'login');
+  assert.ok(sameFilterText('login ', back));
+  assert.ok(!sameFilterText('login', 'logout'));
 });

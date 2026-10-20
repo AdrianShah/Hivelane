@@ -160,9 +160,22 @@ export function noticeFor(
 export function notifyFeedEvent(roomId: string, event: FeedEvent): void {
   if (event.type !== 'edit_decision' && event.type !== 'conflict_alert') return;
   if (permissionState() !== 'granted') return;
+  // Someone looking at the dashboard already sees the banner and the lane.
+  if (pageIsWatched()) return;
   const notice = noticeFor(event, loadPrefs(roomId), roomId);
   if (!notice) return;
   showNotice(notice);
+}
+
+/** The tab is visible and focused: a system notification would only duplicate the page. */
+export function pageIsWatched(): boolean {
+  const doc = globalThis.document;
+  if (!doc) return false;
+  try {
+    return doc.visibilityState === 'visible' && doc.hasFocus();
+  } catch {
+    return false;
+  }
 }
 
 export function showNotice(notice: BrowserNotice): void {

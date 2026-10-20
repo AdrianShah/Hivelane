@@ -5,6 +5,7 @@ import {
   FILTER_SCOPES,
   TIMELINE_KINDS,
   activeFilterCount,
+  sameFilterText,
   toggleValue,
   type DashboardFilters,
 } from '../dashboard/filters';
@@ -49,7 +50,10 @@ function useDraft(value: string, commit: (next: string) => void) {
   });
 
   useEffect(() => {
-    if (value !== committed.current) {
+    // The URL keeps filters trimmed: "login " comes back as "login". That is
+    // our own commit, not a change from outside (Back/Forward, a pasted
+    // link), so it must not reset the draft and eat the trailing space.
+    if (!sameFilterText(value, committed.current)) {
       committed.current = value;
       setDraft(value);
     }
@@ -118,10 +122,13 @@ export default function FilterBar({
   );
   const count = activeFilterCount(filters);
 
+  const copiedTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
   const copyLink = async () => {
     const ok = await copyText(currentViewLink());
     setCopied(ok ? 'ok' : 'fail');
-    window.setTimeout(() => setCopied(null), 1600);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(null), 1600);
   };
 
   // People in a filter link who have not shown up (yet) still get a chip.

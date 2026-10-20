@@ -1,18 +1,139 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  forgetRelay,
+  isStaticHost,
   isValidRoomCode,
   normalizeRoomCode,
+  relaySource,
+  relayWsBase,
+  rememberRelay,
   roomPath,
+  type RelaySource,
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
 import './Home.css';
+
+const SOURCE_LABEL: Record<RelaySource, string> = {
+  chosen: 'chosen in this tab',
+  build: 'set for this site',
+  default: 'default: a relay on this computer',
+  origin: 'this site',
+};
+
+/**
+ * Which relay rooms are created on and joined through, and a field to pick
+ * another. The GitHub Pages copy of the dashboard has no relay behind it, so
+ * there the field is open from the start.
+ */
+function RelayPicker({ onChange }: { onChange: () => void }) {
+  const fieldId = useId();
+  const [relay, setRelay] = useState(() => relayWsBase());
+  const [source, setSource] = useState<RelaySource>(() => relaySource());
+  const needsOne = isStaticHost() && source === 'default';
+  const [editing, setEditing] = useState(needsOne);
+  const [draft, setDraft] = useState(needsOne ? '' : relay);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  const refresh = () => {
+    setRelay(relayWsBase());
+    setSource(relaySource());
+    onChange();
+  };
+
+  const apply = (event: React.FormEvent) => {
+    event.preventDefault();
+    const chosen = rememberRelay(draft);
+    if (!chosen) {
+      setProblem('That is not a relay URL. Use wss://relay.example.com (or https://, or ws:// for a local relay).');
+      return;
+    }
+    setProblem(null);
+    setDraft(chosen);
+    setEditing(false);
+    refresh();
+  };
+
+  const reset = () => {
+    forgetRelay();
+    setProblem(null);
+    setDraft(relayWsBase());
+    setEditing(false);
+    refresh();
+  };
+
+  return (
+    <div className="home__relay">
+      {editing ? (
+        <form className="home__relay-form" onSubmit={apply}>
+          <label htmlFor={fieldId} className="home__relay-label">
+            Relay URL
+          </label>
+          <div className="home__relay-row">
+            <input
+              id={fieldId}
+              className="home__relay-input"
+              value={draft}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                if (problem) setProblem(null);
+              }}
+              placeholder="wss://relay.example.com"
+              autoComplete="off"
+              spellCheck={false}
+              inputMode="url"
+              aria-describedby={`${fieldId}-hint`}
+              aria-invalid={problem ? true : undefined}
+            />
+            <button type="submit" className="home__relay-button" disabled={!draft.trim()}>
+              Use relay
+            </button>
+            {!needsOne ? (
+              <button type="button" className="home__relay-link" onClick={() => setEditing(false)}>
+                Cancel
+              </button>
+            ) : null}
+          </div>
+          <p id={`${fieldId}-hint`} className="home__relay-hint">
+            {problem ??
+              (needsOne
+                ? 'This copy of the dashboard has no relay of its own. Paste the URL of your team\'s relay (from synergo relay or your host).'
+                : 'Rooms are created on, and joined through, this relay. Kept for this tab only.')}
+          </p>
+        </form>
+      ) : (
+        <p className="home__relay-current">
+          <span className="home__relay-label">Relay</span>{' '}
+          <code title={relay}>{relay}</code>{' '}
+          <span className="home__relay-source">({SOURCE_LABEL[source]})</span>{' '}
+          <button
+            type="button"
+            className="home__relay-link"
+            onClick={() => {
+              setDraft(relay);
+              setEditing(true);
+            }}
+          >
+            Change
+          </button>
+          {source === 'chosen' ? (
+            <button type="button" className="home__relay-link" onClick={reset}>
+              Reset
+            </button>
+          ) : null}
+        </p>
+      )}
+    </div>
+  );
+}
 
 export default function Home() {
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when the relay changes, so an old relay's error does not linger.
+  const [, setRelayVersion] = useState(0);
 
   const createWorkspace = async () => {
     setCreating(true);
@@ -23,7 +144,7 @@ export default function Home() {
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(
-        `Could not create a workspace (${detail}). Check that the relay is up and CORS allows this site.`,
+        `Could not create a room on ${relayWsBase()} (${detail}). Check that the relay is up, or pick another relay below.`,
       );
       setCreating(false);
     }
@@ -48,7 +169,7 @@ export default function Home() {
     <div className="home">
       <header className="home__nav">
         <div className="home__brand" aria-label="Synergo">
-          <span className="home__brand-mark" aria-hidden>
+          <span className="home__brand-mark" aria-hidden="true">
             S
           </span>
           Synergo
@@ -59,7 +180,7 @@ export default function Home() {
       <main className="home__hero">
         <div className="home__content">
           <p className="home__eyebrow">
-            <span className="home__eyebrow-dot" aria-hidden />
+            <span className="home__eyebrow-dot" aria-hidden="true" />
             Multiplayer AI agent viewer
           </p>
           <h1 className="home__headline">
@@ -78,8 +199,8 @@ export default function Home() {
               onClick={() => void createWorkspace()}
               disabled={creating}
             >
-              {creating ? 'Creating workspace…' : 'Create workspace'}
-              <span aria-hidden className="home__create-arrow">
+              {creating ? 'Creating room…' : 'Create room'}
+              <span aria-hidden="true" className="home__create-arrow">
                 →
               </span>
             </button>
@@ -114,6 +235,13 @@ export default function Home() {
               {error}
             </p>
           ) : null}
+
+          <RelayPicker
+            onChange={() => {
+              setError(null);
+              setRelayVersion((n) => n + 1);
+            }}
+          />
         </div>
 
         {/* Illustrative preview of the dashboard: two lanes colliding on one file. */}
@@ -123,7 +251,7 @@ export default function Home() {
               <span className="home__avatar">MR</span>
               <div>
                 <strong>Maya R.</strong>
-                <span>claude · feat/billing</span>
+                <span>Claude Code · feat/billing</span>
               </div>
               <span className="home__live">live</span>
             </div>
@@ -142,7 +270,7 @@ export default function Home() {
               <span className="home__avatar home__avatar--alt">TO</span>
               <div>
                 <strong>Tomás O.</strong>
-                <span>codex · fix/rounding</span>
+                <span>Codex · fix/rounding</span>
               </div>
               <span className="home__live">live</span>
             </div>
