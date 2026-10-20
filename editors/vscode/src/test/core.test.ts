@@ -65,11 +65,14 @@ test("daemon errors and offline are rejected", async () => {
 });
 
 test("repo selection, paths and status text", () => {
-  assert.equal(repoForPath(STATUS, "c:/work/app/sub/x.ts")?.room, "ROOM2");
+  assert.equal(repoForPath(STATUS, "C:/work/app/sub/x.ts")?.room, "ROOM2");
+  // Case-insensitive file systems (Windows, macOS) also match a differently cased path.
+  const folds = process.platform === "win32" || process.platform === "darwin";
+  assert.equal(repoForPath(STATUS, "c:/work/app/sub/x.ts")?.room, folds ? "ROOM2" : undefined);
   assert.equal(repoForPath(STATUS, "C:\\work\\app\\x.ts")?.room, "ROOM1");
   assert.equal(repoForPath(STATUS, "C:\\work\\apple\\x.ts"), undefined);
   assert.equal(relativeTo("C:\\work\\app", "C:\\work\\app\\src\\a.ts"), "src/a.ts");
-  assert.ok(pathsOverlap("C:\\work\\app", "c:/work"));
+  assert.ok(pathsOverlap("C:\\work\\app", "C:/work"));
   assert.ok(!pathsOverlap("C:\\work\\app", "C:\\work\\apple"));
   assert.equal(statusText(undefined, undefined), "Synergo: offline");
   assert.equal(statusText(STATUS, STATUS.repos[0]), "Synergo: ROOM1 · 3 online");
@@ -77,7 +80,9 @@ test("repo selection, paths and status text", () => {
 });
 
 test("activity tracker ingests feeds, ignores self, expires", () => {
-  const t = new ActivityTracker("me", 60);
+  // Folding on explicitly so the test means the same on every platform; the
+  // per-platform default is covered by "path case folding is per platform".
+  const t = new ActivityTracker("me", 60, true);
   const changed = t.ingest(
     JSON.stringify({
       type: "synergo_feed",
