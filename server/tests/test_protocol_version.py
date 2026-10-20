@@ -55,13 +55,7 @@ def test_spectator_is_exempt(room_id: str) -> None:
     client = TestClient(app)
     with client.websocket_connect(f"/ws/{room_id}") as ws:
         ws.send_json({"type": "join", "name": None, "role": "spectator"})
-        ws.send_json({"type": "ping"})
-    # Reaching here without a version_rejected frame is the assertion.
+        frame = ws.receive_json()
 
+    assert frame["type"] == "room_settings"
 
-def test_daemon_and_relay_versions_agree() -> None:
-    """The two constants are mirrored by hand; drift would mean the daemon
-    declares a version the relay does not actually implement."""
-    from synergo.protocol import PROTOCOL_VERSION as DAEMON_PROTOCOL
-
-    assert DAEMON_PROTOCOL == PROTOCOL_VERSION

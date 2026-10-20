@@ -49,9 +49,9 @@ def _event(n: int, ts: Optional[float] = None, pad: int = 0) -> dict[str, Any]:
 
 @pytest.fixture(autouse=True)
 def _fresh_throttle() -> Iterator[None]:
-    history.request_throttle.reset()
+    history.reset_throttles()
     yield
-    history.request_throttle.reset()
+    history.reset_throttles()
 
 
 @pytest.fixture

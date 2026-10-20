@@ -192,10 +192,11 @@ def bench() -> dict:
         events = [update.model_dump() for _ in range(5)]
         for h in hs:
             h.record(events)
-        rows.append({"rooms_with_history": live, "record_5_events_us": round(per_call_us(lambda: hs[0].record(events), 300), 1)})
+        first, batch = hs[0], events  # bound now: the lambda must not see a later hs
+        rows.append({"rooms_with_history": live, "record_5_events_us": round(per_call_us(lambda: first.record(batch), 300), 1)})
         for h in hs:
             h.clear()
-        del hs
+        hs.clear()
     out["history_record"] = rows
 
     # --- webhook sink, room with none --------------------------------------------

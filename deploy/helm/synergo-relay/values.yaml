@@ -28,10 +28,13 @@ relay:
   corsOrigins: ""
   # CORS_ORIGIN_REGEX, for preview deploys. Leave empty unless you need it.
   corsOriginRegex: ""
-  # TRUST_PROXY_HEADER: read the client IP from X-Forwarded-For. On behind an
-  # ingress controller, otherwise every user shares the controller's address
-  # (one rate-limit bucket). See docs/security.md for the proxy-hop settings.
-  trustProxyHeader: true
+  # TRUST_PROXY_HEADER: read the client IP from X-Forwarded-For. Needed behind
+  # an ingress controller, otherwise every user shares the controller's address
+  # (one rate-limit bucket); unsafe without one, since any client could then
+  # forge its address. Unset (null) follows ingress.enabled; set true or false
+  # to override (e.g. true behind your own load balancer). See docs/security.md
+  # for the proxy-hop settings.
+  trustProxyHeader: null
   # Serve the bundled dashboard at /. false serves the API only.
   serveDashboard: true
   # SYNERGO_REDIS_URL, e.g. redis://synergo-redis:6379/0. Shares room codes,

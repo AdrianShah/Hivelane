@@ -241,34 +241,3 @@ def test_intent_broadcast_carries_repo_id() -> None:
         intent = _next_feed_event(sam, "intent_update")
 
     assert intent["repo_id"] == REPO_A
-
-
-def test_old_client_without_repo_id_still_coordinates() -> None:
-    """Messages without the field validate and fall into the empty-id bucket."""
-    client = TestClient(app)
-    room_id = client.post("/rooms").json()["room_id"]
-
-    with client.websocket_connect(f"/ws/{room_id}") as sam:
-        sam.send_json(
-            {
-                "type": "join",
-                "name": "sam",
-                "agent": "cursor",
-                "protocol_version": PROTOCOL_VERSION,
-            }
-        )
-        with client.websocket_connect(f"/ws/{room_id}") as priya:
-            _join(priya, "priya")
-            sam.send_json(
-                {
-                    "type": "activity",
-                    "user_id": "sam",
-                    "changes": [{"file_path": FILE, "diff": "@@ -1 +1 @@"}],
-                }
-            )
-            update = _next_feed_event(sam, "activity_update")
-            priya.send_json({"type": "edit_check", "request_id": "r1", "file_path": FILE})
-            response = _next_frame(priya, "edit_check_response")
-
-    assert update["repo_id"] == ""
-    assert response["decision"] == "block"

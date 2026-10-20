@@ -59,8 +59,12 @@ spec:
             - name: CORS_ORIGIN_REGEX
               value: {{ . | quote }}
             {{- end }}
+            {{- $trustProxy := .Values.relay.trustProxyHeader }}
+            {{- if kindIs "invalid" $trustProxy }}
+            {{- $trustProxy = .Values.ingress.enabled }}
+            {{- end }}
             - name: TRUST_PROXY_HEADER
-              value: {{ .Values.relay.trustProxyHeader | toString | quote }}
+              value: {{ $trustProxy | toString | quote }}
             - name: SYNERGO_STATE_PATH
               value: /data/synergo.db
             {{- if not .Values.relay.serveDashboard }}

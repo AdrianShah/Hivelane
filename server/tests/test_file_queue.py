@@ -142,7 +142,8 @@ def test_members_who_leave_lose_their_place_and_their_claims() -> None:
     queues = FileQueues()
     queues.enqueue(KEY, "ben", "cursor", T0)
     queues.enqueue(KEY, "cy", "codex", T0)
-    queues.take(KEY, "dee", T0)  # dee passed while others wait: a claim
+    queues.enqueue(KEY, "dee", "cursor", T0)
+    queues.take(KEY, "dee", T0)  # dee (in line) passed while others wait: a claim
     assert queues.claimers(KEY) == {"dee": T0}
 
     queues.remove_user("ben")

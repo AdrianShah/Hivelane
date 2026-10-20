@@ -20,8 +20,9 @@ for that (repo_id, file_path). The relay then works the line itself:
   has been allowed but its activity has not reached the relay yet, so
   without the claim the next in line would be released into the middle of
   the taker's edit. A claim ends when the taker's touch arrives (the touch
-  then blocks as any touch does), after the block window, or when the taker
-  leaves.
+  then blocks as any touch does), after CLAIM_MAX_SECONDS (or the block
+  window, if shorter), or when the taker leaves. Only a member that was in
+  the line takes a claim.
 * **Expiry.** An entry lasts the warn window from its latest request (a
   blocked retry or a file_request refreshes it, keeping its place), a
   released head lasts its grace, and an entry goes as soon as its member
@@ -63,6 +64,11 @@ MAX_QUEUED_PATH_CHARS = config.MAX_PATH_CHARS
 # How long the head of a line has to take a released file before the next
 # member in line is considered.
 RELEASE_GRACE_SECONDS = 10.0
+# A claim covers the gap between an allowed edit and its activity reaching
+# the relay (the daemon batches for 1.5 s), so it lapses well before the block
+# window: a taker whose edit produced no activity (a failed tool call, an
+# identical write) must not hold everyone off for the whole window.
+CLAIM_MAX_SECONDS = 5.0
 # The room's periodic sweep, while any line or claim exists. Lines are also
 # swept lazily on every member message.
 SWEEP_INTERVAL_SECONDS = 1.0
@@ -222,9 +228,15 @@ class FileQueues:
 
     def take(self, key: QueueKey, user_id: str, now: float) -> None:
         """user_id's edit of key was just allowed: out of the line, and a
-        claim on the file while anyone else still waits for it."""
+        claim on the file while anyone else still waits for it.
+
+        Only a member that was in the line takes a claim. Anyone else whose
+        edit passes (a different function, say) never queued for the file,
+        and must not block everyone behind a claim it never asked for."""
         queue = self._queues.get(key)
         if queue is None:
+            return
+        if not any(entry.user_id == user_id for entry in queue):
             return
         queue[:] = [entry for entry in queue if entry.user_id != user_id]
         if queue:
@@ -271,7 +283,7 @@ class FileQueues:
             for user_id, at in list(claims.items()):
                 if (
                     not is_active(user_id)
-                    or now - at > block_window
+                    or now - at > min(block_window, CLAIM_MAX_SECONDS)
                     or settled(key, user_id, at)
                 ):
                     del claims[user_id]

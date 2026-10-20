@@ -20,11 +20,20 @@ In memory only: never written to the room store, disk or Redis. A relay
 restart loses it, a room that empties out and is evicted takes its history
 with it, and setting history_hours back to 0 drops it at once.
 
+The byte caps count compact JSON. Python objects take several times that in
+resident memory (roughly 3-8x), which is why the defaults (config.py) are
+sized for a 512 MB VM rather than to the JSON.
+
 A member or dashboard asks with ``history_request {since}`` and gets the kept
 events newer than ``since`` as ``history_chunk`` frames of at most
-HISTORY_CHUNK_EVENTS events, the last one with ``done: true`` (one empty,
-done chunk when nothing is kept). Each socket may ask once every
-HISTORY_REQUEST_INTERVAL_SECONDS. Feed events that carry no ``timestamp`` of
+HISTORY_CHUNK_EVENTS events and about HISTORY_CHUNK_MAX_BYTES (so no frame
+exceeds a client's 1 MiB default frame limit), the last one with
+``done: true`` (one empty, done chunk when nothing is kept). Replays are
+throttled three ways: each socket may ask once every
+HISTORY_REQUEST_INTERVAL_SECONDS, each client address (IPv6 by /64)
+HISTORY_REQUESTS_PER_IP_PER_MINUTE times a minute, and each room may send at
+most HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE of replay a minute, so opening many
+sockets does not multiply the egress. Feed events that carry no ``timestamp`` of
 their own (user_joined, user_left, ...) get the relay's broadcast time as
 ``timestamp`` in the chunk, so a replay can place them; every other field is
 as broadcast.
@@ -40,17 +49,18 @@ import weakref
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import ValidationError
 
 try:
-    from . import config, metrics
+    from . import config, limits, metrics
     from .models import HistoryChunk, HistoryRequest
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
     import config  # type: ignore[no-redef]
+    import limits  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
     from models import HistoryChunk, HistoryRequest  # type: ignore[no-redef]
 
@@ -70,8 +80,15 @@ MAX_HISTORY_HOURS = 24.0
 # relay's own 512 KB inbound frame cap, so a client never sees a frame larger
 # than it would send.
 HISTORY_CHUNK_EVENTS = 200
+# And at most about this many bytes of events per chunk (one event larger
+# than this still goes, alone in its chunk).
+HISTORY_CHUNK_MAX_BYTES = 256 * 1024
 # One history_request per socket per this many seconds; more are ignored.
 HISTORY_REQUEST_INTERVAL_SECONDS = 10.0
+# history_requests per client address (IPv6 by /64) per minute.
+HISTORY_REQUESTS_PER_IP_PER_MINUTE = 12
+# Replay bytes one room may send per minute, over all its sockets.
+HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE = 16 * 1024 * 1024
 
 # Every live RoomHistory, for the process-wide cap and the metrics gauges. A
 # WeakSet so a room that is dropped without clear() stops counting anyway.
@@ -221,36 +238,53 @@ class RoomHistory:
             excess -= self._events[0].size
             self._drop_oldest()
 
-    def since(self, since: float = 0.0, now: float | None = None) -> list[dict]:
-        """Kept events broadcast after `since` (relay clock), oldest first.
-
-        Events without a timestamp of their own get the broadcast time as
-        `timestamp` (a copy; what is kept stays as it was sent)."""
+    def _since_sized(self, since: float, now: float | None) -> list[tuple[dict, int]]:
         if not self.enabled:
             return []
         self._prune(self._clock() if now is None else now)
-        out: list[dict] = []
+        out: list[tuple[dict, int]] = []
         for kept in self._events:
             if kept.at <= since:
                 continue
             event = kept.event
             if "timestamp" not in event:
                 event = {**event, "timestamp": kept.at}
-            out.append(event)
+            out.append((event, kept.size))
         return out
+
+    def since(self, since: float = 0.0, now: float | None = None) -> list[dict]:
+        """Kept events broadcast after `since` (relay clock), oldest first.
+
+        Events without a timestamp of their own get the broadcast time as
+        `timestamp` (a copy; what is kept stays as it was sent)."""
+        return [event for event, _ in self._since_sized(since, now)]
 
     def chunks(
         self,
         since: float = 0.0,
         now: float | None = None,
         size: int = HISTORY_CHUNK_EVENTS,
+        max_bytes: int = HISTORY_CHUNK_MAX_BYTES,
     ) -> list[list[dict]]:
-        """since() split into history_chunk payloads; always at least one,
-        so the requester always gets a frame with done=true."""
-        events = self.since(since, now)
+        """since() split into history_chunk payloads of at most `size` events
+        and about `max_bytes`; always at least one, so the requester always
+        gets a frame with done=true."""
+        events = self._since_sized(since, now)
         if not events:
             return [[]]
-        return [events[start : start + size] for start in range(0, len(events), size)]
+        out: list[list[dict]] = []
+        current: list[dict] = []
+        current_bytes = 0
+        for event, event_bytes in events:
+            if current and (
+                len(current) >= size or (max_bytes > 0 and current_bytes + event_bytes > max_bytes)
+            ):
+                out.append(current)
+                current, current_bytes = [], 0
+            current.append(event)
+            current_bytes += event_bytes
+        out.append(current)
+        return out
 
 
 class RequestThrottle:
@@ -283,6 +317,65 @@ class RequestThrottle:
 # One throttle for the process: sockets are unique across rooms.
 request_throttle = RequestThrottle()
 
+# Per client address, across every socket it opens.
+ip_limiter = limits.FixedWindowLimiter(
+    limit=HISTORY_REQUESTS_PER_IP_PER_MINUTE,
+    window_seconds=60,
+    max_keys=config.RATE_LIMIT_MAX_TRACKED_IPS,
+)
+
+
+class RoomReplayBudget:
+    """Replay bytes per room per minute (a token bucket per room, keyed
+    weakly by the Room so an evicted room's entry goes with it)."""
+
+    def __init__(
+        self,
+        bytes_per_minute: int = HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.bytes_per_minute = bytes_per_minute
+        self._clock = clock
+        self._state: "weakref.WeakKeyDictionary[object, list[float]]" = weakref.WeakKeyDictionary()
+
+    def take(self, room: object, amount: int) -> bool:
+        """Spend `amount` bytes of the room's budget, if it has them."""
+        if self.bytes_per_minute <= 0:
+            return True
+        now = self._clock()
+        try:
+            state = self._state.get(room)
+        except TypeError:  # not weak-referenceable (a test double)
+            return True
+        if state is None:
+            state = [float(self.bytes_per_minute), now]
+            self._state[room] = state
+        tokens = min(
+            float(self.bytes_per_minute),
+            state[0] + (now - state[1]) * self.bytes_per_minute / 60.0,
+        )
+        state[1] = now
+        # One replay larger than a whole minute's budget is still allowed
+        # from a full bucket, so a big history is not unreachable.
+        if tokens < min(amount, self.bytes_per_minute):
+            state[0] = tokens
+            return False
+        state[0] = tokens - amount
+        return True
+
+    def reset(self) -> None:
+        self._state = weakref.WeakKeyDictionary()
+
+
+room_budget = RoomReplayBudget()
+
+
+def _ip_key(socket: Any) -> Optional[str]:
+    try:
+        return limits.rate_key(socket)
+    except Exception:  # a test double without headers/client
+        return None
+
 
 async def handle_request(room: Any, socket: Any, raw: dict) -> None:
     """Answer a history_request from a member or dashboard socket.
@@ -302,8 +395,16 @@ async def handle_request(room: Any, socket: Any, raw: dict) -> None:
     if not request_throttle.allow(socket):
         log.debug("Ignoring a history_request inside the %gs budget", request_throttle.interval)
         return
+    key = _ip_key(socket)
+    if key is not None and not ip_limiter.check(key).allowed:
+        log.debug("Ignoring a history_request over the per-address budget")
+        return
     history: RoomHistory = room.history
     chunks = history.chunks(request.since)
+    total = sum(event_size(event) for chunk in chunks for event in chunk)
+    if not room_budget.take(room, total):
+        log.debug("Ignoring a history_request over the room's replay budget")
+        return
     log.debug(
         "Sending %d history event(s) in %d chunk(s)",
         sum(len(chunk) for chunk in chunks),
@@ -325,3 +426,10 @@ metrics.register_gauge(
     "Bytes (compact JSON) of feed events kept for replay across every room.",
     total_bytes,
 )
+
+
+def reset_throttles() -> None:
+    """Forget every replay throttle (tests)."""
+    request_throttle.reset()
+    ip_limiter.reset()
+    room_budget.reset()

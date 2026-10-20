@@ -7,6 +7,14 @@ counters into Redis so every instance draws on one budget. `redis` is imported
 only in that case, so a single-instance deploy needs neither the package
 (`pip install redis`) nor the service.
 
+Limits are keyed by rate_key, not the raw address: an IPv6 client is counted
+by its /64 (IPV6_RATE_PREFIX), because one host or one customer of a cloud
+provider gets at least a /64 and could otherwise rotate through 2^64
+addresses, each with a fresh budget.
+
+The Redis-backed limiters make a network round trip per check; check_async
+runs it in a worker thread so it never stalls the event loop.
+
 When Redis cannot be reached the limiters fall back to their in-process
 counters and log it. Failing closed would let a Redis outage refuse every room
 creation and connection; failing fully open would drop the limits exactly when
@@ -15,6 +23,8 @@ nobody is watching them.
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import logging
 import math
 import time
@@ -33,6 +43,9 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
 log = logging.getLogger(__name__)
 
 UNKNOWN_IP = "unknown"
+# IPv6 clients share one budget per prefix of this length (a /64 is the
+# smallest allocation a host or a cloud VM is given).
+IPV6_RATE_PREFIX = 64
 
 # Every limiter key in Redis lives under this prefix, so a shared Redis can be
 # inspected or cleared for the relay alone.
@@ -364,6 +377,19 @@ def _forwarded_client(header: str, trusted_hops: int) -> str:
     return entries[max(0, len(entries) - trusted_hops)]
 
 
+def _valid_ip(value: str) -> str:
+    """`value` as a canonical IP address, or "" if it is not one. A proxy
+    header can carry anything ("unknown", a port, a garbage string); only a
+    real address may become a rate-limit key."""
+    text = value.strip()
+    if text.startswith("[") and "]" in text:  # [v6]:port
+        text = text[1 : text.index("]")]
+    try:
+        return str(ipaddress.ip_address(text.split("%", 1)[0]))
+    except ValueError:
+        return ""
+
+
 def client_ip(connection: HTTPConnection) -> str:
     """Best-known client IP for a request or WebSocket.
 
@@ -382,16 +408,16 @@ def client_ip(connection: HTTPConnection) -> str:
     """
     headers = connection.headers
     if config.BEHIND_FLY:
-        fly = headers.get("fly-client-ip", "").strip()
+        fly = _valid_ip(headers.get("fly-client-ip", ""))
         if fly:
             return fly
     if config.TRUST_CLOUDFLARE:
-        cloudflare = headers.get("cf-connecting-ip", "").strip()
+        cloudflare = _valid_ip(headers.get("cf-connecting-ip", ""))
         if cloudflare:
             return cloudflare
     if config.TRUST_PROXY_HEADER:
-        forwarded = _forwarded_client(
-            headers.get("x-forwarded-for", ""), config.TRUSTED_PROXY_HOPS
+        forwarded = _valid_ip(
+            _forwarded_client(headers.get("x-forwarded-for", ""), config.TRUSTED_PROXY_HOPS)
         )
         if forwarded:
             return forwarded
@@ -414,9 +440,48 @@ def client_ip_source() -> str:
     return ",".join(sources)
 
 
+def ip_rate_key(ip: str) -> str:
+    """The rate-limit key for an address: IPv4 as is, IPv6 by its /64 (an
+    IPv4-mapped IPv6 address counts as the IPv4 it carries)."""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        network = ipaddress.IPv6Network(f"{address}/{IPV6_RATE_PREFIX}", strict=False)
+        return str(network)
+    return str(address)
+
+
+def rate_key(connection: HTTPConnection) -> str:
+    """client_ip, bucketed for rate limiting (see ip_rate_key)."""
+    return ip_rate_key(client_ip(connection))
+
+
+async def check_async(limiter: RateLimiter, key: str) -> RateLimitResult:
+    """limiter.check(key) without blocking the event loop: a Redis-backed
+    limiter's round trip runs in a worker thread (unless Redis is known to be
+    down, when the in-process fallback answers at once)."""
+    if isinstance(limiter, RedisFixedWindowLimiter) and limiter.limit > 0 and limiter.store.available:
+        return await asyncio.to_thread(limiter.check, key)
+    return limiter.check(key)
+
+
 def check_room_creation(connection: HTTPConnection) -> RateLimitResult:
-    return room_creation_limiter.check(client_ip(connection))
+    return room_creation_limiter.check(rate_key(connection))
 
 
 def check_ws_attempt(connection: HTTPConnection) -> RateLimitResult:
-    return ws_attempt_limiter.check(client_ip(connection))
+    return ws_attempt_limiter.check(rate_key(connection))
+
+
+async def check_room_creation_async(connection: HTTPConnection) -> RateLimitResult:
+    """check_room_creation off the event loop (see check_async)."""
+    return await check_async(room_creation_limiter, rate_key(connection))
+
+
+async def check_ws_attempt_async(connection: HTTPConnection) -> RateLimitResult:
+    """check_ws_attempt off the event loop (see check_async)."""
+    return await check_async(ws_attempt_limiter, rate_key(connection))
