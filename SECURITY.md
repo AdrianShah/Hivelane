@@ -28,18 +28,25 @@ any advisory we publish.
 **Please do not open a public issue, discussion or pull request for a security
 problem.**
 
-Report it privately through GitHub's security advisories:
+The repository is private for now, so GitHub's private vulnerability reporting
+is not available to you yet. Report it by email instead:
 
-1. Go to <https://github.com/AdrianShah/Synergo/security/advisories/new>
-   (the repository's **Security** tab, then **Report a vulnerability**).
+1. Email the maintainer at the address on their GitHub profile
+   ([github.com/AdrianShah](https://github.com/AdrianShah)). Put "Synergo
+   security" in the subject.
 2. Describe the problem, the affected component and version (`synergo
    --version`, the relay's `/readyz` output, or a commit SHA), and the steps
    to reproduce it. A proof of concept helps, but is not required.
 3. Tell us how you would like to be credited, if at all.
 
-Only the maintainers and you can see the report. If you cannot use GitHub
-advisories, open a public issue that says only that you have a security report
-and need a private contact. Leave out every detail.
+Once the repository is public you can also report through GitHub Security
+Advisories: the repository's **Security** tab, then **Report a vulnerability**
+(<https://github.com/AdrianShah/Synergo/security/advisories/new>). Only the
+maintainers and you can see such a report.
+
+If you cannot find the address, open a public issue (once the repository is
+public) that says only that you have a security report and need a private
+contact. Leave out every detail.
 
 ## What to expect
 

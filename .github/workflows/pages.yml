@@ -1,0 +1,73 @@
+name: Pages
+
+# Publishes https://adrianshah.github.io/Synergo/ from main: the dashboard at
+# /Synergo/ (built with SYNERGO_BASE=/Synergo/, index.html copied to 404.html
+# so room deep links like /Synergo/r/K7M2PQ2X boot the app) and the docs site
+# at /Synergo/docs/. scripts/build_pages.sh assembles both.
+#
+# Pages serves no relay, so the dashboard asks for one: room links carry
+# ?relay=wss://…, kept for the browser tab (frontend/src/relayUrl.ts). Set the
+# repository variable PAGES_RELAY_URL to bake a default relay in instead.
+#
+# Pull requests do not run this workflow: ci.yml's "docs" job builds the same
+# artifact as the preview check, so it can be a required check. The site is
+# public even though the repository is private (GitHub Pro).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One Pages deploy at a time; a newer one waits rather than cancelling a
+# deployment half-way.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: pages build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            docs-site/package-lock.json
+      - name: Install
+        run: |
+          npm ci --prefix frontend
+          npm ci --prefix docs-site
+      - name: Build the site
+        env:
+          SYNERGO_BASE: /Synergo/
+          PAGES_SITE: https://adrianshah.github.io
+          VITE_WS_URL: ${{ vars.PAGES_RELAY_URL }}
+        run: bash scripts/build_pages.sh _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    name: pages deploy
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

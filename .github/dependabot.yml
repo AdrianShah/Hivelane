@@ -3,7 +3,8 @@
 # vulnerability, and these PRs are how one gets fixed.
 #
 # Weekly and grouped, so routine minor and patch bumps arrive as one PR per
-# manifest rather than one per package. Security updates are never grouped or
+# manifest rather than one per package, with at most a few open at a time
+# (each one runs CI). Major bumps still come one per package. Security updates are never grouped or
 # delayed: Dependabot opens those as soon as an advisory lands, independently
 # of this schedule, once "Dependabot security updates" is enabled in the
 # repository settings.
@@ -16,6 +17,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       synergo:
         update-types: [minor, patch]
@@ -26,6 +28,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       relay:
         update-types: [minor, patch]
@@ -35,6 +38,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       dashboard:
         update-types: [minor, patch]
@@ -44,6 +48,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       extension:
         update-types: [minor, patch]
@@ -59,6 +64,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       docs-site:
         update-types: [minor, patch]
@@ -69,6 +75,7 @@ updates:
     directory: "/packaging/npm"
     schedule:
       interval: monthly
+    open-pull-requests-limit: 3
 
   # The relay image's base (Dockerfile).
   - package-ecosystem: docker
@@ -76,12 +83,28 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
+    groups:
+      docker:
+        patterns: ["*"]
+
+  # Images pinned in the self-hosting compose file (caddy, redis).
+  - package-ecosystem: docker-compose
+    directory: "/deploy/compose"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      compose:
+        patterns: ["*"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
       day: monday
+    open-pull-requests-limit: 3
     groups:
       actions:
         patterns: ["*"]
