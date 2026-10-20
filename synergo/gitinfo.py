@@ -10,6 +10,7 @@ CHECK_INTERVAL seconds.
 from __future__ import annotations
 
 import os
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
@@ -37,7 +38,7 @@ def git_dir(root: Path) -> Optional[Path]:
                 if not target.is_absolute():
                     target = (root / target).resolve()
                 return target
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
         return None
     return None
 
@@ -45,7 +46,7 @@ def git_dir(root: Path) -> Optional[Path]:
 def common_dir(gdir: Path) -> Path:
     try:
         text = (gdir / "commondir").read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
         return gdir
     path = Path(text)
     return path if path.is_absolute() else (gdir / path).resolve()
@@ -57,7 +58,7 @@ def _resolve_ref(gdir: Path, cdir: Path, ref: str, depth: int = 0) -> Optional[s
     for base in (gdir, cdir):
         try:
             text = (base / ref).read_text(encoding="utf-8").strip()
-        except OSError:
+        except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
             continue
         if text.startswith("ref:"):
             return _resolve_ref(gdir, cdir, text[4:].strip(), depth + 1)
@@ -70,9 +71,30 @@ def _resolve_ref(gdir: Path, cdir: Path, ref: str, depth: int = 0) -> Optional[s
                 parts = line.split()
                 if len(parts) == 2 and parts[1] == ref:
                     return parts[0]
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
         pass
     return None
+
+
+REFTABLE_HEAD = "ref: refs/heads/.invalid"
+
+
+def _git_cli_head(root: Path) -> Optional[GitHead]:
+    def run(*args: str) -> Optional[str]:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True, text=True, timeout=3, check=False,
+                encoding="utf-8", errors="replace",
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        out = done.stdout.strip()
+        return out if done.returncode == 0 and out else None
+
+    commit = run("rev-parse", "--verify", "-q", "HEAD")
+    branch = run("symbolic-ref", "-q", "--short", "HEAD")
+    return GitHead(branch=branch, commit=commit)
 
 
 def read_head(root: Path) -> Optional[GitHead]:
@@ -81,9 +103,13 @@ def read_head(root: Path) -> Optional[GitHead]:
         return None
     try:
         head = (gdir / "HEAD").read_text(encoding="utf-8").strip()
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
         return None
     cdir = common_dir(gdir)
+    if head == REFTABLE_HEAD or (cdir / "reftable").is_dir():
+        # git >= 2.45 with extensions.refStorage=reftable: refs live in a
+        # binary table, and HEAD is a stub. Ask git (rare, and cached).
+        return _git_cli_head(root)
     if head.startswith("ref:"):
         ref = head[4:].strip()
         branch = ref[len("refs/heads/") :] if ref.startswith("refs/heads/") else ref
@@ -111,6 +137,10 @@ def _head_mtime(root: Path) -> float:
     total = 0.0
     try:
         total = os.stat(gdir / "HEAD").st_mtime_ns
+        try:  # reftable: every ref update rewrites tables.list
+            total += os.stat(common_dir(gdir) / "reftable" / "tables.list").st_mtime_ns
+        except OSError:
+            pass
         head = (gdir / "HEAD").read_text(encoding="utf-8").strip()
         if head.startswith("ref:"):
             # A commit moves the branch ref, not HEAD.
@@ -119,9 +149,9 @@ def _head_mtime(root: Path) -> float:
                 try:
                     total += os.stat(base / ref).st_mtime_ns
                     break
-                except OSError:
+                except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
                     continue
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 ref file
         pass
     return float(total)
 

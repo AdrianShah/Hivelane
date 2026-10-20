@@ -141,9 +141,17 @@ class DepTracker:
 
 def _imports_module(content: str, defining_path: str, name: str) -> bool:
     stem = re.escape(_stem(defining_path))
+    # `from pkg import utils` imports pkg/utils.py only when pkg is the
+    # defining file's own package (or the import is relative); a bare-word
+    # match on any `from x import ...` line flagged unrelated `utils`.
+    parts = defining_path.replace("\\", "/").split("/")
+    if parts[-1].split(".", 1)[0] in ("__init__", "index"):
+        parts = parts[:-1]
+    parent = re.escape(parts[-2]) if len(parts) > 1 else None
+    from_package = rf"(?:\.+|[\w.]*\b{parent})" if parent else r"\.+"
     pattern = re.compile(
         rf"^\s*(?:from\s+[\w.]*\b{stem}\b[\w.]*\s+import\b|import\s+[\w.]*\b{stem}\b"
-        rf"|from\s+[\w.]+\s+import\s+.*\b{stem}\b"
+        rf"|from\s+{from_package}\s+import\s+.*\b{stem}\b"
         rf"|import\b.*from\s+['\"][^'\"]*\b{stem}(?:\.\w+)?['\"]"
         rf"|.*require\(\s*['\"][^'\"]*\b{stem}(?:\.\w+)?['\"]\s*\))",
         re.M,

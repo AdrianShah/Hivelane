@@ -3,8 +3,27 @@ into "you're editing a caller" notes for files that import and call them."""
 
 from __future__ import annotations
 
-from synergo.daemon import unified_diff
-from synergo.depgraph import DepTracker, changed_signatures, diff_signature_changes
+import difflib
+
+from synergo.depgraph import DepTracker, _imports_module, changed_signatures, diff_signature_changes
+
+
+def unified_diff(file_path: str, old: str, new: str) -> str:
+    """synergo.daemon.unified_diff's format, without importing the daemon."""
+    lines = difflib.unified_diff(
+        old.splitlines(keepends=True), new.splitlines(keepends=True),
+        fromfile=f"a/{file_path}", tofile=f"b/{file_path}", n=2,
+    )
+    return "".join(lines).strip()
+
+
+def test_from_import_of_a_same_named_module_elsewhere_is_not_an_import() -> None:
+    """Finding 29: `from other import util` matched pkg/util.py by bare word."""
+    assert _imports_module("from pkg import util\n", "pkg/util.py", "foo")
+    assert _imports_module("from . import util\n", "pkg/util.py", "foo")
+    assert _imports_module("from app.pkg import util, other\n", "app/pkg/util.py", "foo")
+    assert not _imports_module("from other import util\n", "pkg/util.py", "foo")
+    assert _imports_module("from pkg import thing\n", "pkg/thing/__init__.py", "foo")
 
 OLD = "def foo(a):\n    return a\n\n\ndef bar():\n    return 1\n"
 NEW = "def foo(a, b=2):\n    return a + b\n\n\ndef bar():\n    return 1\n"
