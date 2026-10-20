@@ -179,7 +179,7 @@ def _next_frame(socket: Any, type_name: str) -> dict:
 def _next_feed_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") != "synergo_feed":
+        if frame.get("type") != "hivelane_feed":
             continue
         for event in frame["events"]:
             if event.get("type") == type_name:

@@ -58,7 +58,7 @@ def _join(socket: Any, name: str, settings: Optional[dict] = None) -> None:
 def _next_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        events = frame["events"] if frame.get("type") == "synergo_feed" else [frame]
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
             if event.get("type") == type_name:
                 return event

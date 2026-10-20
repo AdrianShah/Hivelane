@@ -74,8 +74,8 @@ not "nearby lines" (block). See benchmark results below.
 ## Symbol names
 
 Symbols are compared by exact string, so every daemon must name the same
-definition the same way. `synergo/symbols.py` has two tiers for non-Python
-languages, tree-sitter (`synergo[symbols]`) and a regex/brace heuristic, and
+definition the same way. `hivelane/symbols.py` has two tiers for non-Python
+languages, tree-sitter (`hivelane[symbols]`) and a regex/brace heuristic, and
 both give one format:
 
 * qualified by containment with `.`: `Room.check_edit`, `Outer.Inner.run`;
@@ -88,7 +88,7 @@ both give one format:
 * Ruby one-line (`def a; 1; end`) and endless (`def b = 2`) defs end on their
   own line.
 
-`synergo/tests/symbol_cases.py` holds the shared fixtures; the heuristic is
+`hivelane/tests/symbol_cases.py` holds the shared fixtures; the heuristic is
 checked against them in every test run and tree-sitter when it is installed.
 Lines are counted on `\n` only everywhere (pre_edit prediction, post_edit
 ranges, both tiers), and a UTF-8 BOM no longer pushes Python off `ast`.
@@ -122,7 +122,7 @@ Pure, stdlib-only, no server imports.
   lightly stemmed; the score blends char-trigram cosine (0.5) with token
   Jaccard (0.5), mapped onto a 0..1 confidence scale where 0.8 corresponds to
   the calibrated lexical cutoff (0.32 raw).
-* `SYNERGO_EMBEDDINGS=fastembed` switches to sentence embeddings if the
+* `HIVELANE_EMBEDDINGS=fastembed` switches to sentence embeddings if the
   optional `fastembed` package is installed (lazy import; any failure falls
   back to lexical). It is not a dependency.
 * `files_mentioned(text, known_paths)` — fuzzy path/basename/stem/symbol
@@ -156,7 +156,7 @@ rule=alert (any warn or block)
   warn.
 * Block recall drops (13 → 10 TP): the two `nearby_lines_*` sessions (different
   symbols, ranges 3 lines apart) warn instead of block because symbols are
-  judged before line proximity; and `config_file_2` (`.synergo.toml`, ranges
-  far apart) warns because `.synergo.toml` is not in the always-warn list.
+  judged before line proximity; and `config_file_2` (`.hivelane.toml`, ranges
+  far apart) warns because `.hivelane.toml` is not in the always-warn list.
 
 Run with `-v` for per-check rows.

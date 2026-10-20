@@ -1,7 +1,7 @@
 name: Release
 
-# Ships the `synergo` CLI: PyPI (what `pipx install synergo` / `uv tool install
-# synergo` pull), a GitHub release with checksums, and the Homebrew tap.
+# Ships the `hivelane` CLI: PyPI (what `pipx install hivelane` / `uv tool install
+# hivelane` pull), a GitHub release with checksums, and the Homebrew tap.
 #
 # Runs alongside deploy.yml, which also fires on v* tags and deploys the relay
 # and dashboard. The two never wait on each other and use different concurrency
@@ -38,22 +38,22 @@ jobs:
         run: python -m pip install --upgrade build twine
       - name: Read the version
         id: version
-        # synergo/__init__.py is the single source (pyproject reads it via
+        # hivelane/__init__.py is the single source (pyproject reads it via
         # hatch), and it imports nothing, so no dependencies are needed here.
         run: |
-          version=$(python -c "import synergo; print(synergo.__version__)")
+          version=$(python -c "import hivelane; print(hivelane.__version__)")
           prerelease=$(python -c "import sys; from packaging.version import Version; print(str(Version(sys.argv[1]).is_prerelease).lower())" "$version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "synergo $version (prerelease: $prerelease)"
-      - name: Tag matches synergo.__version__
+          echo "hivelane $version (prerelease: $prerelease)"
+      - name: Tag matches hivelane.__version__
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ "${TAG#v}" != "$VERSION" ]; then
-            echo "::error title=Version mismatch::Tag $TAG does not match synergo.__version__ ($VERSION). Bump synergo/__init__.py and retag."
+            echo "::error title=Version mismatch::Tag $TAG does not match hivelane.__version__ ($VERSION). Bump hivelane/__init__.py and retag."
             exit 1
           fi
       - name: Build
@@ -66,8 +66,8 @@ jobs:
         run: |
           twine check --strict dist/*
           ls -l dist
-          test -f "dist/synergo-$VERSION-py3-none-any.whl"
-          test -f "dist/synergo-$VERSION.tar.gz"
+          test -f "dist/hivelane-$VERSION-py3-none-any.whl"
+          test -f "dist/hivelane-$VERSION.tar.gz"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
@@ -123,14 +123,14 @@ jobs:
         run: |
           python -m venv smoke-venv
           if [ -d smoke-venv/Scripts ]; then bin=smoke-venv/Scripts; else bin=smoke-venv/bin; fi
-          "$bin/python" -m pip install --quiet "dist/synergo-$VERSION-py3-none-any.whl"
-          out=$("$bin/synergo" --version)
+          "$bin/python" -m pip install --quiet "dist/hivelane-$VERSION-py3-none-any.whl"
+          out=$("$bin/hivelane" --version)
           echo "$out"
           case "$out" in
             *"$VERSION"*) ;;
-            *) echo "::error title=Wrong version::synergo --version printed '$out', expected $VERSION"; exit 1 ;;
+            *) echo "::error title=Wrong version::hivelane --version printed '$out', expected $VERSION"; exit 1 ;;
           esac
-          "$bin/synergo" --help >/dev/null
+          "$bin/hivelane" --help >/dev/null
 
   pypi:
     name: publish to PyPI
@@ -140,10 +140,10 @@ jobs:
     timeout-minutes: 15
     # Trusted publishing: PyPI trusts this repo + workflow + environment, so
     # there is no API token to store or leak. Configure the publisher on PyPI
-    # (owner AdrianShah, repo Synergo, workflow release.yml, environment pypi).
+    # (owner AdrianShah, repo Hivelane, workflow release.yml, environment pypi).
     environment:
       name: pypi
-      url: https://pypi.org/project/synergo/${{ needs.build.outputs.version }}/
+      url: https://pypi.org/project/hivelane/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write
     steps:
@@ -186,7 +186,7 @@ jobs:
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Synergo $TAG" \
+            --title "Hivelane $TAG" \
             --generate-notes \
             --verify-tag \
             "${flags[@]}"
@@ -206,14 +206,14 @@ jobs:
           TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::notice title=Homebrew bump skipped::No HOMEBREW_TAP_TOKEN secret. Add a token with contents:write on AdrianShah/homebrew-synergo to enable it."
+            echo "::notice title=Homebrew bump skipped::No HOMEBREW_TAP_TOKEN secret. Add a token with contents:write on AdrianShah/homebrew-hivelane to enable it."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
   homebrew:
-    # Bumps Formula/synergo.rb in AdrianShah/homebrew-synergo to the sdist PyPI
+    # Bumps Formula/hivelane.rb in AdrianShah/homebrew-hivelane to the sdist PyPI
     # now serves. Stable releases only: a tap formula has no prerelease channel.
     name: bump Homebrew tap
     needs: [build, pypi, homebrew-gate]
@@ -233,11 +233,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Only for packaging/homebrew/synergo.rb, the template for a first bump.
-          path: synergo
+          # Only for packaging/homebrew/hivelane.rb, the template for a first bump.
+          path: hivelane
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: AdrianShah/homebrew-synergo
+          repository: AdrianShah/homebrew-hivelane
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
       - name: Wait for PyPI to serve the sdist
@@ -248,7 +248,7 @@ jobs:
           import json, os, time, urllib.error, urllib.request
 
           version = os.environ["VERSION"]
-          url = f"https://pypi.org/pypi/synergo/{version}/json"
+          url = f"https://pypi.org/pypi/hivelane/{version}/json"
           for attempt in range(30):
               try:
                   with urllib.request.urlopen(url, timeout=10) as response:
@@ -274,13 +274,13 @@ jobs:
           SDIST_SHA256: ${{ steps.pypi.outputs.sha256 }}
         run: |
           mkdir -p tap/Formula
-          if [ ! -f tap/Formula/synergo.rb ]; then
-            cp synergo/packaging/homebrew/synergo.rb tap/Formula/synergo.rb
+          if [ ! -f tap/Formula/hivelane.rb ]; then
+            cp hivelane/packaging/homebrew/hivelane.rb tap/Formula/hivelane.rb
           fi
           python3 - <<'PY'
           import os, pathlib, re
 
-          path = pathlib.Path("tap/Formula/synergo.rb")
+          path = pathlib.Path("tap/Formula/hivelane.rb")
           text = path.read_text(encoding="utf-8")
           # Only the formula's own url/sha256 sit at two-space indent; the
           # resource blocks below are indented further and left to brew.
@@ -296,19 +296,19 @@ jobs:
         run: |
           taps="$(brew --repository)/Library/Taps/adrianshah"
           mkdir -p "$taps"
-          ln -sfn "$GITHUB_WORKSPACE/tap" "$taps/homebrew-synergo"
-          brew update-python-resources adrianshah/synergo/synergo
-          brew install --build-from-source adrianshah/synergo/synergo
-          brew test adrianshah/synergo/synergo
+          ln -sfn "$GITHUB_WORKSPACE/tap" "$taps/homebrew-hivelane"
+          brew update-python-resources adrianshah/hivelane/hivelane
+          brew install --build-from-source adrianshah/hivelane/hivelane
+          brew test adrianshah/hivelane/hivelane
       - name: Push the bump
         working-directory: tap
         run: |
-          git add Formula/synergo.rb
+          git add Formula/hivelane.rb
           if git diff --cached --quiet; then
-            echo "::notice title=Homebrew formula unchanged::Formula/synergo.rb already points at $VERSION"
+            echo "::notice title=Homebrew formula unchanged::Formula/hivelane.rb already points at $VERSION"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "synergo $VERSION"
+          git commit -m "hivelane $VERSION"
           git push

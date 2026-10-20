@@ -1,6 +1,6 @@
 [
   {
-    "cmd": "D:\\Projects\\Synergo\\Synergo\\.venv\\Scripts\\python.exe -c pass",
+    "cmd": "D:\\Projects\\Hivelane\\Hivelane\\.venv\\Scripts\\python.exe -c pass",
     "runs": 5,
     "median_ms": 76.0,
     "min_ms": 74.0,
@@ -24,7 +24,7 @@
     "min_ms": 4565.0,
     "max_ms": 4565.0,
     "exit": 0,
-    "last_line": "  pipx install synergo && synergo up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
+    "last_line": "  pipx install hivelane && hivelane up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
   },
   {
     "cmd": "up --no-hooks -y (re-run, daemon already up)",
@@ -33,7 +33,7 @@
     "min_ms": 1284.0,
     "max_ms": 1492.0,
     "exit": 0,
-    "last_line": "  pipx install synergo && synergo up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
+    "last_line": "  pipx install hivelane && hivelane up --room Q82TZSTP --relay ws://127.0.0.1:50746/ws"
   },
   {
     "cmd": "status",

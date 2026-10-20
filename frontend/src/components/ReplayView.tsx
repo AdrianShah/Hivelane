@@ -109,13 +109,13 @@ function HistoryOff({ settingsKnown }: { settingsKnown: boolean }) {
       </p>
       <p className="text-[13px] text-on-muted m-0">
         Replay needs the relay to remember the room’s events. Turn it on in the repo’s
-        committed <code className="font-mono text-primary">.synergo.toml</code>:
+        committed <code className="font-mono text-primary">.hivelane.toml</code>:
       </p>
       <pre className="font-mono text-[12px] text-primary bg-surface-deep border border-outline-soft rounded-lg px-3 py-2 m-0">
         history_hours = 4
       </pre>
       <p className="text-[12px] text-on-muted m-0">
-        The next teammate to run <code className="font-mono">synergo up</code> (or reconnect)
+        The next teammate to run <code className="font-mono">hivelane up</code> (or reconnect)
         applies it to the room. The relay keeps up to 24 hours, at most 5,000 events, in memory
         only — never on disk — and forgets it when the room empties or the relay restarts. In an
         end-to-end encrypted room it keeps only what it relays: hashes and ciphertext.

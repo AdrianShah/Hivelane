@@ -1,6 +1,6 @@
 # Notifications and replay
 
-Synergo can tell you about blocked edits and conflicts without anyone
+Hivelane can tell you about blocked edits and conflicts without anyone
 watching the board, and can replay what happened in a room over the last few
 hours:
 
@@ -16,7 +16,7 @@ What the relay keeps for each, and the protections around it, are in
 
 ## Webhooks (Slack, Discord, generic)
 
-Webhooks belong to the room's **owner**: the dashboard (or `synergo up`) that
+Webhooks belong to the room's **owner**: the dashboard (or `hivelane up`) that
 created the room and holds its owner token. Up to three per room.
 
 ### From the dashboard
@@ -58,7 +58,7 @@ cannot ping anyone.
 2. Add it with the format **Discord**.
 
 Messages are one embed per event (colour-coded: red block, amber warning,
-purple conflict, blue join request), posted as "Synergo" with
+purple conflict, blue join request), posted as "Hivelane" with
 `allowed_mentions` empty, so nothing in a message can `@everyone`.
 
 ### Generic JSON
@@ -68,7 +68,7 @@ endpoint). The body is:
 
 ```json
 {
-  "source": "synergo",
+  "source": "hivelane",
   "version": 1,
   "event": "block",
   "room": "K7Q2XMAB",
@@ -86,7 +86,7 @@ endpoint). The body is:
 `event` is `block`, `warn`, `conflict_alert` (`data`: `users`, `file`,
 `verdict`, `explanation`) or `join_request` (`data`: `name`, `agent`).
 Requests come with `Content-Type: application/json` and `User-Agent:
-Synergo-Relay-Webhooks/1`; any 2xx counts as delivered. They are not signed:
+Hivelane-Relay-Webhooks/1`; any 2xx counts as delivered. They are not signed:
 treat the URL itself as the secret, and use a hard-to-guess path.
 
 ### End-to-end encrypted rooms
@@ -100,25 +100,25 @@ them with the room key.
 ### The API
 
 The dashboard uses three endpoints; scripts can too. Every call needs the
-owner token in `X-Synergo-Owner-Token` (an unknown room and a wrong token get
+owner token in `X-Hivelane-Owner-Token` (an unknown room and a wrong token get
 the same `403`, so the API cannot be used to probe room codes):
 
 ```sh
 # Add (201): url, kind (slack | discord | generic), events
 curl -X POST "$RELAY/rooms/$ROOM/webhooks" \
-  -H "X-Synergo-Owner-Token: $TOKEN" -H "Content-Type: application/json" \
+  -H "X-Hivelane-Owner-Token: $TOKEN" -H "Content-Type: application/json" \
   -d '{"url": "https://hooks.slack.com/services/…", "kind": "slack", "events": ["block", "conflict_alert"]}'
 
 # List (URLs masked)
-curl "$RELAY/rooms/$ROOM/webhooks" -H "X-Synergo-Owner-Token: $TOKEN"
+curl "$RELAY/rooms/$ROOM/webhooks" -H "X-Hivelane-Owner-Token: $TOKEN"
 
 # Remove (204)
-curl -X DELETE "$RELAY/rooms/$ROOM/webhooks/$ID" -H "X-Synergo-Owner-Token: $TOKEN"
+curl -X DELETE "$RELAY/rooms/$ROOM/webhooks/$ID" -H "X-Hivelane-Owner-Token: $TOKEN"
 ```
 
 `$RELAY` is the relay's HTTPS origin (`https://relay.example.com`, the
 `--relay` URL without `/ws`). The CLI keeps the token of a room it created in
-your personal config (`owner_tokens` in `~/.synergo/config.toml`).
+your personal config (`owner_tokens` in `~/.hivelane/config.toml`).
 
 | Answer | Why |
 | --- | --- |
@@ -130,7 +130,7 @@ your personal config (`owner_tokens` in `~/.synergo/config.toml`).
 ### Limits and delivery
 
 - At most **30 notifications a minute per room**; beyond that they are dropped
-  (and counted in `synergo_webhook_deliveries_total{outcome="rate_limited"}`).
+  (and counted in `hivelane_webhook_deliveries_total{outcome="rate_limited"}`).
 - Each delivery has a **5 s timeout** and is **retried twice** (after 1 s and
   4 s) on network errors, `429` and `5xx`. Other `4xx` answers and redirects
   are not retried (redirects are never followed).
@@ -152,7 +152,7 @@ On the dashboard, **Notifications → Browser notifications**:
 3. Keep **Conflict alerts** on or off. Warnings never notify.
 
 **Send a test notification** checks that it works. The setting is stored per
-room in this browser (`localStorage`, key `synergo:notify:<ROOM>`) and only
+room in this browser (`localStorage`, key `hivelane:notify:<ROOM>`) and only
 works while a dashboard tab for the room is open (it does not use a service
 worker or push service). In an e2e room the notification shows real paths
 when the dashboard has the room key, and placeholders when it does not.
@@ -160,13 +160,13 @@ when the dashboard has the room key, and placeholders when it does not.
 ## Replay
 
 Replay needs the relay to keep the room's history, which is **off by
-default**. Turn it on for the team in the committed `.synergo.toml`:
+default**. Turn it on for the team in the committed `.hivelane.toml`:
 
 ```toml
 history_hours = 4   # 0 (default) keeps nothing; at most 24
 ```
 
-The next member whose `synergo up` (or reconnect) carries the setting applies
+The next member whose `hivelane up` (or reconnect) carries the setting applies
 it to the room, like the conflict windows. A teammate on an older checkout
 without the key leaves the room's setting alone; `history_hours = 0` turns it
 off and drops what was kept. A room created over the API can start with it:

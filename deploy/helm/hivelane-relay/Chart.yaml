@@ -1,0 +1,19 @@
+apiVersion: v2
+name: hivelane-relay
+description: >-
+  The Hivelane relay (with the bundled dashboard): live coordination for
+  parallel AI coding agents. One replica with a volume by default; several
+  replicas need Redis and room-affine routing (see README.md).
+type: application
+# The chart's own version. Bump on any change to templates or values.
+version: 0.1.0
+# The relay image tag used when image.tag is empty. Releases publish
+# ghcr.io/adrianshah/hivelane-relay:<version>; "edge" follows main.
+appVersion: "0.1.0"
+home: https://github.com/AdrianShah/Hivelane
+sources:
+  - https://github.com/AdrianShah/Hivelane
+keywords:
+  - hivelane
+  - websocket
+  - ai-agents

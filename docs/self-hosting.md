@@ -3,35 +3,35 @@
 The relay (`server/`) is one small FastAPI process. It holds rooms in memory,
 keeps the list of valid room codes in a SQLite file, and serves the dashboard
 from the same address. Every option below runs the same code: the repo's
-`Dockerfile`, published as `ghcr.io/adrianshah/synergo-relay`, or
-`synergo relay` straight from the CLI.
+`Dockerfile`, published as `ghcr.io/adrianshah/hivelane-relay`, or
+`hivelane relay` straight from the CLI.
 
 | Option | Good for | Files |
 |--------|----------|-------|
-| [`synergo relay`](#on-your-lan-synergo-relay) | A LAN, a hackathon, trying it out | `synergo/cli.py` |
+| [`hivelane relay`](#on-your-lan-hivelane-relay) | A LAN, a hackathon, trying it out | `hivelane/cli.py` |
 | [Docker](#docker) | Any host that runs containers | `Dockerfile` |
 | [Docker Compose + Caddy](#docker-compose--caddy) | Your own VM, with automatic HTTPS | `deploy/compose/` |
 | [Fly.io](#flyio) | Managed, always-on, several regions if you want | `deploy/fly/` |
 | [Render](#render) | Managed, Git-driven | `deploy/render/` |
 | [Railway](#railway) | Managed, Git-driven | `deploy/railway/` |
-| [Kubernetes (Helm)](#kubernetes-helm) | A cluster you already run | `deploy/helm/synergo-relay/` |
+| [Kubernetes (Helm)](#kubernetes-helm) | A cluster you already run | `deploy/helm/hivelane-relay/` |
 
 ## What every deployment needs
 
-- **`SYNERGO_ENV=production`** and **`CORS_ORIGINS`**. Outside development the
+- **`HIVELANE_ENV=production`** and **`CORS_ORIGINS`**. Outside development the
   relay refuses to boot without `CORS_ORIGINS`. List the exact origin(s) of
   any dashboard hosted *elsewhere*, comma-separated. The bundled dashboard is
   served from the relay's own origin, so it needs no entry; if it is your only
   dashboard, list the relay's own URL (`https://relay.example.com`).
-- **A persistent disk at `/data`** (`SYNERGO_STATE_PATH` points into it). The
+- **A persistent disk at `/data`** (`HIVELANE_STATE_PATH` points into it). The
   disk keeps room codes valid across restarts and deploys. Without it, every
-  restart sends every team back to `synergo up` with a new room.
+  restart sends every team back to `hivelane up` with a new room.
   The relay runs as uid 10001. Hosts that mount the disk root-owned (Fly
   volumes, Render disks) are handled by the image: its entrypoint starts as
   root, chowns the state directory to 10001 and drops privileges before the
   relay starts. If your platform starts the container as a non-root user,
   mount the disk owned by uid/gid 10001 (Kubernetes: `fsGroup: 10001`, as the
-  Helm chart does); with `SYNERGO_ENV=production` the container refuses to
+  Helm chart does); with `HIVELANE_ENV=production` the container refuses to
   start on a state directory it cannot write rather than silently keeping
   rooms in memory.
 - **WebSockets over TLS.** Clients connect to `wss://<host>/ws/<ROOM>`. The CLI
@@ -53,14 +53,14 @@ hosting are [below](#environment-variables-for-hosting).
 Once `https://<host>/readyz` answers:
 
 ```bash
-# CLI: the first teammate records the relay in .synergo.toml for everyone
-synergo up --relay wss://relay.example.com/ws
+# CLI: the first teammate records the relay in .hivelane.toml for everyone
+hivelane up --relay wss://relay.example.com/ws
 # or per machine, for every repo
-export SYNERGO_RELAY=wss://relay.example.com/ws
+export HIVELANE_RELAY=wss://relay.example.com/ws
 ```
 
 The dashboard is at `https://relay.example.com/`. Set
-`SYNERGO_DASHBOARD=https://relay.example.com` for the CLI too, so `synergo open`
+`HIVELANE_DASHBOARD=https://relay.example.com` for the CLI too, so `hivelane open`
 and the links it prints point at it.
 
 ## The bundled dashboard
@@ -75,26 +75,52 @@ was loaded from (`wss://` on https, `ws://` on http). Its requests are then
 same-origin, so CORS does not apply to them. The exceptions are `npm run dev`
 and `vite preview`, which use `ws://localhost:8000/ws`.
 
-- **Serve the API only:** set `SYNERGO_STATIC_DIR=` (empty).
+- **Serve the API only:** set `HIVELANE_STATIC_DIR=` (empty).
 - **Host the dashboard elsewhere** (Vercel config: `frontend/vercel.json`):
   build it with `VITE_WS_URL=wss://relay.example.com/ws` and add its origin to
   the relay's `CORS_ORIGINS`.
 - **Bake a different relay into the image's dashboard:**
   `docker build --build-arg VITE_WS_URL=wss://relay.example.com/ws .`
 
-## On your LAN: `synergo relay`
+### The public site on GitHub Pages (hivelane.dev)
+
+`.github/workflows/pages.yml` publishes the dashboard and the docs (at
+`/docs/`) on every push to `main`. GitHub Pages only serves static files, so it
+hosts no relay. The dashboard asks for one: room links carry `?relay=wss://…`,
+and the Home page has a relay field. Set the repository variable
+`PAGES_RELAY_URL=wss://relay.example.com/ws` to bake a default relay in, and
+add the site's origin (`https://hivelane.dev`) to that relay's `CORS_ORIGINS`.
+
+Without a custom domain, the site is at `https://adrianshah.github.io/Hivelane/`.
+To serve it at `hivelane.dev`:
+
+1. Buy the domain and add these DNS records at the registrar:
+   - `A` records for `@`: `185.199.108.153`, `185.199.109.153`,
+     `185.199.110.153` and `185.199.111.153`
+   - `AAAA` records for `@`: `2606:50c0:8000::153`, `2606:50c0:8001::153`,
+     `2606:50c0:8002::153` and `2606:50c0:8003::153`
+   - `CNAME` for `www`: `adrianshah.github.io`
+2. Verify the domain for your account: GitHub, then Settings > Pages >
+   **Add a domain**. Add the TXT record it shows, so nobody else can claim it.
+3. In the repository, go to Settings > Pages > **Custom domain**, enter
+   `hivelane.dev` and save. When the certificate is issued (up to an hour),
+   tick **Enforce HTTPS**.
+4. Set the repository variable `PAGES_DOMAIN=hivelane.dev`, then re-run the
+   Pages workflow. The site is then built for `/` instead of `/Hivelane/`.
+
+## On your LAN: `hivelane relay`
 
 For a hackathon table or an office network, run the relay from the CLI. It
 needs the `relay` extra:
 
 ```bash
-pipx install "synergo[relay]"         # or: pip install "synergo[relay]"
-synergo relay --state relay.db
+pipx install "hivelane[relay]"         # or: pip install "hivelane[relay]"
+hivelane relay --state relay.db
 ```
 
 ```text
-synergo relay: listening on 0.0.0.0:8000 (Ctrl+C to stop)
-  teammates run:  synergo up --relay ws://192.168.1.23:8000/ws --insecure
+hivelane relay: listening on 0.0.0.0:8000 (Ctrl+C to stop)
+  teammates run:  hivelane up --relay ws://192.168.1.23:8000/ws --insecure
                   (--insecure: ws:// is unencrypted, so only on a network you trust;
                   for TLS, put the relay behind Caddy and use wss://, see docs/self-hosting.md)
   dashboard:      http://192.168.1.23:8000  (served from .../frontend/dist)
@@ -106,7 +132,7 @@ synergo relay: listening on 0.0.0.0:8000 (Ctrl+C to stop)
 - `--state PATH` keeps room codes in a SQLite file across restarts. Without it
   they are in memory.
 - `--dashboard DIR` serves a built dashboard. By default it uses
-  `$SYNERGO_STATIC_DIR`, or `frontend/dist` next to the relay in a source
+  `$HIVELANE_STATIC_DIR`, or `frontend/dist` next to the relay in a source
   checkout (`cd frontend && npm ci && npm run build`). A wheel from PyPI does
   not include the dashboard; use the Docker image if you want both without
   building.
@@ -114,27 +140,27 @@ synergo relay: listening on 0.0.0.0:8000 (Ctrl+C to stop)
   which is why the join line carries `--insecure`. For TLS on a LAN, put the
   relay behind [Caddy](#docker-compose--caddy) with `tls internal`, or use the
   Docker image with a proxy.
-- AI captions: `pip install "synergo[relay,gemini]"` and set `GEMINI_API_KEY`.
+- AI captions: `pip install "hivelane[relay,gemini]"` and set `GEMINI_API_KEY`.
 
 ## Docker
 
 ```bash
-docker run -d --name synergo-relay --restart unless-stopped \
-  -p 8000:8000 -v synergo-data:/data \
-  -e SYNERGO_ENV=production \
+docker run -d --name hivelane-relay --restart unless-stopped \
+  -p 8000:8000 -v hivelane-data:/data \
+  -e HIVELANE_ENV=production \
   -e CORS_ORIGINS=https://relay.example.com \
-  ghcr.io/adrianshah/synergo-relay
+  ghcr.io/adrianshah/hivelane-relay
 curl http://localhost:8000/readyz
 ```
 
 Tags: `latest` (newest stable release), `1.2.3` and `1.2` (releases), `edge`
 (the tip of `main`). Images are built for `linux/amd64` and `linux/arm64`. To
-build it yourself: `docker build -t synergo-relay .` from the repo root.
+build it yourself: `docker build -t hivelane-relay .` from the repo root.
 
 The container serves plain HTTP on `$PORT` (default 8000), as the non-root
-user `synergo`, so put a TLS proxy in front of it. The Compose setup below does
+user `hivelane`, so put a TLS proxy in front of it. The Compose setup below does
 exactly that. For a quick local try, `docker run -p 8000:8000
-ghcr.io/adrianshah/synergo-relay` (development mode) serves the dashboard at
+ghcr.io/adrianshah/hivelane-relay` (development mode) serves the dashboard at
 `http://localhost:8000/`.
 
 ## Docker Compose + Caddy
@@ -160,10 +186,10 @@ To upgrade, run `git pull && docker compose up -d --build`. Room codes are
 kept in the `relay-data` volume, and certificates in `caddy-data`.
 
 **Optional Redis.** `COMPOSE_PROFILES=redis` and
-`SYNERGO_REDIS_URL=redis://redis:6379/0` in `.env` add a Redis container (with
+`HIVELANE_REDIS_URL=redis://redis:6379/0` in `.env` add a Redis container (with
 its own volume) and move room codes, room leases and rate-limit counters into
 it. That only pays off with [several relay instances](#scaling-out). To use
-Redis for rate limits alone, also set `SYNERGO_ROOM_STORE=local`. If Redis goes
+Redis for rate limits alone, also set `HIVELANE_ROOM_STORE=local`. If Redis goes
 away, the relay logs a warning and falls back to what it holds itself.
 
 For a local trial without a domain, set `RELAY_DOMAIN=localhost`; Caddy then
@@ -176,9 +202,9 @@ checks hit `/health` and `/readyz`, and connection limits are sized for
 long-lived WebSockets. In short, from the repo root:
 
 ```bash
-fly apps create my-synergo-relay            # and set `app` in fly.toml to match
-fly volumes create synergo_data --region iad --size 1 --yes --config deploy/fly/fly.toml
-fly secrets set --stage --config deploy/fly/fly.toml CORS_ORIGINS=https://my-synergo-relay.fly.dev
+fly apps create my-hivelane-relay            # and set `app` in fly.toml to match
+fly volumes create hivelane_data --region iad --size 1 --yes --config deploy/fly/fly.toml
+fly secrets set --stage --config deploy/fly/fly.toml CORS_ORIGINS=https://my-hivelane-relay.fly.dev
 fly deploy --config deploy/fly/fly.toml
 ```
 
@@ -201,18 +227,18 @@ instance; the free tier also sleeps.
 `deploy/railway/railway.json` builds the `Dockerfile`, health-checks
 `/readyz` and restarts on failure. Point the service's config-as-code path at
 `/deploy/railway/railway.json`, attach a volume at `/data`, and set
-`SYNERGO_ENV`, `CORS_ORIGINS` and `TRUST_PROXY_HEADER`. Steps:
+`HIVELANE_ENV`, `CORS_ORIGINS` and `TRUST_PROXY_HEADER`. Steps:
 [deploy/railway/README.md](../deploy/railway/README.md). Keep it at one
 replica, with app sleeping off.
 
 ## Kubernetes (Helm)
 
-`deploy/helm/synergo-relay/` is a chart: a Deployment (one replica by
+`deploy/helm/hivelane-relay/` is a chart: a Deployment (one replica by
 default), a Service, an optional Ingress, and a PersistentVolumeClaim for
 room codes. Liveness is `/health`, readiness `/readyz`.
 
 ```bash
-helm install synergo deploy/helm/synergo-relay -n synergo --create-namespace \
+helm install hivelane deploy/helm/hivelane-relay -n hivelane --create-namespace \
   --set relay.corsOrigins=https://relay.example.com \
   --set ingress.enabled=true --set ingress.className=nginx \
   --set 'ingress.hosts[0].host=relay.example.com' \
@@ -220,7 +246,7 @@ helm install synergo deploy/helm/synergo-relay -n synergo --create-namespace \
 ```
 
 The chart refuses `replicaCount > 1` without Redis. Values, WebSocket timeouts
-and multi-replica routing: [the chart's README](../deploy/helm/synergo-relay/README.md).
+and multi-replica routing: [the chart's README](../deploy/helm/hivelane-relay/README.md).
 
 ## Scaling out
 
@@ -228,19 +254,19 @@ One relay instance holds hundreds of WebSockets on a small VM, so scale up
 first. More than one instance is for availability or regions, and needs two
 things:
 
-1. **Redis**, via `SYNERGO_REDIS_URL` (the image includes the client;
-   elsewhere `pip install "synergo[redis]"`). With it:
+1. **Redis**, via `HIVELANE_REDIS_URL` (the image includes the client;
+   elsewhere `pip install "hivelane[redis]"`). With it:
    - room codes and settings live in Redis, so a code created on one instance
      is valid on every one. Each instance keeps a local copy (SQLite or
      memory) that it uses while Redis is unreachable;
    - rate limits are shared, so a caller gets one budget, not one per instance;
    - each room is **leased** to one instance: the key
-     `synergo:room:<code>:owner` holds that instance's id, set only if absent
+     `hivelane:room:<code>:owner` holds that instance's id, set only if absent
      and expiring after 30 s. The owner renews it every 10 s while it has
      sockets in the room, and releases it when the room empties or the
      instance shuts down, so a crashed instance's rooms free themselves.
    Use a Redis that persists its data: it holds the room codes. The instance
-   id is `FLY_MACHINE_ID` on Fly, else `SYNERGO_INSTANCE_ID`, else
+   id is `FLY_MACHINE_ID` on Fly, else `HIVELANE_INSTANCE_ID`, else
    hostname-pid.
 2. **Every connection for a room reaching its owner.** A room's live state
    (its members' sockets and recent edits) is in one process, so all of a
@@ -266,7 +292,7 @@ has members.
 nginx:
 
 ```nginx
-upstream synergo_relays {
+upstream hivelane_relays {
     hash $uri consistent;          # the path, so /ws/<code> picks one relay
     server relay-1:8000;
     server relay-2:8000;
@@ -283,7 +309,7 @@ server {
     # ssl_certificate ... ;
 
     location / {
-        proxy_pass http://synergo_relays;
+        proxy_pass http://hivelane_relays;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $connection_upgrade;
@@ -299,7 +325,7 @@ server {
 On Kubernetes with ingress-nginx, the same is one annotation:
 `nginx.ingress.kubernetes.io/upstream-hash-by: "$uri"`.
 
-Caddy (`uri_hash` hashes the path and query; Synergo sends no query):
+Caddy (`uri_hash` hashes the path and query; Hivelane sends no query):
 
 ```caddyfile
 relay.example.com {
@@ -374,7 +400,7 @@ step instead (see the Fly README). A Compose host can expose a small webhook,
 or you can deploy it by hand.
 
 `.github/workflows/image.yml` publishes the image to
-`ghcr.io/adrianshah/synergo-relay` on the same events (`edge` from `main`,
+`ghcr.io/adrianshah/hivelane-relay` on the same events (`edge` from `main`,
 versions and `latest` from tags), so a Compose or Kubernetes host can also just
 pull a new tag.
 
@@ -382,22 +408,22 @@ pull a new tag.
 
 - **Health:** `/health` (liveness, room count) and `/readyz` (environment, CORS,
   protocol versions, rate-limit backend). `/metrics` serves Prometheus text
-  with aggregate counts only, including `synergo_room_leases` (rooms this
+  with aggregate counts only, including `hivelane_room_leases` (rooms this
   instance owns when several share Redis).
 - **Logs:** JSON lines on stdout outside development.
 - **Upgrades:** deploy a new image. Daemons reconnect within seconds and
   rebuild room state from live activity. If a release raises the relay's
   minimum protocol version, older daemons are refused with an upgrade message
-  (`/readyz` reports both numbers, and `synergo doctor` compares them), so
+  (`/readyz` reports both numbers, and `hivelane doctor` compares them), so
   tell teams to upgrade the CLI at the same time.
 - **Backups:** only room codes are durable, and they expire after seven days,
   so backups are optional. With one instance they are the SQLite file at
-  `SYNERGO_STATE_PATH` (`/data/synergo.db` in the image). Copy it consistently
-  with `sqlite3 /data/synergo.db ".backup /backup/synergo.db"` (the file runs
+  `HIVELANE_STATE_PATH` (`/data/hivelane.db` in the image). Copy it consistently
+  with `sqlite3 /data/hivelane.db ".backup /backup/hivelane.db"` (the file runs
   in WAL mode, so a plain `cp` of a live database can miss recent writes), or
-  snapshot the volume. With Redis, they are in Redis (`synergo:rooms*` keys),
-  so back Redis up instead. Losing them means teams run `synergo up` again and
-  commit a new `.synergo.toml`.
+  snapshot the volume. With Redis, they are in Redis (`hivelane:rooms*` keys),
+  so back Redis up instead. Losing them means teams run `hivelane up` again and
+  commit a new `.hivelane.toml`.
 
 ## Capacity limits
 
@@ -414,11 +440,11 @@ is 10-20x a real agent; target: edit-check p95 under 50 ms):
 
 | Variable | Default | Public relay | Why |
 |----------|---------|--------------|-----|
-| `SYNERGO_MAX_MEMBERS` | `0` (unlimited) | `25` | One room stayed under 50 ms p95 up to 25 busy members and failed at 35-50: fan-out is O(members x sockets). |
-| `SYNERGO_MAX_ROOMS` | `0` (unlimited) | `500` | Bounds memory (about 0.2 MB per connected socket, 52 MB idle) and ghost-room flooding. A process saturated at ~200 busy members (stress rate), so size instances by members, not rooms. |
-| `ROOM_CREATE_LIMIT` | `10` per IP per hour | keep | Without it one script fills `SYNERGO_MAX_ROOMS`. `0` turns it off. |
+| `HIVELANE_MAX_MEMBERS` | `0` (unlimited) | `25` | One room stayed under 50 ms p95 up to 25 busy members and failed at 35-50: fan-out is O(members x sockets). |
+| `HIVELANE_MAX_ROOMS` | `0` (unlimited) | `500` | Bounds memory (about 0.2 MB per connected socket, 52 MB idle) and ghost-room flooding. A process saturated at ~200 busy members (stress rate), so size instances by members, not rooms. |
+| `ROOM_CREATE_LIMIT` | `10` per IP per hour | keep | Without it one script fills `HIVELANE_MAX_ROOMS`. `0` turns it off. |
 | `WS_ATTEMPT_LIMIT` | `30` per IP per minute | keep | Makes room codes impractical to brute-force. `0` turns it off (load tests). |
-| `ROOM_MESSAGE_LIMIT` | `600` per room per minute | keep, or `100 x SYNERGO_MAX_MEMBERS` for big rooms | Shared by everyone in the room; 600 is ample for 25 real agents. `0` turns it off. |
+| `ROOM_MESSAGE_LIMIT` | `600` per room per minute | keep, or `100 x HIVELANE_MAX_MEMBERS` for big rooms | Shared by everyone in the room; 600 is ample for 25 real agents. `0` turns it off. |
 | `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | keep | Bounds the limiters' memory. `0` is unbounded. |
 
 Per-message safety caps bound what one message can make the relay hold and copy
@@ -427,39 +453,39 @@ public relay never set them to `0`:
 
 | Variable | Default | Over the limit |
 |----------|---------|----------------|
-| `SYNERGO_MAX_FRAME_BYTES` | 524288 (512 KiB) | Socket closed with 1009. Also run uvicorn with `--ws-max-size 1048576` so oversized frames are not read at all. |
-| `SYNERGO_MAX_DIFF_BYTES` | 65536 | Diff truncated |
-| `SYNERGO_MAX_TEXT_BYTES` | 4096 | Prompt or plan summary truncated |
-| `SYNERGO_MAX_FILES_PER_MESSAGE` | 50 | First 50 kept |
-| `SYNERGO_MAX_SYMBOLS_PER_MESSAGE` | 64 | First 64 kept |
-| `SYNERGO_MAX_LINE_RANGES_PER_MESSAGE` | 256 | First 256 kept |
-| `SYNERGO_MAX_PATH_CHARS` | 1024 | Longer paths are not queued or remembered |
+| `HIVELANE_MAX_FRAME_BYTES` | 524288 (512 KiB) | Socket closed with 1009. Also run uvicorn with `--ws-max-size 1048576` so oversized frames are not read at all. |
+| `HIVELANE_MAX_DIFF_BYTES` | 65536 | Diff truncated |
+| `HIVELANE_MAX_TEXT_BYTES` | 4096 | Prompt or plan summary truncated |
+| `HIVELANE_MAX_FILES_PER_MESSAGE` | 50 | First 50 kept |
+| `HIVELANE_MAX_SYMBOLS_PER_MESSAGE` | 64 | First 64 kept |
+| `HIVELANE_MAX_LINE_RANGES_PER_MESSAGE` | 256 | First 256 kept |
+| `HIVELANE_MAX_PATH_CHARS` | 1024 | Longer paths are not queued or remembered |
 
 Per-room and process bookkeeping (defaults are fine for any size of room):
 
 | Variable | Default | Bounds |
 |----------|---------|--------|
-| `SYNERGO_MAX_PENDING_JOINS` | 10 | Joiners waiting for an owner's approval, per room |
-| `SYNERGO_MAX_TRACKED_DECISIONS` | 1000 | Warn/block decisions kept for votes, per room (LRU) |
-| `SYNERGO_MAX_KNOWN_PATHS` | 512 | Paths remembered for suggestions, per room (LRU) |
-| `SYNERGO_FILE_QUEUE_MAX_LENGTH` | 0 | Members in one file's wait line; 0 = bounded by the room (each member once) |
-| `SYNERGO_FILE_QUEUE_MAX_FILES` | 256 | Files with a wait line, per room |
-| `SYNERGO_HISTORY_MAX_EVENTS` / `SYNERGO_HISTORY_MAX_BYTES` | 5000 / 8 MiB | Replay history per room |
-| `SYNERGO_HISTORY_TOTAL_MAX_BYTES` | 128 MiB | Replay history across the process |
-| `SYNERGO_MAX_WEBHOOKS_PER_ROOM` | 3 | Owner webhooks per room (at least 1) |
-| `SYNERGO_WEBHOOK_MAX_IN_FLIGHT` | 100 | Webhook deliveries running at once |
-| `SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS` | 1024 | Rooms with a webhook notice budget (LRU) |
+| `HIVELANE_MAX_PENDING_JOINS` | 10 | Joiners waiting for an owner's approval, per room |
+| `HIVELANE_MAX_TRACKED_DECISIONS` | 1000 | Warn/block decisions kept for votes, per room (LRU) |
+| `HIVELANE_MAX_KNOWN_PATHS` | 512 | Paths remembered for suggestions, per room (LRU) |
+| `HIVELANE_FILE_QUEUE_MAX_LENGTH` | 0 | Members in one file's wait line; 0 = bounded by the room (each member once) |
+| `HIVELANE_FILE_QUEUE_MAX_FILES` | 256 | Files with a wait line, per room |
+| `HIVELANE_HISTORY_MAX_EVENTS` / `HIVELANE_HISTORY_MAX_BYTES` | 5000 / 8 MiB | Replay history per room |
+| `HIVELANE_HISTORY_TOTAL_MAX_BYTES` | 128 MiB | Replay history across the process |
+| `HIVELANE_MAX_WEBHOOKS_PER_ROOM` | 3 | Owner webhooks per room (at least 1) |
+| `HIVELANE_WEBHOOK_MAX_IN_FLIGHT` | 100 | Webhook deliveries running at once |
+| `HIVELANE_WEBHOOK_MAX_TRACKED_ROOMS` | 1024 | Rooms with a webhook notice budget (LRU) |
 
-On the client side, `SYNERGO_OUTBOX_LIMIT` (default 500, `0` = unlimited) is
+On the client side, `HIVELANE_OUTBOX_LIMIT` (default 500, `0` = unlimited) is
 how many messages each daemon keeps per room while the relay is unreachable.
 
 ## Environment variables for hosting
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SYNERGO_STATE_PATH` | memory (`/data/synergo.db` in the image) | SQLite file for room codes. |
-| `SYNERGO_STATIC_DIR` | unset (`/app/static` in the image) | Built dashboard to serve at `/`. Empty serves the API only. |
-| `SYNERGO_REDIS_URL` | unset | Redis for room codes, room leases and rate limits shared by several instances. |
-| `SYNERGO_ROOM_STORE` | `redis` when `SYNERGO_REDIS_URL` is set | `local` keeps room codes on this instance even with Redis. |
-| `SYNERGO_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's name in room leases. |
+| `HIVELANE_STATE_PATH` | memory (`/data/hivelane.db` in the image) | SQLite file for room codes. |
+| `HIVELANE_STATIC_DIR` | unset (`/app/static` in the image) | Built dashboard to serve at `/`. Empty serves the API only. |
+| `HIVELANE_REDIS_URL` | unset | Redis for room codes, room leases and rate limits shared by several instances. |
+| `HIVELANE_ROOM_STORE` | `redis` when `HIVELANE_REDIS_URL` is set | `local` keeps room codes on this instance even with Redis. |
+| `HIVELANE_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's name in room leases. |
 | `PORT` | `8000` | Port the image listens on. |

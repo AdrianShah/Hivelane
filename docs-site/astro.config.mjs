@@ -1,5 +1,5 @@
 // @ts-check
-// The Synergo docs site (Astro Starlight). Its pages are generated from the
+// The Hivelane docs site (Astro Starlight). Its pages are generated from the
 // repo's Markdown by scripts/sync-docs.mjs, which `npm run dev` and
 // `npm run build` run first; sources.mjs says which file becomes which page.
 import { defineConfig } from 'astro/config';
@@ -12,9 +12,9 @@ export default defineConfig({
   base: BASE,
   integrations: [
     starlight({
-      title: 'Synergo',
+      title: 'Hivelane',
       description: 'Live coordination for parallel AI coding agents.',
-      logo: { src: './src/assets/logo.svg', alt: 'Synergo' },
+      logo: { src: './src/assets/logo.svg', alt: 'Hivelane' },
       favicon: '/favicon.svg',
       // No GitHub links while the repo is private: they 404 for visitors.
       social: REPO_PUBLIC ? [{ icon: 'github', label: 'GitHub', href: REPO_URL }] : [],

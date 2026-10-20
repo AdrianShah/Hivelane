@@ -15,7 +15,7 @@ except ImportError:  # Render rootDir=server
     import dashboard  # type: ignore[no-redef]
     import main  # type: ignore[no-redef]
 
-INDEX = "<!doctype html><title>Synergo</title><div id=root></div>"
+INDEX = "<!doctype html><title>Hivelane</title><div id=root></div>"
 
 
 @pytest.fixture

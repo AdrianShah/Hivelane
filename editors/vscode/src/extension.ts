@@ -20,11 +20,11 @@ import { EditGate, KeyedDebounce } from "./editGate";
 import { FeedState, RelayFeed, roomUrl } from "./relayFeed";
 
 // TODO(owner): keep in sync with package.json "repository" before publishing.
-const DOCS_URL = "https://github.com/AdrianShah/Synergo#readme";
+const DOCS_URL = "https://github.com/AdrianShah/Hivelane#readme";
 const POLL_MS = 5000;
 
 let status: DaemonStatus | undefined;
-// Set when the daemon answers but refuses our token (a different SYNERGO_HOME).
+// Set when the daemon answers but refuses our token (a different HIVELANE_HOME).
 let authProblem: string | undefined;
 let client: DaemonClient;
 const feeds = new Map<string, { feed: RelayFeed; tracker: ActivityTracker; repo: RepoStatus }>();
@@ -36,7 +36,7 @@ const pendingBaselines = new Map<string, Promise<void>>();
 const pendingTimers = new Set<ReturnType<typeof setTimeout>>();
 
 function cfg(resource?: vscode.Uri) {
-  return vscode.workspace.getConfiguration("synergo", resource ?? vscode.workspace.workspaceFolders?.[0]?.uri);
+  return vscode.workspace.getConfiguration("hivelane", resource ?? vscode.workspace.workspaceFolders?.[0]?.uri);
 }
 
 function port(): number {
@@ -114,8 +114,8 @@ export function activate(context: vscode.ExtensionContext): void {
   client = new DaemonClient(port(), undefined, undefined, tokenPath());
   const decorations = new PeerDecorations();
   const bar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  bar.command = "synergo.menu";
-  bar.text = "Synergo: offline";
+  bar.command = "hivelane.menu";
+  bar.text = "Hivelane: offline";
   bar.show();
   context.subscriptions.push(bar, decorations, vscode.window.registerFileDecorationProvider(decorations));
 
@@ -126,12 +126,12 @@ export function activate(context: vscode.ExtensionContext): void {
     bar.text = `$(organization) ${statusText(status, repo, !!authProblem)}`;
     const note = repo ? feedNotes.get(repo.root) : undefined;
     const base = authProblem
-      ? `Synergo: ${authProblem}`
+      ? `Hivelane: ${authProblem}`
       : repo?.fatal
-        ? `Synergo: ${repo.fatal}`
+        ? `Hivelane: ${repo.fatal}`
         : status
-          ? `Synergo daemon v${status.version} on port ${status.port}`
-          : "Synergo daemon not reachable — click to start it";
+          ? `Hivelane daemon v${status.version} on port ${status.port}`
+          : "Hivelane daemon not reachable — click to start it";
     bar.tooltip = note ? `${base}\n${note}` : base;
   };
 
@@ -231,7 +231,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const showAck = async (ack: EventAck, repo: RepoStatus, rel: string) => {
     if (ack.decision === "allow") return false;
-    const msg = `Synergo ${ack.decision === "block" ? "conflict" : "heads-up"} on ${rel}: ${describeAck(ack)}`;
+    const msg = `Hivelane ${ack.decision === "block" ? "conflict" : "heads-up"} on ${rel}: ${describeAck(ack)}`;
     const pick = await vscode.window.showWarningMessage(msg, "Open dashboard");
     if (pick === "Open dashboard") void vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(repo)));
     return true;
@@ -241,7 +241,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const repo = repoForPath(status, doc.uri.fsPath);
     const rel = repo ? relativeTo(repo.root, doc.uri.fsPath) : doc.uri.fsPath;
     if (!repo) {
-      if (explicit) void vscode.window.showInformationMessage("Synergo: this file is not in a repo the daemon is watching (is `synergo up` running?).");
+      if (explicit) void vscode.window.showInformationMessage("Hivelane: this file is not in a repo the daemon is watching (is `hivelane up` running?).");
       return;
     }
     try {
@@ -254,9 +254,9 @@ export function activate(context: vscode.ExtensionContext): void {
         tool: "vscode",
       });
       const warned = await showAck(ack, repo, rel);
-      if (!warned && explicit) void vscode.window.showInformationMessage(`Synergo: ${rel} is clear — nobody else is on it.`);
+      if (!warned && explicit) void vscode.window.showInformationMessage(`Hivelane: ${rel} is clear — nobody else is on it.`);
     } catch (e) {
-      if (explicit) void vscode.window.showErrorMessage(`Synergo: daemon unreachable (${(e as Error).message}).`);
+      if (explicit) void vscode.window.showErrorMessage(`Hivelane: daemon unreachable (${(e as Error).message}).`);
     }
   };
 
@@ -318,7 +318,7 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.workspace.onDidCloseTextDocument((doc) => gate.forget(doc.uri.toString())),
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration("synergo")) void poll();
+      if (e.affectsConfiguration("hivelane")) void poll();
     }),
     // Re-render from the cached status; the interval keeps it fresh.
     vscode.window.onDidChangeActiveTextEditor(() => render()),
@@ -329,7 +329,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const whosHere = async () => {
     const repo = activeRepo();
     if (!repo) {
-      void vscode.window.showInformationMessage(status ? "Synergo: no room for this workspace." : "Synergo: daemon offline.");
+      void vscode.window.showInformationMessage(status ? "Hivelane: no room for this workspace." : "Hivelane: daemon offline.");
       return;
     }
     const entry = [...feeds.values()].find((f) => f.repo.root === repo.root);
@@ -345,7 +345,7 @@ export function activate(context: vscode.ExtensionContext): void {
           detail: entry?.tracker.intentOf(n),
         })),
     ];
-    const pick = await vscode.window.showQuickPick(items, { title: `Synergo room ${repo.room} — ${items.length} online`, placeHolder: "Pick to open the dashboard" });
+    const pick = await vscode.window.showQuickPick(items, { title: `Hivelane room ${repo.room} — ${items.length} online`, placeHolder: "Pick to open the dashboard" });
     if (pick) void vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(repo)));
   };
 
@@ -353,8 +353,8 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.window.onDidCloseTerminal((t) => t === upTerminal && (upTerminal = undefined)));
   const up = () => {
     if (!upTerminal) {
-      upTerminal = vscode.window.createTerminal({ name: "Synergo", cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath });
-      upTerminal.sendText("synergo up");
+      upTerminal = vscode.window.createTerminal({ name: "Hivelane", cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath });
+      upTerminal.sendText("hivelane up");
     }
     upTerminal.show();
     const t = setTimeout(() => {
@@ -370,25 +370,25 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("synergo.openDashboard", () => vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())))),
-    vscode.commands.registerCommand("synergo.whosHere", whosHere),
-    vscode.commands.registerCommand("synergo.up", up),
-    vscode.commands.registerCommand("synergo.reconnect", reconnectFeeds),
-    vscode.commands.registerCommand("synergo.checkFile", (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand("hivelane.openDashboard", () => vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())))),
+    vscode.commands.registerCommand("hivelane.whosHere", whosHere),
+    vscode.commands.registerCommand("hivelane.up", up),
+    vscode.commands.registerCommand("hivelane.reconnect", reconnectFeeds),
+    vscode.commands.registerCommand("hivelane.checkFile", (uri?: vscode.Uri) => {
       const doc = uri ? vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString()) : vscode.window.activeTextEditor?.document;
       if (doc) return preEdit(doc, true);
       if (uri) return vscode.workspace.openTextDocument(uri).then((d) => preEdit(d, true));
-      void vscode.window.showInformationMessage("Synergo: open a file first.");
+      void vscode.window.showInformationMessage("Hivelane: open a file first.");
     }),
-    vscode.commands.registerCommand("synergo.menu", async () => {
+    vscode.commands.registerCommand("hivelane.menu", async () => {
       const repo = activeRepo();
       const items: (vscode.QuickPickItem & { run: () => unknown })[] = [];
-      if (repo) items.push({ label: "$(globe) Open dashboard", description: dashboardUrl(repo), run: () => vscode.commands.executeCommand("synergo.openDashboard") });
+      if (repo) items.push({ label: "$(globe) Open dashboard", description: dashboardUrl(repo), run: () => vscode.commands.executeCommand("hivelane.openDashboard") });
       if (repo) items.push({ label: "$(person) Show peers", description: `${(repo.peers?.length ?? 0) + 1} online`, run: whosHere });
-      if (vscode.window.activeTextEditor) items.push({ label: "$(shield) Check this file", run: () => vscode.commands.executeCommand("synergo.checkFile") });
+      if (vscode.window.activeTextEditor) items.push({ label: "$(shield) Check this file", run: () => vscode.commands.executeCommand("hivelane.checkFile") });
       const note = repo ? feedNotes.get(repo.root) : undefined;
       if (note && feeds.size) items.push({ label: "$(refresh) Reconnect peer badges", description: note, run: reconnectFeeds });
-      if (!status) items.push({ label: "$(terminal) Run `synergo up`", description: "start the daemon", run: up });
+      if (!status) items.push({ label: "$(terminal) Run `hivelane up`", description: "start the daemon", run: up });
       items.push({ label: "$(book) Open docs", run: () => vscode.env.openExternal(vscode.Uri.parse(DOCS_URL)) });
       const pick = await vscode.window.showQuickPick(items, { title: bar.text.replace(/^\$\([^)]*\)\s*/, "") });
       await pick?.run();

@@ -3,12 +3,12 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 
-/** Header the daemon checks on every route but /health (synergo/auth.py). */
-export const TOKEN_HEADER = "x-synergo-token";
+/** Header the daemon checks on every route but /health (hivelane/auth.py). */
+export const TOKEN_HEADER = "x-hivelane-token";
 
-/** Where the daemon keeps its per-install token: $SYNERGO_HOME/token, else ~/.synergo/token. */
+/** Where the daemon keeps its per-install token: $HIVELANE_HOME/token, else ~/.hivelane/token. */
 export function defaultTokenPath(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): string {
-  const base = env.SYNERGO_HOME && env.SYNERGO_HOME.trim() ? env.SYNERGO_HOME : path.join(home, ".synergo");
+  const base = env.HIVELANE_HOME && env.HIVELANE_HOME.trim() ? env.HIVELANE_HOME : path.join(home, ".hivelane");
   return path.join(base, "token");
 }
 
@@ -22,14 +22,14 @@ export function readToken(file: string): string | undefined {
   }
 }
 
-/** Mirrors synergo/auth.py _valid: printable ASCII, no spaces, at least 32 characters. */
+/** Mirrors hivelane/auth.py _valid: printable ASCII, no spaces, at least 32 characters. */
 export function isValidToken(text: string): boolean {
   return /^[\x21-\x7e]{32,4096}$/.test(text);
 }
 
 export class DaemonAuthError extends Error {
   constructor(tokenFile: string) {
-    super(`the Synergo daemon refused this editor's token (${tokenFile}); is it running under another SYNERGO_HOME? Set synergo.tokenPath.`);
+    super(`the Hivelane daemon refused this editor's token (${tokenFile}); is it running under another HIVELANE_HOME? Set hivelane.tokenPath.`);
     this.name = "DaemonAuthError";
   }
 }
@@ -212,12 +212,12 @@ export function relativeTo(root: string, fsPath: string): string {
 }
 
 export function statusText(status: DaemonStatus | undefined, repo: RepoStatus | undefined, authProblem?: boolean): string {
-  if (authProblem) return "Synergo: token mismatch";
-  if (!status) return "Synergo: offline";
-  if (!repo) return "Synergo: no room";
-  if (!repo.connected) return `Synergo: ${repo.room} · connecting`;
+  if (authProblem) return "Hivelane: token mismatch";
+  if (!status) return "Hivelane: offline";
+  if (!repo) return "Hivelane: no room";
+  if (!repo.connected) return `Hivelane: ${repo.room} · connecting`;
   const online = (repo.peers?.length ?? 0) + 1;
-  return `Synergo: ${repo.room} · ${online} online`;
+  return `Hivelane: ${repo.room} · ${online} online`;
 }
 
 export function describeAck(ack: EventAck): string {
@@ -237,14 +237,14 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-export const DEFAULT_DASHBOARD = "https://adrianshah.github.io/Synergo";
+export const DEFAULT_DASHBOARD = "https://hivelane.dev";
 export const DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173";
 
 function httpUrl(wsOrHttp: string): URL {
   return new URL(wsOrHttp.trim().replace(/^ws(s?):/i, "http$1:"));
 }
 
-/** Same test as synergo/cli.py relay_is_local. */
+/** Same test as hivelane/cli.py relay_is_local. */
 export function relayIsLocal(relay: string): boolean {
   let host = "";
   try {
@@ -256,12 +256,12 @@ export function relayIsLocal(relay: string): boolean {
 }
 
 /**
- * Dashboard base the way the CLI picks it: the synergo.dashboardUrl setting,
- * else $SYNERGO_DASHBOARD, else localhost:5173 for a local relay and the
+ * Dashboard base the way the CLI picks it: the hivelane.dashboardUrl setting,
+ * else $HIVELANE_DASHBOARD, else localhost:5173 for a local relay and the
  * hosted dashboard for any other.
  */
 export function dashboardBase(setting: string | undefined, relay: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
-  const chosen = (setting ?? "").trim() || (env.SYNERGO_DASHBOARD ?? "").trim();
+  const chosen = (setting ?? "").trim() || (env.HIVELANE_DASHBOARD ?? "").trim();
   if (chosen) return chosen.replace(/\/+$/, "");
   return relay && relayIsLocal(relay) ? DEFAULT_DASHBOARD_LOCAL : DEFAULT_DASHBOARD;
 }
@@ -288,7 +288,7 @@ export function feedPlan(repo: RepoStatus, allowApprovalWait: boolean): { open: 
   if (repo.fatal) return { open: false, reason: repo.fatal };
   if (repo.e2e) return { open: false, reason: "peer badges are unavailable in end-to-end encrypted rooms" };
   if (repo.require_approval && !allowApprovalWait)
-    return { open: false, reason: "this room requires an owner's approval; peer badges are off (enable synergo.joinApprovalRooms to request access)" };
+    return { open: false, reason: "this room requires an owner's approval; peer badges are off (enable hivelane.joinApprovalRooms to request access)" };
   return { open: true };
 }
 
@@ -303,13 +303,13 @@ function validPort(v: unknown): number | undefined {
   return typeof n === "number" && Number.isInteger(n) && n > 0 && n < 65536 ? n : undefined;
 }
 
-/** Folder setting, then workspace, then user, then $SYNERGO_PORT, then 4600. */
+/** Folder setting, then workspace, then user, then $HIVELANE_PORT, then 4600. */
 export function resolvePort(inspected: InspectedNumber | undefined, env: NodeJS.ProcessEnv = process.env): number {
   return (
     validPort(inspected?.workspaceFolderValue) ??
     validPort(inspected?.workspaceValue) ??
     validPort(inspected?.globalValue) ??
-    validPort(env.SYNERGO_PORT) ??
+    validPort(env.HIVELANE_PORT) ??
     4600
   );
 }

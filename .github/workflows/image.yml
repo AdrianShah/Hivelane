@@ -3,9 +3,9 @@ name: Image
 # Builds the relay image (relay + bundled dashboard, from the root Dockerfile)
 # for linux/amd64 and linux/arm64 and publishes it to GitHub Container Registry:
 #
-#   ghcr.io/adrianshah/synergo-relay:edge        every push to main
-#   ghcr.io/adrianshah/synergo-relay:1.2.3, 1.2  v* tags
-#   ghcr.io/adrianshah/synergo-relay:latest      v* tags that are not prereleases
+#   ghcr.io/adrianshah/hivelane-relay:edge        every push to main
+#   ghcr.io/adrianshah/hivelane-relay:1.2.3, 1.2  v* tags
+#   ghcr.io/adrianshah/hivelane-relay:latest      v* tags that are not prereleases
 #
 # Pull requests build and boot the amd64 image only (no QEMU, no arm64, no cache
 # writes), and push nothing. arm64 is built on main and tags.
@@ -36,7 +36,7 @@ permissions:
 
 env:
   # GHCR names must be lower case, unlike the GitHub owner.
-  IMAGE: ghcr.io/adrianshah/synergo-relay
+  IMAGE: ghcr.io/adrianshah/hivelane-relay
 
 jobs:
   image:
@@ -72,8 +72,8 @@ jobs:
             type=edge,branch=main
             type=ref,event=pr
           labels: |
-            org.opencontainers.image.title=Synergo relay
-            org.opencontainers.image.description=Synergo relay with the bundled dashboard
+            org.opencontainers.image.title=Hivelane relay
+            org.opencontainers.image.description=Hivelane relay with the bundled dashboard
             org.opencontainers.image.licenses=Apache-2.0
 
       # The same checks as ci.yml's "relay image" job, plus the dashboard: the
@@ -85,8 +85,8 @@ jobs:
           context: .
           platforms: linux/amd64
           load: true
-          tags: synergo-relay:check
-          build-args: SYNERGO_COMMIT=${{ github.sha }}
+          tags: hivelane-relay:check
+          build-args: HIVELANE_COMMIT=${{ github.sha }}
           cache-from: type=gha
           # Pull requests read the cache but never write it (10 GB limit).
           cache-to: ${{ github.event_name != 'pull_request' && 'type=gha,mode=max' || '' }}
@@ -94,9 +94,9 @@ jobs:
       - name: Boot and check the relay and dashboard
         run: |
           docker run -d --name relay -p 8000:8000 \
-            -e SYNERGO_ENV=production \
+            -e HIVELANE_ENV=production \
             -e CORS_ORIGINS=https://example.test \
-            synergo-relay:check
+            hivelane-relay:check
           ready=""
           for _ in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:8000/readyz >/dev/null 2>&1; then
@@ -130,10 +130,10 @@ jobs:
           sudo chown root:root "$RUNNER_TEMP/rootdata"
           sudo chmod 755 "$RUNNER_TEMP/rootdata"
           docker run -d --name relay-vol -p 8001:8000 \
-            -e SYNERGO_ENV=production \
+            -e HIVELANE_ENV=production \
             -e CORS_ORIGINS=https://example.test \
             -v "$RUNNER_TEMP/rootdata:/data" \
-            synergo-relay:check
+            hivelane-relay:check
           for _ in $(seq 1 30); do
             curl -fsS http://127.0.0.1:8001/readyz >/dev/null 2>&1 && break
             sleep 2
@@ -165,7 +165,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ steps.meta.outputs.tags != '' }}
-          build-args: SYNERGO_COMMIT=${{ github.sha }}
+          build-args: HIVELANE_COMMIT=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}

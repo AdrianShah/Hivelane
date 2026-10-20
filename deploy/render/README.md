@@ -23,8 +23,8 @@ from the repo's `Dockerfile` (the relay plus the bundled dashboard), with a
    so Render does not also deploy every push on its own.
 
 The dashboard is at `https://<service>.onrender.com/`. Point the CLI at
-`wss://<service>.onrender.com/ws` with `synergo up --relay …` (or
-`SYNERGO_RELAY`); a dashboard hosted elsewhere takes the same URL as
+`wss://<service>.onrender.com/ws` with `hivelane up --relay …` (or
+`HIVELANE_RELAY`); a dashboard hosted elsewhere takes the same URL as
 `VITE_WS_URL` at build time. For a custom
 domain, add it under the service's Settings → Custom Domains and create the
 CNAME Render shows.

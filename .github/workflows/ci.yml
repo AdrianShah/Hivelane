@@ -107,7 +107,7 @@ jobs:
           has() { [ "$all" = true ] || grep -Eq "$1" "$RUNNER_TEMP/changed.txt"; }
           ci='^\.github/workflows/ci\.yml$'
           python=false; frontend=false; extension=false; docs=false
-          has "^(synergo|server|tests|protocol|scripts)/|^pyproject\.toml$|$ci" && python=true
+          has "^(hivelane|server|tests|protocol|scripts)/|^pyproject\.toml$|$ci" && python=true
           has "^frontend/|$ci" && frontend=true
           has "^editors/vscode/|$ci" && extension=true
           has "^(docs|docs-site|frontend)/|^README\.md$|^editors/vscode/README\.md$|^deploy/.*README\.md$|^scripts/build_pages\.sh$|$ci" && docs=true
@@ -179,7 +179,7 @@ jobs:
         continue-on-error: true
         run: ruff format --check --diff . > "$RUNNER_TEMP/format.diff" || { echo "::warning title=ruff format::$(grep -c '^--- ' "$RUNNER_TEMP/format.diff") files are not ruff-formatted (informational)"; exit 1; }
       - name: mypy (informational)
-        # TODO: ~30 errors in synergo/ and server/ today (pyproject [tool.mypy]
+        # TODO: ~30 errors in hivelane/ and server/ today (pyproject [tool.mypy]
         # is deliberately lenient). Fix them, then drop continue-on-error.
         continue-on-error: true
         run: mypy
@@ -253,7 +253,7 @@ jobs:
         run: |
           if [ -f .coverage ]; then
             {
-              echo "## Coverage (synergo + server, py${{ matrix.python }})"
+              echo "## Coverage (hivelane + server, py${{ matrix.python }})"
               coverage report --format=markdown --skip-covered
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -318,18 +318,18 @@ jobs:
       - name: Compile and test
         run: npm test
       - name: Package
-        run: npx vsce package --out synergo.vsix
+        run: npx vsce package --out hivelane.vsix
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vscode-extension
-          path: editors/vscode/synergo.vsix
+          path: editors/vscode/hivelane.vsix
           if-no-files-found: error
           retention-days: 14
 
   docs:
     # The docs site and the whole GitHub Pages artifact, exactly as pages.yml
-    # deploys it from main: dashboard under /Synergo/, docs under
-    # /Synergo/docs/, 404.html for deep links. This is the pull-request preview
+    # deploys it from main: dashboard under /Hivelane/, docs under
+    # /Hivelane/docs/, 404.html for deep links. This is the pull-request preview
     # check for Pages (pages.yml itself only runs on main, where it deploys).
     name: docs
     needs: changes

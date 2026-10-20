@@ -38,7 +38,7 @@ except ImportError:  # Render rootDir=server
 
 SLACK = "https://hooks.slack.com/services/T000/B000/SECRETsecret1234"
 DISCORD = "https://discord.com/api/webhooks/123/SECRETdiscordTOKEN"
-GENERIC = "https://example.com/synergo/SECRETgeneric"
+GENERIC = "https://example.com/hivelane/SECRETgeneric"
 PUBLIC_IP = "93.184.216.34"
 HEADER = webhooks.OWNER_TOKEN_HEADER
 
@@ -230,12 +230,12 @@ def test_cors_lets_the_dashboard_send_the_owner_header_and_delete(relay: RoomMan
         headers={
             "Origin": "http://localhost:5173",
             "Access-Control-Request-Method": "DELETE",
-            "Access-Control-Request-Headers": "x-synergo-owner-token",
+            "Access-Control-Request-Headers": "x-hivelane-owner-token",
         },
     )
     assert response.status_code == 200
     assert "DELETE" in response.headers["access-control-allow-methods"]
-    assert "x-synergo-owner-token" in response.headers["access-control-allow-headers"].lower()
+    assert "x-hivelane-owner-token" in response.headers["access-control-allow-headers"].lower()
 
 
 # --- validation ------------------------------------------------------------------------
@@ -351,11 +351,11 @@ def test_development_relays_may_target_private_hosts(net: FakeNet) -> None:
 
 def test_delivery_connects_to_the_checked_address_with_the_real_host_name(net: FakeNet) -> None:
     service, _ = _service(net, load=lambda code: None, save=lambda code, record: None)
-    url = "https://example.com:8443/synergo/SECRETgeneric?x=1"
+    url = "https://example.com:8443/hivelane/SECRETgeneric?x=1"
     assert asyncio.run(service.deliver(_hook(url, "generic"), _notice()))
     request = net.requests[0]
     assert request.url.host == PUBLIC_IP and request.url.port == 8443
-    assert request.url.path == "/synergo/SECRETgeneric" and request.url.query == b"x=1"
+    assert request.url.path == "/hivelane/SECRETgeneric" and request.url.query == b"x=1"
     assert request.headers["host"] == "example.com:8443"
     assert request.extensions["sni_hostname"] == "example.com"
     assert request.headers["content-type"] == "application/json"
@@ -637,7 +637,7 @@ def test_a_blocked_edit_in_the_room_reaches_the_webhook(
             sam.send_json(
                 {"type": "activity", "user_id": "sam", "changes": [{"file_path": path, "diff": ""}]}
             )
-            _receive_until(priya, "synergo_feed")
+            _receive_until(priya, "hivelane_feed")
             priya.send_json({"type": "edit_check", "request_id": "r1", "file_path": path})
             assert _receive_until(priya, "edit_check_response")["decision"] == "block"
             _wait_for(lambda: len(net.requests) >= 1)

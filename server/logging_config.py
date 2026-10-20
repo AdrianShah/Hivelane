@@ -175,12 +175,12 @@ def _startup_warnings() -> None:
     log = logging.getLogger("relay.config")
     if config.IS_DEVELOPMENT:
         log.warning(
-            "SYNERGO_ENV=development (the default): text logs, no HSTS, localhost "
-            "CORS origins. Set SYNERGO_ENV=production for any relay reachable from "
+            "HIVELANE_ENV=development (the default): text logs, no HSTS, localhost "
+            "CORS origins. Set HIVELANE_ENV=production for any relay reachable from "
             "the internet."
         )
     if config.WEBHOOKS_ALLOW_PRIVATE:
         log.warning(
-            "SYNERGO_WEBHOOKS_ALLOW_PRIVATE is on: room owners can point webhooks at "
+            "HIVELANE_WEBHOOKS_ALLOW_PRIVATE is on: room owners can point webhooks at "
             "private, loopback and link-local addresses (SSRF protection is off)"
         )

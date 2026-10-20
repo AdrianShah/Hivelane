@@ -63,18 +63,18 @@ def free_port() -> int:
 def relay_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env.update(
-        SYNERGO_ENV="development",
+        HIVELANE_ENV="development",
         ROOM_CREATE_LIMIT="0",
         WS_ATTEMPT_LIMIT="0",
         ROOM_MESSAGE_LIMIT="0",
-        SYNERGO_MAX_ROOMS="0",
-        SYNERGO_MAX_MEMBERS="0",
-        SYNERGO_STATIC_DIR="",
+        HIVELANE_MAX_ROOMS="0",
+        HIVELANE_MAX_MEMBERS="0",
+        HIVELANE_STATIC_DIR="",
         PYTHONUNBUFFERED="1",
     )
     env.pop("GEMINI_API_KEY", None)
-    env.pop("SYNERGO_STATE_PATH", None)
-    env.pop("SYNERGO_REDIS_URL", None)
+    env.pop("HIVELANE_STATE_PATH", None)
+    env.pop("HIVELANE_REDIS_URL", None)
     env.update(extra or {})
     return env
 
@@ -182,7 +182,7 @@ async def run_worker_async(port, rooms, members, spectators, rate, ramp_s, start
                         res.rtt_ms.append((now - t0) * 1000)
                         d = msg.get("decision", "?")
                         res.decisions[d] = res.decisions.get(d, 0) + 1
-                elif kind == "synergo_feed" and spectator and measuring["on"]:
+                elif kind == "hivelane_feed" and spectator and measuring["on"]:
                     for ev in msg.get("events", ()):
                         if ev.get("type") == "activity_update":
                             mark = (ev.get("prompt") or " ").split(" ", 1)[0]
@@ -301,7 +301,7 @@ def pct(values: list[float], p: float) -> float:
 def run_step(name, rooms, members, spectators, rate, window_s, python, out_dir, workers, history_hours=0):
     port = free_port()
     # The relay logs every message at info level; keep that out of the results.
-    proc = start_relay(port, Path(tempfile.gettempdir()) / "synergo-relay-load.log", python)
+    proc = start_relay(port, Path(tempfile.gettempdir()) / "hivelane-relay-load.log", python)
     try:
         codes = [create_room(port) for _ in range(rooms)]
         sockets = rooms * (members + spectators)

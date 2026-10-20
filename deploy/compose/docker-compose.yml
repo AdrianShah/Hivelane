@@ -7,9 +7,9 @@
 #   docker compose up -d --build
 #
 # Optional Redis: set COMPOSE_PROFILES=redis and
-# SYNERGO_REDIS_URL=redis://redis:6379/0 in .env (see .env.example for what it
+# HIVELANE_REDIS_URL=redis://redis:6379/0 in .env (see .env.example for what it
 # changes and when it is worth it).
-name: synergo
+name: hivelane
 
 services:
   relay:
@@ -17,26 +17,26 @@ services:
       # The repo root, so the image is the same one CI builds and boots.
       context: ../..
       dockerfile: Dockerfile
-    image: synergo-relay:local
+    image: hivelane-relay:local
     restart: unless-stopped
     environment:
-      SYNERGO_ENV: ${SYNERGO_ENV:-production}
+      HIVELANE_ENV: ${HIVELANE_ENV:-production}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to your dashboard origin(s) in .env}
-      SYNERGO_STATE_PATH: /data/synergo.db
+      HIVELANE_STATE_PATH: /data/hivelane.db
       # The dashboard, built into the image, at https://RELAY_DOMAIN/. It talks
       # to the relay on its own origin, so it needs no CORS entry. Set
-      # SYNERGO_STATIC_DIR= (empty) in .env to serve the API only.
-      SYNERGO_STATIC_DIR: ${SYNERGO_STATIC_DIR-/app/static}
+      # HIVELANE_STATIC_DIR= (empty) in .env to serve the API only.
+      HIVELANE_STATIC_DIR: ${HIVELANE_STATIC_DIR-/app/static}
       # Safe here: Caddy discards any X-Forwarded-For a client sends and sets
       # the real address, so the relay sees each user's own IP.
       TRUST_PROXY_HEADER: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       # Empty keeps room codes and rate limits in this container; see the
       # redis profile below.
-      SYNERGO_REDIS_URL: ${SYNERGO_REDIS_URL:-}
+      HIVELANE_REDIS_URL: ${HIVELANE_REDIS_URL:-}
       # With Redis for rate limits only, keep room codes on the volume:
-      # SYNERGO_ROOM_STORE=local in .env.
-      SYNERGO_ROOM_STORE: ${SYNERGO_ROOM_STORE:-}
+      # HIVELANE_ROOM_STORE=local in .env.
+      HIVELANE_ROOM_STORE: ${HIVELANE_ROOM_STORE:-}
     volumes:
       # Room codes: without this every restart invalidates every room.
       - relay-data:/data
@@ -68,7 +68,7 @@ services:
     image: redis:8-alpine
     profiles: ["redis"]
     restart: unless-stopped
-    # Holds room codes (unless SYNERGO_ROOM_STORE=local) as well as
+    # Holds room codes (unless HIVELANE_ROOM_STORE=local) as well as
     # short-lived rate-limit counters, so it persists to its volume.
     command: ["redis-server", "--appendonly", "yes"]
     volumes:

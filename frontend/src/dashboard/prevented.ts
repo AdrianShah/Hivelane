@@ -1,5 +1,5 @@
 /**
- * "Synergo prevented N collisions this session" — the heuristic.
+ * "Hivelane prevented N collisions this session" — the heuristic.
  *
  * The relay never learns whether a warning changed anything; the dashboard
  * infers it from what the warned agent did next, using only frames it already

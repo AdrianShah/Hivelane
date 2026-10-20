@@ -158,7 +158,7 @@ function BrowserNotifications({ roomId }: { roomId: string }) {
         ))}
         {prefs.blocks === 'me' ? (
           <label className="block text-[12px] text-on-muted pl-6">
-            Your name in this room (as <code className="font-mono">synergo up</code> joined)
+            Your name in this room (as <code className="font-mono">hivelane up</code> joined)
             <input
               type="text"
               value={prefs.myName}
@@ -182,9 +182,9 @@ function BrowserNotifications({ roomId }: { roomId: string }) {
           className="rounded-lg border border-outline-soft px-3 py-1.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
           onClick={() =>
             showNotice({
-              title: 'Synergo notifications are on',
+              title: 'Hivelane notifications are on',
               body: `You will hear about room ${roomId} here.`,
-              tag: `synergo:${roomId}:test`,
+              tag: `hivelane:${roomId}:test`,
             })
           }
         >

@@ -52,14 +52,14 @@ except ImportError:  # Render rootDir=server
 
 # The bounds below come from server/config.py; 0 means no bound.
 #
-# One file's line (SYNERGO_FILE_QUEUE_MAX_LENGTH). A member is in a line at
+# One file's line (HIVELANE_FILE_QUEUE_MAX_LENGTH). A member is in a line at
 # most once, so the default of 0 bounds it by the room's membership.
 MAX_QUEUE_LENGTH = config.FILE_QUEUE_MAX_LENGTH
-# Files with a line at once, per room (SYNERGO_FILE_QUEUE_MAX_FILES).
+# Files with a line at once, per room (HIVELANE_FILE_QUEUE_MAX_FILES).
 MAX_QUEUED_FILES = config.FILE_QUEUE_MAX_FILES
 # Paths longer than this are not queued (a relay-side memory bound; real repo
 # paths are far shorter, and an e2e hash is 34 characters).
-# SYNERGO_MAX_PATH_CHARS.
+# HIVELANE_MAX_PATH_CHARS.
 MAX_QUEUED_PATH_CHARS = config.MAX_PATH_CHARS
 # How long the head of a line has to take a released file before the next
 # member in line is considered.

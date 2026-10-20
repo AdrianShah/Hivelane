@@ -14,10 +14,10 @@ fly auth login
 
 # 1. Create the app. Names are global; use your own, and put the same name in
 #    deploy/fly/fly.toml (`app = "..."`) so later commands find it.
-fly apps create my-synergo-relay
+fly apps create my-hivelane-relay
 
 # 2. A volume for room codes, in the same region as primary_region.
-fly volumes create synergo_data --region iad --size 1 --yes \
+fly volumes create hivelane_data --region iad --size 1 --yes \
   --config deploy/fly/fly.toml
 
 # 3. Secrets. CORS_ORIGINS is required in production: the exact origin(s) of
@@ -25,7 +25,7 @@ fly volumes create synergo_data --region iad --size 1 --yes \
 #    bundled dashboard is same-origin and needs no entry, so if it is the only
 #    one, list the app's own URL. --stage applies them on the next deploy.
 fly secrets set --stage --config deploy/fly/fly.toml \
-  CORS_ORIGINS=https://my-synergo-relay.fly.dev
+  CORS_ORIGINS=https://my-hivelane-relay.fly.dev
 # Optional AI captions and conflict summaries:
 fly secrets set --stage --config deploy/fly/fly.toml GEMINI_API_KEY=...
 
@@ -33,32 +33,32 @@ fly secrets set --stage --config deploy/fly/fly.toml GEMINI_API_KEY=...
 fly deploy --config deploy/fly/fly.toml
 
 # 5. Check it.
-curl https://my-synergo-relay.fly.dev/readyz
+curl https://my-hivelane-relay.fly.dev/readyz
 ```
 
 `fly launch --config deploy/fly/fly.toml --copy-config --no-deploy --name
-my-synergo-relay` can stand in for step 1. It scans the repository and may write
+my-hivelane-relay` can stand in for step 1. It scans the repository and may write
 a second `fly.toml` at the root, though. `fly apps create` doesn't touch any files.
 
 ## Point clients at it
 
 ```bash
-# CLI, per repo: written to .synergo.toml so teammates use the same relay
-synergo up --relay wss://my-synergo-relay.fly.dev/ws
+# CLI, per repo: written to .hivelane.toml so teammates use the same relay
+hivelane up --relay wss://my-hivelane-relay.fly.dev/ws
 # or per machine
-export SYNERGO_RELAY=wss://my-synergo-relay.fly.dev/ws
+export HIVELANE_RELAY=wss://my-hivelane-relay.fly.dev/ws
 ```
 
-The dashboard is at `https://my-synergo-relay.fly.dev/`, served by the relay
+The dashboard is at `https://my-hivelane-relay.fly.dev/`, served by the relay
 itself. A dashboard hosted elsewhere is built with
-`VITE_WS_URL=wss://my-synergo-relay.fly.dev/ws`, and its origin goes in
+`VITE_WS_URL=wss://my-hivelane-relay.fly.dev/ws`, and its origin goes in
 `CORS_ORIGINS`.
 
 ## Custom domain
 
 ```bash
 fly certs add relay.example.com --config deploy/fly/fly.toml
-# then create the DNS records it prints (CNAME to my-synergo-relay.fly.dev, or A/AAAA)
+# then create the DNS records it prints (CNAME to my-hivelane-relay.fly.dev, or A/AAAA)
 ```
 
 ## Deploying from CI
@@ -92,15 +92,15 @@ pinning every room to one of them:
 ```bash
 # 1. Redis, reachable from every machine (Upstash, through Fly):
 fly redis create
-fly secrets set --stage --config deploy/fly/fly.toml SYNERGO_REDIS_URL=redis://default:...@fly-....upstash.io:6379
+fly secrets set --stage --config deploy/fly/fly.toml HIVELANE_REDIS_URL=redis://default:...@fly-....upstash.io:6379
 
 # 2. A volume per machine, then the machines:
-fly volumes create synergo_data --region fra --size 1 --yes --config deploy/fly/fly.toml
+fly volumes create hivelane_data --region fra --size 1 --yes --config deploy/fly/fly.toml
 fly scale count 2 --region iad,fra --config deploy/fly/fly.toml
 fly deploy --config deploy/fly/fly.toml
 ```
 
-With `SYNERGO_REDIS_URL` set:
+With `HIVELANE_REDIS_URL` set:
 
 - **Room codes live in Redis**, so a code created on one machine is valid on
   all of them. Each machine's volume keeps only its local copy, used while
@@ -117,6 +117,6 @@ With `SYNERGO_REDIS_URL` set:
 - **Deploys move rooms cleanly.** A stopping machine releases its leases, so
   reconnecting daemons claim each room on whichever machine they reach next.
 
-To check it, `/metrics` on each machine reports `synergo_room_leases`, and the
+To check it, `/metrics` on each machine reports `hivelane_room_leases`, and the
 logs name each replayed room (`Replaying room ... to instance ...`). Redis has
 to keep its data, because it holds the room codes now.

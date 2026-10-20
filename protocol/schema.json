@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Synergo wire protocol",
-  "description": "Every WebSocket frame between a Synergo client and the relay. Generated from synergo/protocol.py by protocol/generate.py; do not edit by hand.",
+  "title": "Hivelane wire protocol",
+  "description": "Every WebSocket frame between a Hivelane client and the relay. Generated from hivelane/protocol.py by protocol/generate.py; do not edit by hand.",
   "x-protocol-version": 1,
   "x-min-supported-protocol": 1,
   "x-client-to-relay": {
@@ -39,7 +39,7 @@
     "file_requested": "#/$defs/FileRequested",
     "file_released": "#/$defs/FileReleased",
     "history_chunk": "#/$defs/HistoryChunk",
-    "synergo_feed": "#/$defs/SynergoFeed"
+    "hivelane_feed": "#/$defs/HivelaneFeed"
   },
   "oneOf": [
     {
@@ -139,7 +139,7 @@
       "$ref": "#/$defs/HistoryChunk"
     },
     {
-      "$ref": "#/$defs/SynergoFeed"
+      "$ref": "#/$defs/HivelaneFeed"
     }
   ],
   "$defs": {
@@ -900,6 +900,29 @@
       "title": "HistoryRequest",
       "type": "object"
     },
+    "HivelaneFeed": {
+      "properties": {
+        "type": {
+          "const": "hivelane_feed",
+          "default": "hivelane_feed",
+          "title": "Type",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Events",
+          "type": "array"
+        }
+      },
+      "required": [
+        "events"
+      ],
+      "title": "HivelaneFeed",
+      "type": "object"
+    },
     "IntentMessage": {
       "properties": {
         "type": {
@@ -1623,7 +1646,7 @@
       "type": "object"
     },
     "RoomSettings": {
-      "description": "Team-wide conflict windows from the repo's .synergo.toml.\n\nSent on join so the relay enforces what the team committed, not its own\ndefaults. Bounded so one member cannot disable blocking room-wide by\naccident (a zero block window still warns).",
+      "description": "Team-wide conflict windows from the repo's .hivelane.toml.\n\nSent on join so the relay enforces what the team committed, not its own\ndefaults. Bounded so one member cannot disable blocking room-wide by\naccident (a zero block window still warns).",
       "properties": {
         "block_window_seconds": {
           "default": 20.0,
@@ -1703,29 +1726,6 @@
         "warn_window_seconds"
       ],
       "title": "RoomSettingsUpdate",
-      "type": "object"
-    },
-    "SynergoFeed": {
-      "properties": {
-        "type": {
-          "const": "synergo_feed",
-          "default": "synergo_feed",
-          "title": "Type",
-          "type": "string"
-        },
-        "events": {
-          "items": {
-            "additionalProperties": true,
-            "type": "object"
-          },
-          "title": "Events",
-          "type": "array"
-        }
-      },
-      "required": [
-        "events"
-      ],
-      "title": "SynergoFeed",
       "type": "object"
     },
     "UserJoined": {

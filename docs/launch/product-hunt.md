@@ -26,11 +26,11 @@ Recommended: the first. It is the positioning line, shortened.
 
 ## Description (433 characters)
 
-> Synergo is an open-source add-on for teams running several AI coding agents
+> Hivelane is an open-source add-on for teams running several AI coding agents
 > in one repo. Before an agent edits a file, its own hook asks a shared relay
 > whether a teammate's agent is already in that function, and gets allow,
 > warn or block with a reason. Hooks for Claude Code, Codex CLI, Cursor and
-> Gemini CLI, in the editor you already use. One command per repo: synergo
+> Gemini CLI, in the editor you already use. One command per repo: hivelane
 > up. Self-host the relay; encrypt rooms end to end if you like.
 
 The first 260 characters end at "...allow, warn or block with a reason.",
@@ -46,7 +46,7 @@ which works on its own if the preview cuts there.
 
 ## First comment (from the maker)
 
-> Hi Product Hunt. Synergo started at a hackathon as a live board of what
+> Hi Product Hunt. Hivelane started at a hackathon as a live board of what
 > every teammate's AI agent was doing, fed by a file watcher. It kept
 > telling us about collisions after both agents had already written the same
 > file, which is too late to matter. So we rebuilt it around the agents' own
@@ -63,9 +63,9 @@ which works on its own if the preview cuts there.
 >
 > It works in the editor and agent you already use: blocking hooks for
 > Claude Code, Codex CLI, Cursor and Gemini CLI, observe-only fallbacks for
-> agents without hooks (Aider through `synergo run`, an MCP server, a git
+> agents without hooks (Aider through `hivelane run`, an MCP server, a git
 > pre-commit check), and a VS Code/Cursor extension that warns humans too.
-> Setup is `synergo up` in the repo; teammates pull and run the same command.
+> Setup is `hivelane up` in the repo; teammates pull and run the same command.
 >
 > Some honest limits: agents without pre-edit hooks can only be observed,
 > not stopped; if the relay is down, edits go ahead (it fails open); and
@@ -92,12 +92,12 @@ the block.
 
 | # | Image | Caption |
 |---|-------|---------|
-| 1 | Split screen from the demo at the moment of the block: Bob's terminal with `Synergo: alice's claude-code is editing greet in src/hello.py ... wait, or pick another file`, Alice's terminal with her finished edit | Agent B is blocked before it edits the function Agent A is changing |
-| 2 | Alice's `synergo up` output: hooks added, room created, dashboard link, share line | One command per repo: hooks, room and a background daemon |
+| 1 | Split screen from the demo at the moment of the block: Bob's terminal with `Hivelane: alice's claude-code is editing greet in src/hello.py ... wait, or pick another file`, Alice's terminal with her finished edit | Agent B is blocked before it edits the function Agent A is changing |
+| 2 | Alice's `hivelane up` output: hooks added, room created, dashboard link, share line | One command per repo: hooks, room and a background daemon |
 | 3 | Dashboard with both lanes: prompts, the `src/hello.py` diff, branch badges | Every agent's prompt, plan, diffs and decisions on one board |
 | 4 | Close-up of a decision chip: `blocked · src/hello.py`, scope tag `same function`, useful/noise buttons | Each decision says why, and the team can mark it useful or noise |
 | 5 | Simple table: Claude Code, Codex CLI, Cursor, Gemini CLI (block); Aider, MCP agents, git pre-commit (observe or warn); VS Code/Cursor extension (warns humans) | Blocking hooks for four agents, fallbacks for the rest |
-| 6 | Terminal: `synergo relay` output with the join line, next to `synergo up --e2e` printing the room key notice | Run the relay yourself, or encrypt rooms end to end |
+| 6 | Terminal: `hivelane relay` output with the join line, next to `hivelane up --e2e` printing the room key notice | Run the relay yourself, or encrypt rooms end to end |
 
 Thumbnail: the logo (`docs-site/src/assets/logo.svg`) exported as a 240x240
 PNG.

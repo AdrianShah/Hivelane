@@ -2,7 +2,7 @@
 
 By default the counters live in this process. With more than one relay instance
 a caller then gets one budget per instance, so the limits are a speed bump
-against casual abuse, not a guarantee. Setting SYNERGO_REDIS_URL moves the
+against casual abuse, not a guarantee. Setting HIVELANE_REDIS_URL moves the
 counters into Redis so every instance draws on one budget. `redis` is imported
 only in that case, so a single-instance deploy needs neither the package
 (`pip install redis`) nor the service.
@@ -49,7 +49,7 @@ IPV6_RATE_PREFIX = 64
 
 # Every limiter key in Redis lives under this prefix, so a shared Redis can be
 # inspected or cleared for the relay alone.
-REDIS_KEY_PREFIX = "synergo:ratelimit"
+REDIS_KEY_PREFIX = "hivelane:ratelimit"
 # The limiters run on the event loop through a blocking client, so a slow or
 # vanished Redis has to cost one short stall rather than hang every request.
 REDIS_TIMEOUT_SECONDS = 0.25
@@ -298,7 +298,7 @@ def redis_client(url: str) -> Any | None:
         from redis.retry import Retry
     except ImportError:
         log.warning(
-            "SYNERGO_REDIS_URL is set but the redis package is not installed "
+            "HIVELANE_REDIS_URL is set but the redis package is not installed "
             "(pip install redis); rate limits stay per-process"
         )
         return None
@@ -313,7 +313,7 @@ def redis_client(url: str) -> Any | None:
         )
     except ValueError as exc:
         log.warning(
-            "SYNERGO_REDIS_URL could not be used (%s); rate limits stay per-process",
+            "HIVELANE_REDIS_URL could not be used (%s); rate limits stay per-process",
             exc,
         )
         return None

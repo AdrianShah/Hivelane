@@ -1,6 +1,6 @@
 # Performance and capacity
 
-How much one relay process handles, how fast every Synergo process is, and
+How much one relay process handles, how fast every Hivelane process is, and
 what to speed up first. Every number here comes from the scripts listed in
 [benchmarks/README.md](../benchmarks/README.md); raw results are in
 `benchmarks/load/` and `benchmarks/profile/`.
@@ -14,7 +14,7 @@ what to speed up first. Every number here comes from the scripts listed in
 | OS | Windows 10 Home 19045 |
 | Python | 3.13.14 (CPython, asyncio selector loop; no uvloop on Windows) |
 | Node | 24.13.0 |
-| Relay | one `uvicorn server.main:app` process, `SYNERGO_ENV=development` (text logs at info), no Redis, memory room store |
+| Relay | one `uvicorn server.main:app` process, `HIVELANE_ENV=development` (text logs at info), no Redis, memory room store |
 
 The load generator ran on the same machine, and Windows asyncio is slower
 than Linux with uvloop, so treat the capacity numbers as a conservative floor
@@ -58,7 +58,7 @@ relay, derived from these knees: [self-hosting.md](self-hosting.md#capacity-limi
 
 ## Speed by process
 
-### 1. Hook (`synergo hook claude-code`, a fresh process per edit)
+### 1. Hook (`hivelane hook claude-code`, a fresh process per edit)
 
 | Scenario | p50 | p95 |
 |----------|----:|----:|
@@ -70,7 +70,7 @@ relay, derived from these knees: [self-hosting.md](self-hosting.md#capacity-limi
 
 - The relay round trip adds nothing visible: the hook's cost is interpreter
   start (74 ms) plus ~40 ms of console-script launcher, imports
-  (`synergo.hook_fast` 17 ms cumulative) and the loopback POST.
+  (`hivelane.hook_fast` 17 ms cumulative) and the loopback POST.
 - Fail-open on Windows is 250 ms slower: Windows retries a refused loopback
   connect, so `hook_fast.CONNECT_TIMEOUT` (0.25 s) is paid on every edit while
   the daemon is down.
@@ -79,8 +79,8 @@ relay, derived from these knees: [self-hosting.md](self-hosting.md#capacity-limi
 
 | Measure | Value |
 |---------|------:|
-| `synergo serve` start to listening | 1.33-1.56 s |
-| Import `synergo.daemon` | 0.90-1.00 s (fastapi 0.45-0.49 s, asyncio 0.11-0.15 s, uvicorn 0.11 s) |
+| `hivelane serve` start to listening | 1.33-1.56 s |
+| Import `hivelane.daemon` | 0.90-1.00 s (fastapi 0.45-0.49 s, asyncio 0.11-0.15 s, uvicorn 0.11 s) |
 | RSS, idle | 52.6 MB |
 | pre_edit (symbol extraction + edit_check to relay), one daemon | p50 1.75 ms, p95 3.1 ms |
 | post_edit (diff, redaction, signatures, batching), one daemon | p50 4.6 ms, p95 6.4 ms |
@@ -129,15 +129,15 @@ reply 7 %, `to_python` (model_dump) 5 %, `_suggestion_inputs`/`test_names`
 | Command | Median |
 |---------|-------:|
 | `python -c pass` (floor) | 76 ms |
-| `synergo --help` | 1,068 ms |
-| `synergo status` | 1,152 ms |
-| `synergo doctor` | 1,577 ms |
-| `synergo up --no-hooks -y`, first run (creates the room, spawns the daemon) | 4,565 ms |
-| `synergo up --no-hooks -y`, re-run | 1,335 ms |
+| `hivelane --help` | 1,068 ms |
+| `hivelane status` | 1,152 ms |
+| `hivelane doctor` | 1,577 ms |
+| `hivelane up --no-hooks -y`, first run (creates the room, spawns the daemon) | 4,565 ms |
+| `hivelane up --no-hooks -y`, re-run | 1,335 ms |
 
-About 0.9 s of every command is `build_parser` importing `synergo.daemon`
+About 0.9 s of every command is `build_parser` importing `hivelane.daemon`
 (fastapi, uvicorn, websockets) for one string constant, `DEFAULT_SERVER`.
-`synergo.cli` itself imports in 18 ms.
+`hivelane.cli` itself imports in 18 ms.
 
 ### 5. Dashboard
 
@@ -190,7 +190,7 @@ measured. Docs site (`docs-site`, Astro + Starlight): `npm run build` 7.8 s
    block`, `file_requested` are logged at info for every message: 21 µs per
    line, several lines per message, 9 MB of log in a 7-minute sweep.
 3. **CLI imports the daemon stack for a constant.** ~0.9 s of every
-   `synergo --help`/`status`/`doctor`/`up` (1.1-1.6 s against a 76 ms floor).
+   `hivelane --help`/`status`/`doctor`/`up` (1.1-1.6 s against a 76 ms floor).
 4. **Relay imports google-genai unconditionally.** 1.65 s of a 2.6 s import,
    paid on every relay start and test-suite run, used only with
    `GEMINI_API_KEY`.
@@ -207,12 +207,12 @@ the dashboard's single 118 KB-gzip chunk.
 | # | Change | Expected gain | Effort | Risk | New dependency |
 |---|--------|---------------|--------|------|----------------|
 | 1 | In `Room._deliver`, serialize the feed once (`json.dumps` to text) and `send_text` it to every socket; send concurrently (`asyncio.gather` with a per-socket timeout) and outside the room lock; drop a socket that times out | Flush 13.5 ms -> ~0.3 ms at 100 sockets (measured parts); estimated one-room knee 25 -> 100+ members and total knee +30-50 % | S | Low-medium (ordering per socket stays FIFO; timeouts need a test) | No |
-| 2 | `build_parser`: stop importing `synergo.daemon` for `DEFAULT_SERVER` (move the constant to a light module such as `synergo/config.py`) | -0.9 s on every CLI command (`--help` 1.07 s -> ~0.15 s, estimated) | XS | Low | No |
+| 2 | `build_parser`: stop importing `hivelane.daemon` for `DEFAULT_SERVER` (move the constant to a light module such as `hivelane/config.py`) | -0.9 s on every CLI command (`--help` 1.07 s -> ~0.15 s, estimated) | XS | Low | No |
 | 3 | `server/gemini.py`: import `google.genai` only when `GEMINI_API_KEY` is set | Relay start -1.6 s; test-suite collection about -1.6 s | XS | Low | No |
 | 4 | Log per-message lines (`activity from`, `plan from`, `edit_check ...`, `file_requested`) at debug; keep counters in `/metrics` | ~5-10 % relay CPU at load (estimate: 40-80 µs of ~1 ms per message) and far smaller logs | XS | Low (less detail in default logs) | No |
 | 5 | Run tests with `pytest-xdist` (`-n auto`) locally and in CI; let relay tests set `BROADCAST_FLUSH_SECONDS` to ~0.05 s through a fixture | Local 105 s -> 26-30 s (measured); CI jobs roughly halve; a further ~15-20 s from shorter flush waits (estimate) | S | Medium (tests that share ports or global state; one flaky-run check needed) | Dev only: `pytest-xdist` |
 | 6 | Use `orjson` (or `msgspec`) for the relay's outbound frames, with `json` as fallback | `json.dumps` 16.7 -> 1.5 µs per update; on top of #1, roughly -10 % relay CPU per message (estimate) | S | Low | Yes, optional (`orjson`, binary wheels for every CI platform) |
-| 7 | Nothing to do for the image: `server/requirements.txt` already pins `uvicorn[standard]`, so Linux relays run on uvloop + httptools. and so does the `relay` extra (`synergo relay`). Listed so nobody re-measures it | Typically 1.5-2x websocket throughput over the plain asyncio loop measured here (published uvicorn figures, not measured: Windows has no uvloop) | XS | Low | Already a relay dependency |
+| 7 | Nothing to do for the image: `server/requirements.txt` already pins `uvicorn[standard]`, so Linux relays run on uvloop + httptools. and so does the `relay` extra (`hivelane relay`). Listed so nobody re-measures it | Typically 1.5-2x websocket throughput over the plain asyncio loop measured here (published uvicorn figures, not measured: Windows has no uvloop) | XS | Low | Already a relay dependency |
 | 8 | Daemon post_edit: parse each content once and share the tree between `depgraph.changed_signatures` and `symbols.outline_for` (cache by content hash) | post_edit 4.6 -> ~3 ms (estimate from the profile: ~45 % is `ast.parse`) | S | Low | No |
 | 9 | Hook on Windows: remember "daemon down" for a few seconds (a timestamp file next to the spawn lock) and skip the connect | Fail-open edit 362 -> ~115 ms while the daemon is down | S | Low-medium (must not hide a daemon that just came up; keep the window short) | No |
 | 10 | Read `room._settings` directly on hot paths (`handle_activity`, webhook sink) instead of the copying `settings` property | 2.3 µs per read, a few per message | XS | Low | No |

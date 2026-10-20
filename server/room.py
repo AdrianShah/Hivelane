@@ -112,7 +112,7 @@ def remove_event_sink(sink: EventSink) -> None:
         _event_sinks.remove(sink)
 
 # Defaults for a room nobody has configured. A room's own RoomSettings (from
-# POST /rooms or a member's committed .synergo.toml) replace these per room.
+# POST /rooms or a member's committed .hivelane.toml) replace these per room.
 #
 # How long a peer's last touch of a file stays eligible for conflict comparison
 # (the "warn" window).
@@ -138,7 +138,7 @@ EDIT_BLOCK_WINDOW_SECONDS = 20.0
 # how close two edits may land.
 INTENT_WINDOW_SECONDS = 300.0
 
-# Debounce room-wide broadcasts into a single Synergo feed frame.
+# Debounce room-wide broadcasts into a single Hivelane feed frame.
 BROADCAST_FLUSH_SECONDS = 0.5
 
 # Two line-range edits closer than this are treated as the same hunk: git's
@@ -166,24 +166,24 @@ def _env_number(name: str, default: float) -> float:
 
 # How long one outbound frame may take to reach one socket. A socket that
 # does not drain in time is dropped (closed) rather than allowed to hold up
-# the rest of the room. SYNERGO_SEND_TIMEOUT_SECONDS.
-SEND_TIMEOUT_SECONDS = _env_number("SYNERGO_SEND_TIMEOUT_SECONDS", 2.0)
+# the rest of the room. HIVELANE_SEND_TIMEOUT_SECONDS.
+SEND_TIMEOUT_SECONDS = _env_number("HIVELANE_SEND_TIMEOUT_SECONDS", 2.0)
 
 # Byte budget for one outbound frame. The daemon's websockets client refuses
 # frames over 1 MiB (and reconnects into the same traffic), so feeds are split
 # and derived e2e copies trimmed to stay under this.
-OUTBOUND_FRAME_BUDGET = int(_env_number("SYNERGO_OUTBOUND_FRAME_BYTES", 768 * 1024))
+OUTBOUND_FRAME_BUDGET = int(_env_number("HIVELANE_OUTBOUND_FRAME_BYTES", 768 * 1024))
 
 # Per-room bounds on the touch table (files x members), so no member can grow
 # relay memory without limit: at most this many touches (oldest evicted), and
 # at most this many bytes of retained diffs and e2e blobs. 0 = unlimited.
-MAX_TOUCHES_PER_ROOM = int(_env_number("SYNERGO_MAX_TOUCHES_PER_ROOM", 5000))
-MAX_TOUCH_BYTES_PER_ROOM = int(_env_number("SYNERGO_MAX_TOUCH_BYTES_PER_ROOM", 64 * 1024 * 1024))
+MAX_TOUCHES_PER_ROOM = int(_env_number("HIVELANE_MAX_TOUCHES_PER_ROOM", 5000))
+MAX_TOUCH_BYTES_PER_ROOM = int(_env_number("HIVELANE_MAX_TOUCH_BYTES_PER_ROOM", 64 * 1024 * 1024))
 # A touch keeps only this much of its diff: the diff is only read for Gemini
 # conflict classification, which uses the first 2,500 characters anyway.
 STORED_DIFF_BYTES = 4 * 1024
 # Paths longer than this are not tracked at all (real paths are far shorter;
-# an e2e hash is 34 characters). SYNERGO_MAX_PATH_CHARS.
+# an e2e hash is 34 characters). HIVELANE_MAX_PATH_CHARS.
 MAX_TRACKED_PATH_CHARS = config.MAX_PATH_CHARS
 # Symbols and line ranges a merged touch remembers (newest kept).
 MAX_SYMBOLS_PER_TOUCH = 256
@@ -192,15 +192,15 @@ MAX_RANGES_PER_TOUCH = 256
 MAX_PLANS_PER_MEMBER = 8
 MAX_INTENTS_PER_MEMBER = 8
 # Joiners from one address that may wait for approval at once.
-MAX_PENDING_JOINS_PER_IP = int(_env_number("SYNERGO_MAX_PENDING_JOINS_PER_IP", 2))
+MAX_PENDING_JOINS_PER_IP = int(_env_number("HIVELANE_MAX_PENDING_JOINS_PER_IP", 2))
 
 # Feedback is kept for this many recent decisions per room (LRU).
-# SYNERGO_MAX_TRACKED_DECISIONS; 0 = unlimited.
+# HIVELANE_MAX_TRACKED_DECISIONS; 0 = unlimited.
 MAX_TRACKED_DECISIONS = config.MAX_TRACKED_DECISIONS
 
 # Joiners that may wait for an owner's approval at once, per room. Bounded so a
 # script holding sockets open cannot grow the queue (or the owners' screens).
-# SYNERGO_MAX_PENDING_JOINS; 0 = unlimited.
+# HIVELANE_MAX_PENDING_JOINS; 0 = unlimited.
 MAX_PENDING_JOINS = config.MAX_PENDING_JOINS
 
 # Bytes of randomness in an owner token (POST /rooms returns it once).
@@ -208,7 +208,7 @@ OWNER_TOKEN_BYTES = 32
 
 # Paths this room has seen (edit checks, file requests), remembered per
 # (repo_id, path) for edit-check suggestions. Bounded LRU.
-# SYNERGO_MAX_KNOWN_PATHS; 0 = unlimited.
+# HIVELANE_MAX_KNOWN_PATHS; 0 = unlimited.
 MAX_KNOWN_PATHS = config.MAX_KNOWN_PATHS
 
 
@@ -237,7 +237,7 @@ _ALWAYS_WARN_BASENAMES = (
     "tsconfig*.json",
     ".env*",
     "Dockerfile",
-    ".synergo.toml",
+    ".hivelane.toml",
 )
 
 
@@ -520,7 +520,7 @@ class Room:
         # channel (and each repo within one) is limited independently (see
         # is_activity_rate_limited).
         self._last_activity_at: dict[tuple[str, str, str], float] = {}
-        # Queued room broadcasts → flushed as one synergo_feed every 500ms.
+        # Queued room broadcasts → flushed as one hivelane_feed every 500ms.
         # Appending never awaits; deliveries are serialized by _deliver_lock
         # (so each socket sees feeds in order), which no broadcast() waits on.
         self._broadcast_queue: list[dict] = []
@@ -1917,7 +1917,7 @@ class Room:
     # --- broadcast -----------------------------------------------------------
 
     async def broadcast(self, message: BaseModel) -> None:
-        """Queue a room-wide event and flush as a Synergo feed batch (~500ms).
+        """Queue a room-wide event and flush as a Hivelane feed batch (~500ms).
 
         Never waits on any socket: it only appends to the queue (async for the
         callers' sake). Point-to-point replies still use send() and go out
@@ -1941,7 +1941,7 @@ class Room:
                 self._flush_task = None
             if not events:
                 return
-            log.debug("Flushing Synergo feed (%d event(s))", len(events))
+            log.debug("Flushing Hivelane feed (%d event(s))", len(events))
             # Kept exactly as spectators get them (a no-op while history is off).
             self.history.record(events)
             for text in feed_frames(events):
@@ -2057,12 +2057,12 @@ async def _close_stalled(socket: WebSocket) -> None:
         pass
 
 
-_FEED_HEAD = '{"type":"synergo_feed","events":['
+_FEED_HEAD = '{"type":"hivelane_feed","events":['
 _FEED_TAIL = "]}"
 
 
 def feed_frames(events: list[dict], budget: Optional[int] = None) -> list[str]:
-    """The synergo_feed frame(s) for a batch of events, serialized once.
+    """The hivelane_feed frame(s) for a batch of events, serialized once.
 
     Split so that no frame exceeds `budget` bytes (OUTBOUND_FRAME_BUDGET): a
     burst of large e2e activity would otherwise make one feed bigger than a

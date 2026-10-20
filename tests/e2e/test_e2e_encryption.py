@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from synergo import crypto
+from hivelane import crypto
 
 if TYPE_CHECKING:
     from .conftest import Cluster

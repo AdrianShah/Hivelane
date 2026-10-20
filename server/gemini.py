@@ -89,7 +89,7 @@ def _sdk() -> bool:
             try:
                 from google import genai as _genai
                 from google.genai import types as _types
-            except ImportError:  # optional: pip install google-genai (synergo[gemini])
+            except ImportError:  # optional: pip install google-genai (hivelane[gemini])
                 return False
             genai, types = _genai, _types
     return genai is not None
@@ -194,12 +194,12 @@ _DELIMITER_LIKE = re.compile(
     r"(?i)(-{3,}|={3,}|<{2,}|>{2,}|\[{2,}|\]{2,})\s*(end|start|begin)?\s*(of\s+)?"
     r"(user[\s_-]*data|data|untrusted)[^\n]*"
 )
-_MARKER = "SYNERGO-DATA"
+_MARKER = "HIVELANE-DATA"
 
 
 def _clean_input(text: object, limit: int) -> str:
     value = str(text or "")
-    value = value.replace(_MARKER, "SYNERGO_DATA")
+    value = value.replace(_MARKER, "HIVELANE_DATA")
     value = _DELIMITER_LIKE.sub("[removed]", value)
     if len(value) > limit:
         value = value[:limit] + "\n…(truncated)"

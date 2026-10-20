@@ -46,7 +46,7 @@ except ImportError:  # Render rootDir=server
     from tests.fake_redis import Clock, FakeRedis
 
 CUSTOM = RoomSettings(block_window_seconds=5.0, warn_window_seconds=30.0)
-# A relay that sets SYNERGO_MAX_ROOMS (the default, 0, is unlimited).
+# A relay that sets HIVELANE_MAX_ROOMS (the default, 0, is unlimited).
 MAX_ROOMS = 100
 ACCESS = {"owner_hash": "ab" * 32, "require_approval": True}
 
@@ -61,7 +61,7 @@ def make_store(request: pytest.FixtureRequest, tmp_path: Path) -> StoreFactory:
         shared = MemoryRoomStore()
         return lambda: shared
     if request.param == "sqlite":
-        path = str(tmp_path / "state" / "synergo.db")
+        path = str(tmp_path / "state" / "hivelane.db")
         return lambda: SqliteRoomStore(path)
     redis = FakeRedis()
     return lambda: RedisRoomStore(redis)
@@ -240,7 +240,7 @@ def _store_module() -> object:
 def fake_connect(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     redis = FakeRedis()
     monkeypatch.setattr(_store_module(), "connect_redis", lambda url, purpose: redis)
-    monkeypatch.setenv("SYNERGO_REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("HIVELANE_REDIS_URL", "redis://redis:6379/0")
     monkeypatch.delenv(ROOM_STORE_ENV, raising=False)
     monkeypatch.delenv(STATE_PATH_ENV, raising=False)
     return redis
@@ -257,7 +257,7 @@ def test_redis_url_selects_the_redis_store(fake_connect: FakeRedis) -> None:
 def test_the_state_path_becomes_the_local_copy(
     fake_connect: FakeRedis, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setenv(STATE_PATH_ENV, str(tmp_path / "synergo.db"))
+    monkeypatch.setenv(STATE_PATH_ENV, str(tmp_path / "hivelane.db"))
 
     store = build_room_store()
 
@@ -269,7 +269,7 @@ def test_room_store_local_keeps_codes_off_redis(
     fake_connect: FakeRedis, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv(ROOM_STORE_ENV, "local")
-    monkeypatch.setenv(STATE_PATH_ENV, str(tmp_path / "synergo.db"))
+    monkeypatch.setenv(STATE_PATH_ENV, str(tmp_path / "hivelane.db"))
 
     assert isinstance(build_room_store(), SqliteRoomStore)
 
@@ -283,14 +283,14 @@ def test_an_unknown_room_store_value_is_ignored_with_a_warning(
         store = build_room_store()
 
     assert isinstance(store, RedisRoomStore)
-    assert "Ignoring SYNERGO_ROOM_STORE" in caplog.text
+    assert "Ignoring HIVELANE_ROOM_STORE" in caplog.text
 
 
 def test_without_the_redis_package_the_local_store_is_used(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(_store_module(), "connect_redis", lambda url, purpose: None)
-    monkeypatch.setenv("SYNERGO_REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("HIVELANE_REDIS_URL", "redis://redis:6379/0")
     monkeypatch.delenv(STATE_PATH_ENV, raising=False)
 
     assert isinstance(build_room_store(), MemoryRoomStore)

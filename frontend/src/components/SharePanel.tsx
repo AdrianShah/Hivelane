@@ -58,8 +58,8 @@ export default function SharePanel({ roomId, settings, requireApproval = null }:
           <p>
             <span aria-hidden="true">🔒 </span>
             This room is end-to-end encrypted. Send the room key separately from this link
-            (<code>synergo key show</code> prints it): teammates run{' '}
-            <code>synergo key set {roomId || 'CODE'}</code>,
+            (<code>hivelane key show</code> prints it): teammates run{' '}
+            <code>hivelane key set {roomId || 'CODE'}</code>,
             viewers add <code>#k=&lt;key&gt;</code> to the link or paste the key when asked.
           </p>
         ) : null}

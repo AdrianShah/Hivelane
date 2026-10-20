@@ -11,7 +11,7 @@
 import { normalizeRoomCode, relayHttpOrigin } from './relayUrl';
 import type { JoinMessage } from './types';
 
-const OWNER_TOKEN_PREFIX = 'synergo:owner-token:';
+const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
 
 function storageKey(roomId: string): string {
   return `${OWNER_TOKEN_PREFIX}${normalizeRoomCode(roomId)}`;

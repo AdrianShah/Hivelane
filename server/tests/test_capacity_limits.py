@@ -108,8 +108,8 @@ def test_every_limit_reads_its_environment_variable(
 
 @pytest.mark.parametrize("raw", ["-1", "lots", "1.5"])
 def test_a_bad_limit_refuses_to_boot(raw: str) -> None:
-    with pytest.raises(config.ConfigError, match="SYNERGO_MAX_MEMBERS"):
-        config.load_settings({"SYNERGO_MAX_MEMBERS": raw})
+    with pytest.raises(config.ConfigError, match="HIVELANE_MAX_MEMBERS"):
+        config.load_settings({"HIVELANE_MAX_MEMBERS": raw})
 
 
 @pytest.mark.parametrize(
@@ -122,9 +122,9 @@ def test_rate_limits_accept_zero_as_unlimited(name: str) -> None:
 
 
 def test_webhooks_per_room_cannot_be_unlimited() -> None:
-    with pytest.raises(config.ConfigError, match="SYNERGO_MAX_WEBHOOKS_PER_ROOM"):
-        config.load_settings({"SYNERGO_MAX_WEBHOOKS_PER_ROOM": "0"})
-    assert config.load_settings({"SYNERGO_MAX_WEBHOOKS_PER_ROOM": "10"}).max_webhooks_per_room == 10
+    with pytest.raises(config.ConfigError, match="HIVELANE_MAX_WEBHOOKS_PER_ROOM"):
+        config.load_settings({"HIVELANE_MAX_WEBHOOKS_PER_ROOM": "0"})
+    assert config.load_settings({"HIVELANE_MAX_WEBHOOKS_PER_ROOM": "10"}).max_webhooks_per_room == 10
 
 
 def test_readyz_reports_the_limits_in_force(relay: RoomManager) -> None:

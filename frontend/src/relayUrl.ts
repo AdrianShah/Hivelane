@@ -6,14 +6,14 @@
  * can't drift.
  */
 
-/** What `synergo up` connects to when given no --relay. */
+/** What `hivelane up` connects to when given no --relay. */
 const DEFAULT_WS_BASE = 'ws://localhost:8000/ws';
 
 /** Vite's dev server and `vite preview`: no relay on these origins. */
 const VITE_PORTS = new Set(['5173', '4173']);
 
 /** Where a relay chosen with ?relay= is kept for the rest of this tab's visit. */
-const RELAY_STORAGE_KEY = 'synergo.relay';
+const RELAY_STORAGE_KEY = 'hivelane.relay';
 
 /** The URL query parameter that names the relay: /r/K7M2PQ2X?relay=wss://relay.example/ws */
 export const RELAY_PARAM = 'relay';
@@ -108,14 +108,14 @@ export function isStaticHost(): boolean {
 
 /**
  * Which relay this dashboard talks to:
- * 1. ?relay=wss://… on the URL (a room link from `synergo up` or a teammate),
+ * 1. ?relay=wss://… on the URL (a room link from `hivelane up` or a teammate),
  *    remembered for the tab in sessionStorage, or one remembered earlier;
  * 2. VITE_WS_URL, baked in at build time (a dashboard hosted apart from its
  *    relay, e.g. on Vercel);
  * 3. otherwise ws://localhost:8000/ws under `npm run dev` / `vite preview`,
  *    next to a local `uvicorn server.main:app`, and on a static host;
  * 4. otherwise the origin the page came from: a build served by the relay
- *    itself (the Docker image, `synergo relay`) finds it with no
+ *    itself (the Docker image, `hivelane relay`) finds it with no
  *    configuration, as ws:// on http and wss:// on https.
  */
 /** Where the relay in use came from (shown on the Home page). */
@@ -155,7 +155,7 @@ export function relayHttpOrigin(): string {
   return withoutWsPath.replace(/^ws/, 'http');
 }
 
-/** Base WS URL without a room code — what `synergo up --relay` takes. */
+/** Base WS URL without a room code — what `hivelane up --relay` takes. */
 export function relayWsBase(): string {
   return current().base.replace(/\/$/, '');
 }
@@ -197,7 +197,7 @@ export function roomPath(roomId: string): string {
 
 /**
  * The path this build is served under, without a trailing slash: '' at the
- * root, '/Synergo' on GitHub Pages (vite.config.ts `base`). The router's
+ * root, '/Hivelane' on GitHub Pages (vite.config.ts `base`). The router's
  * basename; roomPath() stays relative to it.
  */
 export function basePath(): string {
@@ -217,7 +217,7 @@ function relayIsThisOrigin(): boolean {
 /**
  * Shareable dashboard link for a room on this site. Unless this page's own
  * server is the relay, the link carries ?relay= so whoever opens it reaches
- * the same relay: /Synergo/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws
+ * the same relay: /Hivelane/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws
  */
 export function roomLink(roomId: string): string {
   const link = `${window.location.origin}${basePath()}${roomPath(roomId)}`;
@@ -232,13 +232,13 @@ export function roomLink(roomId: string): string {
 export function upCommand(roomId: string): string {
   const relay = isDefaultRelay() ? '' : ` --relay ${relayWsBase()}`;
   const insecure = needsInsecure(relayWsBase()) ? ' --insecure' : '';
-  return `synergo up --room ${normalizeRoomCode(roomId)}${relay}${insecure}`;
+  return `hivelane up --room ${normalizeRoomCode(roomId)}${relay}${insecure}`;
 }
 
 /**
  * The CLI refuses a plaintext ws:// relay on another machine unless told
- * --insecure (e.g. `synergo relay` on a LAN), so a copied line must carry it.
- * Mirrors transport_problem in synergo/config.py.
+ * --insecure (e.g. `hivelane relay` on a LAN), so a copied line must carry it.
+ * Mirrors transport_problem in hivelane/config.py.
  */
 function needsInsecure(wsBase: string): boolean {
   if (!/^ws:\/\//i.test(wsBase)) return false;
@@ -258,7 +258,7 @@ function needsInsecure(wsBase: string): boolean {
   return !loopback;
 }
 
-/** The one line a teammate pastes to install Synergo and join a room. */
+/** The one line a teammate pastes to install Hivelane and join a room. */
 export function setupCommand(roomId: string): string {
-  return `pipx install synergo && ${upCommand(roomId)}`;
+  return `pipx install hivelane && ${upCommand(roomId)}`;
 }

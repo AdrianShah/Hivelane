@@ -104,7 +104,7 @@ def test_disjoint_symbols_with_overlapping_lines_block(room: Room) -> None:
 def test_project_config_is_always_warn() -> None:
     from server.room import is_always_warn_file
 
-    assert is_always_warn_file(".synergo.toml")
+    assert is_always_warn_file(".hivelane.toml")
 
 
 def test_imports_symbol_intersects_only_imports(room: Room) -> None:
@@ -313,7 +313,7 @@ def _frame(ws: Any, type_name: str) -> dict:
 def _feed(ws: Any, type_name: str) -> dict:
     for _ in range(20):
         frame = ws.receive_json()
-        if frame.get("type") != "synergo_feed":
+        if frame.get("type") != "hivelane_feed":
             continue
         for event in frame["events"]:
             if event.get("type") == type_name:
@@ -375,7 +375,7 @@ def test_wire_symbol_check_plan_and_feedback() -> None:
             assert plan["user_id"] == "priya" and plan["expires_at"] > plan["timestamp"]
 
             before = _sample(
-                'synergo_decision_feedback_total{useful="true",scope="symbol"}'
+                'hivelane_decision_feedback_total{useful="true",scope="symbol"}'
             )
             with client.websocket_connect(f"/ws/{room_id}") as dash:
                 _wjoin(dash, None)
@@ -389,6 +389,6 @@ def test_wire_symbol_check_plan_and_feedback() -> None:
                 )
                 fb = _feed(dash, "decision_feedback_update")
                 assert (fb["useful_count"], fb["noise_count"]) == (1, 0)
-            after = _sample('synergo_decision_feedback_total{useful="true",scope="symbol"}')
+            after = _sample('hivelane_decision_feedback_total{useful="true",scope="symbol"}')
             assert after - before == 1
-            assert _sample('synergo_edit_checks_total{decision="block",scope="symbol"}') >= 1
+            assert _sample('hivelane_edit_checks_total{decision="block",scope="symbol"}') >= 1

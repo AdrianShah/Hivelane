@@ -68,15 +68,15 @@ def test_metrics_endpoint_speaks_the_exposition_format() -> None:
     assert response.headers["content-type"].startswith("text/plain; version=0.0.4")
     text = response.text
     for name, kind in (
-        ("synergo_rooms_live", "gauge"),
-        ("synergo_rooms_durable", "gauge"),
-        ("synergo_members", "gauge"),
-        ("synergo_spectators", "gauge"),
-        ("synergo_edit_checks_total", "counter"),
-        ("synergo_activity_messages_total", "counter"),
-        ("synergo_intents_total", "counter"),
-        ("synergo_ws_rejections_total", "counter"),
-        ("synergo_edit_check_seconds", "histogram"),
+        ("hivelane_rooms_live", "gauge"),
+        ("hivelane_rooms_durable", "gauge"),
+        ("hivelane_members", "gauge"),
+        ("hivelane_spectators", "gauge"),
+        ("hivelane_edit_checks_total", "counter"),
+        ("hivelane_activity_messages_total", "counter"),
+        ("hivelane_intents_total", "counter"),
+        ("hivelane_ws_rejections_total", "counter"),
+        ("hivelane_edit_check_seconds", "histogram"),
     ):
         assert f"# TYPE {name} {kind}\n" in text
         assert f"# HELP {name} " in text
@@ -89,9 +89,9 @@ def test_labelled_counters_start_at_zero_for_every_known_value() -> None:
     samples = _scrape(TestClient(app))
 
     for decision in ("allow", "warn", "block"):
-        assert samples[f'synergo_edit_checks_total{{decision="{decision}",scope="file"}}'] == 0
+        assert samples[f'hivelane_edit_checks_total{{decision="{decision}",scope="file"}}'] == 0
     for reason in ("rate_limited", "room_not_found", "version", "name"):
-        assert samples[f'synergo_ws_rejections_total{{reason="{reason}"}}'] == 0
+        assert samples[f'hivelane_ws_rejections_total{{reason="{reason}"}}'] == 0
 
 
 def test_histogram_buckets_are_cumulative_and_end_in_inf() -> None:
@@ -117,7 +117,7 @@ def test_edit_check_histogram_has_the_documented_buckets() -> None:
     bounds = [
         key.split('le="')[1].rstrip('"}')
         for key in samples
-        if key.startswith("synergo_edit_check_seconds_bucket")
+        if key.startswith("hivelane_edit_check_seconds_bucket")
     ]
     assert bounds == ["0.001", "0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "+Inf"]
 
@@ -145,11 +145,11 @@ def test_edit_checks_are_counted_by_decision_and_timed() -> None:
             assert ws.receive_json()["type"] == "edit_check_response"
         samples = _scrape(client)
 
-    assert samples['synergo_edit_checks_total{decision="allow",scope="file"}'] == 3
-    assert samples['synergo_edit_checks_total{decision="block",scope="file"}'] == 0
-    assert samples["synergo_edit_check_seconds_count"] == 3
-    assert samples['synergo_edit_check_seconds_bucket{le="+Inf"}'] == 3
-    assert samples["synergo_edit_check_seconds_sum"] >= 0
+    assert samples['hivelane_edit_checks_total{decision="allow",scope="file"}'] == 3
+    assert samples['hivelane_edit_checks_total{decision="block",scope="file"}'] == 0
+    assert samples["hivelane_edit_check_seconds_count"] == 3
+    assert samples['hivelane_edit_check_seconds_bucket{le="+Inf"}'] == 3
+    assert samples["hivelane_edit_check_seconds_sum"] >= 0
 
 
 def test_activity_and_intents_are_counted() -> None:
@@ -172,8 +172,8 @@ def test_activity_and_intents_are_counted() -> None:
             pass
         samples = _scrape(client)
 
-    assert samples["synergo_intents_total"] == 1
-    assert samples["synergo_activity_messages_total"] == 1
+    assert samples["hivelane_intents_total"] == 1
+    assert samples["hivelane_activity_messages_total"] == 1
 
 
 def test_members_and_spectators_are_gauged_live() -> None:
@@ -192,10 +192,10 @@ def test_members_and_spectators_are_gauged_live() -> None:
             assert spectator.receive_json()["type"] == "room_settings"
             during = _scrape(client)
 
-    assert during["synergo_members"] == before["synergo_members"] + 1
-    assert during["synergo_spectators"] == before["synergo_spectators"] + 1
-    assert during["synergo_rooms_live"] >= 1
-    assert during["synergo_rooms_durable"] >= 1
+    assert during["hivelane_members"] == before["hivelane_members"] + 1
+    assert during["hivelane_spectators"] == before["hivelane_spectators"] + 1
+    assert during["hivelane_rooms_live"] >= 1
+    assert during["hivelane_rooms_durable"] >= 1
 
 
 def test_unknown_room_is_counted_as_a_rejection() -> None:
@@ -204,7 +204,7 @@ def test_unknown_room_is_counted_as_a_rejection() -> None:
     with client.websocket_connect("/ws/ZZZZZZ") as ws:
         assert ws.receive_json()["type"] == "room_rejected"
 
-    assert _scrape(client)['synergo_ws_rejections_total{reason="room_not_found"}'] == 1
+    assert _scrape(client)['hivelane_ws_rejections_total{reason="room_not_found"}'] == 1
 
 
 def test_old_protocol_is_counted_as_a_rejection() -> None:
@@ -215,7 +215,7 @@ def test_old_protocol_is_counted_as_a_rejection() -> None:
         ws.send_json({"type": "join", "name": "adrian"})
         assert ws.receive_json()["type"] == "version_rejected"
 
-    assert _scrape(client)['synergo_ws_rejections_total{reason="version"}'] == 1
+    assert _scrape(client)['hivelane_ws_rejections_total{reason="version"}'] == 1
 
 
 def test_bad_name_is_counted_as_a_rejection() -> None:
@@ -226,7 +226,7 @@ def test_bad_name_is_counted_as_a_rejection() -> None:
         _join(ws, "!!!")
         assert ws.receive_json()["type"] == "name_rejected"
 
-    assert _scrape(client)['synergo_ws_rejections_total{reason="name"}'] == 1
+    assert _scrape(client)['hivelane_ws_rejections_total{reason="name"}'] == 1
 
 
 def test_rate_limited_connection_is_counted_as_a_rejection(
@@ -241,4 +241,4 @@ def test_rate_limited_connection_is_counted_as_a_rejection(
         frame = ws.receive_json()
 
     assert frame["type"] == "rate_limited"
-    assert _scrape(client)['synergo_ws_rejections_total{reason="rate_limited"}'] == 1
+    assert _scrape(client)['hivelane_ws_rejections_total{reason="rate_limited"}'] == 1

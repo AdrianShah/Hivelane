@@ -1,8 +1,8 @@
 """Wall time of the user-facing CLI commands, each a fresh process.
 
-Runs in a throwaway git repo with SYNERGO_HOME (and HOME/USERPROFILE) pointed
+Runs in a throwaway git repo with HIVELANE_HOME (and HOME/USERPROFILE) pointed
 at a temp dir, against a relay started on a free port, so nothing touches the
-real home, hooks or daemon. `synergo up` runs with --no-hooks -y and starts a
+real home, hooks or daemon. `hivelane up` runs with --no-hooks -y and starts a
 background daemon on a free port, which is shut down afterwards.
 
     python scripts/loadtest/time_cli.py [-n 5]
@@ -33,7 +33,7 @@ def timed(cmd: list[str], cwd: Path, env: dict, runs: int) -> dict:
         samples.append((time.perf_counter() - t0) * 1000)
         code = proc.returncode
         tail = (proc.stdout + proc.stderr).strip().splitlines()[-1:] or [""]
-    return {"cmd": " ".join(cmd[1:]) if cmd[0].endswith(("synergo", "synergo.exe")) else " ".join(cmd),
+    return {"cmd": " ".join(cmd[1:]) if cmd[0].endswith(("hivelane", "hivelane.exe")) else " ".join(cmd),
             "runs": runs, "median_ms": round(statistics.median(samples), 0), "min_ms": round(min(samples), 0),
             "max_ms": round(max(samples), 0), "exit": code, "last_line": tail[0][:120]}
 
@@ -41,10 +41,10 @@ def timed(cmd: list[str], cwd: Path, env: dict, runs: int) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("-n", "--runs", type=int, default=5)
-    ap.add_argument("--synergo", default=shutil.which("synergo") or str(Path(sys.executable).parent / "synergo"))
+    ap.add_argument("--hivelane", default=shutil.which("hivelane") or str(Path(sys.executable).parent / "hivelane"))
     ap.add_argument("--out", default=str(REPO / "benchmarks" / "profile" / "cli_timings.json"))
     args = ap.parse_args()
-    work = Path(tempfile.mkdtemp(prefix="synergo-cli-"))
+    work = Path(tempfile.mkdtemp(prefix="hivelane-cli-"))
     repo = work / "repo"
     repo.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
@@ -52,14 +52,14 @@ def main() -> int:
     home.mkdir()
     relay_port, daemon_port = free_port(), free_port()
     relay = start_relay(relay_port, work / "relay.log", sys.executable)
-    env = dict(os.environ, SYNERGO_HOME=str(home / ".synergo"), HOME=str(home), USERPROFILE=str(home),
-               SYNERGO_PORT=str(daemon_port), SYNERGO_RELAY=f"ws://127.0.0.1:{relay_port}/ws",
-               SYNERGO_NAME="bench", SYNERGO_DASHBOARD="http://127.0.0.1:5173")
-    s = args.synergo
+    env = dict(os.environ, HIVELANE_HOME=str(home / ".hivelane"), HOME=str(home), USERPROFILE=str(home),
+               HIVELANE_PORT=str(daemon_port), HIVELANE_RELAY=f"ws://127.0.0.1:{relay_port}/ws",
+               HIVELANE_NAME="bench", HIVELANE_DASHBOARD="http://127.0.0.1:5173")
+    s = args.hivelane
     rows = []
     try:
         rows.append(timed([sys.executable, "-c", "pass"], repo, env, args.runs))
-        rows.append(timed([sys.executable, "-X", "importtime", "-c", "import synergo.cli"], repo, env, 1))
+        rows.append(timed([sys.executable, "-X", "importtime", "-c", "import hivelane.cli"], repo, env, 1))
         rows.append(timed([s, "--help"], repo, env, args.runs))
         rows.append(timed([s, "up", "--no-hooks", "-y"], repo, env, 1))  # first: creates the room, starts the daemon
         rows[-1]["cmd"] = "up --no-hooks -y (first run: create room, spawn daemon)"

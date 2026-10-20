@@ -70,12 +70,12 @@ def _directory(redis: FakeRedis, name: str, clock: Clock) -> RedisRoomDirectory:
 
 
 def test_instance_id_prefers_the_fly_machine_id() -> None:
-    env = {"FLY_MACHINE_ID": "148e21eb", "SYNERGO_INSTANCE_ID": "relay-1"}
+    env = {"FLY_MACHINE_ID": "148e21eb", "HIVELANE_INSTANCE_ID": "relay-1"}
     assert instance_id(env) == "148e21eb"
 
 
 def test_instance_id_takes_an_explicit_name() -> None:
-    assert instance_id({"SYNERGO_INSTANCE_ID": " relay-1 "}) == "relay-1"
+    assert instance_id({"HIVELANE_INSTANCE_ID": " relay-1 "}) == "relay-1"
 
 
 def test_instance_id_defaults_to_hostname_and_pid() -> None:
@@ -99,7 +99,7 @@ def test_memory_directory_owns_every_room() -> None:
 
 
 def test_build_room_directory_is_memory_without_redis() -> None:
-    directory = build_room_directory({"SYNERGO_INSTANCE_ID": "solo"})
+    directory = build_room_directory({"HIVELANE_INSTANCE_ID": "solo"})
 
     assert isinstance(directory, MemoryRoomDirectory)
     assert directory.instance_id == "solo"
@@ -113,7 +113,7 @@ def test_build_room_directory_falls_back_when_redis_is_unusable(
     module = sys.modules[build_room_directory.__module__]
     monkeypatch.setattr(module, "connect_redis", lambda url, purpose: None)
 
-    directory = build_room_directory({"SYNERGO_REDIS_URL": "redis://redis:6379/0"})
+    directory = build_room_directory({"HIVELANE_REDIS_URL": "redis://redis:6379/0"})
 
     assert isinstance(directory, MemoryRoomDirectory)
 
@@ -128,7 +128,7 @@ def test_first_claim_wins_and_others_see_the_owner(redis: FakeRedis, clock: Cloc
     assert b.claim("ABCDEFGH") == "a"
     assert a.claim("ABCDEFGH") == "a"
     assert b.owner("ABCDEFGH") == "a"
-    assert redis.strings["synergo:room:ABCDEFGH:owner"] == "a"
+    assert redis.strings["hivelane:room:ABCDEFGH:owner"] == "a"
 
 
 def test_lease_expires_without_renewal_and_another_instance_takes_it(
@@ -631,7 +631,7 @@ def test_the_relay_app_runs_lease_upkeep_in_its_lifespan(monkeypatch: pytest.Mon
 
 
 SECRET = b"k" * 32
-FAILED_HERE = "instance=machine-b;app=synergo;region=iad;replay_source=here;reason=timeout;elapsed_ms=5"
+FAILED_HERE = "instance=machine-b;app=hivelane;region=iad;replay_source=here;reason=timeout;elapsed_ms=5"
 
 
 def _verified_app(

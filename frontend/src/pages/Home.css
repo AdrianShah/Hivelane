@@ -42,16 +42,12 @@
 }
 
 .home__brand-mark {
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 5px;
-  background: var(--accent-gradient);
-  display: grid;
-  place-items: center;
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--accent-fg);
+  flex: none;
+}
+
+.home__mascot {
+  display: block;
+  margin: 0 0 0.75rem -0.4rem;
 }
 
 .home__nav-note {

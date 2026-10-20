@@ -1,5 +1,5 @@
 """The wire contract is written down three times — server/models.py (relay),
-synergo/protocol.py (daemon, which must not import the relay package) and
+hivelane/protocol.py (daemon, which must not import the relay package) and
 frontend/src/types.ts (dashboard) — plus the generated protocol/schema.json.
 
 Hand-mirrored copies drift silently: a field added on one side is dropped or
@@ -18,7 +18,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from synergo import protocol as client
+from hivelane import protocol as client
 
 try:
     from server import models as relay
@@ -105,7 +105,7 @@ def _comparable_schema(model: type[BaseModel]) -> dict[str, Any]:
 
 
 def _load_generator() -> ModuleType:
-    spec = importlib.util.spec_from_file_location("synergo_protocol_generate", GENERATOR)
+    spec = importlib.util.spec_from_file_location("hivelane_protocol_generate", GENERATOR)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -139,7 +139,7 @@ def test_shared_model_schemas_are_identical(name: str) -> None:
     client_schema = _comparable_schema(_models(client)[name])
 
     assert relay_schema == client_schema, (
-        f"{name} differs between server/models.py and synergo/protocol.py; "
+        f"{name} differs between server/models.py and hivelane/protocol.py; "
         "change both (and run `python protocol/generate.py`)"
     )
 

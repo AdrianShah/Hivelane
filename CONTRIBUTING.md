@@ -1,6 +1,6 @@
-# Contributing to Synergo
+# Contributing to Hivelane
 
-Thanks for helping. Synergo is small enough that one person can hold most of
+Thanks for helping. Hivelane is small enough that one person can hold most of
 it in their head, and we would like to keep it that way: small changes, each
 with a test, each explaining why.
 
@@ -21,7 +21,7 @@ not in an issue.
 
 | Path | What | Language |
 |------|------|----------|
-| `synergo/` | The `synergo` CLI, the per-machine daemon, the agent hook fast path and adapters | Python 3.12+ |
+| `hivelane/` | The `hivelane` CLI, the per-machine daemon, the agent hook fast path and adapters | Python 3.12+ |
 | `server/` | The relay: rooms, pre-edit decisions, broadcasts | Python 3.12+ (FastAPI) |
 | `frontend/` | The dashboard | TypeScript (React + Vite) |
 | `editors/vscode/` | The VS Code / Cursor / Windsurf extension | TypeScript |
@@ -37,15 +37,15 @@ You need Python 3.12 or newer, Git, and Node.js (20 for the dashboard and the
 extension, 22.12 or newer for the docs site).
 
 ```bash
-git clone https://github.com/AdrianShah/Synergo.git
-cd Synergo
+git clone https://github.com/AdrianShah/Hivelane.git
+cd Hivelane
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
 pip install -r server/requirements-dev.txt -e ".[dev]"
 ```
 
 That is the same install CI runs: the relay's pinned dependencies, pytest, and
-the CLI in editable mode, so `synergo` on your PATH runs your working tree.
+the CLI in editable mode, so `hivelane` on your PATH runs your working tree.
 Add `-e ".[dev,symbols]"` to work on tree-sitter symbol extraction.
 
 `./setup.sh` (or `setup.ps1` on Windows) creates the venv and installs the CLI
@@ -61,14 +61,14 @@ Run what CI runs for the parts you touched before you open a pull request.
 
 | Check | Command | When |
 |-------|---------|------|
-| Python tests | `pytest -q` | Any Python change. About 800 tests across `synergo/tests`, `server/tests` and `tests/e2e`; CI runs them on Linux, macOS and Windows with Python 3.12 and 3.13. |
-| Cross-cwd smoke test | `./scripts/smoke.sh` | Daemon, hook or relay changes. Needs bash, and `synergo` and `uvicorn` on PATH (the venv above). CI runs it on Ubuntu. |
-| Schema is current | `python protocol/generate.py --check` | Any change to `synergo/protocol.py` (the contract tests also check it). |
+| Python tests | `pytest -q` | Any Python change. About 800 tests across `hivelane/tests`, `server/tests` and `tests/e2e`; CI runs them on Linux, macOS and Windows with Python 3.12 and 3.13. |
+| Cross-cwd smoke test | `./scripts/smoke.sh` | Daemon, hook or relay changes. Needs bash, and `hivelane` and `uvicorn` on PATH (the venv above). CI runs it on Ubuntu. |
+| Schema is current | `python protocol/generate.py --check` | Any change to `hivelane/protocol.py` (the contract tests also check it). |
 | Dashboard | `cd frontend && npm ci && npm run lint && npm run build` | Any change under `frontend/`. |
 | Extension | `cd editors/vscode && npm ci && npm test` | Any change under `editors/vscode/`. Runs against a mock daemon and a mock relay. |
 | Docs site | `cd docs-site && npm ci && npm run build` | Changes to `docs/` or `docs-site/`. |
 | Hook latency | `python scripts/bench_hook.py` | Changes on the hook path; compare against `main`. |
-| Relay image | `docker build -t synergo-relay .` | Changes to `Dockerfile` or `server/requirements.txt`. |
+| Relay image | `docker build -t hivelane-relay .` | Changes to `Dockerfile` or `server/requirements.txt`. |
 
 On Windows, run Python tools through the venv explicitly if your shell has not
 activated it: `.venv\Scripts\python -m pytest -q`.
@@ -87,9 +87,9 @@ you find yourself writing "do not change this", write down what breaks.
 
 - Every module starts with `from __future__ import annotations` and is fully
   type-hinted.
-- Prefer the standard library. A new runtime dependency of the `synergo`
+- Prefer the standard library. A new runtime dependency of the `hivelane`
   package needs a good reason: it is installed on every contributor's machine.
-- Never let Synergo's own failure stop an agent. Hooks and adapters fail
+- Never let Hivelane's own failure stop an agent. Hooks and adapters fail
   open: any error means exit 0 and no decision, and adapter `normalize` and
   `render` never raise.
 
@@ -111,28 +111,28 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
 ```
 
 A new `server/` module, or a new sibling import, has to follow the same
-pattern. `server/` never imports `synergo`, and the client side of `synergo`
+pattern. `server/` never imports `hivelane`, and the client side of `hivelane`
 (the hooks, the daemon, the protocol models) never imports `server`: the
-relay is deployed on its own. The one exception is `synergo relay`, which
+relay is deployed on its own. The one exception is `hivelane relay`, which
 imports the relay lazily, inside the command, to run one on your machine.
 
 ### The hook fast path stays stdlib-only
 
-Agents start `synergo hook <agent>` as a fresh process before and after every
+Agents start `hivelane hook <agent>` as a fresh process before and after every
 edit, so every import on that path is paid around every file write. The path
-is `synergo/cli.py` (module level only), `synergo/hook_fast.py`,
-`synergo/hook_json.py`, `synergo/adapters/__init__.py`,
-`synergo/adapters/base.py` (its top half) and the one adapter being run.
+is `hivelane/cli.py` (module level only), `hivelane/hook_fast.py`,
+`hivelane/hook_json.py`, `hivelane/adapters/__init__.py`,
+`hivelane/adapters/base.py` (its top half) and the one adapter being run.
 
 - No third-party imports there: no pydantic, fastapi, websockets, httpx.
 - Not even the slower parts of the standard library: `json`, `re`, `enum`,
   `typing`, `argparse`, `pathlib`, `socket`, `urllib` and friends. Use
-  `synergo.hook_json` for JSON, `open()` and `os.path` for files, and
+  `hivelane.hook_json` for JSON, `open()` and `os.path` for files, and
   `TYPE_CHECKING = False` / `if TYPE_CHECKING:` for type-only imports.
 - Import heavier modules inside the function that needs them, as the install
-  helpers in `synergo/adapters/base.py` do.
+  helpers in `hivelane/adapters/base.py` do.
 
-`synergo/tests/test_hook_fast.py` and `synergo/tests/test_adapter_hook_path.py`
+`hivelane/tests/test_hook_fast.py` and `hivelane/tests/test_adapter_hook_path.py`
 run the hook in a subprocess and fail if any forbidden module shows up in
 `sys.modules`; the `HEAVY` and `SLOW_STDLIB` sets at the top of
 `test_hook_fast.py` are the budget. `scripts/bench_hook.py` measures the wall
@@ -141,7 +141,7 @@ time; a change that makes it noticeably slower needs a reason in the PR.
 ### Tests
 
 Every behaviour change comes with a test, and every bug fix with a test that
-failed before it. Tests live next to the code they cover (`synergo/tests/`,
+failed before it. Tests live next to the code they cover (`hivelane/tests/`,
 `server/tests/`), and `tests/e2e/` covers what only a real relay with two
 daemons can show.
 
@@ -151,9 +151,9 @@ The relay and the daemon each keep their own copy of the wire models, because
 the CLI package must not import the relay:
 
 - `server/models.py`, the relay's copy;
-- `synergo/protocol.py`, the client's copy;
+- `hivelane/protocol.py`, the client's copy;
 - `frontend/src/types.ts`, the dashboard's copy;
-- `protocol/schema.json`, generated from `synergo/protocol.py`.
+- `protocol/schema.json`, generated from `hivelane/protocol.py`.
 
 Change all of them together, then regenerate the schema:
 
@@ -171,19 +171,19 @@ Versioning rules, spelled out in [docs/protocol.md](docs/protocol.md#versioning)
 a new **optional** field with a default, or a new message type that older
 peers can ignore, does **not** change `PROTOCOL_VERSION`. Anything an older
 peer cannot satisfy does, in both `server/models.py` and
-`synergo/protocol.py` at once.
+`hivelane/protocol.py` at once.
 
 ## Writing an adapter
 
-An adapter teaches Synergo one coding agent's hook format: it turns the
-agent's native hook payload into Synergo events and renders the daemon's
+An adapter teaches Hivelane one coding agent's hook format: it turns the
+agent's native hook payload into Hivelane events and renders the daemon's
 allow / warn / block answer the way that agent expects. It is one stdlib-only
-module in `synergo/adapters/`, a registry entry, and a set of golden fixtures
+module in `hivelane/adapters/`, a registry entry, and a set of golden fixtures
 that the conformance suite runs against every adapter.
 
 [docs/adapters.md](docs/adapters.md) has the contract, a worked example and
 the fixture workflow. Issues labelled
-[`good first adapter`](https://github.com/AdrianShah/Synergo/labels/good%20first%20adapter)
+[`good first adapter`](https://github.com/AdrianShah/Hivelane/labels/good%20first%20adapter)
 are agents people have asked for; the **Adapter request** issue form collects
 what an adapter author needs to know about an agent's hooks.
 
@@ -215,7 +215,7 @@ Commit messages follow the existing history (`git log`):
   image`. No `feat:`/`fix:` prefixes. Roadmap work is prefixed with its phase:
   `Phase 3: relay decision engine, plans and decision feedback`.
 - A body, wrapped at about 72 columns, that says why, and for larger changes a
-  bullet per area, led by the file or component: `- synergo/symbols.py:
+  bullet per area, led by the file or component: `- hivelane/symbols.py:
   function/class extraction ...`.
 - Credit co-authors, human or AI, with a `Co-Authored-By:` trailer.
 

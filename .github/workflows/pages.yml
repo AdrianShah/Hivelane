@@ -1,9 +1,14 @@
 name: Pages
 
-# Publishes https://adrianshah.github.io/Synergo/ from main: the dashboard at
-# /Synergo/ (built with SYNERGO_BASE=/Synergo/, index.html copied to 404.html
-# so room deep links like /Synergo/r/K7M2PQ2X boot the app) and the docs site
-# at /Synergo/docs/. scripts/build_pages.sh assembles both.
+# Publishes the site from main: the dashboard at / and the docs site at /docs/
+# (index.html is copied to 404.html so room deep links like /r/K7M2PQ2X boot
+# the app). scripts/build_pages.sh assembles both.
+#
+# Where it is served depends on the repository variable PAGES_DOMAIN:
+#   set (e.g. hivelane.dev)  -> https://hivelane.dev/, built with base /
+#   unset                    -> https://adrianshah.github.io/Hivelane/
+# Set PAGES_DOMAIN only after the domain's DNS points at GitHub Pages and the
+# custom domain is saved in Settings > Pages (docs/self-hosting.md).
 #
 # Pages serves no relay, so the dashboard asks for one: room links carry
 # ?relay=wss://…, kept for the browser tab (frontend/src/relayUrl.ts). Set the
@@ -48,8 +53,8 @@ jobs:
           npm ci --prefix docs-site
       - name: Build the site
         env:
-          SYNERGO_BASE: /Synergo/
-          PAGES_SITE: https://adrianshah.github.io
+          HIVELANE_BASE: ${{ vars.PAGES_DOMAIN && '/' || '/Hivelane/' }}
+          PAGES_SITE: ${{ vars.PAGES_DOMAIN && format('https://{0}', vars.PAGES_DOMAIN) || 'https://adrianshah.github.io' }}
           VITE_WS_URL: ${{ vars.PAGES_RELAY_URL }}
         run: bash scripts/build_pages.sh _site
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0

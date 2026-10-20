@@ -74,9 +74,9 @@ test("repo selection, paths and status text", () => {
   assert.equal(relativeTo("C:\\work\\app", "C:\\work\\app\\src\\a.ts"), "src/a.ts");
   assert.ok(pathsOverlap("C:\\work\\app", "C:/work"));
   assert.ok(!pathsOverlap("C:\\work\\app", "C:\\work\\apple"));
-  assert.equal(statusText(undefined, undefined), "Synergo: offline");
-  assert.equal(statusText(STATUS, STATUS.repos[0]), "Synergo: ROOM1 · 3 online");
-  assert.equal(statusText(STATUS, STATUS.repos[1]), "Synergo: ROOM2 · connecting");
+  assert.equal(statusText(undefined, undefined), "Hivelane: offline");
+  assert.equal(statusText(STATUS, STATUS.repos[0]), "Hivelane: ROOM1 · 3 online");
+  assert.equal(statusText(STATUS, STATUS.repos[1]), "Hivelane: ROOM2 · connecting");
 });
 
 test("activity tracker ingests feeds, ignores self, expires", () => {
@@ -85,7 +85,7 @@ test("activity tracker ingests feeds, ignores self, expires", () => {
   const t = new ActivityTracker("me", 60, true);
   const changed = t.ingest(
     JSON.stringify({
-      type: "synergo_feed",
+      type: "hivelane_feed",
       events: [
         { type: "intent_update", user_id: "sam", agent: "claude-code", prompt: "fix login", timestamp: 100 },
         { type: "activity_update", user_id: "sam", agent: "claude-code", timestamp: 100, changes: [{ file_path: "src/Auth.ts", diff: "" }] },
@@ -137,7 +137,7 @@ test("relay feed joins as spectator and receives frames", async () => {
       const join = JSON.parse(m.toString());
       assert.equal(join.type, "join");
       assert.equal(join.name, null);
-      sock.send(JSON.stringify({ type: "synergo_feed", events: [{ type: "user_joined", user_id: "sam" }] }));
+      sock.send(JSON.stringify({ type: "hivelane_feed", events: [{ type: "user_joined", user_id: "sam" }] }));
     });
   });
   const frames: string[] = [];

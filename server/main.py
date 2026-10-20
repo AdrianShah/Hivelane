@@ -1,4 +1,4 @@
-"""Relay server: accepts WebSocket connections from synergo daemons (named room
+"""Relay server: accepts WebSocket connections from hivelane daemons (named room
 members, one per agent) and dashboards (spectators), keeps per-room state in
 memory, answers pre-edit checks point-to-point, and broadcasts activity to the
 room as a debounced feed.
@@ -162,11 +162,11 @@ log = logging.getLogger("relay")
 
 
 def _relay_version() -> str:
-    """The synergo release this relay runs, for /readyz. The flat Render tree
-    (rootDir=server) has no synergo package, so fall back to the installed
+    """The hivelane release this relay runs, for /readyz. The flat Render tree
+    (rootDir=server) has no hivelane package, so fall back to the installed
     distribution's metadata, then to ""."""
     try:
-        from synergo import __version__
+        from hivelane import __version__
 
         return str(__version__)
     except ImportError:
@@ -174,16 +174,16 @@ def _relay_version() -> str:
     try:
         from importlib.metadata import version
 
-        return version("synergo")
+        return version("hivelane")
     except Exception:
         return ""
 
 
 RELAY_VERSION = _relay_version()
-# The commit this build was made from, when the deploy says (SYNERGO_COMMIT,
+# The commit this build was made from, when the deploy says (HIVELANE_COMMIT,
 # or Render's RENDER_GIT_COMMIT).
 RELAY_COMMIT = (
-    os.environ.get("SYNERGO_COMMIT") or os.environ.get("RENDER_GIT_COMMIT") or ""
+    os.environ.get("HIVELANE_COMMIT") or os.environ.get("RENDER_GIT_COMMIT") or ""
 ).strip()
 
 
@@ -193,7 +193,7 @@ def redact_code(code: str) -> str:
 
 
 app = FastAPI(
-    title="Synergo relay",
+    title="Hivelane relay",
     # The interactive API docs serve nothing a client needs, and the
     # dashboard CSP breaks them anyway: off in production.
     docs_url=None if config.IS_PRODUCTION else "/docs",
@@ -221,12 +221,12 @@ app.add_middleware(SecurityHeadersMiddleware, hsts=config.HSTS_ENABLED)
 # fly-replay (on Fly.io) before any route accepts it. Looked up per call so
 # tests can swap room_manager.
 app.add_middleware(directory.RoomAffinityMiddleware, router=lambda: room_manager)
-# The bundled dashboard (Docker image, `synergo relay`), when
-# SYNERGO_STATIC_DIR points at a build. Only answers what no route matches.
+# The bundled dashboard (Docker image, `hivelane relay`), when
+# HIVELANE_STATIC_DIR points at a build. Only answers what no route matches.
 dashboard.install(app)
 
 log.info(
-    "Synergo relay configured: env=%s cors_origins=%s cors_origin_regex=%s "
+    "Hivelane relay configured: env=%s cors_origins=%s cors_origin_regex=%s "
     "trust_proxy_header=%s client_ip_from=%s room_message_limit=%s/min hsts=%s "
     "max_rooms=%s max_members=%s",
     config.ENV,
@@ -255,29 +255,29 @@ add_event_sink(lambda room, payload: webhook_service.observe(room, payload))
 room_manager.evict_listeners.append(lambda code: webhook_service.forget(code))
 
 metrics.register_gauge(
-    "synergo_rooms_live",
+    "hivelane_rooms_live",
     "Rooms with in-memory state in this process.",
     lambda: room_manager.room_count,
 )
 metrics.register_gauge(
-    "synergo_rooms_durable",
+    "hivelane_rooms_durable",
     "Valid room codes in the room store, live or not.",
     lambda: room_manager.durable_room_count,
     # A store round trip (Redis/SQLite) per scrape: cached.
     cache_seconds=15,
 )
 metrics.register_gauge(
-    "synergo_members",
+    "hivelane_members",
     "Named agents connected across all rooms.",
     lambda: room_manager.member_count,
 )
 metrics.register_gauge(
-    "synergo_spectators",
+    "hivelane_spectators",
     "Dashboards connected across all rooms.",
     lambda: room_manager.spectator_count,
 )
 metrics.register_gauge(
-    "synergo_room_leases",
+    "hivelane_room_leases",
     "Rooms this instance owns in the shared room directory (0 without Redis).",
     lambda: room_manager.leases_held,
 )
@@ -348,7 +348,7 @@ class JoinRefused(Exception):
     """Raised while waiting for approval: the joiner may not come in.
 
     `reason` goes to the client as room_rejected; `metric` is the
-    synergo_ws_rejections_total label."""
+    hivelane_ws_rejections_total label."""
 
     def __init__(self, reason: str, metric: str) -> None:
         super().__init__(reason)
@@ -390,7 +390,7 @@ async def receive_frame(socket: WebSocket) -> object:
     if message["type"] == "websocket.disconnect":
         raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
     text = message.get("text")
-    if not MAX_FRAME_BYTES:  # SYNERGO_MAX_FRAME_BYTES=0: uvicorn's cap only
+    if not MAX_FRAME_BYTES:  # HIVELANE_MAX_FRAME_BYTES=0: uvicorn's cap only
         raw = text if text is not None else message.get("bytes") or b""
         try:
             return json.loads(raw)
@@ -489,7 +489,7 @@ class CreateRoomRequest(BaseModel):
     """Optional POST /rooms body: start the room with these conflict windows.
 
     HTTP-only, so it lives here rather than in models.py, whose models are the
-    WebSocket frames mirrored in synergo/protocol.py. Unlike a join, a bad
+    WebSocket frames mirrored in hivelane/protocol.py. Unlike a join, a bad
     request here is refused (422): the caller is waiting on the response and can
     fix it, whereas a join's settings come from a committed file.
     """
@@ -522,9 +522,9 @@ async def create_room(
     it may approve joiners and set the room's join policy.
 
     Unauthenticated, so it is rate-limited per IP, and a room nobody joins
-    is evicted (code and all) after SYNERGO_UNCLAIMED_ROOM_TTL_SECONDS
+    is evicted (code and all) after HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS
     (room_manager.UNCLAIMED_ROOM_TTL_SECONDS). Together they bound how long
-    a script can hold SYNERGO_MAX_ROOMS (when one is set) or grow an
+    a script can hold HIVELANE_MAX_ROOMS (when one is set) or grow an
     unlimited relay's memory.
     """
     # Off the event loop when the limiter is Redis-backed.
@@ -578,8 +578,8 @@ async def readyz() -> dict[str, object]:
     dashboard. /health stays a cheap liveness ping."""
     return {
         "status": "ready",
-        # Which build is serving: the synergo version and, when the deploy
-        # sets SYNERGO_COMMIT, the commit ("" otherwise).
+        # Which build is serving: the hivelane version and, when the deploy
+        # sets HIVELANE_COMMIT, the commit ("" otherwise).
         "version": RELAY_VERSION,
         "commit": RELAY_COMMIT,
         "env": config.ENV,
@@ -605,7 +605,7 @@ async def readyz() -> dict[str, object]:
 def _parse_join(raw: object) -> Optional[JoinMessage]:
     """Validate a join frame, dropping settings that do not validate.
 
-    Settings come from a teammate's committed .synergo.toml. An out-of-range
+    Settings come from a teammate's committed .hivelane.toml. An out-of-range
     value there must not surface as "Invalid name" — the daemon treats a name
     rejection as fatal — so the join is retried without them and the room keeps
     the windows it has. Returns None when the join is invalid regardless.
@@ -787,9 +787,9 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
                 socket,
                 VersionRejected(
                     reason=(
-                        "This synergo build is too old for the relay and would "
+                        "This hivelane build is too old for the relay and would "
                         "silently skip conflict checks. Upgrade with "
-                        "`uv tool install --force synergo` (or `pip install -U synergo`)."
+                        "`uv tool install --force hivelane` (or `pip install -U hivelane`)."
                     )
                 ),
             )
@@ -838,18 +838,18 @@ async def apply_member_settings(
 ) -> None:
     """Adopt a joining member's committed windows room-wide and announce them.
 
-    Last join wins: a team shares one .synergo.toml, so differing settings mean
+    Last join wins: a team shares one .hivelane.toml, so differing settings mean
     someone is on an older or newer commit, and the member joining now is the
     best evidence of the current one. Persisted so a revived room keeps them.
 
     e2e is the exception to "last join wins": a join can switch it on but
     never off. A daemon that predates the flag sends only the windows, and a
-    teammate on a stale .synergo.toml (or a hostile client) must not be able
+    teammate on a stale .hivelane.toml (or a hostile client) must not be able
     to tell everyone else the room is cleartext again. Turning e2e off takes a
     new room.
 
     history_hours follows "last join wins" only when the join states it: a
-    daemon that predates it, or a .synergo.toml without the key, keeps the
+    daemon that predates it, or a .hivelane.toml without the key, keeps the
     room's (server/history.py), so it cannot switch replay off by joining.
     """
     if room.settings.e2e and not settings.e2e:
@@ -1341,7 +1341,7 @@ async def handle_edit_check(
 
 
 async def handle_file_request(room: Room, user_id: str, raw: dict) -> None:
-    """A member asks for a file someone else holds (`synergo wait`): it joins
+    """A member asks for a file someone else holds (`hivelane wait`): it joins
     the file's line and the holders hear about it, or, when the file is
     already free and nobody is ahead, it is sent file_released at once."""
     try:

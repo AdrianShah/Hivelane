@@ -242,40 +242,40 @@ class Registry:
 registry = Registry()
 
 edit_checks_total = Counter(
-    "synergo_edit_checks_total",
+    "hivelane_edit_checks_total",
     "Edit checks answered, by decision and the scope that decided it.",
     label=("decision", "scope"),
     values=[(d, sc) for d in EDIT_DECISIONS for sc in DECISION_SCOPES],
 )
 decision_feedback_total = Counter(
-    "synergo_decision_feedback_total",
+    "hivelane_decision_feedback_total",
     "Dashboard votes on warn/block decisions: useful or noise, by scope.",
     label=("useful", "scope"),
     values=[(u, sc) for u in ("true", "false") for sc in DECISION_SCOPES],
 )
 activity_messages_total = Counter(
-    "synergo_activity_messages_total",
+    "hivelane_activity_messages_total",
     "Activity messages accepted (valid and not rate-limited).",
 )
 intents_total = Counter(
-    "synergo_intents_total",
+    "hivelane_intents_total",
     "Intent messages accepted (valid and not rate-limited).",
 )
 ws_rejections_total = Counter(
-    "synergo_ws_rejections_total",
+    "hivelane_ws_rejections_total",
     "WebSocket connections or join attempts refused, by reason.",
     label="reason",
     values=WS_REJECTION_REASONS,
 )
 messages_dropped_total = Counter(
-    "synergo_messages_dropped_total",
+    "hivelane_messages_dropped_total",
     "Inbound WebSocket messages discarded: over the room's message quota, "
     "malformed (or over a field cap such as the e2e blob), or in an oversized frame.",
     label="reason",
     values=MESSAGE_DROP_REASONS,
 )
 edit_check_seconds = Histogram(
-    "synergo_edit_check_seconds",
+    "hivelane_edit_check_seconds",
     "Server-side time to decide an edit check, from receipt to reply ready.",
     EDIT_CHECK_BUCKETS,
 )

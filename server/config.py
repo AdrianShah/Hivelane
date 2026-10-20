@@ -132,7 +132,7 @@ class Settings:
     max_line_ranges_per_message: int = DEFAULT_MAX_LINE_RANGES_PER_MESSAGE
     max_path_chars: int = DEFAULT_MAX_PATH_CHARS
     # Webhooks may target private, loopback and link-local addresses (and
-    # http://localhost). Off unless SYNERGO_WEBHOOKS_ALLOW_PRIVATE is set, in
+    # http://localhost). Off unless HIVELANE_WEBHOOKS_ALLOW_PRIVATE is set, in
     # every environment; production refuses it.
     webhooks_allow_private: bool = False
 
@@ -193,41 +193,41 @@ def _limit(env: Mapping[str, str], name: str, default: int) -> int:
 # (Settings field, environment variable, default) for every capacity limit
 # that reads 0 as unlimited. Webhooks per room is not here: it is at least 1.
 LIMITS: tuple[tuple[str, str, int], ...] = (
-    ("max_rooms", "SYNERGO_MAX_ROOMS", DEFAULT_MAX_ROOMS),
-    ("max_members", "SYNERGO_MAX_MEMBERS", DEFAULT_MAX_MEMBERS),
-    ("max_pending_joins", "SYNERGO_MAX_PENDING_JOINS", DEFAULT_MAX_PENDING_JOINS),
-    ("max_tracked_decisions", "SYNERGO_MAX_TRACKED_DECISIONS", DEFAULT_MAX_TRACKED_DECISIONS),
-    ("max_known_paths", "SYNERGO_MAX_KNOWN_PATHS", DEFAULT_MAX_KNOWN_PATHS),
-    ("file_queue_max_length", "SYNERGO_FILE_QUEUE_MAX_LENGTH", DEFAULT_FILE_QUEUE_MAX_LENGTH),
-    ("file_queue_max_files", "SYNERGO_FILE_QUEUE_MAX_FILES", DEFAULT_FILE_QUEUE_MAX_FILES),
-    ("history_max_events", "SYNERGO_HISTORY_MAX_EVENTS", DEFAULT_HISTORY_MAX_EVENTS),
-    ("history_max_bytes", "SYNERGO_HISTORY_MAX_BYTES", DEFAULT_HISTORY_MAX_BYTES),
+    ("max_rooms", "HIVELANE_MAX_ROOMS", DEFAULT_MAX_ROOMS),
+    ("max_members", "HIVELANE_MAX_MEMBERS", DEFAULT_MAX_MEMBERS),
+    ("max_pending_joins", "HIVELANE_MAX_PENDING_JOINS", DEFAULT_MAX_PENDING_JOINS),
+    ("max_tracked_decisions", "HIVELANE_MAX_TRACKED_DECISIONS", DEFAULT_MAX_TRACKED_DECISIONS),
+    ("max_known_paths", "HIVELANE_MAX_KNOWN_PATHS", DEFAULT_MAX_KNOWN_PATHS),
+    ("file_queue_max_length", "HIVELANE_FILE_QUEUE_MAX_LENGTH", DEFAULT_FILE_QUEUE_MAX_LENGTH),
+    ("file_queue_max_files", "HIVELANE_FILE_QUEUE_MAX_FILES", DEFAULT_FILE_QUEUE_MAX_FILES),
+    ("history_max_events", "HIVELANE_HISTORY_MAX_EVENTS", DEFAULT_HISTORY_MAX_EVENTS),
+    ("history_max_bytes", "HIVELANE_HISTORY_MAX_BYTES", DEFAULT_HISTORY_MAX_BYTES),
     (
         "history_total_max_bytes",
-        "SYNERGO_HISTORY_TOTAL_MAX_BYTES",
+        "HIVELANE_HISTORY_TOTAL_MAX_BYTES",
         DEFAULT_HISTORY_TOTAL_MAX_BYTES,
     ),
-    ("webhook_max_in_flight", "SYNERGO_WEBHOOK_MAX_IN_FLIGHT", DEFAULT_WEBHOOK_MAX_IN_FLIGHT),
+    ("webhook_max_in_flight", "HIVELANE_WEBHOOK_MAX_IN_FLIGHT", DEFAULT_WEBHOOK_MAX_IN_FLIGHT),
     (
         "webhook_max_tracked_rooms",
-        "SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS",
+        "HIVELANE_WEBHOOK_MAX_TRACKED_ROOMS",
         DEFAULT_WEBHOOK_MAX_TRACKED_ROOMS,
     ),
-    ("max_frame_bytes", "SYNERGO_MAX_FRAME_BYTES", DEFAULT_MAX_FRAME_BYTES),
-    ("max_diff_bytes", "SYNERGO_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES),
-    ("max_text_bytes", "SYNERGO_MAX_TEXT_BYTES", DEFAULT_MAX_TEXT_BYTES),
-    ("max_files_per_message", "SYNERGO_MAX_FILES_PER_MESSAGE", DEFAULT_MAX_FILES_PER_MESSAGE),
+    ("max_frame_bytes", "HIVELANE_MAX_FRAME_BYTES", DEFAULT_MAX_FRAME_BYTES),
+    ("max_diff_bytes", "HIVELANE_MAX_DIFF_BYTES", DEFAULT_MAX_DIFF_BYTES),
+    ("max_text_bytes", "HIVELANE_MAX_TEXT_BYTES", DEFAULT_MAX_TEXT_BYTES),
+    ("max_files_per_message", "HIVELANE_MAX_FILES_PER_MESSAGE", DEFAULT_MAX_FILES_PER_MESSAGE),
     (
         "max_symbols_per_message",
-        "SYNERGO_MAX_SYMBOLS_PER_MESSAGE",
+        "HIVELANE_MAX_SYMBOLS_PER_MESSAGE",
         DEFAULT_MAX_SYMBOLS_PER_MESSAGE,
     ),
     (
         "max_line_ranges_per_message",
-        "SYNERGO_MAX_LINE_RANGES_PER_MESSAGE",
+        "HIVELANE_MAX_LINE_RANGES_PER_MESSAGE",
         DEFAULT_MAX_LINE_RANGES_PER_MESSAGE,
     ),
-    ("max_path_chars", "SYNERGO_MAX_PATH_CHARS", DEFAULT_MAX_PATH_CHARS),
+    ("max_path_chars", "HIVELANE_MAX_PATH_CHARS", DEFAULT_MAX_PATH_CHARS),
 )
 
 
@@ -237,13 +237,13 @@ def _redis_url(env: Mapping[str, str]) -> str | None:
     Unset keeps the limiters in process memory, which is right for a single
     relay instance and needs no extra service.
     """
-    raw = (env.get("SYNERGO_REDIS_URL") or "").strip()
+    raw = (env.get("HIVELANE_REDIS_URL") or "").strip()
     if not raw:
         return None
     if not raw.lower().startswith(REDIS_URL_SCHEMES):
         # The value is not echoed: it usually carries a password.
         raise ConfigError(
-            f"SYNERGO_REDIS_URL must start with {', '.join(REDIS_URL_SCHEMES)}"
+            f"HIVELANE_REDIS_URL must start with {', '.join(REDIS_URL_SCHEMES)}"
         )
     return raw
 
@@ -298,10 +298,10 @@ def _cors_wildcard_problem(
 
 
 def load_settings(env: Mapping[str, str]) -> Settings:
-    name = (env.get("SYNERGO_ENV") or "development").strip().lower()
+    name = (env.get("HIVELANE_ENV") or "development").strip().lower()
     if name not in VALID_ENVIRONMENTS:
         raise ConfigError(
-            f"SYNERGO_ENV must be one of {', '.join(VALID_ENVIRONMENTS)}, got {name!r}"
+            f"HIVELANE_ENV must be one of {', '.join(VALID_ENVIRONMENTS)}, got {name!r}"
         )
 
     origins = _csv(env.get("CORS_ORIGINS"))
@@ -310,7 +310,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
             origins = DEV_CORS_ORIGINS
         else:
             raise ConfigError(
-                f"CORS_ORIGINS is required when SYNERGO_ENV={name}. Set it to the "
+                f"CORS_ORIGINS is required when HIVELANE_ENV={name}. Set it to the "
                 "comma-separated list of exact dashboard origins allowed to call "
                 "this relay, e.g. CORS_ORIGINS=https://app.example.com"
             )
@@ -334,10 +334,10 @@ def load_settings(env: Mapping[str, str]) -> Settings:
                 r"to your own domain (e.g. https://.*\.example\.com)."
             )
 
-    allow_private = _bool(env.get("SYNERGO_WEBHOOKS_ALLOW_PRIVATE"), default=False)
+    allow_private = _bool(env.get("HIVELANE_WEBHOOKS_ALLOW_PRIVATE"), default=False)
     if allow_private and name == "production":
         raise ConfigError(
-            "SYNERGO_WEBHOOKS_ALLOW_PRIVATE is for testing a local webhook receiver; "
+            "HIVELANE_WEBHOOKS_ALLOW_PRIVATE is for testing a local webhook receiver; "
             "a production relay must not post to private or loopback addresses"
         )
     limits = {field: _limit(env, var, default) for field, var, default in LIMITS}
@@ -386,7 +386,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         behind_fly=bool((env.get("FLY_APP_NAME") or "").strip()),
         room_message_limit=_limit(env, "ROOM_MESSAGE_LIMIT", DEFAULT_ROOM_MESSAGE_LIMIT),
         max_webhooks_per_room=_positive_int(
-            env, "SYNERGO_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
+            env, "HIVELANE_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
         ),
         webhooks_allow_private=allow_private,
         **limits,

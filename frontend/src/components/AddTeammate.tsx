@@ -7,7 +7,7 @@ import SharePanel from './SharePanel';
 /**
  * The invite view: share this room, and connect a teammate's agent to it.
  * Agents integrate through their own hooks plus a local daemon, and
- * `synergo up` sets up both, so all this view owes the user is the room, two
+ * `hivelane up` sets up both, so all this view owes the user is the room, two
  * commands, and what they do.
  */
 
@@ -26,11 +26,11 @@ interface Step {
 function steps(roomId: string): Step[] {
   return [
     {
-      label: 'Install Synergo (once per machine)',
-      command: 'pipx install synergo',
+      label: 'Install Hivelane (once per machine)',
+      command: 'pipx install hivelane',
       detail: (
         <>
-          Needs Python 3.12 or newer. <code>uv tool install synergo</code> works too.
+          Needs Python 3.12 or newer. <code>uv tool install hivelane</code> works too.
         </>
       ),
     },
@@ -38,7 +38,7 @@ function steps(roomId: string): Step[] {
       label: 'Join this room from your repo',
       command: upCommand(roomId),
       detail:
-        'Run it in the repository your agent works in. It sets up the agent hooks and starts the Synergo daemon for this room; your agent works exactly as before.',
+        'Run it in the repository your agent works in. It sets up the agent hooks and starts the Hivelane daemon for this room; your agent works exactly as before.',
     },
   ];
 }
@@ -91,8 +91,8 @@ export default function AddTeammate({ roomId, settings, requireApproval = null }
 
           <footer>
             <p>
-              Check it worked with <code>synergo status</code>. Conflict windows come
-              from the repo&apos;s committed <code>.synergo.toml</code>; the latest
+              Check it worked with <code>hivelane status</code>. Conflict windows come
+              from the repo&apos;s committed <code>.hivelane.toml</code>; the latest
               teammate to join applies them to the whole room.
             </p>
           </footer>

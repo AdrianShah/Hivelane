@@ -4,7 +4,7 @@
 # from different directories in the repo, which is the case unit tests on either
 # side alone cannot cover.
 #
-# Usage: scripts/smoke.sh        (needs `synergo` and `uvicorn` on PATH)
+# Usage: scripts/smoke.sh        (needs `hivelane` and `uvicorn` on PATH)
 set -euo pipefail
 
 RELAY_PORT=${RELAY_PORT:-8791}
@@ -12,10 +12,10 @@ PORT_A=${PORT_A:-4791}
 PORT_B=${PORT_B:-4792}
 WORK="$(mktemp -d)"
 PIDS=()
-# Both daemons and every hook share one private SYNERGO_HOME, so they share
-# the daemon token (synergo/auth.py) and nothing lands in the real home.
-export SYNERGO_HOME="$WORK/home"
-mkdir -p "$SYNERGO_HOME"
+# Both daemons and every hook share one private HIVELANE_HOME, so they share
+# the daemon token (hivelane/auth.py) and nothing lands in the real home.
+export HIVELANE_HOME="$WORK/home"
+mkdir -p "$HIVELANE_HOME"
 
 cleanup() {
   local pid alive
@@ -78,7 +78,7 @@ printf 'def broadcast():\n    return 1\n' > "$REPO/server/room.py"
 
 start_daemon() {
   local name=$1 agent=$2 port=$3 cwd=$4
-  ( cd "$cwd" && exec synergo join "$ROOM" --name "$name" --agent "$agent" \
+  ( cd "$cwd" && exec hivelane join "$ROOM" --name "$name" --agent "$agent" \
       --server "ws://127.0.0.1:$RELAY_PORT/ws" --port "$port" \
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)
@@ -88,7 +88,7 @@ start_daemon() {
 
 # Every daemon route but /health wants the install's token.
 daemon_status() {
-  curl -fsS -H "X-Synergo-Token: $(cat "$SYNERGO_HOME/token")" "http://127.0.0.1:$1/status"
+  curl -fsS -H "X-Hivelane-Token: $(cat "$HIVELANE_HOME/token")" "http://127.0.0.1:$1/status"
 }
 
 echo "== daemon adrian (cwd = repo root), daemon sam (cwd = repo/server)"
@@ -117,7 +117,7 @@ print(json.dumps({"hook_event_name": sys.argv[1], "session_id": sys.argv[2],
                   "cwd": sys.argv[3], "tool_name": "Edit",
                   "tool_input": {"file_path": sys.argv[4]}}))' \
     "$event" "$session" "$cwd" "$REPO/server/room.py" \
-    | SYNERGO_PORT="$port" synergo hook claude-code
+    | HIVELANE_PORT="$port" hivelane hook claude-code
 }
 
 echo "== adrian edits server/room.py from the repo root"

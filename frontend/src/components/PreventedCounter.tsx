@@ -10,7 +10,7 @@ import {
 import type { RoomStats } from '../dashboard/stats';
 
 /**
- * "Synergo prevented N collisions this session", with how it is counted and
+ * "Hivelane prevented N collisions this session", with how it is counted and
  * a shareable card. The heuristic itself is documented (and tested) in
  * dashboard/prevented.ts.
  */
@@ -31,7 +31,7 @@ export function PreventedCounter({ prevention, stats, onShare }: PreventedCounte
         </p>
         <div className="min-w-[min(100%,15rem)] flex-1">
           <h2 id="prevented-title" className="m-0 text-[15px] sm:text-[16px] font-bold text-on-surface tracking-tight">
-            Synergo prevented {n} collision{n === 1 ? '' : 's'} this session
+            Hivelane prevented {n} collision{n === 1 ? '' : 's'} this session
           </h2>
           <p className="m-0 mt-1 text-[12px] text-on-muted">
             {stats.blocks} block{stats.blocks === 1 ? '' : 's'} · {stats.warns} warning
@@ -63,7 +63,7 @@ export function PreventedCounter({ prevention, stats, onShare }: PreventedCounte
 }
 
 function describeCard(s: RoomStats): string {
-  return `Synergo session card: ${s.prevented} collisions prevented, ${s.blocks} blocks, ${s.warns} warnings, ${s.conflicts} overlaps, ${s.people} agents.`;
+  return `Hivelane session card: ${s.prevented} collisions prevented, ${s.blocks} blocks, ${s.warns} warnings, ${s.conflicts} overlaps, ${s.people} agents.`;
 }
 
 interface ShareCardDialogProps {
@@ -113,7 +113,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
     if (!canvasRef.current) return;
     setBusy(true);
     try {
-      await downloadCanvasPng(canvasRef.current, 'synergo-session.png');
+      await downloadCanvasPng(canvasRef.current, 'hivelane-session.png');
       onNotice('Card downloaded');
     } catch {
       onNotice('Could not create the image');

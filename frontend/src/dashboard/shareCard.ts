@@ -118,7 +118,7 @@ export function drawShareCard(
   ctx.textAlign = 'left';
   ctx.fillStyle = INK;
   ctx.font = `800 28px ${SANS}`;
-  ctx.fillText('Synergo', 124, 72);
+  ctx.fillText('Hivelane', 124, 72);
   ctx.fillStyle = MUTED;
   ctx.font = `500 16px ${SANS}`;
   ctx.fillText('Multiplayer radar for AI coding agents', 124, 96);
@@ -212,7 +212,7 @@ export function drawShareCard(
   ctx.fillText(kinds ? `Agents: ${kinds}` : 'Agents coordinating live', 64, 594);
   ctx.textAlign = 'right';
   ctx.fillStyle = DIM;
-  ctx.fillText('synergo · see every agent, live', CARD_WIDTH - 64, 594);
+  ctx.fillText('hivelane · see every agent, live', CARD_WIDTH - 64, 594);
   ctx.textAlign = 'left';
 }
 

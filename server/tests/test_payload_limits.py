@@ -80,7 +80,7 @@ def _join(socket: Any, name: str) -> None:
 def _next_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        events = frame["events"] if frame.get("type") == "synergo_feed" else [frame]
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
             if event.get("type") == type_name:
                 return event
@@ -363,7 +363,7 @@ def test_messages_over_the_room_quota_are_dropped_and_counted(relay: RoomManager
         assert _next_event(sam, "edit_check_response")["request_id"] == "r1"
 
     scrape = client.get("/metrics").text
-    assert 'synergo_messages_dropped_total{reason="room_quota"} 2' in scrape
+    assert 'hivelane_messages_dropped_total{reason="room_quota"} 2' in scrape
 
 
 def test_the_quota_is_shared_by_everyone_in_the_room(relay: RoomManager) -> None:
@@ -389,4 +389,4 @@ def test_dropped_message_reasons_start_at_zero() -> None:
     scrape = TestClient(app).get("/metrics").text
 
     for reason in ("room_quota", "invalid", "frame_too_large"):
-        assert f'synergo_messages_dropped_total{{reason="{reason}"}} 0' in scrape
+        assert f'hivelane_messages_dropped_total{{reason="{reason}"}} 0' in scrape

@@ -1,6 +1,6 @@
 # Security policy
 
-Synergo sits in the path of every edit an AI coding agent makes, and the relay
+Hivelane sits in the path of every edit an AI coding agent makes, and the relay
 carries prompts, file paths and diffs between teammates. We treat security
 reports as the highest-priority work in the project.
 
@@ -10,12 +10,12 @@ to report a problem.
 
 ## Supported versions
 
-Synergo is pre-1.0. Fixes land on `main` and ship in the next release; older
+Hivelane is pre-1.0. Fixes land on `main` and ship in the next release; older
 releases are not patched.
 
 | Component | Supported |
 |-----------|-----------|
-| `synergo` CLI and daemon (PyPI) | The latest release |
+| `hivelane` CLI and daemon (PyPI) | The latest release |
 | Relay (`server/`, the Docker image, the Helm chart) | The latest release and `main` |
 | Dashboard (`frontend/`) | `main` (deployed continuously) |
 | VS Code / Cursor extension (`editors/vscode/`) | The latest published version |
@@ -32,16 +32,16 @@ The repository is private for now, so GitHub's private vulnerability reporting
 is not available to you yet. Report it by email instead:
 
 1. Email the maintainer at the address on their GitHub profile
-   ([github.com/AdrianShah](https://github.com/AdrianShah)). Put "Synergo
+   ([github.com/AdrianShah](https://github.com/AdrianShah)). Put "Hivelane
    security" in the subject.
-2. Describe the problem, the affected component and version (`synergo
+2. Describe the problem, the affected component and version (`hivelane
    --version`, the relay's `/readyz` output, or a commit SHA), and the steps
    to reproduce it. A proof of concept helps, but is not required.
 3. Tell us how you would like to be credited, if at all.
 
 Once the repository is public you can also report through GitHub Security
 Advisories: the repository's **Security** tab, then **Report a vulnerability**
-(<https://github.com/AdrianShah/Synergo/security/advisories/new>). Only the
+(<https://github.com/AdrianShah/Hivelane/security/advisories/new>). Only the
 maintainers and you can see such a report.
 
 If you cannot find the address, open a public issue (once the repository is
@@ -73,13 +73,13 @@ In scope:
 - **The relay** (`server/`, the Docker image and the Helm chart): the HTTP and
   WebSocket endpoints, room isolation, join approval and owner tokens, payload
   limits, rate limiting, CORS and security headers, and the room store.
-- **The daemon** (`synergo serve` / `synergo up`), which listens on
+- **The daemon** (`hivelane serve` / `hivelane up`), which listens on
   `127.0.0.1` only (port 4600 by default): its local HTTP API, the local auth
   token, and protections against requests from web pages in the user's browser
   (cross-origin requests, DNS rebinding).
-- **The agent hooks** (`synergo hook <agent>` and the adapters in
-  `synergo/adapters/`): parsing of agent payloads, the hook configuration files
-  that `synergo up` writes, secret redaction before content leaves the machine,
+- **The agent hooks** (`hivelane hook <agent>` and the adapters in
+  `hivelane/adapters/`): parsing of agent payloads, the hook configuration files
+  that `hivelane up` writes, secret redaction before content leaves the machine,
   and anything that could make a hook block, approve or run something it should
   not.
 - **End-to-end encryption mode**: any way for the relay, or anyone without the
@@ -101,7 +101,7 @@ Out of scope:
   the daemon is down.
 - **Exposing the daemon port yourself**, for example by tunnelling 4600. The
   docs tell you not to.
-- **Vulnerabilities in dependencies** with no demonstrated impact on Synergo.
+- **Vulnerabilities in dependencies** with no demonstrated impact on Hivelane.
   Report those upstream; Dependabot and the weekly audit workflow track them
   here.
 - Denial of service through sheer traffic volume, and social engineering.

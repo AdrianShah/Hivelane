@@ -32,7 +32,7 @@ python -m venv /tmp/bench-venv
 ## How the load test works
 
 `relay_load.py` starts `uvicorn server.main:app` on a free port with every
-limit off (`SYNERGO_MAX_ROOMS=0`, `SYNERGO_MAX_MEMBERS=0`, `ROOM_CREATE_LIMIT=0`,
+limit off (`HIVELANE_MAX_ROOMS=0`, `HIVELANE_MAX_MEMBERS=0`, `ROOM_CREATE_LIMIT=0`,
 `WS_ATTEMPT_LIMIT=0`, `ROOM_MESSAGE_LIMIT=0`), creates the rooms over HTTP and
 spreads them over `--workers` load-generator processes (a room's sockets always
 share one process, so latencies use one clock). Every member sends `--rate`

@@ -1,6 +1,6 @@
 # Security
 
-What Synergo protects, from whom, and how. Synergo moves coordination
+What Hivelane protects, from whom, and how. Hivelane moves coordination
 metadata (file paths, symbol names, branches, diffs, prompts) between
 teammates' machines through a relay; this page says who can see which of it.
 
@@ -28,7 +28,7 @@ operator should not see your code.
   whoever joins; the relay only keeps them unique within a room. Approval is
   where a human checks who is knocking.
 - **Clients do not take the relay's word on encryption.** A daemon decides to
-  encrypt from its own `.synergo.toml`, never from the relay's `e2e` flag, so a
+  encrypt from its own `.hivelane.toml`, never from the relay's `e2e` flag, so a
   hostile relay cannot talk it into cleartext. The relay keeps the flag one-way
   anyway: a join can switch `e2e` on, never off.
 
@@ -47,7 +47,7 @@ once (the dashboard and the creator's daemon, two tabs).
 
 Where tokens live: the CLI keeps the one for rooms it creates in the personal
 config (see [Daemon and hooks](#daemon-and-hooks)). The dashboard keeps the one
-for rooms it creates in `localStorage` under `synergo:owner-token:<CODE>`, so
+for rooms it creates in `localStorage` under `hivelane:owner-token:<CODE>`, so
 anyone using that browser profile owns the room, and clearing site data gives
 the ownership up. There is no recovery or rotation: a lost token means a new
 room. Rooms created before owner tokens existed have no owner and cannot
@@ -90,7 +90,7 @@ Limits and edge cases:
 - `join_decision` and `room_policy` from a socket that is not an owner are
   ignored.
 
-Refusals are counted in `synergo_ws_rejections_total{reason}` as
+Refusals are counted in `hivelane_ws_rejections_total{reason}` as
 `approval_declined`, `approval_timeout` and `approval_queue_full`.
 
 ### Payload caps and quotas
@@ -111,7 +111,7 @@ the room, so the relay bounds it:
 | Activity, intent and plan messages per member | one each per 0.5 s | dropped |
 
 Sizes are UTF-8 bytes. Dropped messages are counted in
-`synergo_messages_dropped_total{reason}`: `room_quota`, `invalid` (fails
+`hivelane_messages_dropped_total{reason}`: `room_quota`, `invalid` (fails
 validation, including an oversized blob, or is not JSON) and `frame_too_large`.
 A malformed frame is dropped without ending the session.
 
@@ -119,8 +119,8 @@ The frame cap applies after uvicorn has read the frame, and uvicorn accepts
 frames up to 16 MiB by default, with up to 32 of them queued per socket; to
 stop larger ones before they are buffered, also start uvicorn with
 `--ws-max-size 600000 --ws-max-queue 4` (keep the size in step with
-`SYNERGO_MAX_FRAME_BYTES`). A production relay refuses to start with
-`SYNERGO_MAX_FRAME_BYTES`, `SYNERGO_MAX_DIFF_BYTES` or `SYNERGO_MAX_TEXT_BYTES`
+`HIVELANE_MAX_FRAME_BYTES`). A production relay refuses to start with
+`HIVELANE_MAX_FRAME_BYTES`, `HIVELANE_MAX_DIFF_BYTES` or `HIVELANE_MAX_TEXT_BYTES`
 set to 0 (unlimited).
 
 ### Client IPs behind a proxy
@@ -165,7 +165,7 @@ that bypasses Cloudflare. `/readyz` reports what is in use as `client_ip_from`
 
 Every HTTP response from the relay carries `X-Content-Type-Options: nosniff`
 and `Referrer-Policy: no-referrer` (a dashboard URL contains the room code,
-which must not leak to other sites). With `SYNERGO_ENV=staging` or
+which must not leak to other sites). With `HIVELANE_ENV=staging` or
 `production` it also sends `Strict-Transport-Security: max-age=31536000;
 includeSubDomains`, so only serve those environments over HTTPS (on a host
 whose subdomains are HTTPS too). HTML responses, which is the bundled
@@ -218,11 +218,11 @@ headers its proxy adds on a replay (`fly-replay-src`) and on a fallback
 (`fly-replay-failed`), but not that it strips them from client requests, so
 the relay does not trust them as sent:
 
-- each replay carries `state=<time>.<HMAC>` keyed by `SYNERGO_REPLAY_SECRET`
-  (or, unset, a key derived from `SYNERGO_REDIS_URL`, which every instance
+- each replay carries `state=<time>.<HMAC>` keyed by `HIVELANE_REPLAY_SECRET`
+  (or, unset, a key derived from `HIVELANE_REDIS_URL`, which every instance
   sharing leases has). `fly-replay-src` ("already replayed, serve it here")
   counts only with a valid state less than 30 s old; otherwise the request is
-  routed normally. Set the same `SYNERGO_REPLAY_SECRET` on every machine, or
+  routed normally. Set the same `HIVELANE_REPLAY_SECRET` on every machine, or
   none.
 - `fly-replay-failed` moves a room's lease only when its `replay_source` is
   this machine **and** the owner fails a 1 s health probe over Fly's private
@@ -234,7 +234,7 @@ thread, so a slow Redis does not stall every room on the instance.
 
 ### What the relay stores, and for how long
 
-- **Durable** (SQLite at `SYNERGO_STATE_PATH`, or Redis): per room code, its
+- **Durable** (SQLite at `HIVELANE_STATE_PATH`, or Redis): per room code, its
   creation time, its settings (conflict windows, `e2e` flag, `history_hours`),
   its access record (owner-token SHA-256, `require_approval`) and the owner's
   webhooks (URL, format, events; see [History and
@@ -288,10 +288,10 @@ connected, when, from which IP, and how much they send.
 ### History and webhooks
 
 Both are off until someone turns them on: history by the team's committed
-`.synergo.toml`, webhooks by the room's owner. Setup is in
+`.hivelane.toml`, webhooks by the room's owner. Setup is in
 [notifications.md](notifications.md).
 
-**Room history** (`history_hours = 4` in `.synergo.toml`, 0 by default, at
+**Room history** (`history_hours = 4` in `.hivelane.toml`, 0 by default, at
 most 24) makes the relay keep the room's feed so a dashboard can replay it.
 
 - *What:* exactly the feed events the relay broadcast to the room (activity
@@ -317,13 +317,13 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
   `history_hours` of the past. In an approval-required room, approving someone
   now also shows them that history. In an e2e room, anyone with the room key
   can decrypt the replay, just as they could the live feed.
-- *Metrics:* `synergo_history_events` and `synergo_history_bytes`, process
+- *Metrics:* `hivelane_history_events` and `hivelane_history_bytes`, process
   totals (no per-room series, which would publish room codes).
 
 **Webhooks** are configured by the room's owner over HTTP
 (`POST`/`GET /rooms/{code}/webhooks`, `DELETE /rooms/{code}/webhooks/{id}`).
 
-- *Authentication:* the `X-Synergo-Owner-Token` header, hashed and compared in
+- *Authentication:* the `X-Hivelane-Owner-Token` header, hashed and compared in
   constant time with the stored owner-token SHA-256 (read from the store when
   the room has no live state, so managing webhooks does not revive a room). A
   missing or wrong token and an unknown room code get the same `403`, and the
@@ -341,7 +341,7 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
 - *SSRF protection.* The relay makes requests to URLs a room owner (that is,
   anyone who can create a room) typed in, so:
   - only `https://` (plus `http://localhost` and other loopback names with
-    `SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1`), with no user name or password in the
+    `HIVELANE_WEBHOOKS_ALLOW_PRIVATE=1`), with no user name or password in the
     URL;
   - in every environment, development included, the host is resolved and
     **every** address it resolves to must be globally routable unicast: no
@@ -351,7 +351,7 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
     ranges. IPv6 forms that embed an IPv4 address (IPv4-mapped,
     IPv4-compatible `::/96`, IPv4-translated `::ffff:0:0:0/96`, 6to4, Teredo,
     NAT64 `64:ff9b::/96`) are judged by that address, and IP literals are
-    checked the same way. Only `SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1` turns this
+    checked the same way. Only `HIVELANE_WEBHOOKS_ALLOW_PRIVATE=1` turns this
     off, for testing a receiver on your own machine; a production relay
     refuses to start with it, and a relay that has it logs a warning at
     startup;
@@ -370,7 +370,7 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
 - *Delivery:* off the event path (background tasks), at most 30 notifications
   a minute per room, two retries with backoff on network errors, `429` and
   `5xx`, and a webhook is paused for 15 minutes after 10 failed deliveries in
-  a row. Outcomes are counted in `synergo_webhook_deliveries_total{outcome}`.
+  a row. Outcomes are counted in `hivelane_webhook_deliveries_total{outcome}`.
 - *What a notification says:* in a cleartext room the who (display name and
   agent kind), what (block, warning, conflict verdict, join request), file
   path, decision scope, the people it collided with, the relay's reason or
@@ -386,13 +386,13 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
 
 Browser notifications (the dashboard's **Notifications** view) are local: the
 dashboard that already receives the feed shows them, the preference sits in
-that browser's `localStorage` (`synergo:notify:<CODE>`), and nothing about
+that browser's `localStorage` (`hivelane:notify:<CODE>`), and nothing about
 them reaches the relay.
 
 ## Daemon and hooks
 
-Every machine runs one Synergo daemon on `127.0.0.1:4600` (or `SYNERGO_PORT`).
-Agent hooks, the CLI, `synergo mcp`, `synergo watch`, the git pre-commit hook
+Every machine runs one Hivelane daemon on `127.0.0.1:4600` (or `HIVELANE_PORT`).
+Agent hooks, the CLI, `hivelane mcp`, `hivelane watch`, the git pre-commit hook
 and the VS Code extension all talk to it over loopback HTTP.
 
 **Who can talk to the daemon.** Binding to loopback keeps other machines out,
@@ -400,11 +400,11 @@ but not other local processes or web pages: a browser tab can reach
 `127.0.0.1` too, directly or through DNS rebinding. So every endpoint except a
 bare `GET /health` requires a per-install secret:
 
-- `SYNERGO_HOME/token` (default `~/.synergo/token`): 32 random bytes,
-  url-safe base64, created the first time the daemon or `synergo up` runs.
+- `HIVELANE_HOME/token` (default `~/.hivelane/token`): 32 random bytes,
+  url-safe base64, created the first time the daemon or `hivelane up` runs.
   It is created owner-only (mode `0600`) on macOS and Linux; on Windows it
   inherits your user profile's ACL (you and administrators).
-- Clients send it as `X-Synergo-Token`; the daemon compares it in constant
+- Clients send it as `X-Hivelane-Token`; the daemon compares it in constant
   time and answers `401` otherwise. Whoever can read the file is, by
   definition, the user the daemon belongs to.
 - The daemon also checks the `Host` header: anything but `127.0.0.1:<port>`
@@ -414,17 +414,17 @@ bare `GET /health` requires a per-install secret:
   `/shutdown`) additionally refuse any request carrying an `Origin` header,
   which browsers always send cross-site.
 - `GET /health` is the one unauthenticated route and says only
-  `{"ok": true, "service": "synergo-daemon"}`, so tools can tell "no daemon"
+  `{"ok": true, "service": "hivelane-daemon"}`, so tools can tell "no daemon"
   from "a daemon that refuses my token".
 
 **Token lifecycle.** Clients read the file on every call (the hook with a plain
 `open()`, nothing cached across processes), so nothing needs restarting when it
 changes. If the file is deleted and recreated while the daemon runs, the
 daemon re-reads the file it started from on the first mismatch and adopts the
-new token. A daemon and a client using different `SYNERGO_HOME`s get `401`:
-`synergo status` and `synergo doctor` ("Daemon token readable", "Daemon
+new token. A daemon and a client using different `HIVELANE_HOME`s get `401`:
+`hivelane status` and `hivelane doctor` ("Daemon token readable", "Daemon
 accepts this token") say so, and the VS Code extension takes a
-`synergo.tokenPath` setting for that case.
+`hivelane.tokenPath` setting for that case.
 
 **Hooks fail open.** A hook that cannot reach the daemon, or whose token is
 refused, lets the edit through (a coordination tool must never stall the
@@ -471,7 +471,7 @@ Ordinary code is left alone: `token = get_token()`, comparisons
 (`token == "…"`), keyword arguments (`password=password`), environment
 lookups, placeholders (`"${DB_PASSWORD}"`, `"changeme"`, `"********"`), URLs
 without a password, file paths, and labels that spell out what they are
-without any digit (`"X-Synergo-Token"`). File paths are never rewritten: the
+without any digit (`"X-Hivelane-Token"`). File paths are never rewritten: the
 `diff --git` / `--- a/…` / `+++ b/…` header lines of a diff are skipped, but
 only where a header can be (before the first `@@` hunk, or after a hunk's
 line counts are used up). A content line that merely looks like a header (a
@@ -487,7 +487,7 @@ Some files are never sent at all: the diff of `.env*`, `*.env`, `*.pem`,
 replaced by `[withheld: sensitive file]`. The path still goes, so a teammate
 touching the same file is still warned.
 
-Configure it in `.synergo.toml`:
+Configure it in `.hivelane.toml`:
 
 ```toml
 redact = true                                # default; false turns the patterns off
@@ -506,24 +506,24 @@ hostile input.
 **Transport.** The CLI refuses a plaintext `ws://` relay on any host but this
 machine (`localhost`, `127.0.0.0/8`, `::1`, `*.localhost`): every path, diff,
 prompt and the room code would cross the network unencrypted. Use `wss://`, or
-opt in on a network you trust with `synergo up --insecure` (or
-`insecure = true` in `.synergo.toml`, which the daemon also honours for repos
-it adopts on its own). `synergo doctor` fails a plaintext remote relay and
+opt in on a network you trust with `hivelane up --insecure` (or
+`insecure = true` in `.hivelane.toml`, which the daemon also honours for repos
+it adopts on its own). `hivelane doctor` fails a plaintext remote relay and
 warns about one you opted into.
 
-**Room ownership.** `synergo up` keeps the owner token `POST /rooms` returns
+**Room ownership.** `hivelane up` keeps the owner token `POST /rooms` returns
 when it creates a room in the personal config (`owner_tokens`, file mode
 `0600`) and presents it when it joins that room; it is never written to the
-project file, never printed and never in `synergo status` output. As the
-owner you can make newcomers wait for approval (`synergo room
-require-approval on`); waiting requests appear in `synergo status` and as one
-line in the daemon log, and `synergo room approve|deny <request_id>` answers
+project file, never printed and never in `hivelane status` output. As the
+owner you can make newcomers wait for approval (`hivelane room
+require-approval on`); waiting requests appear in `hivelane status` and as one
+line in the daemon log, and `hivelane room approve|deny <request_id>` answers
 them. A teammate whose join is held sees "waiting for an owner to approve" in
-`synergo up` (which keeps waiting for up to the relay's five minutes).
+`hivelane up` (which keeps waiting for up to the relay's five minutes).
 
 ## End-to-end encryption
 
-With `e2e = true` in the committed `.synergo.toml`, the relay coordinates the
+With `e2e = true` in the committed `.hivelane.toml`, the relay coordinates the
 room without being able to read it.
 
 **What the relay sees.** It matches overlaps on equality only, so it gets:
@@ -571,8 +571,8 @@ key with WebCrypto alone, which has PBKDF2 and HKDF but no memory-hard KDF;
 guess cost a relay about 1.2 million SHA-256 compressions instead of ~10,
 which matters because the relay holds known-plaintext tokens (the `main`
 branch hash, public commit SHAs) to test guesses against. It does not save a
-dictionary passphrase: use a generated key (256 random bits). `synergo key
-set` and a `SYNERGO_ROOM_KEY` that is shorter than 16 characters or looks
+dictionary passphrase: use a generated key (256 random bits). `hivelane key
+set` and a `HIVELANE_ROOM_KEY` that is shorter than 16 characters or looks
 guessable get a warning (`crypto.passphrase_problem`).
 
 Version 1 (no PBKDF2, salt `"synergo-e2e-v1:" + code.strip().upper()`, no
@@ -581,23 +581,23 @@ written. v1 and v2 clients do not match each other's hashes: upgrade every
 teammate and the dashboard together.
 
 `protocol/e2e-test-vectors.json` pins both versions (`vectors` and
-`vectors_v2`); the daemon (`synergo/crypto.py`) and the dashboard
-(`frontend/src/e2e.ts`, WebCrypto) are both tested against it. AES-GCM needs the optional extra: `pipx install 'synergo[e2e]'` (or
-`pipx inject synergo cryptography`); without it an e2e repo refuses to connect
+`vectors_v2`); the daemon (`hivelane/crypto.py`) and the dashboard
+(`frontend/src/e2e.ts`, WebCrypto) are both tested against it. AES-GCM needs the optional extra: `pipx install 'hivelane[e2e]'` (or
+`pipx inject hivelane cryptography`); without it an e2e repo refuses to connect
 with that instruction rather than falling back to cleartext.
 
 **Sharing the key.** The passphrase is never in the committed file (a
 `room_keys` or `owner_tokens` entry there is an error), never in the share
-line and never sent to the relay. It comes from `SYNERGO_ROOM_KEY` or the
+line and never sent to the relay. It comes from `HIVELANE_ROOM_KEY` or the
 personal config's `room_keys = { CODE = "…" }` (mode `0600`).
 
-1. The first teammate runs `synergo up --e2e` (or adds `e2e = true` and runs
-   `synergo up`). With no key configured, it generates one (256 random bits),
+1. The first teammate runs `hivelane up --e2e` (or adds `e2e = true` and runs
+   `hivelane up`). With no key configured, it generates one (256 random bits),
    saves it and prints it once.
 2. Send it to each teammate over a different channel than the room code (a
-   password manager share, a DM): `synergo key show` prints it again.
-3. Teammates run `synergo key set CODE` and paste it (input hidden), then
-   `synergo up`.
+   password manager share, a DM): `hivelane key show` prints it again.
+3. Teammates run `hivelane key set CODE` and paste it (input hidden), then
+   `hivelane up`.
 4. Dashboard viewers open the room link with `#k=<key>` appended, or paste the
    key when the dashboard asks. Browsers never send the fragment to a server,
    and the dashboard removes it from the address bar and keeps the key in
@@ -616,7 +616,7 @@ rewritten back to names (the file being asked about is always known; others
 once their blob has been seen). A blob that does not open (a teammate with the
 wrong key) is logged and ignored. If the room is e2e and the key is missing,
 the repo reports a clear error and sends nothing; if a teammate's
-`.synergo.toml` turns e2e on while yours does not say so, your daemon stops
+`.hivelane.toml` turns e2e on while yours does not say so, your daemon stops
 coordinating that repo instead of sending them cleartext. A join never
 switches the room's e2e flag off.
 
@@ -637,8 +637,8 @@ plain http on a LAN address cannot decrypt (it says so).
 
 **Limits.** E2E hides content from the relay operator and from anyone who
 breaks into it; it does not hide the room's shape (who, when, how much), and
-it trusts every key holder fully. Rotating a key means a new room (`synergo
-leave --forget`, `synergo up --e2e`) and a new key for everyone; turning e2e
+it trusts every key holder fully. Rotating a key means a new room (`hivelane
+leave --forget`, `hivelane up --e2e`) and a new key for everyone; turning e2e
 off likewise needs a new room, since joins never clear the flag. Anyone with
 the key and access to the relay's traffic can read the room's history. The VS
 Code extension's file decorations come from the relay feed and show nothing

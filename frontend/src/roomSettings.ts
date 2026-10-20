@@ -27,7 +27,7 @@ export function describeWindows(settings: RoomSettings): string {
 
 /** Where the windows in force came from, for a caption under them. */
 export function describeSettingsSource(settings: RoomSettingsUpdate | null): string {
-  if (settings?.set_by) return `Set by ${settings.set_by}'s .synergo.toml`;
+  if (settings?.set_by) return `Set by ${settings.set_by}'s .hivelane.toml`;
   const isDefault =
     settings == null ||
     (settings.block_window_seconds === DEFAULT_ROOM_SETTINGS.block_window_seconds &&
