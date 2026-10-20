@@ -14,6 +14,7 @@ import SharePanel from './SharePanel';
 interface AddTeammateProps {
   roomId: string;
   settings: RoomSettingsUpdate | null;
+  requireApproval?: boolean | null;
 }
 
 interface Step {
@@ -42,7 +43,7 @@ function steps(roomId: string): Step[] {
   ];
 }
 
-export default function AddTeammate({ roomId, settings }: AddTeammateProps) {
+export default function AddTeammate({ roomId, settings, requireApproval = null }: AddTeammateProps) {
   const [copied, setCopied] = useState<string | null>(null);
 
   const copy = async (command: string) => {
@@ -62,7 +63,7 @@ export default function AddTeammate({ roomId, settings }: AddTeammateProps) {
       </p>
 
       <div className="space-y-5">
-        <SharePanel roomId={roomId} settings={settings} />
+        <SharePanel roomId={roomId} settings={settings} requireApproval={requireApproval} />
 
         <section className="connect-panel">
           <header>

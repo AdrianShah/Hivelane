@@ -71,7 +71,7 @@ function HeatCell({ stat, nowSeconds }: { stat: FileStat; nowSeconds: number }) 
       />
       <span
         className="heat-cell__label"
-        style={{ color: opacity >= 0.6 ? '#0b1220' : 'rgb(var(--c-on-surface))' }}
+        style={{ color: opacity >= 0.6 ? '#09090b' : 'rgb(var(--c-on-surface))' }}
       >
         {initials(last.user_id)}
       </span>

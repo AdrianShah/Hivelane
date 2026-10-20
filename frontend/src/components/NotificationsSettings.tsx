@@ -69,7 +69,7 @@ function Switch({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className={`relative shrink-0 w-10 h-6 rounded-full border transition-colors disabled:opacity-50 ${
-        on ? 'bg-primary/30 border-primary/50' : 'bg-white/[0.04] border-outline-soft'
+        on ? 'bg-primary/30 border-primary/50' : 'bg-ink/[0.08] border-outline-soft'
       }`}
     >
       <span

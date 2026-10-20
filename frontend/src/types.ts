@@ -125,6 +125,46 @@ export interface PlanConflict {
 export interface PlanConflicts {
   type: 'plan_conflicts';
   conflicts: PlanConflict[];
+  /** The plan's request_id, echoed ("" when the plan sent none). */
+  request_id?: string;
+  /** Why the plan was not recorded; "" (or absent) when it was. */
+  reason?: '' | 'rate_limited' | 'invalid';
+}
+
+/** Member → relay (daemon-only; declared for parity with server/models.py). */
+export interface PlanMessage {
+  type: 'plan';
+  user_id: string;
+  summary?: string;
+  files?: string[];
+  symbols?: string[];
+  repo_id?: string;
+  branch?: string;
+  ttl_seconds?: number;
+  e2e?: string;
+  /** Echoed on the plan_conflicts reply (max 128 chars); "" when unset. */
+  request_id?: string;
+}
+
+/** Member → relay: ask for a held file and join its wait queue (daemon-only). */
+export interface FileRequest {
+  type: 'file_request';
+  file_path: string;
+  repo_id?: string;
+  e2e?: string;
+  /** What the requester means to edit, so holders are judged at the same granularity. */
+  branch?: string;
+  symbols?: string[];
+}
+
+/** GET /readyz on the relay (fields the dashboard may show). */
+export interface ReadyzResponse {
+  status: string;
+  /** The synergo release the relay runs ("" when unknown). */
+  version: string;
+  /** The commit the deploy was built from ("" when the deploy does not say). */
+  commit: string;
+  [key: string]: unknown;
 }
 
 /** Spectator → relay: was this warn/block useful or noise? */

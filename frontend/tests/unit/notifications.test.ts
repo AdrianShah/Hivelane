@@ -93,3 +93,14 @@ test('webhook URLs: https only (http to localhost for a local receiver), kind gu
   assert.equal(guessKind('https://discord.com/api/webhooks/1/x'), 'discord');
   assert.equal(guessKind('https://example.com/x'), 'generic');
 });
+
+test('close codes: 1013 and 4408 reconnect; 4403 and 4404 stop', async () => {
+  const { closeAction } = await import('../../src/closeCodes.ts');
+  assert.equal(closeAction(1013), 'reconnect');
+  assert.equal(closeAction(4408), 'reconnect');
+  assert.equal(closeAction(1006), 'reconnect');
+  assert.equal(closeAction(4429), 'reconnect');
+  assert.equal(closeAction(4403), 'refused');
+  assert.equal(closeAction(4404), 'room_missing');
+  assert.equal(closeAction(4004), 'room_missing');
+});

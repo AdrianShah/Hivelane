@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { relayHttpOrigin } from '../relayUrl';
 
@@ -20,13 +21,26 @@ interface SidebarProps {
   view: AppView;
   onNavigate: (view: AppView) => void;
   conflictCount: number;
-  elapsedSeconds: number;
   roomId?: string;
   onCopyRoom?: () => void;
   copied?: boolean;
   onInvite?: () => void;
   onNewRoom?: () => void;
   creatingRoom?: boolean;
+}
+
+/**
+ * The session clock ticks here, not in App: a 1 s state update at the root
+ * re-rendered every lane, the timeline and the heat map each second.
+ */
+function SessionClock() {
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{formatElapsed(Math.max(0, Math.floor((now - startedAt) / 1000)))}</>;
 }
 
 function formatElapsed(seconds: number): string {
@@ -54,7 +68,6 @@ export default function Sidebar({
   view,
   onNavigate,
   conflictCount,
-  elapsedSeconds,
   roomId,
   onCopyRoom,
   copied = false,
@@ -65,15 +78,16 @@ export default function Sidebar({
   const navigate = useNavigate();
 
   return (
-    <aside className="hidden md:flex flex-col w-[220px] shrink-0 glass-sidebar h-full py-4 px-2">
+    <aside className="hidden md:flex flex-col w-[220px] shrink-0 glass-sidebar h-full min-h-0 overflow-y-auto custom-scrollbar py-4 px-2">
       <div className="flex items-center gap-2.5 px-2 mb-6">
         <button
           type="button"
           className="w-7 h-7 rounded-md bg-on-surface text-background text-[12px] font-semibold font-mono flex items-center justify-center"
           title="Back to home"
+          aria-label="Back to Synergo home"
           onClick={() => navigate('/')}
         >
-          S
+          <span aria-hidden="true">S</span>
         </button>
         <div className="min-w-0">
           <button
@@ -85,12 +99,12 @@ export default function Sidebar({
             {roomId || 'Synergo'}
           </button>
           <p className="text-[11px] text-on-dim font-mono mt-0.5 tabular-nums">
-            {copied ? 'Link copied' : formatElapsed(elapsedSeconds)}
+            {copied ? 'Link copied' : <SessionClock />}
           </p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1">
+      <nav className="flex-1 space-y-1" aria-label="Dashboard views">
         {NAV.map((item) => {
           const active = view === item.id;
           return (
@@ -98,13 +112,14 @@ export default function Sidebar({
               key={item.id}
               type="button"
               onClick={() => onNavigate(item.id)}
+              aria-current={active ? 'page' : undefined}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-left transition-colors duration-150 ${
                 active
                   ? 'nav-active'
                   : 'text-on-muted hover:bg-ink/[0.04] hover:text-on-surface'
               }`}
             >
-              <span className="material-symbols-outlined text-[16px] opacity-80">
+              <span className="material-symbols-outlined text-[16px] opacity-80" aria-hidden="true">
                 {item.icon}
               </span>
               <span className="text-[13px] font-medium">
@@ -112,6 +127,7 @@ export default function Sidebar({
               </span>
               {item.id === 'conflicts' && conflictCount > 0 ? (
                 <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-error/15 text-error text-[10px] font-bold flex items-center justify-center border border-error/25">
+                  <span className="sr-only">: </span>
                   {conflictCount}
                 </span>
               ) : null}
@@ -127,8 +143,8 @@ export default function Sidebar({
           onClick={onNewRoom}
           disabled={creatingRoom}
         >
-          <span className="material-symbols-outlined text-base">account_tree</span>
-          {creatingRoom ? 'Creating…' : 'New Room'}
+          <span className="material-symbols-outlined text-base" aria-hidden="true">add</span>
+          {creatingRoom ? 'Creating…' : 'New room'}
         </button>
         {onInvite ? (
           <button
@@ -136,7 +152,7 @@ export default function Sidebar({
             className="w-full flex items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
             onClick={onInvite}
           >
-            <span className="material-symbols-outlined text-base">person_add</span>
+            <span className="material-symbols-outlined text-base" aria-hidden="true">person_add</span>
             Invite teammates
           </button>
         ) : null}
@@ -158,9 +174,9 @@ export default function Sidebar({
                 'noopener,noreferrer',
               )
             }
-            title="Open relay API docs"
+            title="Open the relay's API reference"
           >
-            Support
+            API reference
           </button>
         </div>
       </div>

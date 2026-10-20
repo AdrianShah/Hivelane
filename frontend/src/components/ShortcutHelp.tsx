@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef } from 'react';
+import { useId, useRef } from 'react';
+import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { SHORTCUTS } from '../dashboard/shortcuts';
 
 /** The "?" overlay listing keyboard shortcuts. Esc (handled by App) closes it. */
@@ -6,19 +7,16 @@ export default function ShortcutHelp({ open, onClose }: { open: boolean; onClose
   const titleId = useId();
   const closeRef = useRef<HTMLButtonElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    return () => previous?.focus?.();
-  }, [open]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Esc is App's shortcut handler's job here.
+  useDialogFocus(open, onClose, panelRef, closeRef, false);
 
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[105] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <button type="button" className="absolute inset-0 overlay-backdrop" aria-label="Close shortcuts" tabIndex={-1} onClick={onClose} />
-      <div className="relative w-full max-w-md dialog-panel rounded-2xl p-5 animate-fade-up">
+      <div ref={panelRef} className="relative w-full max-w-md dialog-panel rounded-2xl p-5 animate-fade-up">
         <div className="flex items-center justify-between gap-3 mb-3">
           <h2 id={titleId} className="text-base font-bold tracking-tight m-0">
             Keyboard shortcuts

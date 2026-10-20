@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useRef } from 'react';
+import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { copyText } from '../clipboard';
 import { setupCommand } from '../relayUrl';
 
@@ -20,14 +21,9 @@ export default function DeployModal({
   onClose,
   onCopied,
 }: DeployModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(open, onClose, panelRef, closeRef);
 
   if (!open) return null;
 
@@ -48,9 +44,10 @@ export default function DeployModal({
         type="button"
         className="absolute inset-0 overlay-backdrop"
         aria-label="Close dialog"
+        tabIndex={-1}
         onClick={onClose}
       />
-      <div className="relative w-full max-w-lg lane-shell rounded-2xl p-6 shadow-card animate-fade-up">
+      <div ref={panelRef} className="relative w-full max-w-lg dialog-panel rounded-2xl p-6 shadow-card animate-fade-up">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2
@@ -64,12 +61,14 @@ export default function DeployModal({
             </p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="icon-btn p-1.5 shrink-0"
             onClick={onClose}
             title="Close"
+            aria-label="Close"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">close</span>
           </button>
         </div>
 

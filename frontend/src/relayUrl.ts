@@ -12,37 +12,152 @@ const DEFAULT_WS_BASE = 'ws://localhost:8000/ws';
 /** Vite's dev server and `vite preview`: no relay on these origins. */
 const VITE_PORTS = new Set(['5173', '4173']);
 
+/** Where a relay chosen with ?relay= is kept for the rest of this tab's visit. */
+const RELAY_STORAGE_KEY = 'synergo.relay';
+
+/** The URL query parameter that names the relay: /r/K7M2PQ2X?relay=wss://relay.example/ws */
+export const RELAY_PARAM = 'relay';
+
+/**
+ * A relay URL as typed or pasted, as the WebSocket base this module works
+ * with: https:// and http:// become wss:// and ws://, a bare origin gets the
+ * relay's /ws path, a trailing room code or slash is dropped. Anything that is
+ * not an http(s)/ws(s) URL gives null.
+ */
+export function normalizeRelayUrl(raw: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return null;
+  }
+  const schemes: Record<string, string> = { 'ws:': 'ws:', 'wss:': 'wss:', 'http:': 'ws:', 'https:': 'wss:' };
+  const scheme = schemes[url.protocol];
+  if (!scheme || !url.host) return null;
+  let path = url.pathname.replace(/\/+$/, '');
+  // A pasted room socket (…/ws/K7M2PQ2X) names the same relay.
+  path = path.replace(/\/ws\/[A-Za-z0-9-]+$/, '/ws');
+  if (!path.endsWith('/ws')) path = `${path}/ws`;
+  return `${scheme}//${url.host}${path}`;
+}
+
+function readStoredRelay(): string | null {
+  try {
+    return window.sessionStorage.getItem(RELAY_STORAGE_KEY);
+  } catch {
+    return null; // storage blocked (private mode, sandboxed frame)
+  }
+}
+
+/**
+ * Remembers a relay for this tab, so it survives navigation between the home
+ * page and room pages even once the ?relay= parameter is gone from the URL.
+ * Returns the normalized URL, or null when `raw` is not a relay URL.
+ */
+export function rememberRelay(raw: string): string | null {
+  const relay = normalizeRelayUrl(raw);
+  if (!relay) return null;
+  try {
+    window.sessionStorage.setItem(RELAY_STORAGE_KEY, relay);
+  } catch {
+    // Not persisted; this page load still uses it.
+  }
+  // Takes effect at once (the Home page's relay field), not on the next load.
+  resolved = { base: relay, source: 'chosen' };
+  return relay;
+}
+
+/** Drops a relay picked in this tab: back to the build's or the page's own. */
+export function forgetRelay(): void {
+  try {
+    window.sessionStorage.removeItem(RELAY_STORAGE_KEY);
+  } catch {
+    // nothing stored
+  }
+  resolved = resolveWsBase({ ignoreChosen: true });
+}
+
+/** A relay the visitor picked: ?relay= on this URL, else one picked earlier in this tab. */
+function chosenRelay(): string | null {
+  if (typeof window === 'undefined') return null;
+  let fromQuery: string | null = null;
+  try {
+    fromQuery = new URLSearchParams(window.location.search).get(RELAY_PARAM);
+  } catch {
+    fromQuery = null;
+  }
+  if (fromQuery) {
+    const relay = rememberRelay(fromQuery);
+    if (relay) return relay;
+  }
+  const stored = readStoredRelay();
+  return stored ? normalizeRelayUrl(stored) : null;
+}
+
+/**
+ * True when this build is served from a static host with no relay behind it
+ * (GitHub Pages): the page's own origin is then never a relay, so with no
+ * relay chosen the dashboard falls back to the CLI default on localhost.
+ */
+const STATIC_HOST = import.meta.env.VITE_STATIC_HOST === '1';
+
+/** True on a static host build (GitHub Pages): the Home page then asks for a relay URL. */
+export function isStaticHost(): boolean {
+  return STATIC_HOST;
+}
+
 /**
  * Which relay this dashboard talks to:
- * 1. VITE_WS_URL, baked in at build time (a dashboard hosted apart from its
+ * 1. ?relay=wss://… on the URL (a room link from `synergo up` or a teammate),
+ *    remembered for the tab in sessionStorage, or one remembered earlier;
+ * 2. VITE_WS_URL, baked in at build time (a dashboard hosted apart from its
  *    relay, e.g. on Vercel);
- * 2. otherwise ws://localhost:8000/ws under `npm run dev` / `vite preview`,
- *    next to a local `uvicorn server.main:app`;
- * 3. otherwise the origin the page came from: a build served by the relay
+ * 3. otherwise ws://localhost:8000/ws under `npm run dev` / `vite preview`,
+ *    next to a local `uvicorn server.main:app`, and on a static host;
+ * 4. otherwise the origin the page came from: a build served by the relay
  *    itself (the Docker image, `synergo relay`) finds it with no
  *    configuration, as ws:// on http and wss:// on https.
  */
-function resolveWsBase(): string {
+/** Where the relay in use came from (shown on the Home page). */
+export type RelaySource = 'chosen' | 'build' | 'default' | 'origin';
+
+function resolveWsBase(options: { ignoreChosen?: boolean } = {}): { base: string; source: RelaySource } {
+  const chosen = options.ignoreChosen ? null : chosenRelay();
+  if (chosen) return { base: chosen, source: 'chosen' };
   const configured = import.meta.env.VITE_WS_URL?.trim();
-  if (configured) return configured;
-  if (import.meta.env.DEV || typeof window === 'undefined') return DEFAULT_WS_BASE;
+  // A VITE_WS_URL without /ws (or as https://) is normalized like a typed one.
+  if (configured) return { base: normalizeRelayUrl(configured) ?? configured, source: 'build' };
+  if (import.meta.env.DEV || STATIC_HOST || typeof window === 'undefined') {
+    return { base: DEFAULT_WS_BASE, source: 'default' };
+  }
   const { protocol, host, port } = window.location;
-  if (VITE_PORTS.has(port) || !host) return DEFAULT_WS_BASE;
+  if (VITE_PORTS.has(port) || !host) return { base: DEFAULT_WS_BASE, source: 'default' };
   const scheme = protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${host}/ws`;
+  return { base: `${scheme}//${host}/ws`, source: 'origin' };
 }
 
-const WS_BASE = resolveWsBase();
+// Resolved on first use, then kept; rememberRelay()/forgetRelay() replace it.
+let resolved: { base: string; source: RelaySource } | null = null;
+
+function current(): { base: string; source: RelaySource } {
+  if (!resolved) resolved = resolveWsBase();
+  return resolved;
+}
+
+/** How the relay in use was picked: ?relay= or the Home field, the build, the default, or this page's origin. */
+export function relaySource(): RelaySource {
+  return current().source;
+}
 
 /** ws://localhost:8000/ws -> http://localhost:8000 (strip trailing /ws, swap scheme). */
 export function relayHttpOrigin(): string {
-  const withoutWsPath = WS_BASE.replace(/\/ws\/?$/, '');
+  const withoutWsPath = current().base.replace(/\/ws\/?$/, '');
   return withoutWsPath.replace(/^ws/, 'http');
 }
 
 /** Base WS URL without a room code — what `synergo up --relay` takes. */
 export function relayWsBase(): string {
-  return WS_BASE.replace(/\/$/, '');
+  return current().base.replace(/\/$/, '');
 }
 
 /** True when the CLI's own default relay is the one this dashboard uses. */
@@ -80,9 +195,34 @@ export function roomPath(roomId: string): string {
   return `/r/${normalizeRoomCode(roomId)}`;
 }
 
-/** Shareable dashboard link for a room on this site. */
+/**
+ * The path this build is served under, without a trailing slash: '' at the
+ * root, '/Synergo' on GitHub Pages (vite.config.ts `base`). The router's
+ * basename; roomPath() stays relative to it.
+ */
+export function basePath(): string {
+  return import.meta.env.BASE_URL.replace(/\/+$/, '');
+}
+
+/** True when the relay is the server this page was loaded from. */
+function relayIsThisOrigin(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return new URL(relayHttpOrigin()).host === window.location.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Shareable dashboard link for a room on this site. Unless this page's own
+ * server is the relay, the link carries ?relay= so whoever opens it reaches
+ * the same relay: /Synergo/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws
+ */
 export function roomLink(roomId: string): string {
-  return `${window.location.origin}${roomPath(roomId)}`;
+  const link = `${window.location.origin}${basePath()}${roomPath(roomId)}`;
+  if (relayIsThisOrigin()) return link;
+  return `${link}?${RELAY_PARAM}=${encodeURIComponent(relayWsBase())}`;
 }
 
 /**

@@ -35,6 +35,14 @@ interface ReplayViewProps {
 
 /** The relay answers one history_request per socket per 10 s. */
 const REQUEST_INTERVAL_MS = 10_000;
+/**
+ * When this page last sent history_request. Module-level, not per mount: the
+ * relay's 10 s budget is per socket, so leaving Replay and coming back within
+ * it used to send a request the relay silently dropped (then "no answer").
+ */
+let lastHistoryRequestAt = 0;
+/** Tags chunks with the request they answer: a re-request must not mix in the last one's tail. */
+let historyGeneration = 0;
 /** No answer this long after asking: the relay probably predates history. */
 const ANSWER_TIMEOUT_MS = 8_000;
 const TICK_MS = 200;
@@ -103,7 +111,7 @@ function HistoryOff({ settingsKnown }: { settingsKnown: boolean }) {
         Replay needs the relay to remember the room’s events. Turn it on in the repo’s
         committed <code className="font-mono text-primary">.synergo.toml</code>:
       </p>
-      <pre className="font-mono text-[12px] text-primary bg-black/25 border border-outline-soft rounded-lg px-3 py-2 m-0">
+      <pre className="font-mono text-[12px] text-primary bg-surface-deep border border-outline-soft rounded-lg px-3 py-2 m-0">
         history_hours = 4
       </pre>
       <p className="text-[12px] text-on-muted m-0">
@@ -129,20 +137,39 @@ export default function ReplayView({
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState<Speed>(10);
   const [cooldown, setCooldown] = useState(false);
-  const lastRequest = useRef(0);
   const incoming = useRef<FeedEvent[]>([]);
+  const generation = useRef(historyGeneration);
+  const timers = useRef<{ retry?: number; cooldown?: number }>({});
   const enabled = historyHours > 0;
+
+  useEffect(
+    () => () => {
+      window.clearTimeout(timers.current.retry);
+      window.clearTimeout(timers.current.cooldown);
+    },
+    [],
+  );
 
   const request = useCallback(() => {
     const ws = socketRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const now = Date.now();
-    if (now - lastRequest.current < REQUEST_INTERVAL_MS) return;
-    lastRequest.current = now;
+    const wait = lastHistoryRequestAt + REQUEST_INTERVAL_MS - Date.now();
+    window.clearTimeout(timers.current.retry);
+    if (wait > 0) {
+      // Inside the relay's budget: ask as soon as it allows instead of
+      // sending a request it would drop.
+      setLoad('loading');
+      timers.current.retry = window.setTimeout(() => request(), wait + 50);
+      return;
+    }
+    lastHistoryRequestAt = Date.now();
+    historyGeneration += 1;
+    generation.current = historyGeneration;
     incoming.current = [];
     setLoad('loading');
     setCooldown(true);
-    window.setTimeout(() => setCooldown(false), REQUEST_INTERVAL_MS);
+    window.clearTimeout(timers.current.cooldown);
+    timers.current.cooldown = window.setTimeout(() => setCooldown(false), REQUEST_INTERVAL_MS);
     const frame: HistoryRequest = { type: 'history_request', since: 0 };
     ws.send(JSON.stringify(frame));
   }, [socketRef]);
@@ -150,6 +177,8 @@ export default function ReplayView({
   useEffect(
     () =>
       onHistoryChunk((chunk) => {
+        // A chunk of a request older than ours (still streaming) is not ours.
+        if (generation.current !== historyGeneration) return;
         incoming.current.push(...chunk.events);
         if (!chunk.done) return;
         const sorted = sortEvents(incoming.current);
@@ -200,9 +229,8 @@ export default function ReplayView({
   const markers = useMemo(() => {
     if (!bounds || bounds.end <= bounds.start) return [];
     const span = bounds.end - bounds.start;
-    const out: { left: number; kind: 'block' | 'warn' | 'conflict'; key: string }[] = [];
+    const all: { left: number; kind: 'block' | 'warn' | 'conflict'; key: string }[] = [];
     for (const event of events) {
-      if (out.length >= MAX_MARKERS) break;
       const ts = eventTime(event);
       if (ts == null) continue;
       const kind =
@@ -212,9 +240,12 @@ export default function ReplayView({
             ? 'conflict'
             : null;
       if (!kind) continue;
-      out.push({ left: ((ts - bounds.start) / span) * 100, kind, key: `${out.length}-${ts}` });
+      all.push({ left: ((ts - bounds.start) / span) * 100, kind, key: `${all.length}-${ts}` });
     }
-    return out;
+    if (all.length <= MAX_MARKERS) return all;
+    // Sample evenly across the whole span (the first 400 left newer collisions unmarked).
+    const step = all.length / MAX_MARKERS;
+    return Array.from({ length: MAX_MARKERS }, (_, i) => all[Math.floor(i * step)]);
   }, [events, bounds]);
 
   const lanes = state ? Object.values(state.lanes) : [];
