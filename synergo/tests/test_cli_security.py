@@ -9,7 +9,6 @@ from __future__ import annotations
 import io
 import os
 import tomllib
-from pathlib import Path
 
 import pytest
 
@@ -130,6 +129,25 @@ def test_a_teammate_sets_the_key_they_were_given(machine: Machine, capsys: pytes
     monkeypatch.setenv(cfg.ROOM_KEY_ENV, "from-env")
     assert cfg.load_config(machine.repo).room_key() == "from-env"
     assert cli.main(["key", "show", "other1"]) == 0  # env applies to any room
+
+
+def test_joining_an_e2e_room_without_its_key_asks_for_the_teammates_key(
+    machine: Machine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    machine.project_file().write_bytes(b'room = "K7Q2XM"\ne2e = true\n')
+    assert cli.main(["up"]) == 2
+    err = capsys.readouterr().err
+    assert "synergo key set K7Q2XM" in err
+    assert "room_keys" not in personal(machine)  # no fresh key was made up
+    assert machine.service.called("connect_repo") == []
+
+
+def test_the_bare_env_key_never_seeds_a_new_room(
+    machine: Machine, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(cfg.ROOM_KEY_ENV, "another-rooms-key")
+    assert cli.main(["up", "--e2e"]) == 2
+    assert "SYNERGO_ROOM_KEY_K7Q2XM" in capsys.readouterr().err
 
 
 def test_key_show_without_a_key_fails(capsys: pytest.CaptureFixture[str]) -> None:

@@ -389,7 +389,7 @@ def test_open_with_a_remote_relay(machine: Machine, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
     machine.project_file().write_text('room = "TEAM42"\nrelay = "wss://relay.synergo.dev/ws"\n', encoding="utf-8")
     assert cli.main(["open"]) == 0
-    assert opened == ["https://synergo.dev/r/TEAM42"]
+    assert opened == ["https://adrianshah.github.io/Synergo/r/TEAM42?relay=wss%3A%2F%2Frelay.synergo.dev%2Fws"]
 
 
 def test_open_without_a_room(machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

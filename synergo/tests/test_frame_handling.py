@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from synergo.daemon import Daemon
 
 
@@ -16,9 +18,29 @@ def test_unparseable_frame_is_ignored() -> None:
 
 
 def test_malformed_known_frame_is_ignored() -> None:
-    daemon = _daemon()
-    daemon._handle_frame('{"type": "edit_check_response", "decision": "nonsense"}')
-    assert daemon.fatal is None
+    """A garbage reply must not resolve the check waiting on that request id
+    (the hook would act on it); the well-formed reply that follows does."""
+
+    async def scenario() -> tuple[bool, bool, str]:
+        daemon = _daemon()
+        future = asyncio.get_running_loop().create_future()
+        daemon._pending["r1"] = future
+        daemon._handle_frame(
+            '{"type": "edit_check_response", "request_id": "r1", "decision": "nonsense"}'
+        )
+        resolved_by_garbage = future.done()
+        still_pending = "r1" in daemon._pending
+        daemon._handle_frame(
+            '{"type": "edit_check_response", "request_id": "r1", "decision": "block",'
+            ' "file_path": "a.py", "reason": "sam is editing a.py"}'
+        )
+        assert daemon.fatal is None
+        return resolved_by_garbage, still_pending, future.result().decision
+
+    resolved_by_garbage, still_pending, decision = asyncio.run(scenario())
+    assert not resolved_by_garbage
+    assert still_pending
+    assert decision == "block"
 
 
 def test_non_object_frame_is_ignored() -> None:

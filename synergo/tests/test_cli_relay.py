@@ -70,9 +70,40 @@ def test_the_lan_join_line_carries_insecure_for_plaintext_relays() -> None:
     assert cli.relay_join_command("ws://127.0.0.1:8000/ws") == "synergo up --relay ws://127.0.0.1:8000/ws"
 
 
-def test_lan_address_is_never_loopback() -> None:
-    address = cli.lan_address()
-    assert address is None or not address.startswith("127.")
+@pytest.mark.parametrize(
+    "routed, expected",
+    [
+        ("10.0.0.7", "10.0.0.7"),
+        ("192.168.1.20", "192.168.1.20"),
+        ("127.0.0.1", None),
+        ("127.0.1.1", None),  # Debian's hostname alias
+        ("0.0.0.0", None),
+        (OSError("network is unreachable"), None),
+    ],
+)
+def test_lan_address_is_never_loopback(
+    monkeypatch: pytest.MonkeyPatch, routed: object, expected: object
+) -> None:
+    """The probe socket is faked, so this checks the filtering rather than
+    whatever network the test machine happens to have."""
+
+    class Probe:
+        def __init__(self, *args: object) -> None:
+            self.closed = False
+
+        def connect(self, address: object) -> None:
+            if isinstance(routed, OSError):
+                raise routed
+
+        def getsockname(self) -> tuple[object, int]:
+            return routed, 54321
+
+        def close(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(socket, "socket", Probe)
+
+    assert cli.lan_address() == expected
 
 
 def test_the_source_checkouts_dashboard_build_is_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -247,7 +247,10 @@ def test_messages_carry_the_repo_id_of_their_own_cwd(
                     new_content="b\n",
                 )
             )
-        await asyncio.sleep(0.2)
+        # Wait for the debounced batch flush itself, not a fixed delay.
+        batch = daemon.connection._batch_task
+        assert batch is not None
+        await asyncio.wait_for(asyncio.shield(batch), timeout=5.0)
         return _drain(daemon)
 
     messages = asyncio.run(scenario())

@@ -12,9 +12,41 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
-from synergo.mcp_server import MAX_CONTENT, DaemonClient, DaemonDown, read_text
+from synergo.mcp_server import MAX_CONTENT, DaemonClient, DaemonDown
 
-SKIP_DIRS = frozenset({".git", "node_modules", ".venv", "venv", "dist", "build", "__pycache__", ".synergo"})
+SKIP_DIRS = frozenset(
+    {
+        ".git",
+        "node_modules",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        "__pycache__",
+        ".synergo",
+        # Common build and tool output that is never anyone's edit.
+        "target",
+        ".next",
+        ".nuxt",
+        "coverage",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".tox",
+        ".gradle",
+        ".idea",
+    }
+)
+# Total characters of file text the watcher keeps to diff against; files past
+# it are still reported, without a "before" (path-level overlap only).
+CACHE_BUDGET = 64 * 1024 * 1024
+# Files git rewrites when the tree changes under a checkout, pull, merge or
+# rebase. A poll that sees one of them change re-reads the tree silently:
+# files git wrote are teammates' (or the branch's) changes, not this agent's.
+GIT_MARKERS = ("HEAD", "ORIG_HEAD", "FETCH_HEAD", "MERGE_HEAD", "index.lock")
+GIT_BUSY = ("rebase-merge", "rebase-apply", "MERGE_HEAD", "CHERRY_PICK_HEAD", "index.lock")
+
+_UNREADABLE = object()
 
 Poster = Callable[[dict[str, Any]], Optional[dict[str, Any]]]
 
@@ -25,6 +57,24 @@ class Snapshot:
     def __init__(self) -> None:
         self.stats: dict[str, tuple[float, int]] = {}
         self.texts: dict[str, Optional[str]] = {}
+        self.chars = 0
+        self.git: tuple[float, ...] = ()
+
+    def put(self, path: str, text: Optional[str]) -> None:
+        old = self.texts.pop(path, None)
+        if old is not None:
+            self.chars -= len(old)
+        if text is not None and self.chars + len(text) > CACHE_BUDGET:
+            text = None
+        self.texts[path] = text
+        if text is not None:
+            self.chars += len(text)
+
+    def drop(self, path: str) -> Optional[str]:
+        old = self.texts.pop(path, None)
+        if old is not None:
+            self.chars -= len(old)
+        return old
 
 
 class Watcher:
@@ -65,25 +115,87 @@ class Watcher:
                 found[full] = (st.st_mtime, st.st_size)
         return found
 
+    def _read(self, path: str) -> Any:
+        """The file's text; None for binary or oversized; _UNREADABLE when it
+        could not be read right now (a Windows sharing violation mid-write)."""
+        try:
+            with open(path, "rb") as handle:
+                raw = handle.read(self.cap + 1)
+        except FileNotFoundError:
+            return None
+        except OSError:
+            return _UNREADABLE
+        if len(raw) > self.cap or bytes(1) in raw[:8192]:
+            return None
+        try:
+            return raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+
+    def _git_state(self) -> tuple[float, ...]:
+        git = self.root / ".git"
+        out: list[float] = []
+        for name in GIT_MARKERS:
+            try:
+                out.append((git / name).stat().st_mtime)
+            except OSError:
+                out.append(0.0)
+        return tuple(out)
+
+    def _git_busy(self) -> bool:
+        git = self.root / ".git"
+        return any((git / name).exists() for name in GIT_BUSY)
+
+    def _resync(self, current: dict[str, tuple[float, int]]) -> None:
+        """Take the tree as it is now without reporting anything."""
+        for path in set(self.snap.texts) - set(current):
+            self.snap.drop(path)
+        for path, stat in current.items():
+            if self.snap.stats.get(path) != stat:
+                text = self._read(path)
+                self.snap.put(path, None if text is _UNREADABLE else text)
+        self.snap.stats = current
+
     def prime(self) -> None:
-        self.snap.stats = self._scan()
-        self.snap.texts = {p: read_text(Path(p), self.cap) for p in self.snap.stats}
+        current = self._scan()
+        self.snap.git = self._git_state()
+        self.snap.stats = {}
+        self.snap.texts = {}
+        self.snap.chars = 0
+        self._resync(current)
 
     def poll(self) -> list[dict[str, Any]]:
         """One scan; posts and returns the events for what changed."""
         current = self._scan()
+        git = self._git_state()
+        if git != self.snap.git or self._git_busy():
+            # git rewrote the tree (checkout, pull, merge, rebase): what
+            # changed is not this agent's work. Re-read, report nothing.
+            self.snap.git = git
+            self._resync(current)
+            return []
         events: list[dict[str, Any]] = []
         for path, stat in current.items():
             if self.snap.stats.get(path) == stat:
                 continue
-            new = read_text(Path(path), self.cap)
+            new = self._read(path)
+            if new is _UNREADABLE:
+                # Not now: keep the old text and stat, so the next poll
+                # retries and reports the edit against the right "before".
+                current[path] = self.snap.stats.get(path, (-1.0, -1))
+                continue
+            known = path in self.snap.texts and self.snap.texts[path] is not None
             old = self.snap.texts.get(path)
-            self.snap.texts[path] = new
+            self.snap.put(path, new)
             if new is None or new == old:
                 continue  # binary, oversized, or touched without a change
-            events.append(self._event(path, "" if old is None else old, new))
+            if not known and path in self.snap.stats:
+                # Seen before but not cached (over the budget): no "before".
+                events.append(self._event(path, None, new))
+            else:
+                events.append(self._event(path, "" if old is None else old, new))
         for path in set(self.snap.stats) - set(current):
-            old = self.snap.texts.pop(path, None)
+            old = self.snap.drop(path)
             if old is not None:
                 events.append(self._event(path, old, ""))
         self.snap.stats = current
@@ -91,7 +203,7 @@ class Watcher:
             self.post(event)
         return events
 
-    def _event(self, path: str, old: str, new: str) -> dict[str, Any]:
+    def _event(self, path: str, old: Optional[str], new: str) -> dict[str, Any]:
         return {
             "kind": "post_edit",
             "agent": self.agent,

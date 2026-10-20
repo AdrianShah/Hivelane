@@ -137,7 +137,7 @@ def test_a_hung_daemon_is_not_respawned(
     """Something accepted the connection and never answered: starting a second
     daemon could not bind the port anyway."""
 
-    def hang(event: dict[str, Any], port: int) -> Any:
+    def hang(event: dict[str, Any], port: int, timeout: float = 2.0) -> Any:
         raise hook_fast.DaemonUnreachable(hook_fast.OFFLINE_NOT_RESPONDING)
 
     monkeypatch.setattr(hook_fast, "post_event", hang)

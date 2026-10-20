@@ -36,8 +36,15 @@ RELAY_ENV = "SYNERGO_RELAY"
 NAME_ENV = "SYNERGO_NAME"
 HOME_ENV = "SYNERGO_HOME"
 # The e2e room passphrase for whichever repo the process runs in; overrides
-# the personal config's room_keys.
+# the personal config's room_keys. The long-lived daemon ignores it (it
+# serves many rooms); SYNERGO_ROOM_KEY_<ROOM> names one room and applies
+# everywhere, the daemon included.
 ROOM_KEY_ENV = "SYNERGO_ROOM_KEY"
+
+
+def room_key_env_name(room: str) -> str:
+    """SYNERGO_ROOM_KEY_<ROOM>: the room code upper-cased, - as _."""
+    return f"{ROOM_KEY_ENV}_{re.sub(r'[^A-Z0-9]', '_', room.strip().upper())}"
 
 # Keys the writer knows how to emit, in the order they are written.
 _PROJECT_KEYS = (
@@ -108,19 +115,32 @@ class SynergoConfig:
             settings["history_hours"] = self.history_hours
         return settings
 
-    def room_key(self, room: Optional[str] = None) -> Optional[str]:
+    def room_key(self, room: Optional[str] = None, *, generic_env: bool = True) -> Optional[str]:
         """The e2e passphrase for room (default: this config's room):
-        SYNERGO_ROOM_KEY, else the personal file's room_keys entry."""
-        env = os.environ.get(ROOM_KEY_ENV, "").strip()
-        if env:
-            return env
-        return _lookup(self.room_keys, room or self.room)
+        SYNERGO_ROOM_KEY_<ROOM>, else SYNERGO_ROOM_KEY (unless generic_env is
+        False, as in the daemon, which serves rooms that variable was never
+        meant for), else the personal file's room_keys entry."""
+        found = self._room_key_found(room, generic_env)
+        return found[0] if found else None
 
-    def room_key_source(self, room: Optional[str] = None) -> Optional[str]:
-        if os.environ.get(ROOM_KEY_ENV, "").strip():
-            return ROOM_KEY_ENV
-        if _lookup(self.room_keys, room or self.room) is not None:
-            return f"{personal_config_path()} (room_keys)"
+    def room_key_source(self, room: Optional[str] = None, *, generic_env: bool = True) -> Optional[str]:
+        found = self._room_key_found(room, generic_env)
+        return found[1] if found else None
+
+    def _room_key_found(self, room: Optional[str], generic_env: bool) -> Optional[tuple[str, str]]:
+        code = room or self.room
+        if code:
+            scoped_name = room_key_env_name(code)
+            scoped = os.environ.get(scoped_name, "").strip()
+            if scoped:
+                return scoped, scoped_name
+        if generic_env:
+            env = os.environ.get(ROOM_KEY_ENV, "").strip()
+            if env:
+                return env, ROOM_KEY_ENV
+        value = _lookup(self.room_keys, code)
+        if value is not None:
+            return value, f"{personal_config_path()} (room_keys)"
         return None
 
     def owner_token(self, room: Optional[str] = None) -> Optional[str]:
@@ -128,12 +148,23 @@ class SynergoConfig:
         return _lookup(self.owner_tokens, room or self.room)
 
 
+# Mirrors synergo.crypto.normalize_room (the relay's rule): whitespace and
+# "-" removed, upper case. Not imported: this module must stay light.
+_ROOM_SEPARATORS = re.compile(r"[\s\-]+")
+
+
+def canonical_room(room: str) -> str:
+    """`k7q2-xm9p`, ` K7Q2 XM9P ` and `K7Q2XM9P` are one relay room, so
+    they must find one `room_keys` / `owner_tokens` entry."""
+    return _ROOM_SEPARATORS.sub("", room or "").upper()
+
+
 def _lookup(pairs: tuple[tuple[str, str], ...], room: Optional[str]) -> Optional[str]:
     if not room:
         return None
-    wanted = room.strip().upper()
+    wanted = canonical_room(room)
     for code, value in pairs:
-        if code == wanted:
+        if canonical_room(code) == wanted:
             return value
     return None
 
@@ -534,13 +565,13 @@ def set_personal_secret(table: str, room: str, value: Optional[str]) -> Path:
     the table's other rooms. table is "room_keys" or "owner_tokens"."""
     if table not in _SECRET_TABLES:
         raise ValueError(f"not a secret table: {table!r}")
-    code = room.strip().upper()
-    if not _ROOM_RE.match(code):
+    if not _ROOM_RE.match(room.strip()):
         raise ConfigFileError(f"{room!r} is not a room code")
+    code = canonical_room(room)
     current = personal_values().get(table) or {}
     if not isinstance(current, dict):
         raise ConfigFileError(f"{personal_config_path()}: {table} must be a table")
-    merged = {str(k).upper(): v for k, v in current.items()}
+    merged = {canonical_room(str(k)): v for k, v in current.items()}
     if value is None:
         merged.pop(code, None)
     else:

@@ -29,11 +29,17 @@ TOKEN_BYTES = 32
 # Shorter than this is not a token we wrote (a truncated or hand-edited file):
 # replaced rather than trusted. token_urlsafe(32) is 43 characters.
 MIN_TOKEN_CHARS = 32
+MAX_TOKEN_CHARS = 512
+# url-safe base64 only: the same rule as synergo.hook_fast (asserted in the
+# tests), so a token the CLI accepts is one the hook sends, and nothing in the
+# file can smuggle a header into the hook's hand-built request.
+TOKEN_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
 # A racing creator writes its token right after O_EXCL succeeds; a reader that
 # lands in between sees an empty file for a moment.
 RACE_WAIT_SECONDS = 1.0
 # Windows opens os.open() files in text mode (\n written as \r\n) by default.
 _BINARY = getattr(os, "O_BINARY", 0)
+_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 
 
 def token_path() -> Path:
@@ -41,7 +47,7 @@ def token_path() -> Path:
 
 
 def _valid(text: str) -> bool:
-    return len(text) >= MIN_TOKEN_CHARS and text.isascii() and text.isprintable() and " " not in text
+    return MIN_TOKEN_CHARS <= len(text) <= MAX_TOKEN_CHARS and TOKEN_CHARS.issuperset(text)
 
 
 def read_token(path: Optional[Path] = None) -> Optional[str]:
@@ -56,8 +62,11 @@ def read_token(path: Optional[Path] = None) -> Optional[str]:
 
 def restrict_permissions(path: Path) -> None:
     """Owner read/write only where the OS has POSIX modes. On Windows the file
-    inherits the user-profile ACL (only the user and administrators), which is
-    the protection there; chmod would only toggle the read-only flag."""
+    inherits its directory's ACL: under the user profile (the default
+    SYNERGO_HOME) that is only the user and administrators. A SYNERGO_HOME
+    outside the profile (C:\\synergo, a shared drive) gets that directory's
+    ACL instead, which may be readable by other users; chmod would only toggle
+    the read-only flag, so nothing here can fix that."""
     if os.name == "nt":
         return
     try:
@@ -70,16 +79,32 @@ def write_private(path: Path, text: str) -> None:
     """Replace path's contents with text, owner-only (0600) from the first
     byte: the temp file is created with that mode, so there is never a moment
     where another user could open it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | _BINARY, 0o600)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    # An unpredictable name, created exclusively and never through a symlink:
+    # a pre-planted file or link at the temp path cannot receive the secret.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(8)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY, 0o600)
     try:
-        os.write(fd, text.encode("utf-8"))
-    finally:
-        os.close(fd)
-    restrict_permissions(tmp)
-    os.replace(tmp, path)
+        try:
+            os.write(fd, text.encode("utf-8"))
+        finally:
+            os.close(fd)
+        restrict_permissions(tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     restrict_permissions(path)
+
+
+def _is_empty(path: Path) -> bool:
+    try:
+        return path.stat().st_size == 0
+    except OSError:
+        return False
 
 
 def ensure_token(path: Optional[Path] = None) -> str:
@@ -93,21 +118,24 @@ def ensure_token(path: Optional[Path] = None) -> str:
     existing = read_token(path)
     if existing is not None:
         return existing
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     token = secrets.token_urlsafe(TOKEN_BYTES)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _BINARY, 0o600)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW | _BINARY, 0o600)
     except FileExistsError:
-        # Someone else created it (or a malformed one is there): give a racing
-        # writer a moment, then replace whatever is still unusable.
+        # Someone else created it (or a malformed one is there). Only an
+        # empty file can be a racing creator mid-write, so only that is worth
+        # waiting for; anything else is replaced at once.
         deadline = time.monotonic() + RACE_WAIT_SECONDS
-        while time.monotonic() < deadline:
-            existing = read_token(path)
-            if existing is not None:
-                return existing
+        while _is_empty(path) and time.monotonic() < deadline:
             time.sleep(0.02)
+        existing = read_token(path)
+        if existing is not None:
+            return existing
         write_private(path, token)
-        return token
+        # Two processes replacing the same malformed file both get here; the
+        # last writer wins, so return what is actually on disk.
+        return read_token(path) or token
     try:
         os.write(fd, token.encode("ascii"))
     finally:

@@ -110,7 +110,7 @@ def test_relay_flag_is_normalized_used_recorded_and_shared(
     assert machine.relay.urls("POST") == ["https://relay.example.com/rooms"]
     assert project_values(machine) == {"room": "K7Q2XM", "relay": "wss://relay.example.com/ws"}
     assert machine.service.called("connect_repo")[0][3].relay == "wss://relay.example.com/ws"
-    assert "https://synergo.dev/r/K7Q2XM" in out
+    assert "https://adrianshah.github.io/Synergo/r/K7Q2XM?relay=wss%3A%2F%2Frelay.example.com%2Fws" in out
     assert "synergo up --room K7Q2XM --relay wss://relay.example.com/ws" in out
 
 
@@ -277,23 +277,28 @@ def test_root_flag_works_outside_git(machine: Machine, tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "status, headers, message",
+    "status, headers, messages",
     [
-        (429, {"Retry-After": "1800"}, "rate-limiting room creation"),
-        (429, {"Retry-After": "1800"}, "about 30 minutes"),
-        (503, {}, "is full"),
-        (500, {}, "HTTP 500"),
+        (429, {"Retry-After": "1800"}, ["rate-limiting room creation", "about 30 minutes"]),
+        (503, {}, ["is full"]),
+        (500, {}, ["HTTP 500"]),
     ],
 )
 def test_room_creation_errors_are_explained(
-    machine: Machine, capsys: pytest.CaptureFixture[str], status: int, headers: dict, message: str
+    machine: Machine,
+    capsys: pytest.CaptureFixture[str],
+    status: int,
+    headers: dict,
+    messages: list[str],
 ) -> None:
     machine.relay.create_status = status
     machine.relay.create_headers = headers
 
     assert cli.main(["up"]) == 2
 
-    assert message in capsys.readouterr().err
+    err = capsys.readouterr().err
+    for message in messages:
+        assert message in err
     assert not machine.project_file().exists()
     assert machine.service.calls == []
 

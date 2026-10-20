@@ -59,8 +59,9 @@ def test_nothing_running_is_reported_quickly(port: int, tmp_path: Path) -> None:
     assert service.is_running(port) is False
     assert service.disconnect_repo(port, tmp_path) is False
     assert service.stop(port) is True  # nothing left on the port
-    # A refused loopback connect takes seconds on Windows; status must not.
-    assert time.monotonic() - started < 3.0
+    # A refused loopback connect takes ~2 s on Windows; uncapped, these four
+    # calls would take ~8 s. The bound is loose enough for a slow runner.
+    assert time.monotonic() - started < 5.0
     assert service.log_path() == Path(os.environ["SYNERGO_HOME"]) / "logs" / "daemon.log"
 
 

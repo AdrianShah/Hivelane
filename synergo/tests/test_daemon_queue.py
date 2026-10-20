@@ -47,6 +47,7 @@ class QueueRelay(StubRelay):
             data = json.loads(raw)
             if data.get("type") == "join":
                 self.joins[room].append(data)
+                await ws.send(json.dumps({"type": "user_joined", "user_id": str(data.get("name") or "").lower(), "agent": data.get("agent") or "unknown"}))
                 continue
             self.frames[room].append(data)
             if data.get("type") == "edit_check":
@@ -193,7 +194,9 @@ def test_wait_ends_when_one_of_our_checks_passes(tmp_path: Path) -> None:
         async with QueueRelay() as relay:
             daemon = await started(repo, relay)
             waiter = asyncio.create_task(daemon.wait_for_file(str(repo), REL, 5.0))
-            await asyncio.sleep(0.1)
+            # The waiter must be registered before the check that should end it.
+            conn = daemon._all_bindings()[0].connection
+            await wait_for(lambda: conn._file_waiters, "the waiter to register")
             relay.reply = {"decision": "allow"}
             await daemon.handle_event(event("pre_edit", repo, repo / REL))
             result = await asyncio.wait_for(waiter, 5.0)
@@ -232,7 +235,8 @@ def test_file_request_is_sealed_in_an_e2e_room() -> None:
     conn, key = e2e_connection()
     sealed = conn._seal(FileRequest(file_path=REL, repo_id="id"))
     assert sealed.file_path == key.hash(REL)
-    assert sealed.repo_id == "id"
+    # Keyed in an e2e room (the relay cannot confirm a guessed origin).
+    assert sealed.repo_id == key.repo_token("id") != "id"
     kind, envelope = key.open(sealed.e2e)
     assert (kind, envelope["file_path"]) == ("edit_check", REL)
 

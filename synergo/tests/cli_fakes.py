@@ -63,7 +63,11 @@ class FakeService:
         self.calls.append(("serve", port))
         self.running = True
         self.connected.wait(5)
-        time.sleep(0.05)  # let the attach thread print its report
+        # run_foreground's attach thread prints its report after connect_repo
+        # returns; wait for that thread to finish rather than for a guess.
+        for thread in threading.enumerate():
+            if thread.name == "synergo-attach" and thread is not threading.current_thread():
+                thread.join(5)
         self.running = False
         return 0
 

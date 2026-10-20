@@ -56,7 +56,11 @@ def test_a_successful_send_counts_as_contact() -> None:
         daemon._outbox.put_nowait('{"type":"intent"}')
         daemon._outbox_ready.set()
         drain = asyncio.create_task(daemon._drain(socket))
-        await asyncio.sleep(0.05)
+        # Wait for the send itself (and the contact it records), not a delay.
+        deadline = asyncio.get_running_loop().time() + 5.0
+        while not (socket.sent and daemon.last_relay_contact is not None):
+            assert asyncio.get_running_loop().time() < deadline, "the drain never sent"
+            await asyncio.sleep(0.001)
         drain.cancel()
         await asyncio.gather(drain, return_exceptions=True)
         return socket.sent, daemon.last_relay_contact
