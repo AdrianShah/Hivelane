@@ -32,7 +32,7 @@ export class ActivityTracker {
       }
     }
     if (!msg || typeof msg !== "object") return [];
-    if (msg.type === "synergo_feed" && Array.isArray(msg.events)) {
+    if (msg.type === "hivelane_feed" && Array.isArray(msg.events)) {
       return msg.events.flatMap((e: unknown) => this.ingest(e, now));
     }
     const isSelf = (u: string) => !!this.selfUserId && u === this.selfUserId;

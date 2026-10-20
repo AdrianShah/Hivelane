@@ -45,7 +45,7 @@ def test_default_rate_limits() -> None:
 def test_missing_cors_origins_is_fatal_outside_development(
     env_name: str, cors: str | None
 ) -> None:
-    environ = {"SYNERGO_ENV": env_name}
+    environ = {"HIVELANE_ENV": env_name}
     if cors is not None:
         environ["CORS_ORIGINS"] = cors
 
@@ -56,7 +56,7 @@ def test_missing_cors_origins_is_fatal_outside_development(
 
 
 def test_missing_cors_origins_is_fine_in_development() -> None:
-    settings = config.load_settings({"SYNERGO_ENV": "development"})
+    settings = config.load_settings({"HIVELANE_ENV": "development"})
 
     assert settings.cors_origins == config.DEV_CORS_ORIGINS
 
@@ -64,15 +64,15 @@ def test_missing_cors_origins_is_fine_in_development() -> None:
 def test_production_origins_are_parsed_exactly() -> None:
     settings = config.load_settings(
         {
-            "SYNERGO_ENV": "production",
-            "CORS_ORIGINS": " https://app.example.com , https://synergo.example.com ",
+            "HIVELANE_ENV": "production",
+            "CORS_ORIGINS": " https://app.example.com , https://hivelane.example.com ",
         }
     )
 
     assert settings.is_production
     assert settings.cors_origins == (
         "https://app.example.com",
-        "https://synergo.example.com",
+        "https://hivelane.example.com",
     )
     assert settings.cors_origin_regex is None
 
@@ -80,7 +80,7 @@ def test_production_origins_are_parsed_exactly() -> None:
 def test_origin_regex_is_opt_in() -> None:
     settings = config.load_settings(
         {
-            "SYNERGO_ENV": "production",
+            "HIVELANE_ENV": "production",
             "CORS_ORIGINS": "https://app.example.com",
             "CORS_ORIGIN_REGEX": r"https://.*\.example\.com",
         }
@@ -91,9 +91,9 @@ def test_origin_regex_is_opt_in() -> None:
 
 def test_unknown_environment_is_rejected() -> None:
     with pytest.raises(config.ConfigError) as excinfo:
-        config.load_settings({"SYNERGO_ENV": "prod"})
+        config.load_settings({"HIVELANE_ENV": "prod"})
 
-    assert "SYNERGO_ENV" in str(excinfo.value)
+    assert "HIVELANE_ENV" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
@@ -132,7 +132,7 @@ def test_import_fails_fast_when_production_has_no_cors_origins(
         env={
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": str(REPO_ROOT),
-            "SYNERGO_ENV": "production",
+            "HIVELANE_ENV": "production",
         },
         capture_output=True,
         text=True,

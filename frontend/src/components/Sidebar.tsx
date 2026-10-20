@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { relayHttpOrigin } from '../relayUrl';
+import { Mark } from '../brand/BrandArt';
 
 export type AppView =
   | 'dashboard'
@@ -52,7 +53,7 @@ function formatElapsed(seconds: number): string {
 
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'agents', label: 'Synergo feed', icon: 'dynamic_feed' },
+  { id: 'agents', label: 'Hivelane feed', icon: 'dynamic_feed' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'heatmap', label: 'Heat map', icon: 'local_fire_department' },
   { id: 'invite', label: 'Invite', icon: 'group_add' },
@@ -82,12 +83,12 @@ export default function Sidebar({
       <div className="flex items-center gap-2.5 px-2 mb-6">
         <button
           type="button"
-          className="w-7 h-7 rounded-md bg-on-surface text-background text-[12px] font-semibold font-mono flex items-center justify-center"
+          className="w-7 h-7 flex items-center justify-center"
           title="Back to home"
-          aria-label="Back to Synergo home"
+          aria-label="Back to Hivelane home"
           onClick={() => navigate('/')}
         >
-          <span aria-hidden="true">S</span>
+          <Mark size={26} />
         </button>
         <div className="min-w-0">
           <button
@@ -96,7 +97,7 @@ export default function Sidebar({
             onClick={onCopyRoom}
             title="Copy shareable link"
           >
-            {roomId || 'Synergo'}
+            {roomId || 'Hivelane'}
           </button>
           <p className="text-[11px] text-on-dim font-mono mt-0.5 tabular-nums">
             {copied ? 'Link copied' : <SessionClock />}

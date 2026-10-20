@@ -1,0 +1,121 @@
+# Values for the hivelane-relay chart. Every key is optional except
+# relay.corsOrigins (required unless relay.env is "development").
+
+# One replica is the supported default: rooms live in the relay process's
+# memory, and room codes on its volume. More than one REQUIRES Redis
+# (relay.redisUrl, or HIVELANE_REDIS_URL in relay.existingSecret) AND an ingress
+# that routes every /ws/<code> request for one room to the same pod; see the
+# chart's README.md. The chart refuses replicaCount > 1 without Redis.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/adrianshah/hivelane-relay
+  # Empty: the chart's appVersion. "edge" tracks main.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+relay:
+  # HIVELANE_ENV: development | staging | production.
+  env: production
+  # CORS_ORIGINS: exact origin(s) of dashboards hosted elsewhere that call this
+  # relay, comma-separated. The bundled dashboard is same-origin and needs no
+  # entry, but the relay still refuses to boot in production without one, so
+  # list this relay's own public URL if it is the only dashboard.
+  corsOrigins: ""
+  # CORS_ORIGIN_REGEX, for preview deploys. Leave empty unless you need it.
+  corsOriginRegex: ""
+  # TRUST_PROXY_HEADER: read the client IP from X-Forwarded-For. Needed behind
+  # an ingress controller, otherwise every user shares the controller's address
+  # (one rate-limit bucket); unsafe without one, since any client could then
+  # forge its address. Unset (null) follows ingress.enabled; set true or false
+  # to override (e.g. true behind your own load balancer). See docs/security.md
+  # for the proxy-hop settings.
+  trustProxyHeader: null
+  # Serve the bundled dashboard at /. false serves the API only.
+  serveDashboard: true
+  # HIVELANE_REDIS_URL, e.g. redis://hivelane-redis:6379/0. Shares room codes,
+  # room leases and rate limits between replicas. Prefer existingSecret when the
+  # URL carries a password.
+  redisUrl: ""
+  # Name of an existing Secret whose keys become environment variables, e.g.
+  # HIVELANE_REDIS_URL and GEMINI_API_KEY (AI captions, optional).
+  existingSecret: ""
+
+# Extra environment variables for the relay container, e.g.
+#   - name: TRUSTED_PROXY_HOPS
+#     value: "1"
+extraEnv: []
+
+# The volume for room codes (SQLite at /data/hivelane.db). Only used with one
+# replica: with several, room codes live in Redis and /data is an emptyDir.
+persistence:
+  enabled: true
+  size: 1Gi
+  # Empty: the cluster's default StorageClass.
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  # Use a claim you created yourself instead of one from this chart.
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  # e.g. nginx, traefik.
+  className: ""
+  # WebSockets (/ws/<code>) stay open for hours, so raise the controller's idle
+  # timeouts. For ingress-nginx:
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+  #   nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  # and, with replicaCount > 1, pin each room to one pod by hashing the path:
+  #   nginx.ingress.kubernetes.io/upstream-hash-by: "$uri"
+  # cert-manager, if you use it:
+  #   cert-manager.io/cluster-issuer: letsencrypt
+  annotations: {}
+  hosts:
+    - host: relay.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: hivelane-relay-tls
+  #    hosts:
+  #      - relay.example.com
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# Each daemon and dashboard holds a WebSocket open: give them time to be told
+# to reconnect before the pod is killed. Room leases are released at shutdown.
+terminationGracePeriodSeconds: 30
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  # The image's `hivelane` user.
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

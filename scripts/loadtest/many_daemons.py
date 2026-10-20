@@ -1,7 +1,7 @@
 """Many real `Daemon` instances in one process against one relay.
 
 Starts a relay subprocess (limits off), creates one room per --per-room
-daemons, starts N `synergo.daemon.Daemon` objects in this process (no HTTP
+daemons, starts N `hivelane.daemon.Daemon` objects in this process (no HTTP
 side: events go straight to Daemon.handle_event, which is what POST /events
 calls) and has every daemon run edit cycles: pre_edit (symbol extraction and
 an edit_check round trip to the relay) then post_edit (diff, redaction,
@@ -45,10 +45,10 @@ def edited(source: str, index: int, stamp: int) -> str:
 
 
 async def run(args) -> dict:
-    from synergo.daemon import Daemon
-    from synergo.events import NormalizedEvent
+    from hivelane.daemon import Daemon
+    from hivelane.events import NormalizedEvent
 
-    work = Path(tempfile.mkdtemp(prefix="synergo-many-"))
+    work = Path(tempfile.mkdtemp(prefix="hivelane-many-"))
     port = free_port()
     relay = start_relay(port, work / "relay.log", args.python)
     rooms = [create_room(port) for _ in range((args.daemons + args.per_room - 1) // args.per_room)]

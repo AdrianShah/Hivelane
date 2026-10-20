@@ -11,7 +11,7 @@ export type ThemePref = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
 /** Keep in sync with the inline script in index.html. */
-export const THEME_STORAGE_KEY = 'synergo:theme';
+export const THEME_STORAGE_KEY = 'hivelane:theme';
 
 export const THEME_PREFS: ThemePref[] = ['light', 'dark', 'system'];
 

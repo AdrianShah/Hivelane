@@ -1,7 +1,7 @@
 """Owner-configured webhooks: a room's blocks, warnings, conflict alerts and
 join requests posted to Slack, Discord or any HTTPS endpoint.
 
-HTTP API (owner only: the X-Synergo-Owner-Token header must be the token
+HTTP API (owner only: the X-Hivelane-Owner-Token header must be the token
 POST /rooms returned, checked against the stored SHA-256 in constant time):
 
     POST   /rooms/{code}/webhooks        {url, kind, events}  -> 201 {webhook}
@@ -11,10 +11,10 @@ POST /rooms returned, checked against the stored SHA-256 in constant time):
 - At most MAX_WEBHOOKS_PER_ROOM per room. `kind` is "slack", "discord" or
   "generic" (the payload shape); `events` picks from "block", "warn",
   "conflict_alert", "join_request".
-- https:// only. With SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1 (never in production)
+- https:// only. With HIVELANE_WEBHOOKS_ALLOW_PRIVATE=1 (never in production)
   http:// to localhost is accepted too, so a local receiver can be tested.
 - SSRF: in every environment (development included, unless
-  SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1) the host is resolved and every address it
+  HIVELANE_WEBHOOKS_ALLOW_PRIVATE=1) the host is resolved and every address it
   resolves to must be public (no private, loopback, link-local, CGNAT,
   multicast or reserved ranges, IPv4-mapped/compatible/6to4/Teredo/NAT64 forms
   included). This
@@ -92,10 +92,10 @@ WebhookEvent = Literal["block", "warn", "conflict_alert", "join_request"]
 WEBHOOK_KINDS: tuple[str, ...] = ("slack", "discord", "generic")
 WEBHOOK_EVENTS: tuple[str, ...] = ("block", "warn", "conflict_alert", "join_request")
 
-# SYNERGO_MAX_WEBHOOKS_PER_ROOM (at least 1).
+# HIVELANE_MAX_WEBHOOKS_PER_ROOM (at least 1).
 MAX_WEBHOOKS_PER_ROOM = config.MAX_WEBHOOKS_PER_ROOM
 MAX_URL_LENGTH = 2048
-OWNER_TOKEN_HEADER = "X-Synergo-Owner-Token"
+OWNER_TOKEN_HEADER = "X-Hivelane-Owner-Token"
 
 DELIVERY_TIMEOUT_SECONDS = 5.0
 DELIVERY_RETRIES = 2
@@ -109,19 +109,19 @@ ROOM_NOTICES_PER_MINUTE = 30
 # instance reaches this one within this long.
 CACHE_SECONDS = 30.0
 # Background deliveries in flight across the process; beyond it, dropped.
-# SYNERGO_WEBHOOK_MAX_IN_FLIGHT; 0 = unlimited.
+# HIVELANE_WEBHOOK_MAX_IN_FLIGHT; 0 = unlimited.
 MAX_IN_FLIGHT = config.WEBHOOK_MAX_IN_FLIGHT
 # Owner API calls per client IP per minute (it is a room-code oracle otherwise).
 API_REQUESTS_PER_MINUTE = 30
 # Rooms whose notice budget is tracked at once (least recently used dropped).
-# SYNERGO_WEBHOOK_MAX_TRACKED_ROOMS; 0 = unlimited.
+# HIVELANE_WEBHOOK_MAX_TRACKED_ROOMS; 0 = unlimited.
 MAX_TRACKED_ROOMS = config.WEBHOOK_MAX_TRACKED_ROOMS
 
 # Text caps inside payloads (Slack and Discord reject oversized fields).
 MAX_TEXT = 500
 MAX_PATH = 300
 
-USER_AGENT = "Synergo-Relay-Webhooks/1"
+USER_AGENT = "Hivelane-Relay-Webhooks/1"
 
 # Rooms whose webhook list is cached at once (least recently used dropped),
 # so every code that ever emitted an event does not stay in memory.
@@ -130,7 +130,7 @@ MAX_CACHED_ROOMS = 4096
 DELIVERY_OUTCOMES = ("delivered", "failed", "circuit_open", "rate_limited", "dropped")
 
 deliveries_total = metrics.Counter(
-    "synergo_webhook_deliveries_total",
+    "hivelane_webhook_deliveries_total",
     "Webhook notifications by outcome: delivered, failed (after retries), skipped "
     "while the webhook's circuit is open, over the room's per-minute budget, or "
     "dropped with too many deliveries in flight.",
@@ -192,7 +192,7 @@ def parse_url(
 ) -> Target:
     """Validate a webhook URL's shape. Raises WebhookUrlError.
 
-    `allow_private` (SYNERGO_WEBHOOKS_ALLOW_PRIVATE) also accepts
+    `allow_private` (HIVELANE_WEBHOOKS_ALLOW_PRIVATE) also accepts
     http://localhost; `development` is its old name."""
     if development is not None:
         allow_private = development
@@ -216,7 +216,7 @@ def parse_url(
         if not (allow_private and _is_loopback_name(host)):
             raise WebhookUrlError(
                 "url must be https:// (http:// is accepted only for localhost, with "
-                "SYNERGO_WEBHOOKS_ALLOW_PRIVATE=1)"
+                "HIVELANE_WEBHOOKS_ALLOW_PRIVATE=1)"
             )
     elif scheme != "https":
         raise WebhookUrlError("url must be https://")
@@ -597,7 +597,7 @@ def format_slack(notice: Notice) -> dict[str, Any]:
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"Synergo · room {_slack_escape(notice.room)}"
+                    "text": f"Hivelane · room {_slack_escape(notice.room)}"
                     + (" · end-to-end encrypted" if notice.e2e else ""),
                 }
             ],
@@ -613,7 +613,7 @@ def format_discord(notice: Notice) -> dict[str, Any]:
         "color": _DISCORD_COLORS[notice.event],
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(notice.timestamp)),
         "footer": {
-            "text": f"Synergo · room {notice.room}"
+            "text": f"Hivelane · room {notice.room}"
             + (" · end-to-end encrypted" if notice.e2e else "")
         },
     }
@@ -634,7 +634,7 @@ def format_discord(notice: Notice) -> dict[str, Any]:
     if fields:
         embed["fields"] = fields
     # Never ping anyone, whatever a name or path contains.
-    return {"username": "Synergo", "embeds": [embed], "allowed_mentions": {"parse": []}}
+    return {"username": "Hivelane", "embeds": [embed], "allowed_mentions": {"parse": []}}
 
 
 def format_generic(notice: Notice) -> dict[str, Any]:
@@ -660,7 +660,7 @@ def format_generic(notice: Notice) -> dict[str, Any]:
         else:
             data = {"name": notice.user, "agent": notice.agent}
     return {
-        "source": "synergo",
+        "source": "hivelane",
         "version": 1,
         "event": notice.event,
         "room": notice.room,
@@ -752,7 +752,7 @@ class WebhookService:
     @property
     def allow_private(self) -> bool:
         """Whether webhooks may target private and loopback addresses
-        (SYNERGO_WEBHOOKS_ALLOW_PRIVATE). Off by default in every environment."""
+        (HIVELANE_WEBHOOKS_ALLOW_PRIVATE). Off by default in every environment."""
         return config.WEBHOOKS_ALLOW_PRIVATE if self._allow_private is None else self._allow_private
 
     # Old name, kept for callers that still read it.
@@ -1070,9 +1070,9 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
         code: str,
         body: WebhookCreate,
         request: Request,
-        x_synergo_owner_token: Optional[str] = Header(default=None),
+        x_hivelane_owner_token: Optional[str] = Header(default=None),
     ) -> dict[str, Any]:
-        service = await _guard(request, code, x_synergo_owner_token)
+        service = await _guard(request, code, x_hivelane_owner_token)
         try:
             hook = await service.add(normalize_room_code(code), body)
         except WebhookError as exc:
@@ -1083,9 +1083,9 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
     async def list_webhooks(
         code: str,
         request: Request,
-        x_synergo_owner_token: Optional[str] = Header(default=None),
+        x_hivelane_owner_token: Optional[str] = Header(default=None),
     ) -> dict[str, Any]:
-        service = await _guard(request, code, x_synergo_owner_token)
+        service = await _guard(request, code, x_hivelane_owner_token)
         return {
             "webhooks": await service._io(service.listing, normalize_room_code(code)),
             "max": MAX_WEBHOOKS_PER_ROOM,
@@ -1098,9 +1098,9 @@ def install(app: FastAPI, service_ref: Callable[[], WebhookService]) -> None:
         code: str,
         hook_id: str,
         request: Request,
-        x_synergo_owner_token: Optional[str] = Header(default=None),
+        x_hivelane_owner_token: Optional[str] = Header(default=None),
     ) -> Response:
-        service = await _guard(request, code, x_synergo_owner_token)
+        service = await _guard(request, code, x_hivelane_owner_token)
         if not await service._io(service.remove, normalize_room_code(code), hook_id):
             raise HTTPException(status_code=404, detail="No such webhook in this room")
         return Response(status_code=204)

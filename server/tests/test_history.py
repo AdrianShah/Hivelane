@@ -241,7 +241,7 @@ def _next(socket: Any, wanted: str) -> dict:
         frame = socket.receive_json()
         if frame.get("type") == wanted:
             return frame
-        if frame.get("type") == "synergo_feed":
+        if frame.get("type") == "hivelane_feed":
             for event in frame["events"]:
                 if event.get("type") == wanted:
                     return event
@@ -251,7 +251,7 @@ def _next(socket: Any, wanted: str) -> dict:
 def _next_feed_with(socket: Any, wanted: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") == "synergo_feed" and any(
+        if frame.get("type") == "hivelane_feed" and any(
             event.get("type") == wanted for event in frame["events"]
         ):
             return frame
@@ -322,7 +322,7 @@ def test_history_goes_to_the_requester_only_and_members_may_ask(relay: RoomManag
             # The viewer got no history_chunk: its next frame is the next feed.
             sam.send_json({"type": "intent", "user_id": "sam", "prompt": "next step"})
             frame = viewer.receive_json()
-            assert frame["type"] == "synergo_feed"
+            assert frame["type"] == "hivelane_feed"
 
 
 def test_a_room_without_history_answers_one_empty_done_chunk(relay: RoomManager) -> None:
@@ -350,7 +350,7 @@ def test_history_requests_are_rate_limited_per_socket(relay: RoomManager) -> Non
             for _ in range(MAX_FRAMES):
                 frame = viewer.receive_json()
                 assert frame["type"] != "history_chunk"
-                if frame["type"] == "synergo_feed" and any(
+                if frame["type"] == "hivelane_feed" and any(
                     e["type"] == "activity_update" for e in frame["events"]
                 ):
                     break
@@ -454,6 +454,6 @@ def test_a_join_that_does_not_mention_history_keeps_the_rooms(relay: RoomManager
 def test_metrics_report_history_totals_without_room_labels(relay: RoomManager) -> None:
     client = TestClient(app)
     text = client.get("/metrics").text
-    assert "# TYPE synergo_history_events gauge" in text
-    assert "# TYPE synergo_history_bytes gauge" in text
-    assert "synergo_history_events{" not in text
+    assert "# TYPE hivelane_history_events gauge" in text
+    assert "# TYPE hivelane_history_bytes gauge" in text
+    assert "hivelane_history_events{" not in text

@@ -16,7 +16,7 @@ A room's owner-configured webhooks (server/webhooks.py) are a third: their
 URLs are credentials, so they are never logged.
 
 Stdlib only, so this works on any host with a writable disk and adds nothing to
-operate. With several relay instances, SYNERGO_REDIS_URL moves the registry
+operate. With several relay instances, HIVELANE_REDIS_URL moves the registry
 into Redis (RedisRoomStore) so a code created on one instance is valid on all
 of them; the `redis` package is imported only then.
 """
@@ -46,12 +46,12 @@ log = logging.getLogger(__name__)
 # for up to a week only while the room keeps being used (or across a restart).
 ROOM_TTL_SECONDS = 7 * 24 * 60 * 60.0
 
-STATE_PATH_ENV = "SYNERGO_STATE_PATH"
+STATE_PATH_ENV = "HIVELANE_STATE_PATH"
 # "local" keeps room codes on this instance (SQLite or memory) even when
-# SYNERGO_REDIS_URL is set, e.g. when Redis is there for rate limits only.
-ROOM_STORE_ENV = "SYNERGO_ROOM_STORE"
+# HIVELANE_REDIS_URL is set, e.g. when Redis is there for rate limits only.
+ROOM_STORE_ENV = "HIVELANE_ROOM_STORE"
 ROOM_STORE_CHOICES = ("redis", "local")
-REDIS_KEY_PREFIX = "synergo:rooms"
+REDIS_KEY_PREFIX = "hivelane:rooms"
 
 # Plain JSON object; see the module docstring for why it stays untyped here.
 StoredSettings = dict[str, Any]
@@ -494,7 +494,7 @@ def _decode_record(raw: Any, kind: str, room_id: str) -> Optional[dict[str, Any]
 class RedisRoomStore:
     """Room codes in Redis, so every relay instance accepts every code.
 
-    Layout, under `prefix` (default synergo:rooms):
+    Layout, under `prefix` (default hivelane:rooms):
 
         <prefix>            sorted set, code -> created_at
         <prefix>:settings   hash, code -> settings JSON
@@ -667,10 +667,10 @@ class RedisRoomStore:
 def build_room_store() -> RoomStore:
     """Pick a store from the environment.
 
-    - SYNERGO_REDIS_URL set: RedisRoomStore, shared by every instance, with the
+    - HIVELANE_REDIS_URL set: RedisRoomStore, shared by every instance, with the
       local store below as this instance's copy for Redis outages. Unless
-      SYNERGO_ROOM_STORE=local, which keeps codes on this instance only.
-    - Otherwise SQLite when SYNERGO_STATE_PATH points at a usable file, and
+      HIVELANE_ROOM_STORE=local, which keeps codes on this instance only.
+    - Otherwise SQLite when HIVELANE_STATE_PATH points at a usable file, and
       memory when it does not.
     """
     choice = (os.environ.get(ROOM_STORE_ENV) or "").strip().lower()
@@ -702,7 +702,7 @@ def build_room_store() -> RoomStore:
 
 
 def _build_local_store(*, warn_if_memory: bool) -> RoomStore:
-    """SQLite when SYNERGO_STATE_PATH points at a usable file, memory otherwise."""
+    """SQLite when HIVELANE_STATE_PATH points at a usable file, memory otherwise."""
     path = os.environ.get(STATE_PATH_ENV)
     if not path:
         if warn_if_memory:

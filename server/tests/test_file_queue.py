@@ -535,7 +535,7 @@ def _ws_next(socket: Any, kind: str, limit: int = 20) -> dict[str, Any]:
 def _ws_feed_event(socket: Any, kind: str, limit: int = 20) -> dict[str, Any]:
     for _ in range(limit):
         frame = socket.receive_json()
-        for event in frame.get("events", []) if frame.get("type") == "synergo_feed" else []:
+        for event in frame.get("events", []) if frame.get("type") == "hivelane_feed" else []:
             if event.get("type") == kind:
                 return event
     raise AssertionError(f"never received a {kind} feed event")

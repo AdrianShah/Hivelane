@@ -6,7 +6,7 @@
    "t": 0,
    "user": "alice",
    "kind": "post_edit",
-   "file": "synergo/daemon.py",
+   "file": "hivelane/daemon.py",
    "symbols": [
     "Daemon.reconnect"
    ],
@@ -22,7 +22,7 @@
    "t": 5,
    "user": "bob",
    "kind": "pre_edit",
-   "file": "synergo/daemon.py",
+   "file": "hivelane/daemon.py",
    "symbols": [
     "Daemon.send_activity"
    ],
@@ -39,7 +39,7 @@
    "t": 30,
    "user": "bob",
    "kind": "pre_edit",
-   "file": "synergo/daemon.py",
+   "file": "hivelane/daemon.py",
    "symbols": [
     "Daemon.send_activity"
    ],

@@ -1,8 +1,8 @@
 /**
  * End-to-end encrypted rooms, dashboard side (the daemon's twin is
- * synergo/crypto.py; protocol/e2e-test-vectors.json pins both).
+ * hivelane/crypto.py; protocol/e2e-test-vectors.json pins both).
  *
- * In a room whose .synergo.toml says `e2e = true` the relay only ever sees
+ * In a room whose .hivelane.toml says `e2e = true` the relay only ever sees
  * keyed hashes (`h:` + 32 hex) where paths, symbols and branches would be,
  * empty diffs and prompts, and an opaque `e2e` blob per message. With the
  * room passphrase this module opens the blobs and puts the real values back:
@@ -30,6 +30,8 @@
  * shared vectors against this exact file (npm run test:e2e-crypto).
  */
 
+// Fixed key-derivation labels (the project's original name); changing them
+// would change every key. Must match hivelane/crypto.py.
 export const SALT_PREFIX_V1 = 'synergo-e2e-v1:';
 export const SALT_PREFIX = 'synergo-e2e-v2:';
 export const PBKDF2_ITERATIONS = 600_000;
@@ -42,7 +44,7 @@ export type EnvelopeType = (typeof ENVELOPE_TYPES)[number];
 const NONCE_BYTES = 12;
 const HASH_HEX = 32;
 const HASH_TOKEN = /h:[0-9a-f]{32}/g;
-const STORAGE_PREFIX = 'synergo:e2e:';
+const STORAGE_PREFIX = 'hivelane:e2e:';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -71,7 +73,7 @@ function subtle(): SubtleCrypto {
 }
 
 /** The canonical room code keys are derived from: identical to the relay's
- *  normalize_room_code and synergo/crypto.py normalize_room (every run of
+ *  normalize_room_code and hivelane/crypto.py normalize_room (every run of
  *  whitespace and "-" removed, then upper case). */
 export function normalizeRoom(room: string): string {
   return (room ?? '').replace(/[\s-]+/g, '').toUpperCase();
@@ -82,7 +84,7 @@ export function legacyRoom(room: string): string {
   return (room ?? '').trim().toUpperCase();
 }
 
-/** Trailing spaces up to the next size bucket (as synergo/crypto.py
+/** Trailing spaces up to the next size bucket (as hivelane/crypto.py
  *  pad_plaintext): powers of two from 256 bytes to 16 KiB, then multiples
  *  of 16 KiB. Measured in UTF-8 bytes; JSON parsers ignore the spaces. */
 export function padPlaintext(text: string): string {
@@ -108,7 +110,7 @@ export function b64urlEncode(bytes: Uint8Array): string {
 
 export function b64urlDecode(text: string): Uint8Array<ArrayBuffer> {
   const body = text.trim();
-  // Strict, like synergo/crypto.py b64url_decode: atob() would accept '+', '/' and padding.
+  // Strict, like hivelane/crypto.py b64url_decode: atob() would accept '+', '/' and padding.
   if (!/^[A-Za-z0-9_-]*$/.test(body) || body.length % 4 === 1) throw new DecryptError('not a base64url blob');
   const base64 = body.replace(/-/g, '+').replace(/_/g, '/');
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);

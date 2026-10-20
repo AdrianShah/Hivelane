@@ -1,19 +1,19 @@
 name: Adapter request
-description: Ask for Synergo to support another coding agent through its native hooks.
+description: Ask for Hivelane to support another coding agent through its native hooks.
 title: "Adapter: "
 labels: ["adapter", "good first adapter"]
 body:
   - type: markdown
     attributes:
       value: |
-        An adapter turns an agent's hook payloads into Synergo events and renders
+        An adapter turns an agent's hook payloads into Hivelane events and renders
         allow / warn / block back in the agent's own format. It is one small
-        module plus golden fixtures; [docs/adapters.md](https://github.com/AdrianShah/Synergo/blob/main/docs/adapters.md)
+        module plus golden fixtures; [docs/adapters.md](https://github.com/AdrianShah/Hivelane/blob/main/docs/adapters.md)
         explains the contract. The more of the questions below you can answer,
         the sooner someone can pick this up.
 
         An agent with no hook support can already join a room, observe-only,
-        through `synergo run -- <command>`, `synergo watch` or the MCP server.
+        through `hivelane run -- <command>`, `hivelane watch` or the MCP server.
   - type: input
     id: agent
     attributes:
@@ -35,9 +35,9 @@ body:
       description: Tick what you know to be true and leave the rest.
       options:
         - label: Runs a command before a file edit, with the file path in its input (needed for pre-edit checks)
-        - label: That pre-edit hook can deny the edit (so Synergo can block, not only warn)
+        - label: That pre-edit hook can deny the edit (so Hivelane can block, not only warn)
         - label: Runs a command after a file edit
-        - label: Runs a command when the user submits a prompt (lets Synergo share intent)
+        - label: Runs a command when the user submits a prompt (lets Hivelane share intent)
         - label: Exposes a plan or todo list to hooks
   - type: input
     id: config

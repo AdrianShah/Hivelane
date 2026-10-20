@@ -1,4 +1,4 @@
-"""Measure the wall time of one `synergo hook claude-code` invocation.
+"""Measure the wall time of one `hivelane hook claude-code` invocation.
 
 Claude Code spawns the hook as a fresh process before and after every edit, so
 its cold start is paid on every file write the agent makes. This runs the hook
@@ -16,7 +16,7 @@ Usage:
     .venv/Scripts/python scripts/bench_hook.py            # 20 runs per scenario
     .venv/Scripts/python scripts/bench_hook.py -n 50
     .venv/Scripts/python scripts/bench_hook.py --agent codex
-    .venv/Scripts/python scripts/bench_hook.py --command "synergo hook claude-code"
+    .venv/Scripts/python scripts/bench_hook.py --command "hivelane hook claude-code"
 """
 
 from __future__ import annotations
@@ -65,18 +65,18 @@ def unused_port() -> int:
 def default_command(agent: str = "claude-code") -> list[str]:
     """The console script Claude Code actually runs, falling back to -m.
 
-    The installed entry point imports synergo.cli the same way the hook does in
+    The installed entry point imports hivelane.cli the same way the hook does in
     production, so it is the honest thing to time.
     """
     scripts = Path(sys.executable).parent
-    for name in ("synergo.exe", "synergo"):
+    for name in ("hivelane.exe", "hivelane"):
         candidate = scripts / name
         if candidate.exists():
             return [str(candidate), "hook", agent]
-    found = shutil.which("synergo")
+    found = shutil.which("hivelane")
     if found:
         return [found, "hook", agent]
-    return [sys.executable, "-m", "synergo.cli", "hook", agent]
+    return [sys.executable, "-m", "hivelane.cli", "hook", agent]
 
 
 def payload(target: Path, agent: str = "claude-code") -> bytes:
@@ -161,14 +161,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("-n", "--runs", type=int, default=20, help="timed runs per scenario (default 20)")
     parser.add_argument("--warmup", type=int, default=2, help="untimed runs first, to settle disk caches")
     parser.add_argument("--agent", default="claude-code", help="adapter to bench: claude-code or codex")
-    parser.add_argument("--command", default=None, help="hook command line (default: the installed synergo script)")
+    parser.add_argument("--command", default=None, help="hook command line (default: the installed hivelane script)")
     parser.add_argument("--relay", action="store_true", help="also time the full hook -> daemon -> relay round trip")
     args = parser.parse_args(argv)
 
     command = shlex.split(args.command, posix=os.name != "nt") if args.command else default_command(args.agent)
     print(f"command: {' '.join(command)}")
 
-    with tempfile.TemporaryDirectory(prefix="synergo-bench-") as work:
+    with tempfile.TemporaryDirectory(prefix="hivelane-bench-") as work:
         work_path = Path(work)
         target = work_path / "room.py"
         target.write_text("def room():\n    pass\n" * 50, encoding="utf-8")
@@ -176,19 +176,19 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         env = dict(os.environ)
         # Keep the offline notice's rate-limit state out of the user's real home.
-        env["SYNERGO_HOME"] = str(work_path / "home")
+        env["HIVELANE_HOME"] = str(work_path / "home")
 
         # What no hook can beat on this machine: starting the interpreter at all.
         report("floor (python -c pass)", time_runs([sys.executable, "-c", "pass"], b"", env, args.runs, args.warmup))
 
-        env["SYNERGO_PORT"] = str(unused_port())
+        env["HIVELANE_PORT"] = str(unused_port())
         report("no daemon (refused)", time_runs(command, stdin, env, args.runs, args.warmup))
 
         server = ThreadingHTTPServer(("127.0.0.1", 0), AllowHandler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            env["SYNERGO_PORT"] = str(server.server_address[1])
+            env["HIVELANE_PORT"] = str(server.server_address[1])
             report("stub daemon (allow ack)", time_runs(command, stdin, env, args.runs, args.warmup))
         finally:
             server.shutdown()
@@ -196,7 +196,7 @@ def main(argv: Optional[list[str]] = None) -> int:
 
         # The real daemon: token file read by the hook, Host + token checked
         # by the daemon's guard, event routed (to no repo: an allow ack).
-        os.environ["SYNERGO_HOME"] = env["SYNERGO_HOME"]
+        os.environ["HIVELANE_HOME"] = env["HIVELANE_HOME"]
         report("real daemon (token auth)", time_real_daemon(command, stdin, env, args.runs, args.warmup))
 
         # The whole path: hook -> daemon (symbol extraction) -> relay
@@ -212,10 +212,10 @@ def time_relay_round_trip(command: list[str], stdin: bytes, env: dict[str, str],
     import io
     import urllib.request
 
-    from synergo.daemon import Daemon
+    from hivelane.daemon import Daemon
 
     relay_port = unused_port()
-    relay_env = dict(env, SYNERGO_ENV="development", ROOM_CREATE_LIMIT="0", WS_ATTEMPT_LIMIT="0")
+    relay_env = dict(env, HIVELANE_ENV="development", ROOM_CREATE_LIMIT="0", WS_ATTEMPT_LIMIT="0")
     relay = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "server.main:app", "--host", "127.0.0.1", "--port", str(relay_port), "--log-level", "warning"],
         cwd=Path(__file__).resolve().parents[1], env=relay_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
@@ -248,7 +248,7 @@ def time_relay_round_trip(command: list[str], stdin: bytes, env: dict[str, str],
                 raise SystemExit("the daemon did not reach the relay")
             time.sleep(0.05)
         try:
-            return time_runs(command, stdin, dict(env, SYNERGO_PORT=str(port)), runs, warmup)
+            return time_runs(command, stdin, dict(env, HIVELANE_PORT=str(port)), runs, warmup)
         finally:
             daemon.stop()
             thread.join(10)
@@ -262,7 +262,7 @@ def time_real_daemon(command: list[str], stdin: bytes, env: dict[str, str], runs
     import contextlib
     import io
 
-    from synergo.daemon import Daemon
+    from hivelane.daemon import Daemon
 
     port = unused_port()
     daemon = Daemon(port=port)
@@ -285,7 +285,7 @@ def time_real_daemon(command: list[str], stdin: bytes, env: dict[str, str], runs
                 raise SystemExit("the daemon did not come up")
             time.sleep(0.05)
     try:
-        env = dict(env, SYNERGO_PORT=str(port))
+        env = dict(env, HIVELANE_PORT=str(port))
         return time_runs(command, stdin, env, runs, warmup)
     finally:
         daemon.stop()

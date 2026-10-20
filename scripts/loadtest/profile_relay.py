@@ -31,7 +31,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
-os.environ.setdefault("SYNERGO_ENV", "development")
+os.environ.setdefault("HIVELANE_ENV", "development")
 os.environ["ROOM_MESSAGE_LIMIT"] = "0"
 os.environ.pop("GEMINI_API_KEY", None)
 
@@ -150,7 +150,7 @@ def bench() -> dict:
         for u in range(sockets):
             room.add_spectator(FakeSocket())
         events = [update.model_dump() for _ in range(10)]
-        feed = models.SynergoFeed(events=events).model_dump()
+        feed = models.HivelaneFeed(events=events).model_dump()
 
         async def deliver(n=20):
             for _ in range(n):

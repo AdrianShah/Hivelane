@@ -43,13 +43,13 @@ except ImportError:  # Render rootDir=server
     )
 
 
-# A relay that sets SYNERGO_MAX_ROOMS (the default, 0, is unlimited).
+# A relay that sets HIVELANE_MAX_ROOMS (the default, 0, is unlimited).
 MAX_ROOMS = 100
 
 
 @pytest.fixture
 def state_path(tmp_path: Path) -> str:
-    return str(tmp_path / "state" / "synergo.db")
+    return str(tmp_path / "state" / "hivelane.db")
 
 
 @pytest.fixture
@@ -132,7 +132,7 @@ def test_build_room_store_falls_back_when_the_path_is_unusable(
 ) -> None:
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory")
-    monkeypatch.setenv(STATE_PATH_ENV, str(blocker / "synergo.db"))
+    monkeypatch.setenv(STATE_PATH_ENV, str(blocker / "hivelane.db"))
 
     assert isinstance(build_room_store(), MemoryRoomStore)
 

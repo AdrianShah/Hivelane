@@ -8,8 +8,8 @@ claims a lease on the room, renews it while the room is live, and releases it
 when the room is evicted or the instance shuts down.
 
 - MemoryRoomDirectory, the default: one instance, which owns every room.
-- RedisRoomDirectory, when SYNERGO_REDIS_URL is set: the lease is the Redis key
-  `synergo:room:<code>:owner`, holding the owner's instance id. It is set only
+- RedisRoomDirectory, when HIVELANE_REDIS_URL is set: the lease is the Redis key
+  `hivelane:room:<code>:owner`, holding the owner's instance id. It is set only
   if absent and expires after LEASE_TTL_SECONDS, so a crashed instance's rooms
   free themselves without anyone cleaning up.
 
@@ -29,7 +29,7 @@ headers from client requests, so a client can send them itself. Hence:
 
 - every replay this instance issues carries `state=<t>.<mac>`, an HMAC over
   the room code and time keyed by a secret every instance shares
-  (SYNERGO_REPLAY_SECRET, else one derived from SYNERGO_REDIS_URL, which every
+  (HIVELANE_REPLAY_SECRET, else one derived from HIVELANE_REDIS_URL, which every
   instance sharing leases already has). fly-replay-src is honoured ("already
   replayed once: serve it here") only with a valid, fresh state; otherwise
   the request is routed as if the header were absent.
@@ -65,10 +65,10 @@ from typing import Any, Optional, Protocol, TypeVar
 
 log = logging.getLogger(__name__)
 
-REDIS_URL_ENV = "SYNERGO_REDIS_URL"
-INSTANCE_ID_ENV = "SYNERGO_INSTANCE_ID"
+REDIS_URL_ENV = "HIVELANE_REDIS_URL"
+INSTANCE_ID_ENV = "HIVELANE_INSTANCE_ID"
 # Set by Fly.io on every machine. The machine id is also what fly-replay's
-# `instance=` field takes, which is why it wins over SYNERGO_INSTANCE_ID.
+# `instance=` field takes, which is why it wins over HIVELANE_INSTANCE_ID.
 FLY_MACHINE_ID_ENV = "FLY_MACHINE_ID"
 FLY_APP_NAME_ENV = "FLY_APP_NAME"
 
@@ -76,7 +76,7 @@ FLY_APP_NAME_ENV = "FLY_APP_NAME"
 # stalled event loop does not hand a live room to another instance.
 LEASE_TTL_SECONDS = 30.0
 RENEW_INTERVAL_SECONDS = 10.0
-OWNER_KEY_TEMPLATE = "synergo:room:{code}:owner"
+OWNER_KEY_TEMPLATE = "hivelane:room:{code}:owner"
 
 # Every call here runs on the event loop through a blocking client, so a slow
 # or vanished Redis must cost one short stall, not a hung relay. Same budget
@@ -96,7 +96,7 @@ FLY_REPLAY_STATUS = 101
 WS_ROOM_PATH = re.compile(r"/ws/(?P<code>[^/]+)/?")
 
 # Shared key for the `state` on replays (see the module docstring).
-REPLAY_SECRET_ENV = "SYNERGO_REPLAY_SECRET"
+REPLAY_SECRET_ENV = "HIVELANE_REPLAY_SECRET"
 # A replay's state is accepted for this long after it was issued.
 REPLAY_STATE_MAX_AGE_SECONDS = 30.0
 # At most one take-over per room per this long, however many fallbacks arrive.
@@ -111,7 +111,7 @@ T = TypeVar("T")
 
 def instance_id(env: Mapping[str, str] = os.environ) -> str:
     """This process's name in the directory: Fly's machine id, an explicit
-    SYNERGO_INSTANCE_ID, or hostname-pid (unique per process on one host)."""
+    HIVELANE_INSTANCE_ID, or hostname-pid (unique per process on one host)."""
     for name in (FLY_MACHINE_ID_ENV, INSTANCE_ID_ENV):
         value = (env.get(name) or "").strip()
         if value:
@@ -390,7 +390,7 @@ class RedisRoomDirectory:
 
 
 def build_room_directory(env: Mapping[str, str] = os.environ) -> RoomDirectory:
-    """Redis leases when SYNERGO_REDIS_URL is set (and usable), else memory."""
+    """Redis leases when HIVELANE_REDIS_URL is set (and usable), else memory."""
     me = instance_id(env)
     url = (env.get(REDIS_URL_ENV) or "").strip()
     if not url:
@@ -445,14 +445,14 @@ def fly_replay_enabled(env: Mapping[str, str] = os.environ) -> bool:
 
 def replay_secret(env: Mapping[str, str] = os.environ) -> Optional[bytes]:
     """The key replay states are signed with, shared by every instance:
-    SYNERGO_REPLAY_SECRET, or one derived from SYNERGO_REDIS_URL (the instances
+    HIVELANE_REPLAY_SECRET, or one derived from HIVELANE_REDIS_URL (the instances
     that replay to each other all share it, and it carries Redis's password)."""
     explicit = (env.get(REPLAY_SECRET_ENV) or "").strip()
     if explicit:
-        return hashlib.sha256(b"synergo-replay-secret\0" + explicit.encode()).digest()
+        return hashlib.sha256(b"hivelane-replay-secret\0" + explicit.encode()).digest()
     url = (env.get(REDIS_URL_ENV) or "").strip()
     if url:
-        return hashlib.sha256(b"synergo-replay-redis\0" + url.encode()).digest()
+        return hashlib.sha256(b"hivelane-replay-redis\0" + url.encode()).digest()
     return None
 
 
@@ -632,7 +632,7 @@ class RoomAffinityMiddleware:
     def _replayed_by_us(self, code: str, header: str) -> bool:
         """True when fly-replay-src carries a state one of our instances
         signed for this room just now. Without a shared secret (no Redis,
-        no SYNERGO_REPLAY_SECRET) nothing can be checked, and the header is
+        no HIVELANE_REPLAY_SECRET) nothing can be checked, and the header is
         taken as sent: such a deploy has a single instance and never replays."""
         if self.secret is None:
             return True

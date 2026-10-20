@@ -1,9 +1,9 @@
 """Opt-in room history, for the dashboard's replay view.
 
 A room whose settings say ``history_hours > 0`` (a team's committed
-``.synergo.toml``, sent on join, or the settings given to POST /rooms) keeps
+``.hivelane.toml``, sent on join, or the settings given to POST /rooms) keeps
 the feed events the relay broadcast to it. What is kept is exactly what
-spectators were sent: the ``synergo_feed`` events, field for field, so an
+spectators were sent: the ``hivelane_feed`` events, field for field, so an
 end-to-end encrypted room keeps only keyed hashes and the members' ciphertext
 blobs, never anything the relay could not already read.
 
@@ -69,10 +69,10 @@ log = logging.getLogger(__name__)
 # Per-room bounds. Large enough for a busy afternoon (a member sends at most
 # two activity messages a second, and most frames are a few KB), small enough
 # that a room cannot make the relay hold more than this. From server/config.py
-# (SYNERGO_HISTORY_MAX_EVENTS, SYNERGO_HISTORY_MAX_BYTES); 0 means no bound.
+# (HIVELANE_HISTORY_MAX_EVENTS, HIVELANE_HISTORY_MAX_BYTES); 0 means no bound.
 HISTORY_MAX_EVENTS = config.HISTORY_MAX_EVENTS
 HISTORY_MAX_BYTES = config.HISTORY_MAX_BYTES
-# Across every room in this process (SYNERGO_HISTORY_TOTAL_MAX_BYTES).
+# Across every room in this process (HIVELANE_HISTORY_TOTAL_MAX_BYTES).
 HISTORY_TOTAL_MAX_BYTES = config.HISTORY_TOTAL_MAX_BYTES
 # The same bound RoomSettings.history_hours has on the wire.
 MAX_HISTORY_HOURS = 24.0
@@ -96,12 +96,12 @@ _live: "weakref.WeakSet[RoomHistory]" = weakref.WeakSet()
 
 
 def total_events() -> int:
-    """Events kept across every room in this process (synergo_history_events)."""
+    """Events kept across every room in this process (hivelane_history_events)."""
     return sum(history.event_count for history in list(_live))
 
 
 def total_bytes() -> int:
-    """Bytes kept across every room in this process (synergo_history_bytes)."""
+    """Bytes kept across every room in this process (hivelane_history_bytes)."""
     return sum(history.byte_count for history in list(_live))
 
 
@@ -417,12 +417,12 @@ async def handle_request(room: Any, socket: Any, raw: dict) -> None:
 # Totals only: a per-room label would make one series per room code (and put
 # codes, which are secrets, into the metrics).
 metrics.register_gauge(
-    "synergo_history_events",
+    "hivelane_history_events",
     "Feed events kept for replay across every room with history on.",
     total_events,
 )
 metrics.register_gauge(
-    "synergo_history_bytes",
+    "hivelane_history_bytes",
     "Bytes (compact JSON) of feed events kept for replay across every room.",
     total_bytes,
 )

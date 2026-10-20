@@ -1,7 +1,7 @@
 #!/bin/sh
-# Install the Synergo CLI on macOS or Linux.
+# Install the Hivelane CLI on macOS or Linux.
 #
-#   curl -LsSf https://raw.githubusercontent.com/AdrianShah/Synergo/main/scripts/install.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/AdrianShah/Hivelane/main/scripts/install.sh | sh
 #
 # Uses uv if it is installed, else pipx. With neither, it installs uv with uv's
 # official installer first (uv also fetches a suitable Python if you lack 3.12+).
@@ -12,14 +12,14 @@
 #   --help      show this help
 #
 # Environment:
-#   SYNERGO_VERSION=0.1.0   install that exact version instead of the latest
-#   SYNERGO_DRY_RUN=1       same as --dry-run (handy with `curl ... | sh`)
+#   HIVELANE_VERSION=0.1.0   install that exact version instead of the latest
+#   HIVELANE_DRY_RUN=1       same as --dry-run (handy with `curl ... | sh`)
 set -eu
 
 # Inline rather than read back from "$0": under `curl ... | sh` there is no file.
 usage() {
   cat <<'EOF'
-Install the Synergo CLI with uv (preferred) or pipx; installs uv if neither exists.
+Install the Hivelane CLI with uv (preferred) or pipx; installs uv if neither exists.
 
 Usage: install.sh [--dry-run] [--help]
 
@@ -27,22 +27,22 @@ Usage: install.sh [--dry-run] [--help]
   --help, -h      show this help
 
 Environment:
-  SYNERGO_VERSION=0.1.0   install that exact version instead of the latest
-  SYNERGO_DRY_RUN=1       same as --dry-run (for `curl ... | sh`)
+  HIVELANE_VERSION=0.1.0   install that exact version instead of the latest
+  HIVELANE_DRY_RUN=1       same as --dry-run (for `curl ... | sh`)
 EOF
 }
 
 say() {
-  printf 'synergo-install: %s\n' "$*"
+  printf 'hivelane-install: %s\n' "$*"
 }
 
 die() {
-  printf 'synergo-install: error: %s\n' "$*" >&2
+  printf 'hivelane-install: error: %s\n' "$*" >&2
   exit 1
 }
 
 DRY_RUN=0
-case "${SYNERGO_DRY_RUN:-}" in
+case "${HIVELANE_DRY_RUN:-}" in
   1 | true | yes) DRY_RUN=1 ;;
 esac
 for arg in "$@"; do
@@ -64,15 +64,15 @@ run() {
   fi
 }
 
-VERSION=${SYNERGO_VERSION:-}
+VERSION=${HIVELANE_VERSION:-}
 VERSION=${VERSION#v}
 case "$VERSION" in
-  *[!0-9A-Za-z.+-]*) die "SYNERGO_VERSION does not look like a version: $SYNERGO_VERSION" ;;
+  *[!0-9A-Za-z.+-]*) die "HIVELANE_VERSION does not look like a version: $HIVELANE_VERSION" ;;
 esac
 if [ -n "$VERSION" ]; then
-  SPEC="synergo==$VERSION"
+  SPEC="hivelane==$VERSION"
 else
-  SPEC="synergo"
+  SPEC="hivelane"
 fi
 
 UV_INSTALLER_URL="https://astral.sh/uv/install.sh"
@@ -131,9 +131,9 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-# Agent hooks run `synergo` from PATH, so a missing PATH entry silently turns
+# Agent hooks run `hivelane` from PATH, so a missing PATH entry silently turns
 # coordination off (hooks fail open). Nothing later would say so; say it now.
-if ! command -v synergo >/dev/null 2>&1; then
+if ! command -v hivelane >/dev/null 2>&1; then
   if [ "$TOOL" = uv ]; then
     bin_dir=$(uv tool dir --bin 2>/dev/null || echo "$HOME/.local/bin")
     fix="uv tool update-shell"
@@ -142,11 +142,11 @@ if ! command -v synergo >/dev/null 2>&1; then
     fix="pipx ensurepath"
   fi
   say "installed, but $bin_dir is not on your PATH yet."
-  say "run \`$fix\`, then open a new terminal. Agent hooks need \`synergo\` on PATH."
+  say "run \`$fix\`, then open a new terminal. Agent hooks need \`hivelane\` on PATH."
   PATH="$bin_dir:$PATH"
 fi
 
-installed=$(synergo --version 2>/dev/null || echo "synergo")
+installed=$(hivelane --version 2>/dev/null || echo "hivelane")
 cat <<EOF
 
 $installed is installed.
@@ -154,8 +154,8 @@ $installed is installed.
 Next, in a repository you work in:
 
   cd path/to/your-repo
-  synergo up        # install agent hooks, create or join the room, start the daemon
-  synergo doctor    # if anything looks off
+  hivelane up        # install agent hooks, create or join the room, start the daemon
+  hivelane doctor    # if anything looks off
 
-Docs: https://github.com/AdrianShah/Synergo/blob/main/docs/install.md
+Docs: https://github.com/AdrianShah/Hivelane/blob/main/docs/install.md
 EOF

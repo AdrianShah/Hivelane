@@ -314,7 +314,7 @@ export default function TimelineView({
             <p className="text-[13px] text-on-muted mt-2 mb-0">
               {filtering
                 ? 'Clear a filter or widen the search.'
-                : 'When Synergo warns or blocks an edit, or two agents change the same file, it shows up here.'}
+                : 'When Hivelane warns or blocks an edit, or two agents change the same file, it shows up here.'}
             </p>
           </div>
         ) : (

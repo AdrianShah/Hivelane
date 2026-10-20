@@ -12,6 +12,7 @@ import {
   type RelaySource,
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
+import { Mark, Mascot } from '../brand/BrandArt';
 import './Home.css';
 
 const SOURCE_LABEL: Record<RelaySource, string> = {
@@ -97,7 +98,7 @@ function RelayPicker({ onChange }: { onChange: () => void }) {
           <p id={`${fieldId}-hint`} className="home__relay-hint">
             {problem ??
               (needsOne
-                ? 'This copy of the dashboard has no relay of its own. Paste the URL of your team\'s relay (from synergo relay or your host).'
+                ? 'This copy of the dashboard has no relay of its own. Paste the URL of your team\'s relay (from hivelane relay or your host).'
                 : 'Rooms are created on, and joined through, this relay. Kept for this tab only.')}
           </p>
         </form>
@@ -168,17 +169,16 @@ export default function Home() {
   return (
     <div className="home">
       <header className="home__nav">
-        <div className="home__brand" aria-label="Synergo">
-          <span className="home__brand-mark" aria-hidden="true">
-            S
-          </span>
-          Synergo
+        <div className="home__brand" aria-label="Hivelane">
+          <Mark size={22} className="home__brand-mark" />
+          Hivelane
         </div>
         <span className="home__nav-note">Live collaboration radar</span>
       </header>
 
       <main className="home__hero">
         <div className="home__content">
+          <Mascot pose="clear" size={88} className="home__mascot" />
           <p className="home__eyebrow">
             <span className="home__eyebrow-dot" aria-hidden="true" />
             Multiplayer AI agent viewer
@@ -187,7 +187,7 @@ export default function Home() {
             See every agent, <em>live.</em>
           </h1>
           <p className="home__sub">
-            Create a room, run <code>synergo up</code> in each teammate&apos;s
+            Create a room, run <code>hivelane up</code> in each teammate&apos;s
             repo, and catch overlapping file edits before they become merge
             conflicts.
           </p>
@@ -288,7 +288,7 @@ export default function Home() {
       </main>
 
       <footer className="home__footer">
-        <span>Synergo</span>
+        <span>Hivelane</span>
         <span>Live collaboration radar for AI agents</span>
       </footer>
     </div>

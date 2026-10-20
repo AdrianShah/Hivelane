@@ -1,4 +1,4 @@
-"""A fake Synergo relay for working on the dashboard without agents.
+"""A fake Hivelane relay for working on the dashboard without agents.
 
 Serves one room over the real wire format (frontend/src/types.ts): a
 spectator joins, gets a catch-up (settings, policy, members, intents, plans
@@ -91,7 +91,7 @@ def diff_for(path: str, symbol: str, seed: int) -> str:
             "",
         ]
     elif path.endswith(".md"):
-        body = [" ## Usage", "-Run `synergo up`.", "+Run `synergo up --room <code>` in each repo.", "+"]
+        body = [" ## Usage", "-Run `hivelane up`.", "+Run `hivelane up --room <code>` in each repo.", "+"]
     else:
         body = [
             f" export function {name}(input: Input) {{",
@@ -246,7 +246,7 @@ async def live(socket: WebSocket) -> None:
             events.append(
                 {"type": "decision_feedback_update", "decision_id": "seed", "useful_count": tick, "noise_count": tick // 4}
             )
-        await socket.send_text(json.dumps({"type": "synergo_feed", "events": events}))
+        await socket.send_text(json.dumps({"type": "hivelane_feed", "events": events}))
 
 
 @app.post("/rooms")
@@ -283,7 +283,7 @@ async def room_socket(socket: WebSocket, room_id: str) -> None:
             await send({"type": "user_joined", "user_id": user, "agent": agent})
         await send(plan("ada", "claude-code", now - 600, "OAuth login", ["src/auth/login.ts", "src/auth/oauth/callback.ts", "src/auth/oauth/state.ts", "tests/test_oauth.py"]))
         await send(plan("lin", "codex", now - 900, "Index overlaps by path", ["server/room.py", "server/store.py", "server/index.py"]))
-        await send({"type": "synergo_feed", "events": history(now)})
+        await send({"type": "hivelane_feed", "events": history(now)})
         # mo's daemon drops off: an offline, greyed-out lane.
         await send({"type": "user_left", "user_id": "mo"})
 

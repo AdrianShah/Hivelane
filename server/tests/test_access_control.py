@@ -97,7 +97,7 @@ def _frames(socket: Any) -> Iterator[dict]:
     """Every event the socket receives, feed batches unpacked, in order."""
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") == "synergo_feed":
+        if frame.get("type") == "hivelane_feed":
             yield from frame["events"]
         else:
             yield frame
@@ -189,7 +189,7 @@ def test_a_room_without_an_owner_has_no_owners() -> None:
 
 
 def test_owner_hash_and_policy_survive_a_restart(tmp_path: Path) -> None:
-    state_path = str(tmp_path / "synergo.db")
+    state_path = str(tmp_path / "hivelane.db")
     first = RoomManager(store=SqliteRoomStore(state_path))
     room_id = first.create_room()
     room = first.get(room_id)

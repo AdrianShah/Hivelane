@@ -1,6 +1,6 @@
 # Distribution targets
 
-Where Synergo can be listed, what has to exist first, and the exact steps a
+Where Hivelane can be listed, what has to exist first, and the exact steps a
 person takes to submit. Nothing here has been submitted. Every external
 process was read on **2026-10-06**; the pages are listed under
 [Sources](#sources). Re-read each page on the day you submit, since these
@@ -38,17 +38,17 @@ already says).
 
 **Fix first** (`editors/vscode/`):
 
-- `package.json` `publisher` is the placeholder `synergo`. Pick the real
+- `package.json` `publisher` is the placeholder `hivelane`. Pick the real
   publisher id; it must match on both registries.
-- `package.json` `repository.url` is `https://github.com/synergo/synergo`.
-  Change it to `https://github.com/AdrianShah/Synergo`.
+- `package.json` `repository.url` is `https://github.com/hivelane/hivelane`.
+  Change it to `https://github.com/AdrianShah/Hivelane`.
 - Add a 128x128 PNG `icon`. The Marketplace rejects an SVG icon.
 - `LICENSE` is an abbreviated MIT text. The Marketplace requires a LICENSE
   file; make it the full MIT text, or Apache-2.0 to match the repo, and keep
   `package.json` `license` in step.
 - Images in the extension README must be `https` URLs, and not SVG unless
   from a trusted badge provider. The current README has no images.
-- The default `synergo.dashboardUrl` is `http://localhost:5173`. Consider
+- The default `hivelane.dashboardUrl` is `http://localhost:5173`. Consider
   pointing it at the hosted dashboard once it exists (pending).
 
 **Build:**
@@ -57,7 +57,7 @@ already says).
 cd editors/vscode
 npm ci
 npm test
-npx vsce package            # writes synergo-0.1.0.vsix
+npx vsce package            # writes hivelane-0.1.0.vsix
 ```
 
 **Open VSX** (per the Open VSX publishing wiki):
@@ -69,7 +69,7 @@ npx vsce package            # writes synergo-0.1.0.vsix
 3. Generate an access token at `https://open-vsx.org/user-settings/tokens`
    and store it in a password manager.
 4. `npx ovsx create-namespace <publisher> -p <token>`
-5. `npx ovsx publish synergo-0.1.0.vsix -p <token>`
+5. `npx ovsx publish hivelane-0.1.0.vsix -p <token>`
 6. Creating a namespace does not make you its verified owner. Claim
    ownership through the Namespace Access process the wiki links to, so the
    listing shows as verified.
@@ -87,16 +87,16 @@ to existing ones; a hit fails the publish.
    (Create publisher; the ID must equal `package.json` `publisher`).
 4. `npx vsce login <publisher>` (paste the PAT), then `npx vsce publish`.
 
-Check: `code --install-extension <publisher>.synergo` and, in Cursor, a
-search for "Synergo" in the Extensions view.
+Check: `code --install-extension <publisher>.hivelane` and, in Cursor, a
+search for "Hivelane" in the Extensions view.
 
 ## MCP registries
 
-`synergo mcp` is a stdio MCP server for agents without native hooks, with
+`hivelane mcp` is a stdio MCP server for agents without native hooks, with
 four tools: `check_file`, `declare_intent`, `who_is_here` and `report_edit`.
-It talks to the local daemon, so a user still needs `synergo up` in the repo.
+It talks to the local daemon, so a user still needs `hivelane up` in the repo.
 Be clear about that in every listing: it only helps when the agent calls
-`check_file` before editing (`synergo mcp --agents-md` prints instructions
+`check_file` before editing (`hivelane mcp --agents-md` prints instructions
 for `AGENTS.md` / `CLAUDE.md` that tell it to).
 
 ### Official MCP Registry
@@ -109,7 +109,7 @@ Per the registry's quickstart and package-type docs:
    readme per `pyproject.toml`), then release:
 
    ```markdown
-   <!-- mcp-name: io.github.AdrianShah/synergo -->
+   <!-- mcp-name: io.github.AdrianShah/hivelane -->
    ```
 
 2. **Install the publisher CLI:** `brew install mcp-publisher`, or the
@@ -120,15 +120,15 @@ Per the registry's quickstart and package-type docs:
    ```json
    {
      "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-     "name": "io.github.AdrianShah/synergo",
-     "title": "Synergo",
-     "description": "Ask whether a teammate's AI agent is already editing a file before you edit it. Needs the Synergo daemon (synergo up).",
+     "name": "io.github.AdrianShah/hivelane",
+     "title": "Hivelane",
+     "description": "Ask whether a teammate's AI agent is already editing a file before you edit it. Needs the Hivelane daemon (hivelane up).",
      "version": "0.1.0",
      "packages": [
        {
          "registryType": "pypi",
          "registryBaseUrl": "https://pypi.org",
-         "identifier": "synergo",
+         "identifier": "hivelane",
          "version": "0.1.0",
          "runtimeHint": "uvx",
          "packageArguments": [{ "type": "positional", "value": "mcp" }],
@@ -145,7 +145,7 @@ Per the registry's quickstart and package-type docs:
    flow in the browser.
 5. **Publish:** `mcp-publisher publish`.
 6. **Verify:**
-   `curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.AdrianShah/synergo"`
+   `curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.AdrianShah/hivelane"`
 
 `server.json` is outside `docs/launch/` and was not created here. Bump its
 two `version` fields with every release that should reach the registry.
@@ -164,14 +164,14 @@ two `version` fields with every release that should reach the registry.
 ### awesome-mcp-servers (`punkpeye/awesome-mcp-servers`)
 
 Per its CONTRIBUTING.md: the server must have a public GitHub repository
-that people install and run themselves (Synergo qualifies). Fork, add one
+that people install and run themselves (Hivelane qualifies). Fork, add one
 line to `README.md` in the right category in alphabetical order, open a pull
 request. Match the existing line format exactly, including any legend
 markers the README uses for language and scope. Suggested description:
 
 > Lets agents without native hooks ask whether a teammate's agent is already
 > editing a file (`check_file`), declare intent and see who is in the repo.
-> Needs the Synergo daemon.
+> Needs the Hivelane daemon.
 
 ### awesome-claude-code (`hesreallyhim/awesome-claude-code`)
 
@@ -196,28 +196,28 @@ Suggested description:
 
 ## Claude Code plugin
 
-**What exists today:** nothing. `synergo up` writes Claude Code hooks into
+**What exists today:** nothing. `hivelane up` writes Claude Code hooks into
 each repo's `.claude/settings.json` instead.
 
 **What a plugin would be:** a directory with `.claude-plugin/plugin.json`
 and `hooks/hooks.json`, where `hooks/hooks.json` holds the same entries
-`hook_settings()` in `synergo/adapters/claude_code.py` produces
+`hook_settings()` in `hivelane/adapters/claude_code.py` produces
 (`UserPromptSubmit`; `PreToolUse` matching `Edit|Write|MultiEdit|NotebookEdit`
 with a 5 s timeout; `PostToolUse` matching those plus
-`TodoWrite|ExitPlanMode`), all running `synergo hook claude-code`.
+`TodoWrite|ExitPlanMode`), all running `hivelane hook claude-code`.
 
 **Code needed before it is worth publishing:**
 
-- A plugin cannot install the Python CLI, so `synergo` must already be on
+- A plugin cannot install the Python CLI, so `hivelane` must already be on
   PATH. The plugin's README, and ideally a session-start hook, has to say so.
 - An installed plugin is enabled in every project, so its hooks would run
-  in repos that do not use Synergo. Today the hook shows a "Synergo offline"
+  in repos that do not use Hivelane. Today the hook shows a "Hivelane offline"
   notice (at most every ten minutes) whenever the daemon is unreachable, and
   it costs a process start per edit everywhere. The hook should exit
   silently, before any network call, when the working directory has no
-  `.synergo.toml` above it.
-- A repo set up with `synergo up` also has the project-level hooks, so both
-  would fire on every edit. Either `synergo up` skips Claude Code hooks when
+  `.hivelane.toml` above it.
+- A repo set up with `hivelane up` also has the project-level hooks, so both
+  would fire on every edit. Either `hivelane up` skips Claude Code hooks when
   the plugin is installed, or the hook deduplicates.
 
 **Your own marketplace (no review):** add
@@ -226,20 +226,20 @@ with a 5 s timeout; `PostToolUse` matching those plus
 
 ```json
 {
-  "name": "synergo",
-  "owner": { "name": "Synergo contributors" },
+  "name": "hivelane",
+  "owner": { "name": "Hivelane contributors" },
   "plugins": [
-    { "name": "synergo", "source": "./plugins/claude-code", "description": "Pre-edit coordination hooks for Synergo rooms" }
+    { "name": "hivelane", "source": "./plugins/claude-code", "description": "Pre-edit coordination hooks for Hivelane rooms" }
   ]
 }
 ```
 
 Then: `claude plugin validate --strict ./plugins/claude-code`,
 `claude plugin validate .`, test with
-`claude plugin marketplace add ./` and `claude plugin install synergo@synergo`,
+`claude plugin marketplace add ./` and `claude plugin install hivelane@hivelane`,
 push, and tell users to run
-`claude plugin marketplace add AdrianShah/Synergo` followed by
-`claude plugin install synergo@synergo`. Marketplace names such as
+`claude plugin marketplace add AdrianShah/Hivelane` followed by
+`claude plugin install hivelane@hivelane`. Marketplace names such as
 `claude-plugins-official` are reserved for Anthropic.
 
 **Anthropic's directory (reviewed):** Anthropic's official marketplace does
@@ -252,13 +252,13 @@ directory at claude.ai. Steps:
    claude.ai organization you submit from. A paid plan is required (Pro or
    Max from your own account; an Owner on Team or Enterprise).
 3. Open `https://claude.ai/directory/manage`, "Submit new", "Plugin bundle".
-4. Source: repository `AdrianShah/Synergo`, plugin path
+4. Source: repository `AdrianShah/Hivelane`, plugin path
    `plugins/claude-code`, tracked branch or tag. Validate, fix, validate
    again.
 5. Listing details come from `plugin.json` and the plugin README.
 6. Data handling: answer truthfully that the plugin sends prompts, file
    paths, symbols and (unless `share_diffs = false`) diffs to the relay the
-   repo's `.synergo.toml` names, which is a service other than a declared
+   repo's `.hivelane.toml` names, which is a service other than a declared
    connector.
 7. Compliance: contact email and the four acknowledgements; then "Submit
    for review", and set up the GitHub push webhook if you have repo admin.
@@ -271,7 +271,7 @@ useful from it, and the listing should say it is for Claude Code.
 
 ## Gemini CLI extension gallery
 
-**What exists today:** nothing; `synergo up` writes `.gemini/settings.json`
+**What exists today:** nothing; `hivelane up` writes `.gemini/settings.json`
 hooks per repo.
 
 **How the gallery works:** a public GitHub repo with `gemini-extension.json`
@@ -281,18 +281,18 @@ validation. Extensions can bundle hooks in `hooks/hooks.json` and refer to
 their own files with `${extensionPath}`.
 
 **Code needed:** the manifest must sit at a repo root, so this is best done
-as a small separate repo (for example `AdrianShah/synergo-gemini`) holding
+as a small separate repo (for example `AdrianShah/hivelane-gemini`) holding
 `gemini-extension.json` and `hooks/hooks.json` with the entries
-`hook_settings()` in `synergo/adapters/gemini_cli.py` produces. It has the
-same caveats as the Claude Code plugin: `synergo` must be on PATH, the hook
-should stay silent outside repos with a `.synergo.toml`, and repos set up
-with `synergo up` would otherwise run the hooks twice.
+`hook_settings()` in `hivelane/adapters/gemini_cli.py` produces. It has the
+same caveats as the Claude Code plugin: `hivelane` must be on PATH, the hook
+should stay silent outside repos with a `.hivelane.toml`, and repos set up
+with `hivelane up` would otherwise run the hooks twice.
 
 ## Not researched
 
 Codex CLI and Cursor do not appear to have a public hook or extension
 gallery that fits; this was not checked in depth. The Anthropic directory's
-"MCP connector" listing is for remote MCP servers, and Synergo's MCP server
+"MCP connector" listing is for remote MCP servers, and Hivelane's MCP server
 is a local stdio process that needs a local daemon, so it was not pursued.
 
 ## Sources

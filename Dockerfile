@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # One image for the relay and the dashboard it serves. Host-agnostic: anything
 # that runs a container can run this, so the deploy target stays a choice
-# rather than a rewrite. Published as ghcr.io/adrianshah/synergo-relay
+# rather than a rewrite. Published as ghcr.io/adrianshah/hivelane-relay
 # (.github/workflows/image.yml); guide: docs/self-hosting.md.
 
 # --- dashboard ---------------------------------------------------------------
@@ -37,28 +37,28 @@ RUN pip install --no-cache-dir -r server/requirements-image.txt
 COPY server/ ./server/
 COPY --from=dashboard /frontend/dist/ ./static/
 
-# Rooms are only durable if SYNERGO_STATE_PATH points at a mounted volume;
+# Rooms are only durable if HIVELANE_STATE_PATH points at a mounted volume;
 # without one the container still runs, and logs a warning at startup.
-# SYNERGO_STATIC_DIR serves the dashboard at / (unset it to serve the API only).
-ENV SYNERGO_STATE_PATH=/data/synergo.db \
-    SYNERGO_STATIC_DIR=/app/static
-RUN mkdir -p /data && useradd --create-home --uid 10001 synergo \
-    && chown -R synergo:synergo /data /app
-COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/synergo-entrypoint
+# HIVELANE_STATIC_DIR serves the dashboard at / (unset it to serve the API only).
+ENV HIVELANE_STATE_PATH=/data/hivelane.db \
+    HIVELANE_STATIC_DIR=/app/static
+RUN mkdir -p /data && useradd --create-home --uid 10001 hivelane \
+    && chown -R hivelane:hivelane /data /app
+COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/hivelane-entrypoint
 
 # The commit this image was built from (image.yml passes it), for /readyz to
 # report so a post-deploy check can tell the new deploy from the old one.
-ARG SYNERGO_COMMIT=""
-ENV SYNERGO_COMMIT=$SYNERGO_COMMIT
+ARG HIVELANE_COMMIT=""
+ENV HIVELANE_COMMIT=$HIVELANE_COMMIT
 
-# No `USER synergo` here on purpose: Fly volumes and Render disks mount
+# No `USER hivelane` here on purpose: Fly volumes and Render disks mount
 # root-owned over /data, so the entrypoint starts as root only to chown the
 # state directory, then drops to uid 10001 before the relay starts. The relay
 # itself never runs as root. Hosts that start containers as a non-root user
 # (Helm sets runAsUser 10001 and fsGroup 10001) skip the chown; the entrypoint
-# then checks the directory is writable and, with SYNERGO_ENV=production,
+# then checks the directory is writable and, with HIVELANE_ENV=production,
 # refuses to start on a store it could not keep.
-ENTRYPOINT ["/usr/local/bin/synergo-entrypoint"]
+ENTRYPOINT ["/usr/local/bin/hivelane-entrypoint"]
 
 EXPOSE 8000
 
@@ -67,5 +67,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
 
 # No CMD: with no arguments the entrypoint runs uvicorn on ${PORT:-8000} with
 # WebSocket limits matching the relay's 512 KiB frame cap (--ws-max-size, from
-# SYNERGO_MAX_FRAME_BYTES) and a short per-connection queue (--ws-max-queue 8).
+# HIVELANE_MAX_FRAME_BYTES) and a short per-connection queue (--ws-max-queue 8).
 # Any arguments given replace that command (still run as uid 10001).

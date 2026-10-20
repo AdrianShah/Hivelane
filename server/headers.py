@@ -9,7 +9,7 @@ WebSocket upgrades pass through untouched (WebSocket scopes are skipped).
   code (/r/<code>), so it must never leak to another site through a Referer
   header.
 - Strict-Transport-Security only when the deploy is known to sit behind TLS
-  (SYNERGO_ENV=staging or production): sent from a plain-http dev relay it
+  (HIVELANE_ENV=staging or production): sent from a plain-http dev relay it
   would pin the browser to https for localhost.
 - Content-Security-Policy (plus X-Frame-Options) on HTML responses only, i.e.
   when the relay serves the bundled dashboard. JSON and metrics need none.

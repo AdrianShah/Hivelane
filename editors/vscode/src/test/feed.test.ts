@@ -228,15 +228,15 @@ test("room codes normalize like the dashboard", () => {
 
 test("dashboard URL follows the CLI and carries ?relay=", () => {
   assert.equal(dashboardBase("", "wss://relay.example/ws", {}), DEFAULT_DASHBOARD);
-  assert.equal(DEFAULT_DASHBOARD, "https://adrianshah.github.io/Synergo");
+  assert.equal(DEFAULT_DASHBOARD, "https://hivelane.dev");
   assert.equal(dashboardBase("", "ws://localhost:8000/ws", {}), DEFAULT_DASHBOARD_LOCAL);
-  assert.equal(dashboardBase("", "wss://relay.example/ws", { SYNERGO_DASHBOARD: "https://dash.example/" }), "https://dash.example");
-  assert.equal(dashboardBase("https://mine.example/", "wss://relay.example/ws", { SYNERGO_DASHBOARD: "https://dash.example" }), "https://mine.example");
+  assert.equal(dashboardBase("", "wss://relay.example/ws", { HIVELANE_DASHBOARD: "https://dash.example/" }), "https://dash.example");
+  assert.equal(dashboardBase("https://mine.example/", "wss://relay.example/ws", { HIVELANE_DASHBOARD: "https://dash.example" }), "https://mine.example");
   assert.ok(relayIsLocal("ws://127.0.0.1:8000/ws"));
   assert.ok(!relayIsLocal("wss://relay.example/ws"));
   assert.equal(
     roomLink(DEFAULT_DASHBOARD, "k7m2-pq2x", "wss://relay.example/ws"),
-    "https://adrianshah.github.io/Synergo/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws"
+    "https://hivelane.dev/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws"
   );
   // The relay serving its own dashboard: no parameter needed.
   assert.equal(roomLink("https://relay.example", "ROOM", "wss://relay.example/ws"), "https://relay.example/r/ROOM");
@@ -254,10 +254,10 @@ test("feed plan skips fatal, e2e and approval rooms", () => {
 });
 
 test("port precedence and validation", () => {
-  assert.equal(resolvePort({ workspaceFolderValue: 1, workspaceValue: 2, globalValue: 3 }, { SYNERGO_PORT: "4" }), 1);
+  assert.equal(resolvePort({ workspaceFolderValue: 1, workspaceValue: 2, globalValue: 3 }, { HIVELANE_PORT: "4" }), 1);
   assert.equal(resolvePort({ workspaceValue: 2, globalValue: 3 }, {}), 2);
-  assert.equal(resolvePort({ globalValue: 3.5 }, { SYNERGO_PORT: "4601" }), 4601);
-  assert.equal(resolvePort(undefined, { SYNERGO_PORT: "nope" }), 4600);
+  assert.equal(resolvePort({ globalValue: 3.5 }, { HIVELANE_PORT: "4601" }), 4601);
+  assert.equal(resolvePort(undefined, { HIVELANE_PORT: "nope" }), 4600);
   assert.equal(resolvePort({ globalValue: 70000 }, {}), 4600);
 });
 
@@ -269,8 +269,8 @@ test("token validation matches the daemon", () => {
 });
 
 test("auth problem shows token mismatch, not offline", () => {
-  assert.equal(statusText(undefined, undefined, true), "Synergo: token mismatch");
-  assert.equal(statusText(undefined, undefined, false), "Synergo: offline");
+  assert.equal(statusText(undefined, undefined, true), "Hivelane: token mismatch");
+  assert.equal(statusText(undefined, undefined, false), "Hivelane: offline");
 });
 
 test("tracker keys touches by repo_id", () => {

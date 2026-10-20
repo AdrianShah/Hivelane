@@ -36,7 +36,7 @@ permissions:
 # in the log and the job summary) instead of turning every run red until
 # upstream ships. scripts/audit_gate.py applies that rule to pip-audit's JSON;
 # the npm jobs apply it to `npm audit --json` (fixAvailable). A finding judged
-# not to affect Synergo can still be skipped with `--ignore-vuln <ID>` on the
+# not to affect Hivelane can still be skipped with `--ignore-vuln <ID>` on the
 # pip-audit step, next to a comment saying why and when to look again.
 jobs:
   relay:
@@ -61,7 +61,7 @@ jobs:
           python scripts/audit_gate.py pip "$RUNNER_TEMP/audit.json"
 
   package:
-    name: pip-audit (synergo package)
+    name: pip-audit (hivelane package)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -74,21 +74,21 @@ jobs:
       - name: Install pip-audit
         run: python -m pip install --upgrade pip pip-audit
       - name: Resolve the package with every extra
-        # pyproject.toml's ranges resolved the way `pipx install synergo` (with
+        # pyproject.toml's ranges resolved the way `pipx install hivelane` (with
         # any of its extras) would resolve them today, then pinned, so the
         # audit sees exact versions. The extras are read from pyproject.toml
         # so a new one is covered without editing this file.
         run: |
           extras=$(python -c "import tomllib; print(','.join(tomllib.load(open('pyproject.toml', 'rb'))['project'].get('optional-dependencies', {})))")
-          python -m venv "$RUNNER_TEMP/synergo-env"
-          "$RUNNER_TEMP/synergo-env/bin/pip" install --quiet ".[$extras]"
-          "$RUNNER_TEMP/synergo-env/bin/pip" freeze --exclude-editable \
-            | grep -v '^synergo' > "$RUNNER_TEMP/synergo-requirements.txt"
-          cat "$RUNNER_TEMP/synergo-requirements.txt"
+          python -m venv "$RUNNER_TEMP/hivelane-env"
+          "$RUNNER_TEMP/hivelane-env/bin/pip" install --quiet ".[$extras]"
+          "$RUNNER_TEMP/hivelane-env/bin/pip" freeze --exclude-editable \
+            | grep -v '^hivelane' > "$RUNNER_TEMP/hivelane-requirements.txt"
+          cat "$RUNNER_TEMP/hivelane-requirements.txt"
       - name: Audit
         run: |
           pip-audit --progress-spinner off --desc on --no-deps --disable-pip \
-            -r "$RUNNER_TEMP/synergo-requirements.txt" -f json -o "$RUNNER_TEMP/audit.json" || true
+            -r "$RUNNER_TEMP/hivelane-requirements.txt" -f json -o "$RUNNER_TEMP/audit.json" || true
           python scripts/audit_gate.py pip "$RUNNER_TEMP/audit.json"
 
   npm:

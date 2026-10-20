@@ -19,13 +19,13 @@ export const REPO_ROOT = resolve(SITE_ROOT, '..');
 export const OUT_DIR = join(SITE_ROOT, 'src', 'content', 'docs');
 
 // The site is published by .github/workflows/pages.yml to GitHub Pages, under
-// the dashboard: https://adrianshah.github.io/Synergo/docs/. Links between
+// the dashboard: https://hivelane.dev/docs/. Links between
 // pages are built from BASE, so changing these two is enough to move the site
 // (DOCS_SITE / DOCS_BASE override them for a one-off build elsewhere).
 export const SITE = process.env.DOCS_SITE || 'https://adrianshah.github.io';
-export const BASE = process.env.DOCS_BASE || '/Synergo/docs';
+export const BASE = process.env.DOCS_BASE || '/Hivelane/docs';
 
-export const REPO_URL = 'https://github.com/AdrianShah/Synergo';
+export const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
 export const BRANCH = 'main';
 
 // The repository is private for now, so "Edit page" and GitHub links on the

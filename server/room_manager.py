@@ -50,17 +50,17 @@ MAX_CODE_LENGTH = CODE_LENGTH
 _CODE_SEPARATORS = re.compile(r"[\s\-]+")
 _PLAUSIBLE_CODE = re.compile(rf"[A-Z0-9]{{{MIN_CODE_LENGTH},{MAX_CODE_LENGTH}}}")
 
-# Named members per room (SYNERGO_MAX_MEMBERS) and valid room codes on this
-# relay (SYNERGO_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
+# Named members per room (HIVELANE_MAX_MEMBERS) and valid room codes on this
+# relay (HIVELANE_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
 # both to bound memory and ghost-room flooding (docs/self-hosting.md).
 MAX_MEMBERS = config.MAX_MEMBERS
 MAX_ROOMS = config.MAX_ROOMS
 
 # A room created by POST /rooms that nobody joins within this long is evicted,
-# code and all: otherwise a script could hold SYNERGO_MAX_ROOMS (or grow an
+# code and all: otherwise a script could hold HIVELANE_MAX_ROOMS (or grow an
 # unlimited relay) for the store's week-long TTL. Once anyone has joined, the
 # room follows the normal empty-room grace instead.
-# SYNERGO_UNCLAIMED_ROOM_TTL_SECONDS; 0 disables the eviction.
+# HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS; 0 disables the eviction.
 def _ttl_from_env(name: str, default: float) -> float:
     raw = (os.environ.get(name) or "").strip()
     try:
@@ -70,7 +70,7 @@ def _ttl_from_env(name: str, default: float) -> float:
     return value if value >= 0 else default
 
 
-UNCLAIMED_ROOM_TTL_SECONDS = _ttl_from_env("SYNERGO_UNCLAIMED_ROOM_TTL_SECONDS", 10 * 60)
+UNCLAIMED_ROOM_TTL_SECONDS = _ttl_from_env("HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS", 10 * 60)
 # How long an empty room that was in use is kept (main.EMPTY_ROOM_GRACE_SECONDS
 # passes its own value; this is the default for revived rooms).
 DEFAULT_EMPTY_ROOM_GRACE_SECONDS = 30 * 60

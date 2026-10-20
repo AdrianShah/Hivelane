@@ -32,7 +32,7 @@ from server.store import (
 from server.tests.fake_redis import FakeRedis
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PRODUCTION = {"SYNERGO_ENV": "production", "CORS_ORIGINS": "https://app.example.com"}
+PRODUCTION = {"HIVELANE_ENV": "production", "CORS_ORIGINS": "https://app.example.com"}
 
 
 def _request(headers: dict[str, str] | None = None, peer: str = "203.0.113.9") -> Request:
@@ -89,13 +89,13 @@ def test_redis_limiter_checks_run_off_the_event_loop() -> None:
 
 def test_private_webhooks_need_an_opt_in_and_never_in_production() -> None:
     assert config.load_settings({}).webhooks_allow_private is False
-    assert config.load_settings({"SYNERGO_WEBHOOKS_ALLOW_PRIVATE": "1"}).webhooks_allow_private
+    assert config.load_settings({"HIVELANE_WEBHOOKS_ALLOW_PRIVATE": "1"}).webhooks_allow_private
     with pytest.raises(config.ConfigError, match="WEBHOOKS_ALLOW_PRIVATE"):
-        config.load_settings({**PRODUCTION, "SYNERGO_WEBHOOKS_ALLOW_PRIVATE": "1"})
+        config.load_settings({**PRODUCTION, "HIVELANE_WEBHOOKS_ALLOW_PRIVATE": "1"})
 
 
 @pytest.mark.parametrize(
-    "name", ["SYNERGO_MAX_FRAME_BYTES", "SYNERGO_MAX_DIFF_BYTES", "SYNERGO_MAX_TEXT_BYTES"]
+    "name", ["HIVELANE_MAX_FRAME_BYTES", "HIVELANE_MAX_DIFF_BYTES", "HIVELANE_MAX_TEXT_BYTES"]
 )
 def test_production_refuses_unlimited_payload_caps(name: str) -> None:
     assert config.load_settings({name: "0"}) is not None  # fine for a dev relay
@@ -304,7 +304,7 @@ def test_members_cannot_close_the_data_block(fake_gemini: Any) -> None:
     asyncio.run(gemini.classify_conflict("a.py", "sam", attack, attack, _touch(attack, attack)))
     sent = models.contents[0]
     assert "---USER DATA END---" not in sent
-    start = sent.index("<<<SYNERGO-DATA")
+    start = sent.index("<<<HIVELANE-DATA")
     tag = sent[start:].split()[1]
     assert sent.count(tag) == 4  # instructions mention both markers, then the markers
 

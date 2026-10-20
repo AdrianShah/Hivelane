@@ -1,5 +1,5 @@
 /**
- * The dashboard's e2e crypto against the vectors synergo/tests/test_crypto.py
+ * The dashboard's e2e crypto against the vectors hivelane/tests/test_crypto.py
  * checks the daemon with: the same passphrase must give the same keys, blobs
  * and hashes in WebCrypto as in Python, or a team's dashboard reads nothing.
  *

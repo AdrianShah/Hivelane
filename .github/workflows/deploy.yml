@@ -77,15 +77,15 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
-      - name: Tag matches synergo.__version__
+      - name: Tag matches hivelane.__version__
         # The same check release.yml makes before publishing to PyPI, so a
         # mistagged release never reaches production either.
         env:
           TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
-          version=$(python3 -c "import synergo; print(synergo.__version__)")
+          version=$(python3 -c "import hivelane; print(hivelane.__version__)")
           if [ "${TAG#v}" != "$version" ]; then
-            echo "::error title=Version mismatch::Tag $TAG does not match synergo.__version__ ($version)."
+            echo "::error title=Version mismatch::Tag $TAG does not match hivelane.__version__ ($version)."
             exit 1
           fi
       - name: Deploy relay

@@ -1,4 +1,4 @@
-"""Synergo demo project — edit these files to light up agent lanes."""
+"""Hivelane demo project — edit these files to light up agent lanes."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 
 ROOM_CODE = "udaeuh"
-PROJECT = "synergo"
+PROJECT = "hivelane"
 
 
 def greet(name: str = "hacker") -> str:
@@ -40,7 +40,7 @@ def fib(n: int) -> list[int]:
 
 
 def glass_theme() -> dict[str, str]:
-    """Palette tokens mirrored from the Synergo dashboard."""
+    """Palette tokens mirrored from the Hivelane dashboard."""
     return {
         "bg": "#070b14",
         "panel": "rgba(18, 26, 40, 0.55)",
@@ -59,4 +59,4 @@ if __name__ == "__main__":
     print(lane_status("hossein", files=3))
     print("fib(12) =", fib(12))
     print("theme =", glass_theme())
-    print(shout("synergo lanes online"))
+    print(shout("hivelane lanes online"))

@@ -92,7 +92,7 @@ def _join(socket: Any, name: Optional[str]) -> None:
 def _next_event(socket: Any, type_name: str, frames: int = 30) -> dict:
     for _ in range(frames):
         frame = socket.receive_json()
-        events = frame["events"] if frame.get("type") == "synergo_feed" else [frame]
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
             if event.get("type") == type_name:
                 return event
@@ -136,7 +136,7 @@ def test_feeds_are_serialized_once_and_split_under_the_frame_budget() -> None:
     assert all(len(frame.encode()) <= 1000 for frame in frames)
     decoded = [event for frame in frames for event in json.loads(frame)["events"]]
     assert decoded == events
-    assert json.loads(feed_frames(events, budget=0)[0]) == {"type": "synergo_feed", "events": events}
+    assert json.loads(feed_frames(events, budget=0)[0]) == {"type": "hivelane_feed", "events": events}
 
 
 def test_catch_up_holds_feeds_until_the_snapshot_is_out() -> None:

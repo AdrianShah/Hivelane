@@ -1,0 +1,22 @@
+{{- if and (include "hivelane-relay.usePVC" .) (not .Values.persistence.existingClaim) }}
+# Room codes (SQLite at /data/hivelane.db), so they survive restarts and
+# upgrades. Only with one replica: several keep their codes in Redis.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hivelane-relay.fullname" . }}
+  labels:
+    {{- include "hivelane-relay.labels" . | nindent 4 }}
+  annotations:
+    # Uninstalling the release keeps the room codes; delete the claim by hand.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

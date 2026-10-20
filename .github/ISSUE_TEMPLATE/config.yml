@@ -3,10 +3,10 @@ blank_issues_enabled: true
 contact_links:
   # Private vulnerability reporting needs a public repository; until then the
   # channel is email (SECURITY.md). Switch this back to
-  # https://github.com/AdrianShah/Synergo/security/advisories/new once public.
+  # https://github.com/AdrianShah/Hivelane/security/advisories/new once public.
   - name: Report a security vulnerability
     url: https://github.com/AdrianShah
     about: Never in a public issue. Email the maintainer at the address on their GitHub profile; see SECURITY.md.
   - name: Documentation
-    url: https://adrianshah.github.io/Synergo/docs/
+    url: https://hivelane.dev/docs/
     about: Install, CLI reference, self-hosting, conflict detection and the wire protocol.

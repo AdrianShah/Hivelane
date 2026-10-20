@@ -250,7 +250,7 @@ function Lane({
         ) : null}
 
         {decisions.length > 0 ? (
-          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="Recent Synergo decisions">
+          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="Recent Hivelane decisions">
             {decisions.map((decision) => {
               const blocked = decision.decision === 'block';
               const others = decision.others.length ? `${decision.others.join(', ')} editing` : null;

@@ -160,7 +160,7 @@ export interface FileRequest {
 /** GET /readyz on the relay (fields the dashboard may show). */
 export interface ReadyzResponse {
   status: string;
-  /** The synergo release the relay runs ("" when unknown). */
+  /** The hivelane release the relay runs ("" when unknown). */
   version: string;
   /** The commit the deploy was built from ("" when the deploy does not say). */
   commit: string;
@@ -302,12 +302,12 @@ export interface HistoryChunk {
 }
 
 /** Debounced room broadcast — one frame every ~500ms with queued events. */
-export interface SynergoFeed {
-  type: 'synergo_feed';
+export interface HivelaneFeed {
+  type: 'hivelane_feed';
   events: FeedEvent[];
 }
 
-/** Events that appear inside a Synergo feed batch (or as catch-up sends). */
+/** Events that appear inside a Hivelane feed batch (or as catch-up sends). */
 export type FeedEvent =
   | ActivityUpdate
   | ConflictAlert
@@ -320,7 +320,7 @@ export type FeedEvent =
   | UserJoined
   | UserLeft;
 
-/** Team-wide conflict windows from a repo's committed .synergo.toml. */
+/** Team-wide conflict windows from a repo's committed .hivelane.toml. */
 export interface RoomSettings {
   block_window_seconds: number;
   warn_window_seconds: number;
@@ -346,7 +346,7 @@ export interface JoinMessage {
 }
 
 export type ServerMessage =
-  | SynergoFeed
+  | HivelaneFeed
   | HistoryChunk
   | ActivityUpdate
   | ConflictAlert

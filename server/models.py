@@ -1,9 +1,9 @@
 """Wire format for every WebSocket message, as the relay sees it.
 
-Mirrored on purpose in synergo/protocol.py (the daemon must not import the
+Mirrored on purpose in hivelane/protocol.py (the daemon must not import the
 relay package) and in frontend/src/types.ts. Mirrors drift, so the copies are
 pinned by tests: server/tests/test_protocol_contract.py requires every message
-here to have the same JSON schema as its synergo/protocol.py twin and a
+here to have the same JSON schema as its hivelane/protocol.py twin and a
 TypeScript declaration for each frame the dashboard receives, and
 protocol/schema.json is regenerated from the client copy by protocol/generate.py.
 """
@@ -85,7 +85,7 @@ class FileChange(BaseModel):
 
 
 class RoomSettings(BaseModel):
-    """Team-wide conflict windows from the repo's .synergo.toml.
+    """Team-wide conflict windows from the repo's .hivelane.toml.
 
     Sent on join so the relay enforces what the team committed, not its own
     defaults. Bounded so one member cannot disable blocking room-wide by
@@ -114,7 +114,7 @@ class JoinMessage(BaseModel):
     # the dashboard only consumes broadcasts and cannot silently under-report.
     protocol_version: int = 0
     repo_id: RepoId = ""
-    # Optional: a member that carries a committed .synergo.toml shares its
+    # Optional: a member that carries a committed .hivelane.toml shares its
     # windows with the room. None leaves the room's current settings alone.
     settings: Optional[RoomSettings] = None
     # Secret returned once by POST /rooms. A join carrying the matching
@@ -496,11 +496,11 @@ class HistoryChunk(BaseModel):
     done: bool
 
 
-class SynergoFeed(BaseModel):
+class HivelaneFeed(BaseModel):
     """Debounced room broadcast: one WebSocket frame every ~500ms carrying
-    all queued events for that room (the dashboard's Synergo feed)."""
+    all queued events for that room (the dashboard's Hivelane feed)."""
 
-    type: Literal["synergo_feed"] = "synergo_feed"
+    type: Literal["hivelane_feed"] = "hivelane_feed"
     events: list[dict]
 
 

@@ -1,7 +1,7 @@
 """Serve the built dashboard (frontend/dist) from the relay itself.
 
-Off unless SYNERGO_STATIC_DIR names a directory with an index.html: the Docker
-image sets it, `synergo relay` sets it when it finds a build, and a dev relay
+Off unless HIVELANE_STATIC_DIR names a directory with an index.html: the Docker
+image sets it, `hivelane relay` sets it when it finds a build, and a dev relay
 leaves it unset (the dashboard then runs on Vite's dev server).
 
 Served as the router's not-found handler, so it can never shadow an API route:
@@ -56,7 +56,7 @@ def inline_script_hashes(html: str) -> list[str]:
     text = html.replace("\r\n", "\n").replace("\r", "\n")
     return [csp_hash(match.group("body")) for match in _INLINE_SCRIPT.finditer(text)]
 
-STATIC_DIR_ENV = "SYNERGO_STATIC_DIR"
+STATIC_DIR_ENV = "HIVELANE_STATIC_DIR"
 
 # Owned by the relay's API, never by the dashboard.
 API_PREFIXES = ("/ws", "/rooms", "/health", "/readyz", "/metrics", "/docs", "/redoc", "/openapi.json")
@@ -138,7 +138,7 @@ def static_dir_problem(directory: Optional[str]) -> Optional[str]:
 
 
 def install(app: Any, directory: Optional[str] = None) -> bool:
-    """Serve the dashboard from `directory` (default: $SYNERGO_STATIC_DIR) as
+    """Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as
     `app`'s fallback for unmatched requests. Returns whether it is served."""
     directory = os.environ.get(STATIC_DIR_ENV) if directory is None else directory
     if not directory:

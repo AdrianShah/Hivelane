@@ -1,3 +1,4 @@
+import { Mark, Mascot } from './brand/BrandArt';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AddTeammate from './components/AddTeammate';
@@ -713,7 +714,7 @@ export default function App() {
             ws.close();
             break;
 
-          case 'synergo_feed':
+          case 'hivelane_feed':
             for (const item of msg.events) {
               applyDecoded(item);
             }
@@ -945,12 +946,10 @@ export default function App() {
               type="button"
               className="inline-flex items-center gap-2 font-medium text-[13px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
               onClick={() => navigate('/')}
-              title="Back to Synergo home"
+              title="Back to Hivelane home"
             >
-              <span className="w-5 h-5 rounded bg-on-surface text-background text-[10px] font-semibold font-mono inline-flex items-center justify-center">
-                S
-              </span>
-              Synergo
+              <Mark size={20} />
+              Hivelane
             </button>
             <div
               className="inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1 min-h-[22px]"
@@ -1149,7 +1148,7 @@ export default function App() {
               Room <span className="font-mono text-primary">{roomId}</span> is
               gone on the relay (expired or redeployed). Create a new room,
               then run{' '}
-              <code className="font-mono">synergo up --room &lt;new code&gt;</code>{' '}
+              <code className="font-mono">hivelane up --room &lt;new code&gt;</code>{' '}
               in each repo.
             </p>
             <button
@@ -1251,7 +1250,7 @@ export default function App() {
                   className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
                   onClick={() => navigateTo('agents')}
                 >
-                  Open Synergo feed
+                  Open Hivelane feed
                 </button>
               </div>
             </div>
@@ -1262,7 +1261,7 @@ export default function App() {
               <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
-                    Synergo feed
+                    Hivelane feed
                   </h1>
                   <p className="text-[13px] text-on-muted mt-1 mb-0">
                     One lane per person: status, current intent, plan checklist and
@@ -1314,6 +1313,7 @@ export default function App() {
               ) : (
                 <div className="max-w-[46rem] space-y-4">
                   <div className="lane-shell rounded-2xl p-6">
+                    <Mascot pose="clear" size={72} className="mb-3" />
                     <p className="text-[14px] text-on-surface font-medium m-0">
                       No agents connected yet
                     </p>
@@ -1402,7 +1402,7 @@ export default function App() {
             <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
               <p className="text-[13px] text-on-muted mb-6">
-                How to connect agents to Synergo.
+                How to connect agents to Hivelane.
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
                 <p className="m-0">
@@ -1412,11 +1412,11 @@ export default function App() {
                 </p>
                 <p className="m-0">
                   2. On each machine, install once with{' '}
-                  <code className="text-primary font-mono">pipx install synergo</code>
+                  <code className="text-primary font-mono">pipx install hivelane</code>
                   , then run{' '}
                   <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
                   in the repo the agent works in. It sets up the agent hooks and the
-                  Synergo daemon.
+                  Hivelane daemon.
                 </p>
                 <p className="m-0">
                   3. Let the agents work — activity and conflicts appear on this

@@ -57,7 +57,7 @@ export default function DeployModal({
               Connect a teammate&apos;s agent
             </h2>
             <p className="text-[13px] text-on-muted mt-1 mb-0">
-              One line installs Synergo and joins this room from their repo.
+              One line installs Hivelane and joins this room from their repo.
             </p>
           </div>
           <button
@@ -106,11 +106,11 @@ export default function DeployModal({
           <ol className="m-0 pl-4 text-[12px] text-on-muted space-y-1.5 list-decimal">
             <li>Open a terminal in the repository the agent works in.</li>
             <li>
-              Paste the command: <code className="text-primary">pipx install synergo</code>{' '}
-              once, then <code className="text-primary">synergo up</code> joins this
+              Paste the command: <code className="text-primary">pipx install hivelane</code>{' '}
+              once, then <code className="text-primary">hivelane up</code> joins this
               room.
             </li>
-            <li>Keep working — the agent shows up as a lane in the Synergo feed.</li>
+            <li>Keep working — the agent shows up as a lane in the Hivelane feed.</li>
           </ol>
         </div>
       </div>

@@ -1,10 +1,10 @@
-# Render Blueprint for the Synergo relay. Setup steps: README.md here.
+# Render Blueprint for the Hivelane relay. Setup steps: README.md here.
 #
 # When creating the Blueprint in the Render dashboard, set the Blueprint Path
 # to deploy/render/render.yaml (Render looks for render.yaml at the root).
 services:
   - type: web
-    name: synergo-relay
+    name: hivelane-relay
     runtime: docker
     # Paths are relative to the repo root.
     dockerfilePath: ./Dockerfile
@@ -23,14 +23,14 @@ services:
     # cannot scale past one instance, which is also what the relay needs today:
     # rooms are held in the process's memory.
     disk:
-      name: synergo-data
+      name: hivelane-data
       mountPath: /data
       sizeGB: 1
     envVars:
-      - key: SYNERGO_ENV
+      - key: HIVELANE_ENV
         value: production
-      - key: SYNERGO_STATE_PATH
-        value: /data/synergo.db
+      - key: HIVELANE_STATE_PATH
+        value: /data/hivelane.db
       # Render's proxy terminates TLS; without this every user shares one
       # rate-limit bucket. See the client-IP caveat in docs/self-hosting.md.
       - key: TRUST_PROXY_HEADER

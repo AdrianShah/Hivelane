@@ -1,5 +1,5 @@
 """edit_check over a real WebSocket: the reply must arrive immediately, ahead
-of (and outside) the debounced synergo_feed batches."""
+of (and outside) the debounced hivelane_feed batches."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ def _next_frame(socket: Any, type_name: str) -> dict:
 def _next_feed_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") != "synergo_feed":
+        if frame.get("type") != "hivelane_feed":
             continue
         for event in frame["events"]:
             if event.get("type") == type_name:
@@ -121,7 +121,7 @@ def test_warn_decision_reaches_the_feed() -> None:
 
 def test_joining_member_is_told_who_is_already_in_the_room() -> None:
     """A daemon that connects second must still learn its peers; without this
-    catch-up its peer list starts empty and `synergo status` misreports."""
+    catch-up its peer list starts empty and `hivelane status` misreports."""
     client = TestClient(app)
     room_id = client.post("/rooms").json()["room_id"]
 

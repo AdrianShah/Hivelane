@@ -1,20 +1,20 @@
 # Writing an agent adapter
 
-An adapter teaches Synergo one coding agent's hooks. The agent runs
-`synergo hook <id>` before and after its own actions. The adapter turns the
-agent's native hook payload into Synergo events, and turns the daemon's
+An adapter teaches Hivelane one coding agent's hooks. The agent runs
+`hivelane hook <id>` before and after its own actions. The adapter turns the
+agent's native hook payload into Hivelane events, and turns the daemon's
 allow / warn / block answer back into whatever that agent expects to read.
 
-Synergo ships adapters for Claude Code (`claude-code`), Codex (`codex`),
+Hivelane ships adapters for Claude Code (`claude-code`), Codex (`codex`),
 Cursor (`cursor`) and Gemini CLI (`gemini-cli`). Each one is a single module
-in `synergo/adapters/`, and a shared conformance suite runs every module
+in `hivelane/adapters/`, and a shared conformance suite runs every module
 against the same contract. This page walks through that contract and a
 complete example.
 
 ## Before you start
 
 You need an agent that can run a command **before a file edit**, with the file
-path in its input. That is what lets Synergo check an edit before it lands.
+path in its input. That is what lets Hivelane check an edit before it lands.
 The agent's hook documentation should also tell you:
 
 - where hooks are configured, per user and per project;
@@ -24,17 +24,17 @@ The agent's hook documentation should also tell you:
   deny the action (an exit code, a field in JSON on stdout, or both).
 
 If the agent has no hooks at all, it can still join a room without an
-adapter, observe-only: `synergo run -- <command>` wraps it with a file
-watcher, `synergo watch` watches a directory, and `synergo mcp` serves the
-same checks as MCP tools. See [the CLI reference](cli.md#synergo-run). An
-[adapter request](https://github.com/AdrianShah/Synergo/issues/new?template=adapter_request.yml)
+adapter, observe-only: `hivelane run -- <command>` wraps it with a file
+watcher, `hivelane watch` watches a directory, and `hivelane mcp` serves the
+same checks as MCP tools. See [the CLI reference](cli.md#hivelane-run). An
+[adapter request](https://github.com/AdrianShah/Hivelane/issues/new?template=adapter_request.yml)
 issue is the place to collect the facts above if you want someone else to
 write the adapter.
 
 ## How a hook call flows
 
 ```text
-agent ──stdin JSON──► synergo hook <id>
+agent ──stdin JSON──► hivelane hook <id>
                         │ adapter.normalize(payload) -> [event, ...]
                         │ POST each event to the daemon on 127.0.0.1:4600
                         │ the strictest ack wins (block > warn > allow)
@@ -42,16 +42,16 @@ agent ──stdin JSON──► synergo hook <id>
 agent ◄─stdout + exit──┘
 ```
 
-1. The agent starts `synergo hook <id>` as a new process and writes its
+1. The agent starts `hivelane hook <id>` as a new process and writes its
    payload to stdin.
-2. `synergo/hook_fast.py` loads only your module and calls
+2. `hivelane/hook_fast.py` loads only your module and calls
    `normalize(payload)`. Each event it returns is posted to the local daemon,
    which asks the relay (for a `pre_edit`) and answers with an ack:
    `{"decision": "allow" | "warn" | "block", "reason", "file_path", "others",
    "queue_position", "suggestion"}`. `base.ack_message` turns it into the
    sentence every built-in adapter shows: who is in the file, the agent's
    place in the file's wait queue, the relay's suggestion, and, on a block,
-   "run `synergo wait <file>` to wait your turn".
+   "run `hivelane wait <file>` to wait your turn".
 3. When one call yields several events (a patch that touches three files),
    every one is checked and the strictest ack decides.
 4. `render(event, ack)` returns what to print and the exit status. Only exit
@@ -64,20 +64,20 @@ agent ◄─stdout + exit──┘
 ## The contract
 
 The authoritative statement is the docstring at the top of
-[`synergo/adapters/base.py`](../synergo/adapters/base.py). In short:
+[`hivelane/adapters/base.py`](../hivelane/adapters/base.py). In short:
 
 | Member | What it must do |
 |--------|-----------------|
-| `id` | The agent id, as in `synergo hook <id>`. Must be one of the protocol's `AgentKind` values. |
-| `label` | Human name, shown by `synergo up` and `synergo doctor`. |
-| `executables`, `config_dirs` | How `synergo.detect` spots the agent: commands on PATH, directories under the home directory. |
+| `id` | The agent id, as in `hivelane hook <id>`. Must be one of the protocol's `AgentKind` values. |
+| `label` | Human name, shown by `hivelane up` and `hivelane doctor`. |
+| `executables`, `config_dirs` | How `hivelane.detect` spots the agent: commands on PATH, directories under the home directory. |
 | `capabilities` | `{"can_block", "has_intent", "has_post_edit"}`, each a bool. `can_block` means a pre-edit hook can stop the edit. |
-| `normalize(payload) -> list[dict]` | Native payload to event dicts with every key in `base.EVENT_FIELDS`. `[]` for anything Synergo does not care about or cannot parse. **Never raises.** |
+| `normalize(payload) -> list[dict]` | Native payload to event dicts with every key in `base.EVENT_FIELDS`. `[]` for anything Hivelane does not care about or cannot parse. **Never raises.** |
 | `render(event, ack) -> HookOutput` | The ack as stdout text and an exit code. Only a `pre_edit` may decide anything. Anything that is not a well-formed warn or block reads as allow. A block is never rendered as an allow, and a warn never auto-approves. **Never raises.** |
 | `render_notice(event, message) -> HookOutput` | A user-visible notice that decides nothing (the daemon is offline). Defaults to printing nothing. |
 | `passthrough(payload) -> str` | What to print when nothing else was. Defaults to `""`. |
 | `settings_path(scope, root)` | The hook config file for `"user"` scope (`root` ignored) or `"project"` scope under `root`. |
-| `install` / `uninstall` / `is_installed` | Idempotent and marker-based: Synergo's entries are found by `synergo hook` in their command, everything else in the file is left alone, and a file that does not parse raises `SettingsError` and is never overwritten. |
+| `install` / `uninstall` / `is_installed` | Idempotent and marker-based: Hivelane's entries are found by `hivelane hook` in their command, everything else in the file is left alone, and a file that does not parse raises `SettingsError` and is never overwritten. |
 
 The event dict fields:
 
@@ -99,7 +99,7 @@ every field present, and `base.ack_decision`, `base.ack_message` and
 
 ### Two rules that override everything else
 
-**Fail open.** Synergo must never stop an agent because Synergo itself went
+**Fail open.** Hivelane must never stop an agent because Hivelane itself went
 wrong. A payload you do not understand normalizes to `[]`, an ack you do not
 understand renders as allow, and any exception in `normalize` or `render`
 becomes "do nothing". Wrap both in `try`/`except Exception`, as every
@@ -107,11 +107,11 @@ shipped adapter does.
 
 **Stay on the fast path.** The agent starts the hook around every single edit,
 so your module is imported on every file write. It may import only the
-standard library's cheap modules (`os`, `sys`), `synergo.hook_json` for JSON,
-and `synergo.adapters.base`. No pydantic, no `json`, `re`, `typing` or
+standard library's cheap modules (`os`, `sys`), `hivelane.hook_json` for JSON,
+and `hivelane.adapters.base`. No pydantic, no `json`, `re`, `typing` or
 `pathlib` at module level; use `TYPE_CHECKING = False` for type-only imports.
 Install-time code can import whatever it needs inside the function.
-`synergo/tests/test_adapter_hook_path.py` runs every registered adapter in a
+`hivelane/tests/test_adapter_hook_path.py` runs every registered adapter in a
 subprocess and fails if anything heavier shows up in `sys.modules`.
 
 ## Worked example
@@ -132,7 +132,7 @@ Suppose an agent called "Example Agent" (command `example`, config under
 
 ### 1. The module
 
-`synergo/adapters/example.py`:
+`hivelane/adapters/example.py`:
 
 ```python
 """Example Agent hook adapter.
@@ -147,15 +147,15 @@ from __future__ import annotations
 
 import os
 
-from synergo import hook_json
-from synergo.adapters import base
+from hivelane import hook_json
+from hivelane.adapters import base
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
     from typing import Any
 
 AGENT = "example"
-HOOK_COMMAND = "synergo hook example"
+HOOK_COMMAND = "hivelane hook example"
 EDIT_MATCHER = "edit_file|write_file"
 
 
@@ -210,10 +210,10 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
         return ""
     message = base.ack_message(ack, decision, event.get("file_path"))
     if decision == "block":
-        return hook_json.dumps({"decision": "deny", "reason": f"Synergo: {message}"})
+        return hook_json.dumps({"decision": "deny", "reason": f"Hivelane: {message}"})
     # A warn shows the message and decides nothing, so the agent's own
     # approval flow still runs.
-    return hook_json.dumps({"message": f"Synergo warning: {message}"})
+    return hook_json.dumps({"message": f"Hivelane warning: {message}"})
 
 
 class ExampleAdapter(base.JsonHooksAdapter):
@@ -267,14 +267,14 @@ Adapt the shape to the agent rather than the agent to the shape:
 
 ### 2. Register it
 
-- Add `"example": "synergo.adapters.example"` to `REGISTRY` in
-  `synergo/adapters/__init__.py`.
-- Add an `AgentSpec` to `KNOWN_AGENTS` in `synergo/detect.py`, with
+- Add `"example": "hivelane.adapters.example"` to `REGISTRY` in
+  `hivelane/adapters/__init__.py`.
+- Add an `AgentSpec` to `KNOWN_AGENTS` in `hivelane/detect.py`, with
   `adapter=registry_adapter("example")` and the same `label`, `executables` and
   `config_dirs` as the module (the conformance suite checks they agree).
-  `synergo up` then installs the hooks whenever it detects the agent.
+  `hivelane up` then installs the hooks whenever it detects the agent.
 - If the id is new to the protocol, add it to `AgentKind` (and
-  `AGENT_KINDS`) in `synergo/protocol.py` and `server/models.py`, and to the
+  `AGENT_KINDS`) in `hivelane/protocol.py` and `server/models.py`, and to the
   agent union in `frontend/src/types.ts`, then run
   `python protocol/generate.py`. A relay that predates the new id rejects
   joins and activity carrying it, so the relay has to be upgraded before
@@ -282,9 +282,9 @@ Adapt the shape to the agent rather than the agent to the shape:
 
 ### 3. Golden fixtures
 
-The conformance suite (`synergo/tests/test_adapter_conformance.py`) runs
+The conformance suite (`hivelane/tests/test_adapter_conformance.py`) runs
 every registered adapter against JSON fixtures in
-`synergo/tests/fixtures/adapters/<id>/`. Each fixture holds a captured payload
+`hivelane/tests/fixtures/adapters/<id>/`. Each fixture holds a captured payload
 and the events `normalize` must produce:
 
 ```json
@@ -310,7 +310,7 @@ Five fixtures are required, and you can add more (Codex has
 | `prompt.json` | A prompt submission: one `intent` event. |
 | `pre_edit.json` | An edit about to happen to `{tmp}/room.py`: one `pre_edit` event. The render tests use it. |
 | `post_edit.json` | The same edit after it happened: one `post_edit` event. |
-| `irrelevant_tool.json` | A hook Synergo ignores (a shell command, a file read): `[]`. |
+| `irrelevant_tool.json` | A hook Hivelane ignores (a shell command, a file read): `[]`. |
 | `malformed.json` | A payload with a broken field (a numeric path, a missing tool input): `[]`. |
 
 Use real payloads captured from the agent whenever you can (run the agent
@@ -320,13 +320,13 @@ fixture is the evidence that the adapter matches what the agent really sends.
 ### 4. Run the suite
 
 ```bash
-pytest -q synergo/tests/test_adapter_conformance.py synergo/tests/test_adapter_hook_path.py
+pytest -q hivelane/tests/test_adapter_conformance.py hivelane/tests/test_adapter_hook_path.py
 pytest -q                     # then everything
 ```
 
 Without writing a single adapter-specific test, the suite checks that:
 
-- the module, the registry and `synergo.detect` agree, and every required
+- the module, the registry and `hivelane.detect` agree, and every required
   fixture exists;
 - `normalize` produces exactly the fixture's events, each one valid against
   the daemon's `NormalizedEvent` model, and returns `[]` for garbage input
@@ -339,9 +339,9 @@ Without writing a single adapter-specific test, the suite checks that:
   approves;
 - install is idempotent, keeps unrelated hooks and settings, refuses to touch
   a file it cannot parse, and uninstall restores the file exactly, in both
-  user and project scope; `synergo hook install|uninstall <id>` works end to
+  user and project scope; `hivelane hook install|uninstall <id>` works end to
   end;
-- `synergo hook <id>` runs in a subprocess without importing anything from
+- `hivelane hook <id>` runs in a subprocess without importing anything from
   the daemon stack or the slow parts of the standard library, and produces
   the right output for allow, block and daemon-offline.
 
@@ -354,12 +354,12 @@ spells either one differently, teach `_denies` and `_approves` in
 otherwise the suite cannot see your adapter's decisions and fails.
 
 Add tests of your own for anything agent-specific, such as a patch format,
-next to the others in `synergo/tests/`.
+next to the others in `hivelane/tests/`.
 
 ### 5. Try it for real
 
 ```bash
-synergo hook install example          # writes .example/hooks.json in this repo
+hivelane hook install example          # writes .example/hooks.json in this repo
 ```
 
 `scripts/bench_hook.py` times one hook invocation from a cold start. It
@@ -372,5 +372,5 @@ function from both, and watch the second edit get blocked. Add the agent to
 the README's list and to `docs/cli.md` in the same pull request.
 
 Issues labelled
-[`good first adapter`](https://github.com/AdrianShah/Synergo/labels/good%20first%20adapter)
+[`good first adapter`](https://github.com/AdrianShah/Hivelane/labels/good%20first%20adapter)
 are agents people have asked for.

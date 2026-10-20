@@ -1,6 +1,6 @@
 # Wire protocol
 
-Everything a client and the Synergo relay say to each other: the room HTTP
+Everything a client and the Hivelane relay say to each other: the room HTTP
 API, the WebSocket handshake, every message in both directions, delivery
 rules, limits, close codes and how the protocol is versioned. It is written
 for anyone building a client in another language, and for reviewing changes
@@ -9,10 +9,10 @@ to the protocol.
 This page describes protocol version **1**. The contract
 itself is code, and wins wherever this page disagrees with it:
 
-- [`synergo/protocol.py`](../synergo/protocol.py), the client's models;
+- [`hivelane/protocol.py`](../hivelane/protocol.py), the client's models;
 - [`server/models.py`](../server/models.py), the relay's copy;
 - [`protocol/schema.json`](../protocol/schema.json), a JSON Schema (draft
-  2020-12) generated from `synergo/protocol.py` by `protocol/generate.py`.
+  2020-12) generated from `hivelane/protocol.py` by `protocol/generate.py`.
   Its `x-client-to-relay` and `x-relay-to-client` maps list every message by
   direction.
 
@@ -48,7 +48,7 @@ its `join`. Owners can approve joiners and change the room's join policy.
 |--------|------|---------|
 | `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
 | `GET` | `/health` | Liveness: `{"status": "ok", "rooms": N}`. |
-| `GET` | `/readyz` | Readiness and configuration, including `version` (the synergo release), `commit` (the build's commit when the deploy sets `SYNERGO_COMMIT`, else `""`), `protocol_version` and `min_supported_protocol`. |
+| `GET` | `/readyz` | Readiness and configuration, including `version` (the hivelane release), `commit` (the build's commit when the deploy sets `HIVELANE_COMMIT`, else `""`), `protocol_version` and `min_supported_protocol`. |
 | `GET` | `/metrics` | Prometheus counters and gauges. Aggregates only, no room codes or names. |
 
 Room creation is not authenticated: the room code is the shared secret. See
@@ -100,7 +100,7 @@ client                                        relay
    minutes after the *latest* departure; if nobody is connected (or joining,
    or waiting for approval) by then, the room and its code are removed. A room
    created with `POST /rooms` that nobody joins within 10 minutes
-   (`SYNERGO_UNCLAIMED_ROOM_TTL_SECONDS`) is removed the same way. A code is
+   (`HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS`) is removed the same way. A code is
    otherwise valid for at most a week from creation.
 
 A connection must send a valid `join` within 15 s, and at most 5 joins in
@@ -119,18 +119,18 @@ Two kinds of frames come from the relay:
   (`file_requested`, `file_released`) and the catch-up frames above.
 - **Room broadcasts, batched:** every other relay-to-client message is queued
   and delivered to every member and spectator, the sender included, inside a
-  `synergo_feed` frame about every 500 ms. A feed's `events` are complete
+  `hivelane_feed` frame about every 500 ms. A feed's `events` are complete
   messages in the order they happened. A batch too big for one frame (over
   768 KB) is split across consecutive feeds.
 
-A socket that does not accept a frame within 2 s (`SYNERGO_SEND_TIMEOUT_SECONDS`)
+A socket that does not accept a frame within 2 s (`HIVELANE_SEND_TIMEOUT_SECONDS`)
 is closed with 1013 rather than allowed to hold up the room; reconnect as after
 any drop. Records that copy a peer's `e2e` blob (`PeerTouch`, `PlanConflict`)
 may arrive with `e2e: ""` when the reply would otherwise exceed the frame
 budget; the least relevant entries lose theirs first.
 
 A client must therefore handle each message both bare and inside a feed.
-Unwrap `synergo_feed` first, then dispatch every event exactly as if it had
+Unwrap `hivelane_feed` first, then dispatch every event exactly as if it had
 arrived on its own.
 
 ## Client to relay
@@ -169,7 +169,7 @@ The first frame on every connection.
 
 #### RoomSettings
 
-The team's conflict windows, as committed in `.synergo.toml`. The relay applies the settings of the most recently admitted member that sent any (last join wins), except that a join without `e2e` leaves the room's `e2e` flag alone.
+The team's conflict windows, as committed in `.hivelane.toml`. The relay applies the settings of the most recently admitted member that sent any (last join wins), except that a join without `e2e` leaves the room's `e2e` flag alone.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -190,7 +190,7 @@ A spectator: `{"type": "join"}`, or `{"type": "join", "name": null}`.
 The relay lowercases the name and strips everything but `a-z`, `0-9`, `_`
 and `-`. The result must be 1 to 20 characters, must not contain a blocked
 word, and must not already be in the room. A relay may cap members per room
-(`SYNERGO_MAX_MEMBERS`; unlimited by default), and then answers `Room full`.
+(`HIVELANE_MAX_MEMBERS`; unlimited by default), and then answers `Room full`.
 The cleaned-up name is the member's `user_id` in everything the relay sends.
 
 ### activity
@@ -267,7 +267,7 @@ and the file's queue can block a check no touch blocks.
 file's [wait queue](#wait-queues) and tells the members holding it, once per
 requester, with `file_requested`. When nothing keeps the sender out and
 nobody is ahead of it, the relay answers at once with `file_released`.
-Re-sending keeps the sender's place and restarts its expiry; `synergo wait`
+Re-sending keeps the sender's place and restarts its expiry; `hivelane wait`
 re-sends every few seconds while it waits.
 
 | Field | Type | Default | Description |
@@ -652,7 +652,7 @@ The answer to a `history_request`, sent only to its sender.
 | `events` | object[] | required | Kept feed events, oldest first, each exactly as broadcast (events without a `timestamp` of their own get the broadcast time). |
 | `done` | boolean | required | `true` on the last chunk of the answer. |
 
-### synergo_feed
+### hivelane_feed
 
 A batch of room broadcasts. See [Delivery](#delivery).
 
@@ -686,7 +686,7 @@ relay works it:
   who just took the file) until the claimer's activity on the file arrives,
   the block window passes, or the claimer leaves.
 - **Expiry.** A place lasts the room's warn window from its latest request
-  (`synergo wait` re-requests every few seconds), a released head lasts its
+  (`hivelane wait` re-requests every few seconds), a released head lasts its
   grace, and a member that leaves loses its places and claims. A holder that
   leaves releases its files at once.
 
@@ -727,12 +727,12 @@ and clients should not depend on the exact numbers.
 | `edit_check` per member | `ROOM_MESSAGE_LIMIT` per minute | Answered `warn`, not checked |
 | Inbound frames per dashboard socket | 120 per minute | Dropped silently |
 | Joiners waiting for approval, per address | 2 | `room_rejected`, close 4403 |
-| Tracked file touches per room (`SYNERGO_MAX_TOUCHES_PER_ROOM`, `SYNERGO_MAX_TOUCH_BYTES_PER_ROOM`) | 5,000 touches, 64 MB | Least recently updated touches are forgotten |
+| Tracked file touches per room (`HIVELANE_MAX_TOUCHES_PER_ROOM`, `HIVELANE_MAX_TOUCH_BYTES_PER_ROOM`) | 5,000 touches, 64 MB | Least recently updated touches are forgotten |
 | Plans and intents per member | one per repo, up to 8 repos | Oldest dropped |
 | Connection attempts per address (`WS_ATTEMPT_LIMIT`) | 30 per minute | `rate_limited`, close 4429 |
-| Members per room (`SYNERGO_MAX_MEMBERS`) | unlimited by default | `name_rejected` "Room full" |
+| Members per room (`HIVELANE_MAX_MEMBERS`) | unlimited by default | `name_rejected` "Room full" |
 | Joiners waiting for approval, per room | 10 | `room_rejected`, close 4403 |
-| Members waiting in one file's queue (`SYNERGO_FILE_QUEUE_MAX_LENGTH`) | unlimited by default (each member once) | Not queued (`queue_position: 0`); still blocked |
+| Members waiting in one file's queue (`HIVELANE_FILE_QUEUE_MAX_LENGTH`) | unlimited by default (each member once) | Not queued (`queue_position: 0`); still blocked |
 | Files with a wait queue, per room | 256 | Not queued (`queue_position: 0`); still blocked |
 | `history_request` per socket | one per 10 s | Ignored |
 | Kept history per room | 24 h, 5,000 events, 8 MB | Oldest events dropped |
@@ -783,7 +783,7 @@ them was an optional field or an ignorable message. A client that never sends
 **Anything an older peer cannot satisfy is a breaking change:** removing or
 renaming a field, changing a field's type or meaning, making an optional
 field required, or a new obligation a client must meet for coordination to
-stay correct. Bump `PROTOCOL_VERSION` in `synergo/protocol.py` and
+stay correct. Bump `PROTOCOL_VERSION` in `hivelane/protocol.py` and
 `server/models.py` together. Raise `MIN_SUPPORTED_PROTOCOL` when the relay can
 no longer serve the old clients safely; those members are then refused with
 `version_rejected` instead of connecting and silently skipping checks.
@@ -806,7 +806,7 @@ So that this all works, every client must:
 
 ## End-to-end encrypted rooms
 
-In a room whose committed `.synergo.toml` sets `e2e = true`, members hide
+In a room whose committed `.hivelane.toml` sets `e2e = true`, members hide
 content from the relay while keeping overlap detection working, because the
 relay only ever compares values for equality:
 
@@ -823,7 +823,7 @@ relay only ever compares values for equality:
 
 Keys come from a passphrase that never reaches the relay or the repository.
 The key schedule and the blob format are specified in
-[`synergo/crypto.py`](../synergo/crypto.py), with test vectors in
+[`hivelane/crypto.py`](../hivelane/crypto.py), with test vectors in
 [`protocol/e2e-test-vectors.json`](../protocol/e2e-test-vectors.json) that
 both the Python and the dashboard implementations are tested against. What
 this does and does not protect is in [Security](security.md).
@@ -837,7 +837,7 @@ this does and does not protect is in [Security](security.md).
    send your `protocol_version`. Handle `name_rejected` by joining again with
    another name, and treat `version_rejected`, `room_rejected` and close codes
    4403, 4404 and 4426 as final.
-3. **Dispatch on `type`.** Unwrap `synergo_feed` and handle each event as if it
+3. **Dispatch on `type`.** Unwrap `hivelane_feed` and handle each event as if it
    had arrived alone. Ignore unknown types and fields.
 4. **Correlate edit checks** by a `request_id` you generate. Time out quickly
    (the daemon waits 1.5 s) and treat a timeout, a dropped connection or a
@@ -846,13 +846,13 @@ this does and does not protect is in [Security](security.md).
    30 s), wait at least `retry_after` after `rate_limited`, and send `join`
    again on every new connection. Nothing survives a reconnect except the room.
 6. **Match the reference client's identities** if you share rooms with
-   Synergo daemons: send paths relative to the repository root with forward
+   Hivelane daemons: send paths relative to the repository root with forward
    slashes, and compute `repo_id` the same way. `repo_id` is the first 16 hex
    digits of the SHA-256 of the normalized `origin` URL (host lowercased, with
    scheme, credentials, port and a trailing `.git` dropped, so ssh and https
    clones agree), or, without an origin, the first 16 characters of the
    smallest root commit id; see `compute_repo_id` and `normalize_remote_url`
-   in [`synergo/daemon.py`](../synergo/daemon.py).
+   in [`hivelane/daemon.py`](../hivelane/daemon.py).
 7. **Test against a real relay.** From a checkout:
 
    ```bash
@@ -869,7 +869,7 @@ const socket = new WebSocket(`ws://localhost:8000/ws/${room}`);
 socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'join' })));
 socket.addEventListener('message', ({ data }) => {
   const message = JSON.parse(data);
-  const events = message.type === 'synergo_feed' ? message.events : [message];
+  const events = message.type === 'hivelane_feed' ? message.events : [message];
   for (const event of events) {
     if (event.type === 'edit_decision') {
       console.log(`${event.decision}: ${event.user_id} on ${event.file_path} (${event.reason})`);
@@ -882,5 +882,5 @@ socket.addEventListener('close', ({ code }) => console.log(`closed (${code})`));
 ```
 
 The daemon's connection code, `RoomConnection` in
-[`synergo/daemon.py`](../synergo/daemon.py), and the dashboard's, in
+[`hivelane/daemon.py`](../hivelane/daemon.py), and the dashboard's, in
 `frontend/src/`, are complete reference clients for a member and a spectator.

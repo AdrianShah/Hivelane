@@ -1,0 +1,137 @@
+{{- include "hivelane-relay.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hivelane-relay.fullname" . }}
+  labels:
+    {{- include "hivelane-relay.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if include "hivelane-relay.usePVC" . }}
+  # A ReadWriteOnce volume cannot be attached to the old and the new pod at
+  # once, so the old pod stops first. Daemons reconnect within seconds and
+  # pre-edit checks fail open meanwhile.
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "hivelane-relay.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "hivelane-relay.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: relay
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8000"
+            - name: HIVELANE_ENV
+              value: {{ .Values.relay.env | quote }}
+            {{- with .Values.relay.corsOrigins }}
+            - name: CORS_ORIGINS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.relay.corsOriginRegex }}
+            - name: CORS_ORIGIN_REGEX
+              value: {{ . | quote }}
+            {{- end }}
+            {{- $trustProxy := .Values.relay.trustProxyHeader }}
+            {{- if kindIs "invalid" $trustProxy }}
+            {{- $trustProxy = .Values.ingress.enabled }}
+            {{- end }}
+            - name: TRUST_PROXY_HEADER
+              value: {{ $trustProxy | toString | quote }}
+            - name: HIVELANE_STATE_PATH
+              value: /data/hivelane.db
+            {{- if not .Values.relay.serveDashboard }}
+            - name: HIVELANE_STATIC_DIR
+              value: ""
+            {{- end }}
+            {{- with .Values.relay.redisUrl }}
+            - name: HIVELANE_REDIS_URL
+              value: {{ . | quote }}
+            {{- end }}
+            # Each pod's name is its id in the room directory (Redis leases).
+            - name: HIVELANE_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.relay.existingSecret }}
+          envFrom:
+            - secretRef:
+                name: {{ . }}
+          {{- end }}
+          # Liveness: the process answers. Readiness: configuration loaded.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # readOnlyRootFilesystem: anything that wants a scratch file gets one.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if include "hivelane-relay.usePVC" . }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "hivelane-relay.fullname" .) }}
+          {{- else }}
+          # Several replicas keep room codes in Redis; this is only each pod's
+          # local copy for Redis outages.
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

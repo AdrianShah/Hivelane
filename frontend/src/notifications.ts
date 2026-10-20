@@ -29,7 +29,7 @@ export interface NotificationPrefs {
   enabled: boolean;
   /** Which edit blocks notify: everyone's, ones involving `myName`, or none. */
   blocks: BlockScope;
-  /** The display name `synergo up` uses (as the relay shows it). */
+  /** The display name `hivelane up` uses (as the relay shows it). */
   myName: string;
   /** Conflict alerts (overlapping or related edits). */
   conflicts: boolean;
@@ -42,7 +42,7 @@ export const DEFAULT_PREFS: NotificationPrefs = {
   conflicts: true,
 };
 
-const PREFS_PREFIX = 'synergo:notify:';
+const PREFS_PREFIX = 'hivelane:notify:';
 
 function prefsKey(roomId: string): string {
   return PREFS_PREFIX + normalizeRoomCode(roomId);
@@ -139,7 +139,7 @@ export function noticeFor(
       body: `${event.file_path}${holders ? ` — held by ${holders}` : ''}${
         event.reason ? `\n${event.reason}` : ''
       }`,
-      tag: `synergo:${room}:${event.decision_id || `${event.user_id}:${event.file_path}`}`,
+      tag: `hivelane:${room}:${event.decision_id || `${event.user_id}:${event.file_path}`}`,
     };
   }
   if (event.type === 'conflict_alert') {
@@ -150,7 +150,7 @@ export function noticeFor(
       body: `${event.users.join(' and ')} — ${event.verdict}${
         event.explanation ? `\n${event.explanation}` : ''
       }`,
-      tag: `synergo:${room}:conflict:${event.file_path}`,
+      tag: `hivelane:${room}:conflict:${event.file_path}`,
     };
   }
   return null;
@@ -231,7 +231,7 @@ function webhooksUrl(origin: string, roomId: string, id?: string): string {
 async function call(url: string, token: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(url, {
     ...init,
-    headers: { ...(init.headers ?? {}), 'X-Synergo-Owner-Token': token },
+    headers: { ...(init.headers ?? {}), 'X-Hivelane-Owner-Token': token },
   });
   if (!response.ok) {
     let detail = `The relay answered ${response.status}`;

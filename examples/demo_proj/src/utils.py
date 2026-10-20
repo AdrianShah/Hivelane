@@ -1,4 +1,4 @@
-"""Shared helpers for the Synergo demo tree.
+"""Shared helpers for the Hivelane demo tree.
 
 Touch this file from a second agent to trigger an overlap conflict on the board.
 """

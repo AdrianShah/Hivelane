@@ -15,7 +15,7 @@ validation and the message is dropped. Frames are capped before any of this,
 in main.receive_frame.
 
 Every cap is an environment variable read by server/config.py
-(SYNERGO_MAX_FRAME_BYTES, SYNERGO_MAX_DIFF_BYTES, ...); 0 turns one off.
+(HIVELANE_MAX_FRAME_BYTES, HIVELANE_MAX_DIFF_BYTES, ...); 0 turns one off.
 """
 
 from __future__ import annotations

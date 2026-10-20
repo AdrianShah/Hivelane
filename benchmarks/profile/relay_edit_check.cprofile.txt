@@ -4,30 +4,30 @@
    List reduced from 187 to 25 due to restriction <25>
 
    ncalls  tottime  percall  cumtime  percall filename:lineno(function)
-     3000    0.108    0.000    0.978    0.000 D:\Projects\Synergo\Synergo\server\main.py:959(handle_edit_check)
+     3000    0.108    0.000    0.978    0.000 D:\Projects\Hivelane\Hivelane\server\main.py:959(handle_edit_check)
     24005    0.089    0.000    0.089    0.000 {method 'validate_python' of 'pydantic_core._pydantic_core.SchemaValidator' objects}
      3005    0.073    0.000    0.073    0.000 C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\json\encoder.py:207(iterencode)
      6005    0.054    0.000    0.054    0.000 {method 'to_python' of 'pydantic_core._pydantic_core.SchemaSerializer' objects}
-     3000    0.030    0.000    0.045    0.000 D:\Projects\Synergo\Synergo\server\room.py:1345(_suggestion_inputs)
-     3000    0.029    0.000    0.180    0.000 D:\Projects\Synergo\Synergo\server\room.py:948(evaluate_edit)
-     3000    0.029    0.000    0.078    0.000 D:\Projects\Synergo\Synergo\server\room.py:1196(queue_edit_check)
+     3000    0.030    0.000    0.045    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:1345(_suggestion_inputs)
+     3000    0.029    0.000    0.180    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:948(evaluate_edit)
+     3000    0.029    0.000    0.078    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:1196(queue_edit_check)
     48000    0.029    0.000    0.029    0.000 {method 'format' of 'str' objects}
     30000    0.021    0.000    0.038    0.000 C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\fnmatch.py:64(fnmatchcase)
-    15000    0.019    0.000    0.019    0.000 D:\Projects\Synergo\Synergo\server\room.py:205(symbols_intersect)
-     3000    0.018    0.000    0.027    0.000 D:\Projects\Synergo\Synergo\server\room.py:774(recent_other_touches)
-     3000    0.018    0.000    0.086    0.000 D:\Projects\Synergo\Synergo\server\suggest.py:72(test_names)
-    15000    0.018    0.000    0.042    0.000 D:\Projects\Synergo\Synergo\server\room.py:911(_judge_touch)
+    15000    0.019    0.000    0.019    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:205(symbols_intersect)
+     3000    0.018    0.000    0.027    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:774(recent_other_touches)
+     3000    0.018    0.000    0.086    0.000 D:\Projects\Hivelane\Hivelane\server\suggest.py:72(test_names)
+    15000    0.018    0.000    0.042    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:911(_judge_touch)
     30000    0.017    0.000    0.017    0.000 {method 'match' of 're.Pattern' objects}
-    33000    0.016    0.000    0.054    0.000 D:\Projects\Synergo\Synergo\server\room.py:200(<genexpr>)
+    33000    0.016    0.000    0.054    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:200(<genexpr>)
      3000    0.014    0.000    0.019    0.000 C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.13_3.13.3824.0_x64__qbz5n2kfra8p0\Lib\uuid.py:142(__init__)
-    21005    0.013    0.000    0.085    0.000 C:\Users\adria\AppData\Local\Temp\claude\D--Projects-Synergo\a5e0fcdc-e782-4abc-a873-276d2c410a50\scratchpad\venv\Lib\site-packages\pydantic\main.py:270(__init__)
+    21005    0.013    0.000    0.085    0.000 C:\Users\adria\AppData\Local\Temp\claude\D--Projects-Hivelane\a5e0fcdc-e782-4abc-a873-276d2c410a50\scratchpad\venv\Lib\site-packages\pydantic\main.py:270(__init__)
     12000    0.013    0.000    0.018    0.000 <frozen genericpath>:157(_splitext)
-     3000    0.013    0.000    0.047    0.000 D:\Projects\Synergo\Synergo\server\room.py:1499(broadcast)
-     3000    0.012    0.000    0.150    0.000 D:\Projects\Synergo\Synergo\server\suggest.py:101(pick_alternative)
-        1    0.012    0.012    0.992    0.992 D:\Projects\Synergo\Synergo\scripts\loadtest\profile_relay.py:235(many)
+     3000    0.013    0.000    0.047    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:1499(broadcast)
+     3000    0.012    0.000    0.150    0.000 D:\Projects\Hivelane\Hivelane\server\suggest.py:101(pick_alternative)
+        1    0.012    0.012    0.992    0.992 D:\Projects\Hivelane\Hivelane\scripts\loadtest\profile_relay.py:235(many)
     12000    0.012    0.000    0.034    0.000 <frozen posixpath>:117(splitext)
      6000    0.011    0.000    0.067    0.000 {built-in method builtins.any}
     27000    0.011    0.000    0.014    0.000 {built-in method builtins.max}
-     3000    0.011    0.000    0.017    0.000 D:\Projects\Synergo\Synergo\server\room.py:1466(register_decision)
+     3000    0.011    0.000    0.017    0.000 D:\Projects\Hivelane\Hivelane\server\room.py:1466(register_decision)
 
 

@@ -1,5 +1,5 @@
 """The wait queue end to end: a blocked agent is told its place in line,
-`synergo wait` (the real CLI, against a real daemon and relay) returns once
+`hivelane wait` (the real CLI, against a real daemon and relay) returns once
 the teammate's edit ages out, the next edit is the waiting agent's turn, and
 the teammate's agent heard that someone was waiting."""
 
@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from synergo import cli
+from hivelane import cli
 
 if TYPE_CHECKING:
     from .conftest import Cluster
@@ -55,7 +55,7 @@ def _edit(client: Any, session: str, repo: Path, path: Path, spectator: Any) -> 
     )
 
 
-def test_synergo_wait_hands_the_file_over_in_turn(
+def test_hivelane_wait_hands_the_file_over_in_turn(
     cluster: Cluster, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = _repo(tmp_path)
@@ -109,7 +109,7 @@ def test_synergo_wait_hands_the_file_over_in_turn(
     assert "sam's agent is waiting for server/room.py" in heads_up["reason"]
 
 
-def test_synergo_wait_times_out_while_the_file_is_held(
+def test_hivelane_wait_times_out_while_the_file_is_held(
     cluster: Cluster, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = _repo(tmp_path)

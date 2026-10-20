@@ -10,7 +10,7 @@ them without importing the relay:
 
 The default scorer blends character-trigram cosine (robust to inflection and
 typos) with token Jaccard over a stemmed, stopword-free token set. If
-``SYNERGO_EMBEDDINGS=fastembed`` and the optional ``fastembed`` package is
+``HIVELANE_EMBEDDINGS=fastembed`` and the optional ``fastembed`` package is
 installed, intent similarity uses sentence embeddings instead; any failure
 falls back to the lexical scorer. fastembed is never a dependency.
 """
@@ -118,7 +118,7 @@ def lexical_similarity(a: str, b: str) -> float:
 
 @lru_cache(maxsize=1)
 def _embedding_scorer() -> Optional[Callable[[str, str], float]]:
-    if os.environ.get("SYNERGO_EMBEDDINGS", "").lower() != "fastembed":
+    if os.environ.get("HIVELANE_EMBEDDINGS", "").lower() != "fastembed":
         return None
     try:  # lazy, optional
         from fastembed import TextEmbedding  # type: ignore[import-not-found]
