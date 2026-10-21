@@ -1,6 +1,6 @@
 # Alpha testing (Adrian and Hossein)
 
-Hivelane is not on PyPI yet, so each tester installs it from the private repo.
+Hivelane is not on PyPI yet, so each tester installs it straight from GitHub.
 Everything runs against the hosted relay on Render and the dashboard on GitHub
 Pages:
 
@@ -10,17 +10,14 @@ Pages:
 
 ## 1. Install (each person, once)
 
-You need Python 3.12+, [pipx](https://pipx.pypa.io/), git, and access to
-`AdrianShah/Hivelane`.
+You need Python 3.12+ and [pipx](https://pipx.pypa.io/).
 
 ```bash
-git clone https://github.com/AdrianShah/Hivelane.git
-pipx install ./Hivelane
+pipx install git+https://github.com/AdrianShah/Hivelane
 hivelane --version
 ```
 
-To update later, run `git -C Hivelane pull` and then
-`pipx install --force ./Hivelane`.
+To update later, run `pipx install --force git+https://github.com/AdrianShah/Hivelane`.
 
 ## 2. Pick a repo to test in
 

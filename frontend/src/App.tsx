@@ -1412,7 +1412,7 @@ export default function App() {
                 </p>
                 <p className="m-0">
                   2. On each machine, install once with{' '}
-                  <code className="text-primary font-mono">pipx install hivelane</code>
+                  <code className="text-primary font-mono">pipx install git+https://github.com/AdrianShah/Hivelane</code>
                   , then run{' '}
                   <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
                   in the repo the agent works in. It sets up the agent hooks and the

@@ -45,7 +45,7 @@ WAIT_SLICE = 5.0
 DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173"
 DEFAULT_DASHBOARD = "https://adrianshah.github.io/Hivelane"
 DASHBOARD_ENV = "HIVELANE_DASHBOARD"
-INSTALL_COMMAND = "pipx install hivelane"
+INSTALL_COMMAND = "pipx install git+https://github.com/AdrianShah/Hivelane"
 
 # Mirrors server/sanitize.py, which is authoritative: a display name the relay
 # keeps is lowercase [a-z0-9_-], 1..MAX_LENGTH long, with no blocked substring.
