@@ -30,12 +30,12 @@ export default function ConflictBanner({
 
   return (
     <div
-      className="conflict-banner px-5 py-3 z-40 animate-fade-up"
+      className="conflict-banner px-3 sm:px-5 py-3 z-40 animate-fade-up"
       aria-live="assertive"
       role="alert"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
-        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+        <div className="flex items-center gap-3.5 min-w-[min(100%,18rem)] flex-1">
           <div className="w-8 h-8 rounded-lg bg-amber/15 border border-amber/30 flex items-center justify-center shrink-0">
             <span
               className="material-symbols-outlined text-amber text-[18px]"
@@ -47,9 +47,9 @@ export default function ConflictBanner({
           </div>
           <p className="text-[13px] text-on-surface/95 leading-relaxed min-w-0">
             <span className="font-semibold tracking-tight">Edit Conflict Detected:</span>{' '}
-            <span className="text-rose-100/90">{formatUsers(primary.users)}</span> are
+            <span className="conflict-banner__who font-semibold">{formatUsers(primary.users)}</span> are
             simultaneously modifying{' '}
-            <code className="font-mono text-[12px] text-primary bg-black/35 px-1.5 py-0.5 rounded-md border border-white/5">
+            <code className="font-mono text-[12px] text-primary bg-surface-deep/70 px-1.5 py-0.5 rounded-md border border-outline-soft">
               {primary.file_path}
             </code>{' '}
             <span className="text-on-muted">{windowLabel}.</span>
@@ -64,14 +64,14 @@ export default function ConflictBanner({
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
-            className="rounded-lg bg-white text-error-deep px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] hover:bg-lavender-bright transition-colors shadow-sm"
+            className="conflict-banner__primary rounded-lg px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] transition-colors shadow-sm"
             onClick={() => onResolve(primary.file_path)}
           >
             Resolve
           </button>
           <button
             type="button"
-            className="rounded-lg border border-white/30 text-white/95 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] hover:bg-white/10 hover:border-white/50 transition-colors"
+            className="conflict-banner__ghost rounded-lg px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] transition-colors"
             onClick={() => onViewOverlap(primary.file_path)}
           >
             View Overlap

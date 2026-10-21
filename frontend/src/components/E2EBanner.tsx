@@ -54,7 +54,7 @@ export default function E2EBanner({ state, hasKey, onKey, onForget }: E2EBannerP
               spellCheck={false}
               aria-label="Room key"
               placeholder="Room key"
-              className="rounded-lg px-3 py-1.5 text-[12px] font-mono bg-surface border border-white/10 text-on-surface"
+              className="rounded-lg px-3 py-1.5 text-[12px] font-mono bg-surface border border-outline-soft text-on-surface"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
             />

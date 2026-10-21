@@ -184,16 +184,20 @@ invalid regex fails the boot in every environment.
 ### What the relay stores, and for how long
 
 - **Durable** (SQLite at `SYNERGO_STATE_PATH`, or Redis): per room code, its
-  creation time, its settings (conflict windows, `e2e` flag) and its access
-  record (owner-token SHA-256, `require_approval`). Removed when the room
-  expires (7 days) or about 30 minutes after it empties.
+  creation time, its settings (conflict windows, `e2e` flag, `history_hours`),
+  its access record (owner-token SHA-256, `require_approval`) and the owner's
+  webhooks (URL, format, events; see [History and
+  webhooks](#history-and-webhooks)). Removed when the room expires (7 days) or
+  about 30 minutes after it empties.
 - **In memory only, lost on restart:** each connected member's latest activity
   (prompt and diffs, within the caps above), latest intent and current plan
   (all dropped when the member leaves; a plan also expires after its TTL, 30
   minutes by default and at most 24 hours); recent file touches (paths,
   symbols, line ranges, diffs), swept once older than the room's warn window
   (at least 60 s); the last 1,000 warn/block decision ids with their vote
-  tallies; pending join requests (at most 5 minutes).
+  tallies; pending join requests (at most 5 minutes); in a room with
+  `history_hours` set, the feed events it broadcast over that many hours
+  ([History and webhooks](#history-and-webhooks)).
 - **Logs:** never prompts, diffs, plan summaries or intent text (an intent is
   logged as its length, at DEBUG). Messages that fail validation are logged by
   field and error, without the submitted values. Logs do contain room codes,
@@ -203,7 +207,9 @@ invalid regex fails the boot in every environment.
 - **Third parties:** with `GEMINI_API_KEY` set, the relay sends prompts and
   diffs of cleartext rooms (trimmed) to Google's Gemini API for captions and
   conflict explanations. Never from an e2e room; without the key, nothing
-  leaves the relay.
+  leaves the relay. A room owner's webhooks send that room's blocks, warnings,
+  conflict alerts and join requests to the URLs the owner chose (from an e2e
+  room, only that something happened).
 
 ### What the relay can see
 
@@ -216,6 +222,96 @@ keyed hashes, empty prompts and diffs, and ciphertext it copies onto its
 broadcasts without opening; the details are in
 [End-to-end encryption](#end-to-end-encryption). Either way it sees who is
 connected, when, from which IP, and how much they send.
+
+### History and webhooks
+
+Both are off until someone turns them on: history by the team's committed
+`.synergo.toml`, webhooks by the room's owner. Setup is in
+[notifications.md](notifications.md).
+
+**Room history** (`history_hours = 4` in `.synergo.toml`, 0 by default, at
+most 24) makes the relay keep the room's feed so a dashboard can replay it.
+
+- *What:* exactly the feed events the relay broadcast to the room (activity
+  updates with prompts, diffs and captions as relayed, intents, plans,
+  warn/block decisions with their reasons, conflict alerts, joins and leaves,
+  settings changes, vote tallies), nothing else and nothing derived. In an
+  e2e room that means hashes and the members' ciphertext blobs only.
+- *Where:* the relay process's memory. Never the room store, SQLite, Redis,
+  disk or logs.
+- *How long:* at most `history_hours`, and at most 5,000 events and 8 MB per
+  room (oldest dropped first), and 128 MB across all rooms in the process (the
+  room adding events gives up its own oldest first). It is gone when the
+  relay restarts, when the room empties and is evicted (about 30 minutes after
+  the last socket leaves), and at once when `history_hours` goes back to 0.
+  A join whose settings do not mention `history_hours` (an older daemon, a
+  file without the key) leaves the room's setting alone.
+- *Who can read it:* any member or dashboard admitted to the room, with
+  `history_request`, answered to the requester only in chunks of at most 200
+  events, once per socket every 10 seconds. This changes what a newcomer
+  learns: without history they see the room's current state; with it, up to
+  `history_hours` of the past. In an approval-required room, approving someone
+  now also shows them that history. In an e2e room, anyone with the room key
+  can decrypt the replay, just as they could the live feed.
+- *Metrics:* `synergo_history_events` and `synergo_history_bytes`, process
+  totals (no per-room series, which would publish room codes).
+
+**Webhooks** are configured by the room's owner over HTTP
+(`POST`/`GET /rooms/{code}/webhooks`, `DELETE /rooms/{code}/webhooks/{id}`).
+
+- *Authentication:* the `X-Synergo-Owner-Token` header, hashed and compared in
+  constant time with the stored owner-token SHA-256 (read from the store when
+  the room has no live state, so managing webhooks does not revive a room). A
+  missing or wrong token and an unknown room code get the same `403`, and the
+  API takes 30 calls a minute per client IP, so it is no faster a room-code
+  oracle than the WebSocket endpoint. CORS lets the configured dashboard
+  origins send that header and `DELETE`.
+- *What is stored:* per webhook its URL, format (`slack`, `discord`,
+  `generic`), events and creation time, at most 3 per room, in the room store
+  next to the room's access record (the SQLite `webhooks` column, or the
+  Redis `<prefix>:webhooks` hash), in plain text: a Slack or Discord URL is
+  itself the credential, so whoever can read the store or Redis can post to
+  those channels. They are deleted with the room code. The relay never logs a
+  URL (only the webhook's id) and `GET` returns them masked (scheme, host and
+  the last four characters).
+- *SSRF protection.* The relay makes requests to URLs a room owner (that is,
+  anyone who can create a room) typed in, so:
+  - only `https://` (plus `http://localhost` and other loopback names on a
+    relay with `SYNERGO_ENV=development`), with no user name or password in
+    the URL;
+  - outside development (staging and production) the host is resolved and
+    **every** address it resolves to must be globally routable unicast: no
+    private (10/8, 172.16/12, 192.168/16, fc00::/7), loopback, link-local
+    (169.254/16, including cloud metadata at 169.254.169.254, and fe80::/10),
+    CGNAT (100.64/10), multicast, unspecified, reserved or documentation
+    ranges. IPv6 forms that embed an IPv4 address (IPv4-mapped, 6to4, Teredo,
+    NAT64 `64:ff9b::/96`) are judged by that address, and IP literals are
+    checked the same way;
+  - this is checked when the webhook is added and again before every delivery,
+    and the delivery connects only to the addresses that were just checked (in
+    resolver order, the next one when a connection is refused; with the
+    original host in `Host` and in TLS SNI, and the certificate verified
+    against it), so DNS rebinding between check and connection cannot point
+    it at an internal service;
+  - redirects are never followed, `HTTP(S)_PROXY` variables are ignored, and
+    each attempt times out after 5 s.
+- *Delivery:* off the event path (background tasks), at most 30 notifications
+  a minute per room, two retries with backoff on network errors, `429` and
+  `5xx`, and a webhook is paused for 15 minutes after 10 failed deliveries in
+  a row. Outcomes are counted in `synergo_webhook_deliveries_total{outcome}`.
+- *What a notification says:* in a cleartext room the who (display name and
+  agent kind), what (block, warning, conflict verdict, join request), file
+  path, decision scope, the people it collided with, the relay's reason or
+  conflict explanation, and the room code. **The room code is the room's
+  key**: post only to channels whose members may join the room. In an e2e room
+  the payload says only "a blocked edit in room CODE" (or "a warned edit", "a
+  conflict alert", "a join request waiting for approval"): no paths, hashes,
+  names, reasons or prompts.
+
+Browser notifications (the dashboard's **Notifications** view) are local: the
+dashboard that already receives the feed shows them, the preference sits in
+that browser's `localStorage` (`synergo:notify:<CODE>`), and nothing about
+them reaches the relay.
 
 ## Daemon and hooks
 

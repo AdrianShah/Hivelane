@@ -12,7 +12,9 @@
     "plan": "#/$defs/PlanMessage",
     "decision_feedback": "#/$defs/DecisionFeedback",
     "join_decision": "#/$defs/JoinDecision",
-    "room_policy": "#/$defs/RoomPolicy"
+    "room_policy": "#/$defs/RoomPolicy",
+    "file_request": "#/$defs/FileRequest",
+    "history_request": "#/$defs/HistoryRequest"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -34,6 +36,9 @@
     "join_request": "#/$defs/JoinRequest",
     "join_resolved": "#/$defs/JoinResolved",
     "room_policy_update": "#/$defs/RoomPolicyUpdate",
+    "file_requested": "#/$defs/FileRequested",
+    "file_released": "#/$defs/FileReleased",
+    "history_chunk": "#/$defs/HistoryChunk",
     "synergo_feed": "#/$defs/SynergoFeed"
   },
   "oneOf": [
@@ -60,6 +65,12 @@
     },
     {
       "$ref": "#/$defs/RoomPolicy"
+    },
+    {
+      "$ref": "#/$defs/FileRequest"
+    },
+    {
+      "$ref": "#/$defs/HistoryRequest"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -117,6 +128,15 @@
     },
     {
       "$ref": "#/$defs/RoomPolicyUpdate"
+    },
+    {
+      "$ref": "#/$defs/FileRequested"
+    },
+    {
+      "$ref": "#/$defs/FileReleased"
+    },
+    {
+      "$ref": "#/$defs/HistoryChunk"
     },
     {
       "$ref": "#/$defs/SynergoFeed"
@@ -528,6 +548,16 @@
           "default": "",
           "title": "Decision Id",
           "type": "string"
+        },
+        "queue_position": {
+          "default": 0,
+          "title": "Queue Position",
+          "type": "integer"
+        },
+        "suggestion": {
+          "default": "",
+          "title": "Suggestion",
+          "type": "string"
         }
       },
       "required": [
@@ -620,6 +650,16 @@
           "title": "Decision Id",
           "type": "string"
         },
+        "queue_position": {
+          "default": 0,
+          "title": "Queue Position",
+          "type": "integer"
+        },
+        "suggestion": {
+          "default": "",
+          "title": "Suggestion",
+          "type": "string"
+        },
         "e2e": {
           "default": "",
           "maxLength": 262144,
@@ -677,6 +717,174 @@
         "diff"
       ],
       "title": "FileChange",
+      "type": "object"
+    },
+    "FileReleased": {
+      "properties": {
+        "type": {
+          "const": "file_released",
+          "default": "file_released",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "title": "FileReleased",
+      "type": "object"
+    },
+    "FileRequest": {
+      "properties": {
+        "type": {
+          "const": "file_request",
+          "default": "file_request",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "title": "FileRequest",
+      "type": "object"
+    },
+    "FileRequested": {
+      "properties": {
+        "type": {
+          "const": "file_requested",
+          "default": "file_requested",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "by": {
+          "title": "By",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "by"
+      ],
+      "title": "FileRequested",
+      "type": "object"
+    },
+    "HistoryChunk": {
+      "properties": {
+        "type": {
+          "const": "history_chunk",
+          "default": "history_chunk",
+          "title": "Type",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Events",
+          "type": "array"
+        },
+        "done": {
+          "title": "Done",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "events",
+        "done"
+      ],
+      "title": "HistoryChunk",
+      "type": "object"
+    },
+    "HistoryRequest": {
+      "properties": {
+        "type": {
+          "const": "history_request",
+          "default": "history_request",
+          "title": "Type",
+          "type": "string"
+        },
+        "since": {
+          "default": 0,
+          "title": "Since",
+          "type": "number"
+        }
+      },
+      "title": "HistoryRequest",
       "type": "object"
     },
     "IntentMessage": {
@@ -1406,6 +1614,13 @@
           "default": false,
           "title": "E2E",
           "type": "boolean"
+        },
+        "history_hours": {
+          "default": 0,
+          "maximum": 24,
+          "minimum": 0,
+          "title": "History Hours",
+          "type": "number"
         }
       },
       "title": "RoomSettings",
@@ -1431,6 +1646,11 @@
           "default": false,
           "title": "E2E",
           "type": "boolean"
+        },
+        "history_hours": {
+          "default": 0,
+          "title": "History Hours",
+          "type": "number"
         },
         "set_by": {
           "anyOf": [

@@ -38,6 +38,9 @@ POLL_INTERVAL = 0.2
 # Foreground mode: how long to wait for the in-process daemon to answer.
 FOREGROUND_ATTACH_WAIT = 15.0
 MAX_CLOCK_SKEW = 5.0
+# `synergo wait`: default overall timeout, and how long one daemon call waits.
+WAIT_TIMEOUT = 90.0
+WAIT_SLICE = 5.0
 
 DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173"
 DEFAULT_DASHBOARD = "https://synergo.dev"
@@ -1814,6 +1817,55 @@ def cmd_room(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wait(args: argparse.Namespace) -> int:
+    """Block until FILE is free for this repo's room: 0 when it is (or nothing
+    coordinates it), 1 on timeout. Polls the daemon, which asks the relay for
+    the file (file_request) and waits for its file_released, or for one of our
+    own edit checks on it to pass."""
+    import time
+    import urllib.error
+
+    port = resolve_port(args.port)
+    timeout = max(0.0, float(args.timeout))
+    svc = load_service()
+    if not svc.is_running(port):
+        say(f"synergo: no daemon on port {port}, so edits are not being checked; go ahead")
+        return 0
+    cwd = os.getcwd()
+    deadline = time.monotonic() + timeout
+    announced = False
+    while True:
+        remaining = deadline - time.monotonic()
+        slice_seconds = max(0.0, min(WAIT_SLICE, remaining))
+        body = {"cwd": cwd, "file_path": args.file, "timeout": slice_seconds}
+        with service_errors(svc, "the daemon refused"):
+            try:
+                reply = svc._request(port, "POST", "/wait", body, timeout=slice_seconds + svc.REGISTER_TIMEOUT)
+            except urllib.error.HTTPError as exc:
+                raise CommandFailed(svc._error_detail(exc)) from None
+            except OSError as exc:
+                raise CommandFailed(f"could not reach the daemon on port {port} ({exc})") from None
+        reply = reply if isinstance(reply, dict) else {}
+        path = reply.get("file_path") or args.file
+        if reply.get("free"):
+            state = reply.get("state")
+            if state == "offline":
+                say(f"synergo: not connected to the room right now, so {path} is not being checked; go ahead")
+            elif state in ("uncoordinated", "ignored"):
+                say(f"synergo: {path} is not coordinated by synergo; go ahead")
+            else:
+                say(f"synergo: {path} is free — go ahead")
+            return 0
+        if not announced:
+            position = reply.get("queue_position") or 0
+            place = f" (#{position} in line)" if position else ""
+            say(f"synergo: waiting for {path}{place}…")
+            announced = True
+        if time.monotonic() >= deadline:
+            say(f"synergo: {path} is still taken after {timeout:g}s; try again, or pick another file", err=True)
+            return 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     # Deferred: both modules import pydantic, which only the hook path (routed
     # around this parser in main) has to avoid.
@@ -1869,6 +1921,19 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status", help="show the daemon and its connected repos")
     status.add_argument("--port", type=int, default=None, help=port_help)
     status.set_defaults(func=cmd_status)
+
+    wait = sub.add_parser(
+        "wait",
+        help="wait until a teammate's agent is done with a file (exit 0 when free, 1 on timeout)",
+        description="Block until FILE is free for this repo's room: the relay hands it over "
+        "when the teammate holding it stops editing, in queue order. Agents can run this "
+        "from a shell when an edit is blocked. FILE is absolute, relative to the current "
+        "directory, or relative to the repo root.",
+    )
+    wait.add_argument("file", metavar="FILE", help="the file to wait for, e.g. server/room.py")
+    wait.add_argument("--timeout", type=float, default=WAIT_TIMEOUT, metavar="S", help=f"give up after S seconds (default {WAIT_TIMEOUT:g})")
+    wait.add_argument("--port", type=int, default=None, help=port_help)
+    wait.set_defaults(func=cmd_wait)
 
     doctor = sub.add_parser("doctor", help="check the setup and say how to fix what is wrong")
     doctor.add_argument("--root", default=None, metavar="PATH", help=root_help)

@@ -16,18 +16,29 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from fastapi import WebSocket
 from pydantic import BaseModel
 
 try:
-    from . import config
+    from . import config, suggest
+    from .file_queue import (
+        MAX_QUEUED_PATH_CHARS,
+        SWEEP_INTERVAL_SECONDS as QUEUE_SWEEP_INTERVAL_SECONDS,
+        FileQueues,
+        QueueEntry,
+        QueueKey,
+        QueueNotice,
+    )
+    from .history import RoomHistory
     from .limits import TokenBucket
     from .models import (
         ActivityMessage,
         DecisionFeedbackUpdate,
         DecisionScope,
+        FileReleased,
+        FileRequested,
         JoinRequest,
         JoinResolved,
         PeerKind,
@@ -45,11 +56,23 @@ try:
     )
 except ImportError:  # Render rootDir=server
     import config  # type: ignore[no-redef]
+    import suggest  # type: ignore[no-redef]
+    from file_queue import (  # type: ignore[no-redef]
+        MAX_QUEUED_PATH_CHARS,
+        SWEEP_INTERVAL_SECONDS as QUEUE_SWEEP_INTERVAL_SECONDS,
+        FileQueues,
+        QueueEntry,
+        QueueKey,
+        QueueNotice,
+    )
+    from history import RoomHistory  # type: ignore[no-redef]
     from limits import TokenBucket  # type: ignore[no-redef]
     from models import (
         ActivityMessage,
         DecisionFeedbackUpdate,
         DecisionScope,
+        FileReleased,
+        FileRequested,
         JoinRequest,
         JoinResolved,
         PeerKind,
@@ -67,6 +90,23 @@ except ImportError:  # Render rootDir=server
     )
 
 log = logging.getLogger(__name__)
+
+# Observers of room events (server/webhooks.py registers one): called with
+# (room, payload) for every room-wide broadcast as it is queued, and for every
+# join_request sent to owners. Synchronous and expected to be cheap; one that
+# raises is logged and skipped, so a notification bug cannot stall the feed.
+EventSink = Callable[["Room", dict], None]
+_event_sinks: list[EventSink] = []
+
+
+def add_event_sink(sink: EventSink) -> None:
+    if sink not in _event_sinks:
+        _event_sinks.append(sink)
+
+
+def remove_event_sink(sink: EventSink) -> None:
+    if sink in _event_sinks:
+        _event_sinks.remove(sink)
 
 # Defaults for a room nobody has configured. A room's own RoomSettings (from
 # POST /rooms or a member's committed .synergo.toml) replace these per room.
@@ -115,6 +155,10 @@ MAX_PENDING_JOINS = 10
 
 # Bytes of randomness in an owner token (POST /rooms returns it once).
 OWNER_TOKEN_BYTES = 32
+
+# Paths this room has seen (edit checks, file requests), remembered per
+# (repo_id, path) for edit-check suggestions. Bounded LRU.
+MAX_KNOWN_PATHS = 512
 
 
 def new_owner_token() -> str:
@@ -233,6 +277,23 @@ class EditVerdict:
 
 
 @dataclass
+class QueueOutcome:
+    """Room.queue_edit_check's answer: the decision after the file's wait
+    queue had its say. reason is set only when the queue itself blocked (the
+    usual reason sentence describes touches, which then did not block)."""
+
+    decision: Decision
+    peers: list[FileTouch]
+    scope: DecisionScope = "file"
+    reason: str = ""
+    # 1-based place in the file's line; 0 = not queued.
+    queue_position: int = 0
+    wait: Optional[suggest.WaitHint] = None
+    # file_requested frames for the holders, to send after the reply.
+    notices: list[QueueNotice] = field(default_factory=list)
+
+
+@dataclass
 class _DecisionVotes:
     scope: DecisionScope
     useful: int = 0
@@ -326,6 +387,15 @@ class Room:
         self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
         # Inbound messages per minute, summed over every socket in the room.
         self.message_quota = TokenBucket(config.ROOM_MESSAGE_LIMIT)
+        # The room code, set by RoomManager ("" for a Room made elsewhere).
+        self.code = ""
+        # Opt-in replay buffer of broadcast feed events (history_hours > 0).
+        self.history = RoomHistory(self._settings.history_hours)
+        # Who waits for which file (see file_queue.py), the task sweeping
+        # them while any exist, and the paths seen here (suggestions).
+        self.file_queues = FileQueues()
+        self._queue_sweeper: Optional[asyncio.Task] = None
+        self._known_paths: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # --- membership ----------------------------------------------------------
 
@@ -378,6 +448,9 @@ class Room:
         self._plans.pop(user_id, None)
         for key in [k for k in self._last_activity_at if k[0] == user_id]:
             self._last_activity_at.pop(key, None)
+        # Its places in line and its claims; the files it held are released
+        # by the next tick_file_queues().
+        self.file_queues.remove_user(user_id)
 
     # --- settings ------------------------------------------------------------
 
@@ -398,6 +471,7 @@ class Room:
             block_window_seconds=self._settings.block_window_seconds,
             warn_window_seconds=self._settings.warn_window_seconds,
             e2e=self._settings.e2e,
+            history_hours=self._settings.history_hours,
             set_by=self._settings_set_by,
             timestamp=self._settings_updated_at,
         )
@@ -439,6 +513,7 @@ class Room:
         self._settings = settings.model_copy()
         self._settings_set_by = set_by
         self._settings_updated_at = time.time()
+        self.history.configure(self._settings.history_hours)
         return self.settings_update()
 
     def add_spectator(self, socket: WebSocket) -> None:
@@ -573,6 +648,8 @@ class Room:
         """Point-to-point to every owner socket, immediately rather than via
         the feed: someone is waiting at the door."""
         payload = message.model_dump()
+        if payload.get("type") == "join_request":
+            self._emit(payload)
         for socket in list(self._owner_sockets):
             try:
                 await socket.send_json(payload)
@@ -1033,6 +1110,351 @@ class Room:
         now = time.time() if now is None else now
         return [plan for plan in self._plans.values() if plan.expires_at > now]
 
+    # --- wait queues (file_queue.py) -----------------------------------------
+
+    def remember_path(self, repo_id: str, file_path: str) -> None:
+        """Remember a path this room has seen, for edit-check suggestions.
+        Hashed (e2e) paths are not kept: nothing can be suggested from them."""
+        if (
+            not file_path
+            or file_path.startswith(suggest.HASH_PREFIX)
+            or len(file_path) > MAX_QUEUED_PATH_CHARS
+        ):
+            return
+        key = (repo_id, file_path)
+        self._known_paths.pop(key, None)
+        self._known_paths[key] = None
+        while len(self._known_paths) > MAX_KNOWN_PATHS:
+            self._known_paths.popitem(last=False)
+
+    def _queue_blockers(self, key: QueueKey, entry: QueueEntry, now: float) -> list[str]:
+        """Who keeps entry's member out of the file right now: peers whose
+        touches block it (judged with what it last asked to edit) and anyone
+        holding a claim."""
+        repo_id, file_path = key
+        verdict = self.evaluate_edit(
+            entry.user_id,
+            file_path,
+            now,
+            repo_id,
+            symbols=entry.symbols,
+            line_ranges=entry.line_ranges,
+            branch=entry.branch,
+        )
+        holders = [touch.user_id for touch in verdict.peers] if verdict.decision == "block" else []
+        holders.extend(self.file_queues.claimers(key, exclude=entry.user_id))
+        return list(dict.fromkeys(holders))
+
+    def _claim_settled(self, key: QueueKey, user_id: str, claimed_at: float) -> bool:
+        """True once a claimer's own touch of the file has arrived (it then
+        blocks like any touch, at symbol granularity)."""
+        repo_id, file_path = key
+        touch = self._file_activity.get(file_path, {}).get((repo_id, user_id))
+        return touch is not None and touch.timestamp >= claimed_at
+
+    def sweep_file_queues(self, now: float) -> list[QueueNotice]:
+        """Expire, release and notify (the notices are returned, not sent)."""
+        if not self.file_queues:
+            return []
+        return self.file_queues.sweep(
+            now,
+            warn_window=self._settings.warn_window_seconds,
+            block_window=self._settings.block_window_seconds,
+            blockers=self._queue_blockers,
+            settled=self._claim_settled,
+            is_active=self.is_active,
+        )
+
+    async def tick_file_queues(self, now: Optional[float] = None) -> None:
+        """Sweep the wait queues and deliver what that produced. Called on
+        every member message (lazy), when a member leaves, and once a second
+        by the room's sweeper while any line or claim exists."""
+        if not self.file_queues:
+            return
+        notices = self.sweep_file_queues(time.time() if now is None else now)
+        await self.deliver_queue_notices(notices)
+        self.ensure_queue_sweeper()
+
+    def _notify_holders(
+        self, key: QueueKey, entry: QueueEntry, holders: list[str], now: float
+    ) -> list[QueueNotice]:
+        """file_requested for each holder not yet told that entry waits."""
+        notices: list[QueueNotice] = []
+        for holder in dict.fromkeys(holders):
+            if holder == entry.user_id or holder in entry.notified or not self.is_active(holder):
+                continue
+            entry.notified.add(holder)
+            notices.append(QueueNotice("requested", holder, key, entry, now))
+        return notices
+
+    def queue_edit_check(
+        self,
+        user_id: str,
+        agent: AgentKind,
+        repo_id: str,
+        file_path: str,
+        verdict: EditVerdict,
+        now: float,
+        *,
+        e2e: str = "",
+        symbols: Optional[list[str]] = None,
+        line_ranges: Optional[list[tuple[int, int]]] = None,
+        branch: str = "",
+    ) -> QueueOutcome:
+        """Put an edit check's verdict through the file's wait queue.
+
+        Call tick_file_queues() (or sweep_file_queues()) first, so lapsed
+        holders have been released. Then:
+
+        * block: the requester joins (or keeps its place in) the line, and
+          the holders are told once that it waits;
+        * not blocked by any touch, but the file was just released to the
+          member ahead, or someone else just took it from the line (a
+          claim): blocked anyway, behind them;
+        * otherwise the verdict stands, and a requester that was in line
+          (or passes while others wait) takes the file.
+        """
+        key = (repo_id, file_path)
+        self.remember_path(repo_id, file_path)
+        queues = self.file_queues
+        block_window = self._settings.block_window_seconds
+        request = {"e2e": e2e, "symbols": symbols, "line_ranges": line_ranges, "branch": branch}
+
+        if verdict.decision == "block":
+            position = queues.enqueue(key, user_id, agent, now, **request)
+            entry = queues.entry(key, user_id)
+            notices: list[QueueNotice] = []
+            if entry is not None:
+                if entry is queues.head(key):
+                    # A holder is back: any release to this member is void.
+                    entry.released_at = None
+                notices = self._notify_holders(
+                    key, entry, [touch.user_id for touch in verdict.peers], now
+                )
+            newest = max((touch.timestamp for touch in verdict.peers), default=now)
+            age = max(0.0, now - newest)
+            return QueueOutcome(
+                "block",
+                verdict.peers,
+                verdict.scope,
+                queue_position=position,
+                wait=suggest.WaitHint(block_window - age, f"they edited it {int(age)}s ago"),
+                notices=notices,
+            )
+
+        claimers = queues.claimers(key, exclude=user_id)
+        head = queues.head(key)
+        ahead: Optional[FileTouch] = None
+        reason = ""
+        wait: Optional[suggest.WaitHint] = None
+        if claimers:
+            taker, since = max(claimers.items(), key=lambda item: item[1])
+            reason = f"{taker} just took {file_path} from the wait queue ({int(now - since)}s ago)"
+            wait = suggest.WaitHint(block_window - (now - since), f"{taker} just took it")
+            ahead = FileTouch(
+                user_id=taker,
+                file_path=file_path,
+                diff="",
+                prompt=None,
+                timestamp=since,
+                agent=self.member_agent(taker),
+                repo_id=repo_id,
+                kind="planned",
+            )
+        elif head is not None and head.user_id != user_id and head.released_at is not None:
+            since = head.released_at
+            reason = (
+                f"{head.user_id} is next in line for {file_path} "
+                f"(released to them {int(now - since)}s ago)"
+            )
+            wait = suggest.WaitHint(
+                queues.grace_seconds - (now - since), f"{head.user_id} is next in line"
+            )
+            ahead = FileTouch(
+                user_id=head.user_id,
+                file_path=file_path,
+                diff="",
+                prompt=None,
+                timestamp=since,
+                agent=head.agent,  # type: ignore[arg-type]
+                repo_id=repo_id,
+                kind="planned",
+                e2e=head.e2e,
+            )
+        if ahead is not None:
+            position = queues.enqueue(key, user_id, agent, now, **request)
+            entry = queues.entry(key, user_id)
+            notices = (
+                self._notify_holders(key, entry, list(claimers), now) if entry is not None else []
+            )
+            return QueueOutcome(
+                "block",
+                [ahead],
+                "file",
+                reason=reason,
+                queue_position=position,
+                wait=wait,
+                notices=notices,
+            )
+
+        if head is not None:
+            queues.take(key, user_id, now)
+        return QueueOutcome(verdict.decision, verdict.peers, verdict.scope)
+
+    def queue_file_request(
+        self,
+        user_id: str,
+        agent: AgentKind,
+        repo_id: str,
+        file_path: str,
+        now: float,
+        *,
+        e2e: str = "",
+    ) -> list[QueueNotice]:
+        """An explicit ask for a file: join its line and tell the holders, or,
+        when nothing keeps the requester out and nobody is ahead of it,
+        release the file to it at once (it then has the grace to take it).
+        Re-asking keeps the requester's place; a released requester is sent
+        file_released again."""
+        key = (repo_id, file_path)
+        self.remember_path(repo_id, file_path)
+        queues = self.file_queues
+        probe = queues.entry(key, user_id) or QueueEntry(
+            user_id=user_id, agent=agent, enqueued_at=now, refreshed_at=now
+        )
+        holders = self._queue_blockers(key, probe, now)
+        head = queues.head(key)
+        if queues.enqueue(key, user_id, agent, now, e2e=e2e) == 0:
+            return []
+        entry = queues.entry(key, user_id)
+        assert entry is not None
+        if not holders and (head is None or head.user_id == user_id):
+            if entry.released_at is None:
+                entry.released_at = now
+            return [QueueNotice("released", user_id, key, entry, now)]
+        if holders and entry is queues.head(key):
+            entry.released_at = None
+        return self._notify_holders(key, entry, holders, now)
+
+    def _suggestion_inputs(
+        self, user_id: str, repo_id: str, now: float
+    ) -> tuple[set[str], set[str], list[str]]:
+        """(known paths, paths an active teammate is touching, planning or
+        queued for, the requester's own plan files), all in repo_id."""
+        known = {path for rid, path in self._known_paths if rid == repo_id}
+        busy: set[str] = set()
+        window = self._settings.warn_window_seconds
+        for path, touches in self._file_activity.items():
+            for (rid, other_id), touch in touches.items():
+                if rid != repo_id:
+                    continue
+                known.add(path)
+                if (
+                    other_id != user_id
+                    and self.is_active(other_id)
+                    and now - touch.timestamp <= window
+                ):
+                    busy.add(path)
+        own_plan: list[str] = []
+        for other_id, plan in self._plans.items():
+            if plan.repo_id != repo_id or plan.expires_at <= now or not self.is_active(other_id):
+                continue
+            known.update(plan.files)
+            if other_id == user_id:
+                own_plan = list(plan.files)
+            else:
+                busy.update(plan.files)
+        for rid, path in [*self.file_queues.keys(), *self.file_queues.claim_keys()]:
+            if rid == repo_id:
+                busy.add(path)
+        return known, busy, own_plan
+
+    def edit_suggestion(
+        self,
+        decision: Decision,
+        user_id: str,
+        repo_id: str,
+        file_path: str,
+        now: float,
+        wait: Optional[suggest.WaitHint] = None,
+    ) -> str:
+        """The edit_check_response.suggestion for a block or warn."""
+        if decision == "allow":
+            return ""
+        known, busy, own_plan = self._suggestion_inputs(user_id, repo_id, now)
+        return suggest.build_suggestion(
+            decision,
+            file_path,
+            known=known,
+            busy=busy,
+            own_plan=own_plan,
+            wait=wait,
+            always_warn=is_always_warn_file,
+        )
+
+    def _queue_frame(self, notice: QueueNotice) -> BaseModel:
+        repo_id, file_path = notice.key
+        if notice.kind == "released":
+            return FileReleased(
+                file_path=file_path,
+                repo_id=repo_id,
+                timestamp=notice.entry.released_at or notice.at,
+                e2e=notice.entry.e2e,
+            )
+        return FileRequested(
+            file_path=file_path,
+            repo_id=repo_id,
+            by=notice.entry.user_id,
+            agent=notice.entry.agent,  # type: ignore[arg-type]
+            timestamp=notice.at,
+            e2e=notice.entry.e2e,
+        )
+
+    async def deliver_queue_notices(self, notices: list[QueueNotice]) -> None:
+        """Point-to-point, immediately: someone is waiting, or it is their turn."""
+        for notice in notices:
+            frame = self._queue_frame(notice)
+            if await self.send_to_member(notice.to_user, frame):
+                log.info(
+                    "%s for %s to %s",
+                    frame.type,  # type: ignore[attr-defined]
+                    notice.entry.user_id if notice.kind == "requested" else "the next in line",
+                    notice.to_user,
+                )
+
+    async def send_to_member(self, user_id: str, message: BaseModel) -> bool:
+        socket = self._members.get(user_id)
+        if socket is None:
+            return False
+        try:
+            await socket.send_json(message.model_dump())
+        except Exception:
+            log.warning("Could not reach %s for a point-to-point frame", user_id)
+            return False
+        return True
+
+    def ensure_queue_sweeper(self) -> None:
+        """Run the once-a-second sweep while any line or claim exists. The
+        task ends by itself when the last one goes."""
+        if not self.file_queues:
+            return
+        task = self._queue_sweeper
+        if task is not None and not task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # no loop: a synchronous unit test drives sweeps itself
+            return
+        self._queue_sweeper = loop.create_task(self._sweep_queues_periodically())
+
+    async def _sweep_queues_periodically(self) -> None:
+        while self.file_queues:
+            await asyncio.sleep(QUEUE_SWEEP_INTERVAL_SECONDS)
+            try:
+                await self.tick_file_queues()
+            except Exception:
+                log.exception("File queue sweep failed")
+
     # --- decision feedback ---------------------------------------------------
 
     def register_decision(self, decision_id: str, scope: DecisionScope) -> None:
@@ -1074,6 +1496,7 @@ class Room:
         Point-to-point replies still use send() and go out immediately.
         """
         payload = message.model_dump()
+        self._emit(payload)
         async with self._lock:
             self._broadcast_queue.append(payload)
             if self._flush_task is None or self._flush_task.done():
@@ -1089,7 +1512,16 @@ class Room:
             return
         feed = SynergoFeed(events=events)
         log.debug("Flushing Synergo feed (%d event(s))", len(events))
+        # Kept exactly as spectators get them (a no-op while history is off).
+        self.history.record(events)
         await self._deliver(feed.model_dump())
+
+    def _emit(self, payload: dict) -> None:
+        for sink in list(_event_sinks):
+            try:
+                sink(self, payload)
+            except Exception:
+                log.exception("Room event sink failed")
 
     async def _deliver(self, payload: dict) -> None:
         targets = list(self._members.items()) + [(None, s) for s in self._spectators]
