@@ -186,6 +186,14 @@ class McpServer:
         if files:
             text = f"{text}\nFiles: {', '.join(files)}"
         ack = self.client.post_event(self._event("intent", prompt=text))
+        if files:
+            # Also a plan: the relay checks the listed files against teammates'
+            # edits and plans, and the overlaps come back on this ack.
+            plan_ack = self.client.post_event(
+                self._event("plan", summary=str(args["text"]), files=files, symbols=[])
+            )
+            if isinstance(plan_ack, dict) and plan_ack.get("decision", "allow") != "allow":
+                ack = plan_ack
         if ack.get("decision", "allow") == "allow" and not ack.get("others"):
             return "Intent shared with the room. No overlapping work reported."
         return format_ack(ack, ", ".join(files) or "this task")

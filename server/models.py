@@ -53,9 +53,21 @@ AgentKind = Literal[
 RepoId = Annotated[str, Field(max_length=64)]
 
 
+# Granularity at which an edit check (or its broadcast) found the conflict.
+DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch"]
+
+# How a peer is involved: edited the file, plans to, or only mentioned it.
+PeerKind = Literal["edited", "planned", "intent"]
+
+
 class FileChange(BaseModel):
     file_path: str
     diff: str
+    # Names of functions/classes the change touches ("<imports>" for an
+    # import-block edit) and 1-based inclusive line ranges in the new file.
+    # Empty when the client could not extract them (or predates them).
+    symbols: list[str] = []
+    line_ranges: list[tuple[int, int]] = []
 
 
 # --- Client -> Server ---------------------------------------------------------
@@ -100,6 +112,8 @@ class ActivityMessage(BaseModel):
     changes: list[FileChange]
     agent: AgentKind = "unknown"
     repo_id: RepoId = ""
+    branch: str = ""
+    base_commit: str = ""
 
 
 class IntentMessage(BaseModel):
@@ -122,6 +136,9 @@ class EditCheckRequest(BaseModel):
     file_path: str
     symbol: Optional[str] = None
     repo_id: RepoId = ""
+    symbols: list[str] = []
+    line_ranges: list[tuple[int, int]] = []
+    branch: str = ""
 
 
 # --- Server -> Client --------------------------------------------------------
@@ -132,6 +149,9 @@ class PeerTouch(BaseModel):
     agent: AgentKind = "unknown"
     seconds_ago: float
     prompt: Optional[str] = None
+    symbols: list[str] = []
+    branch: str = ""
+    kind: PeerKind = "edited"
 
 
 class ActivityUpdate(BaseModel):
@@ -143,6 +163,7 @@ class ActivityUpdate(BaseModel):
     caption: Optional[str] = None
     agent: AgentKind = "unknown"
     repo_id: RepoId = ""
+    branch: str = ""
 
 
 class EditCheckResponse(BaseModel):
@@ -155,6 +176,8 @@ class EditCheckResponse(BaseModel):
     file_path: str
     others: list[PeerTouch] = []
     reason: str = ""
+    scope: DecisionScope = "file"
+    decision_id: str = ""
 
 
 class IntentUpdate(BaseModel):
@@ -180,6 +203,59 @@ class EditDecision(BaseModel):
     reason: str = ""
     timestamp: float = Field(default_factory=time.time)
     repo_id: RepoId = ""
+    scope: DecisionScope = "file"
+    decision_id: str = ""
+
+
+class PlanMessage(BaseModel):
+    type: Literal["plan"] = "plan"
+    user_id: str
+    summary: str = ""
+    files: list[str] = []
+    symbols: list[str] = []
+    repo_id: RepoId = ""
+    branch: str = ""
+    ttl_seconds: float = Field(1800, ge=60, le=86400)
+
+
+class DecisionFeedback(BaseModel):
+    type: Literal["decision_feedback"] = "decision_feedback"
+    decision_id: str
+    useful: bool
+
+
+class PlanConflict(BaseModel):
+    file_path: str
+    user_id: str
+    agent: AgentKind = "unknown"
+    kind: Literal["edited", "planned"]
+    summary: str = ""
+    seconds_ago: float
+
+
+class PlanConflicts(BaseModel):
+    type: Literal["plan_conflicts"] = "plan_conflicts"
+    conflicts: list[PlanConflict] = []
+
+
+class PlanUpdate(BaseModel):
+    type: Literal["plan_update"] = "plan_update"
+    user_id: str
+    agent: AgentKind = "unknown"
+    summary: str = ""
+    files: list[str] = []
+    symbols: list[str] = []
+    repo_id: RepoId = ""
+    branch: str = ""
+    timestamp: float
+    expires_at: float
+
+
+class DecisionFeedbackUpdate(BaseModel):
+    type: Literal["decision_feedback_update"] = "decision_feedback_update"
+    decision_id: str
+    useful_count: int = 0
+    noise_count: int = 0
 
 
 class ConflictAlert(BaseModel):

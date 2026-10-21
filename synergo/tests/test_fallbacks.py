@@ -115,8 +115,12 @@ def test_mcp_tools(stub: StubDaemon, tmp_path: Path) -> None:
     stub.ack = {"decision": "allow", "others": []}
 
     call(server, "declare_intent", {"text": "refactor auth", "files": ["a.py", "b.py"]})
-    assert stub.events[-1]["kind"] == "intent"
-    assert stub.events[-1]["prompt"] == "refactor auth\nFiles: a.py, b.py"
+    assert stub.events[-2]["kind"] == "intent"
+    assert stub.events[-2]["prompt"] == "refactor auth\nFiles: a.py, b.py"
+    # With files, the intent is also sent as a plan.
+    assert stub.events[-1]["kind"] == "plan"
+    assert stub.events[-1]["summary"] == "refactor auth"
+    assert stub.events[-1]["files"] == ["a.py", "b.py"]
 
     (tmp_path / "a.py").write_text("x = 1\n", newline="")
     call(server, "report_edit", {"path": "a.py"})

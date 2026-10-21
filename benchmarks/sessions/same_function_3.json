@@ -1,0 +1,56 @@
+{
+ "name": "same_function_3",
+ "description": "both agents edit the same function",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     40,
+     200
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 6,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     45,
+     55
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  },
+  {
+   "t": 40,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     40,
+     200
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

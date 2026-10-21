@@ -7,9 +7,11 @@ touch older than the conflict window would be ignored anyway."""
 from __future__ import annotations
 
 import asyncio
+import fnmatch
 import logging
 import time
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, field
 from typing import Optional
 
 from fastapi import WebSocket
@@ -18,6 +20,12 @@ from pydantic import BaseModel
 try:
     from .models import (
         ActivityMessage,
+        DecisionFeedbackUpdate,
+        DecisionScope,
+        PeerKind,
+        PlanConflict,
+        PlanMessage,
+        PlanUpdate,
         ActivityUpdate,
         AgentKind,
         Decision,
@@ -29,6 +37,12 @@ try:
 except ImportError:  # Render rootDir=server
     from models import (
         ActivityMessage,
+        DecisionFeedbackUpdate,
+        DecisionScope,
+        PeerKind,
+        PlanConflict,
+        PlanMessage,
+        PlanUpdate,
         ActivityUpdate,
         AgentKind,
         Decision,
@@ -70,6 +84,67 @@ INTENT_WINDOW_SECONDS = 300.0
 # Debounce room-wide broadcasts into a single Synergo feed frame.
 BROADCAST_FLUSH_SECONDS = 0.5
 
+# Two line-range edits closer than this are treated as the same hunk: git's
+# merge context makes near-adjacent edits conflict too.
+LINE_PROXIMITY = 10
+
+# The symbol a client sends for an import-block edit. It intersects with
+# every symbol: two agents adding imports collide whatever else they touch.
+IMPORTS_SYMBOL = "<imports>"
+
+# Feedback is kept for this many recent decisions per room (LRU).
+MAX_TRACKED_DECISIONS = 1000
+
+# Files where "different function" is no comfort: manifests, lockfiles and
+# config are edited as a whole, so they are always judged at file level.
+_ALWAYS_WARN_BASENAMES = (
+    "package.json",
+    "pyproject.toml",
+    "requirements*.txt",
+    "*.lock",
+    "go.mod",
+    "Cargo.toml",
+    "tsconfig*.json",
+    ".env*",
+    "Dockerfile",
+    ".synergo.toml",
+)
+
+
+def is_always_warn_file(file_path: str) -> bool:
+    """True for imports/config files that are never judged by symbol."""
+    parts = file_path.replace("\\", "/").split("/")
+    basename = parts[-1]
+    if any(fnmatch.fnmatchcase(basename, pattern) for pattern in _ALWAYS_WARN_BASENAMES):
+        return True
+    return ".github" in parts[:-1] and basename.endswith((".yml", ".yaml"))
+
+
+def symbols_intersect(a: list[str], b: list[str]) -> bool:
+    """True when two symbol lists share a name; "<imports>" matches anything."""
+    if not a or not b:
+        return False
+    if IMPORTS_SYMBOL in a or IMPORTS_SYMBOL in b:
+        return True
+    return bool(set(a) & set(b))
+
+
+def ranges_near(
+    a: list[tuple[int, int]], b: list[tuple[int, int]], proximity: int = LINE_PROXIMITY
+) -> bool:
+    """True when any range of a overlaps or lies within proximity lines of b."""
+    for a_start, a_end in a:
+        for b_start, b_end in b:
+            if a_start <= b_end + proximity and b_start <= a_end + proximity:
+                return True
+    return False
+
+
+def _branches_differ(a: str, b: str) -> bool:
+    # Empty on either side means "unknown": treated as the same branch.
+    return bool(a) and bool(b) and a != b
+
+
 DEFAULT_SETTINGS = RoomSettings(
     block_window_seconds=EDIT_BLOCK_WINDOW_SECONDS,
     warn_window_seconds=CONFLICT_WINDOW_SECONDS,
@@ -102,6 +177,29 @@ class FileTouch:
     # Which repository the path is relative to (see models.RepoId). Two touches
     # conflict only when both the path and the repo_id match.
     repo_id: str = ""
+    symbols: list[str] = field(default_factory=list)
+    line_ranges: list[tuple[int, int]] = field(default_factory=list)
+    branch: str = ""
+    # How the peer is involved: an edit, a declared plan, or an intent mention.
+    kind: PeerKind = "edited"
+
+
+@dataclass
+class EditVerdict:
+    """Room.evaluate_edit's answer: the decision, the peers that justified it
+    (most relevant first) and the granularity at which it was decided."""
+
+    decision: Decision
+    peers: list[FileTouch]
+    scope: DecisionScope = "file"
+
+
+@dataclass
+class _DecisionVotes:
+    scope: DecisionScope
+    useful: int = 0
+    noise: int = 0
+    voters: set[str] = field(default_factory=set)
 
 
 @dataclass
@@ -139,6 +237,10 @@ class Room:
         # Last declared intent per connected user (for spectator catch-up and
         # the edit-check escalation heuristic).
         self._latest_intents: dict[str, IntentUpdate] = {}
+        # Latest declared plan per connected member (replaced on each plan).
+        self._plans: dict[str, PlanUpdate] = {}
+        # decision_id -> votes, least recently used first; bounded.
+        self._decisions: OrderedDict[str, _DecisionVotes] = OrderedDict()
         # Last accepted activity timestamp per member (server rate limiting).
         # (user_id, channel) -> last accepted timestamp; channels are
         # rate-limited independently (see is_activity_rate_limited).
@@ -194,6 +296,7 @@ class Room:
         self._member_agents.pop(user_id, None)
         self._latest_updates.pop(user_id, None)
         self._latest_intents.pop(user_id, None)
+        self._plans.pop(user_id, None)
         for key in [k for k in self._last_activity_at if k[0] == user_id]:
             self._last_activity_at.pop(key, None)
 
@@ -318,6 +421,9 @@ class Room:
                 timestamp=message.timestamp,
                 agent=message.agent,
                 repo_id=message.repo_id,
+                symbols=list(change.symbols),
+                line_ranges=[tuple(r) for r in change.line_ranges],
+                branch=message.branch,
             )
 
     def remember_update(self, update: ActivityUpdate) -> None:
@@ -398,6 +504,15 @@ class Room:
                 message.timestamp,
                 repo_id=message.repo_id,
             )
+            # Same file but provably different functions: not worth a Gemini
+            # call or an alert. Config files are always judged whole.
+            if change.symbols and not is_always_warn_file(change.file_path):
+                others = [
+                    touch
+                    for touch in others
+                    if not touch.symbols
+                    or symbols_intersect(change.symbols, touch.symbols)
+                ]
             if not others:
                 continue
             other = max(others, key=lambda touch: touch.timestamp)
@@ -448,21 +563,99 @@ class Room:
                     timestamp=intent.timestamp,
                     agent=intent.agent,
                     repo_id=intent.repo_id,
+                    kind="intent",
                 )
             )
         matches.sort(key=lambda touch: touch.timestamp, reverse=True)
         return matches
 
     def check_edit(
-        self, user_id: str, file_path: str, now: float, repo_id: str = ""
+        self,
+        user_id: str,
+        file_path: str,
+        now: float,
+        repo_id: str = "",
+        *,
+        symbols: Optional[list[str]] = None,
+        line_ranges: Optional[list[tuple[int, int]]] = None,
+        branch: str = "",
     ) -> tuple[Decision, list[FileTouch]]:
         """Decide whether user_id may edit file_path (in repo_id) right now.
 
-        Returns the decision plus the peers that justified it, newest first.
-        Both windows are this room's settings; a block window of zero never
-        blocks, so the room still warns.
+        Returns the decision plus the peers that justified it, most relevant
+        first. evaluate_edit also returns the scope.
         """
+        verdict = self.evaluate_edit(
+            user_id,
+            file_path,
+            now,
+            repo_id,
+            symbols=symbols,
+            line_ranges=line_ranges,
+            branch=branch,
+        )
+        return verdict.decision, verdict.peers
+
+    def _judge_touch(
+        self,
+        touch: FileTouch,
+        now: float,
+        symbols: list[str],
+        line_ranges: list[tuple[int, int]],
+        branch: str,
+        always_warn: bool,
+    ) -> tuple[Decision, DecisionScope]:
+        """Decision table for one peer touch already inside the warn window."""
+        if _branches_differ(branch, touch.branch):
+            # Not a live collision, but a merge conflict waiting to happen.
+            return "warn", "branch"
         block_window = self._settings.block_window_seconds
+        hard: Decision = (
+            "block" if block_window > 0 and now - touch.timestamp <= block_window else "warn"
+        )
+        if symbols and touch.symbols:
+            if symbols_intersect(symbols, touch.symbols):
+                return hard, "symbol"
+            if always_warn:
+                return hard, "file"
+            # Symbol extraction can mislabel a hunk on a definition boundary;
+            # literally overlapping lines are a collision whatever the names say.
+            if line_ranges and touch.line_ranges and ranges_near(
+                line_ranges, touch.line_ranges, proximity=0
+            ):
+                return hard, "lines"
+            return "warn", "symbol"
+        if line_ranges and touch.line_ranges:
+            if ranges_near(line_ranges, touch.line_ranges):
+                return hard, "lines"
+            if always_warn:
+                return hard, "file"
+            return "warn", "lines"
+        return hard, "file"
+
+    def evaluate_edit(
+        self,
+        user_id: str,
+        file_path: str,
+        now: float,
+        repo_id: str = "",
+        *,
+        symbols: Optional[list[str]] = None,
+        line_ranges: Optional[list[tuple[int, int]]] = None,
+        branch: str = "",
+    ) -> EditVerdict:
+        """The full decision table: block/warn/allow plus the deciding scope.
+
+        Order: peer touches (judged by branch, then symbol, line or file
+        granularity), then active plans naming the file or a requested
+        symbol, then the intent-mention fallback. Both windows are this room's
+        settings; a block window of zero never blocks, so the room still warns.
+        A request without symbols or line ranges gets the legacy file-level
+        answer.
+        """
+        wanted_symbols = list(symbols or [])
+        wanted_ranges = [(int(a), int(b)) for a, b in (line_ranges or [])]
+        always_warn = is_always_warn_file(file_path)
         others = self.recent_other_touches(
             file_path,
             user_id,
@@ -473,20 +666,172 @@ class Room:
         )
         others.sort(key=lambda touch: touch.timestamp, reverse=True)
 
-        blocking = [
-            touch
+        judged = [
+            (touch, *self._judge_touch(
+                touch, now, wanted_symbols, wanted_ranges, branch, always_warn
+            ))
             for touch in others
-            if block_window > 0 and now - touch.timestamp <= block_window
         ]
+        blocking = [(touch, scope) for touch, decision, scope in judged if decision == "block"]
         if blocking:
-            return "block", blocking
-        if others:
-            return "warn", others
+            return EditVerdict("block", [touch for touch, _ in blocking], blocking[0][1])
+        if judged:
+            # Same-branch peers first (stable sort keeps newest-first within):
+            # a live edit matters more than a future merge conflict.
+            judged.sort(key=lambda item: item[2] == "branch")
+            return EditVerdict("warn", [touch for touch, _, _ in judged], judged[0][2])
+
+        planned = self._plan_mentions(file_path, user_id, now, repo_id, wanted_symbols)
+        if planned:
+            return EditVerdict("warn", planned, "plan")
 
         mentions = self._intent_mentions(file_path, user_id, now, repo_id)
         if mentions:
-            return "warn", mentions
-        return "allow", []
+            return EditVerdict("warn", mentions, "intent")
+        return EditVerdict("allow", [], "file")
+
+    # --- plans ---------------------------------------------------------------
+
+    def _active_plans(self, now: float, exclude: str, repo_id: str) -> list[PlanUpdate]:
+        return [
+            plan
+            for other_id, plan in self._plans.items()
+            if other_id != exclude
+            and self.is_active(other_id)
+            and plan.repo_id == repo_id
+            and plan.expires_at > now
+        ]
+
+    def _plan_mentions(
+        self,
+        file_path: str,
+        user_id: str,
+        now: float,
+        repo_id: str,
+        symbols: list[str],
+    ) -> list[FileTouch]:
+        """Active peers whose plan names this file or a requested symbol."""
+        matches: list[FileTouch] = []
+        for plan in self._active_plans(now, user_id, repo_id):
+            if file_path not in plan.files and not symbols_intersect(symbols, plan.symbols):
+                continue
+            matches.append(
+                FileTouch(
+                    user_id=plan.user_id,
+                    file_path=file_path,
+                    diff="",
+                    prompt=plan.summary or None,
+                    timestamp=plan.timestamp,
+                    agent=plan.agent,
+                    repo_id=plan.repo_id,
+                    symbols=list(plan.symbols),
+                    branch=plan.branch,
+                    kind="planned",
+                )
+            )
+        matches.sort(key=lambda touch: touch.timestamp, reverse=True)
+        return matches
+
+    def record_plan(
+        self, message: PlanMessage, now: float, agent: AgentKind = "unknown"
+    ) -> PlanUpdate:
+        """Store message as its sender's current plan, replacing any earlier one."""
+        update = PlanUpdate(
+            user_id=message.user_id,
+            agent=agent,
+            summary=message.summary,
+            files=list(message.files),
+            symbols=list(message.symbols),
+            repo_id=message.repo_id,
+            branch=message.branch,
+            timestamp=now,
+            expires_at=now + message.ttl_seconds,
+        )
+        self._plans[message.user_id] = update
+        return update
+
+    def plan_conflicts(self, plan: PlanUpdate, now: float) -> list[PlanConflict]:
+        """Other members' active plans and recent edits this plan collides with,
+        by file or by symbol. One entry per (file, user, kind), newest first."""
+        conflicts: dict[tuple[str, str, str], PlanConflict] = {}
+        planned_files = set(plan.files)
+        for other in self._active_plans(now, plan.user_id, plan.repo_id):
+            shared = [f for f in other.files if f in planned_files]
+            if not shared and symbols_intersect(plan.symbols, other.symbols):
+                shared = list(other.files[:1]) or [""]
+            for file_path in shared:
+                conflicts.setdefault(
+                    (file_path, other.user_id, "planned"),
+                    PlanConflict(
+                        file_path=file_path,
+                        user_id=other.user_id,
+                        agent=other.agent,
+                        kind="planned",
+                        summary=other.summary,
+                        seconds_ago=max(0.0, now - other.timestamp),
+                    ),
+                )
+        window = self._settings.warn_window_seconds
+        for file_path, touches in self._file_activity.items():
+            for (touch_repo, other_id), touch in touches.items():
+                if other_id == plan.user_id or touch_repo != plan.repo_id:
+                    continue
+                if not self.is_active(other_id) or now - touch.timestamp > window:
+                    continue
+                if file_path not in planned_files and not symbols_intersect(
+                    plan.symbols, touch.symbols
+                ):
+                    continue
+                conflicts.setdefault(
+                    (file_path, other_id, "edited"),
+                    PlanConflict(
+                        file_path=file_path,
+                        user_id=other_id,
+                        agent=touch.agent,
+                        kind="edited",
+                        summary=touch.prompt or "",
+                        seconds_ago=max(0.0, now - touch.timestamp),
+                    ),
+                )
+        return sorted(conflicts.values(), key=lambda conflict: conflict.seconds_ago)
+
+    def active_plans(self, now: Optional[float] = None) -> list[PlanUpdate]:
+        """Unexpired plans of connected members (spectator catch-up)."""
+        now = time.time() if now is None else now
+        return [plan for plan in self._plans.values() if plan.expires_at > now]
+
+    # --- decision feedback ---------------------------------------------------
+
+    def register_decision(self, decision_id: str, scope: DecisionScope) -> None:
+        """Track a broadcast warn/block so dashboards can vote on it."""
+        self._decisions[decision_id] = _DecisionVotes(scope=scope)
+        self._decisions.move_to_end(decision_id)
+        while len(self._decisions) > MAX_TRACKED_DECISIONS:
+            self._decisions.popitem(last=False)
+
+    def decision_scope(self, decision_id: str) -> Optional[DecisionScope]:
+        votes = self._decisions.get(decision_id)
+        return None if votes is None else votes.scope
+
+    def record_feedback(
+        self, decision_id: str, useful: bool, voter: str
+    ) -> Optional[DecisionFeedbackUpdate]:
+        """Count one vote. None for an unknown (or evicted) decision, or for a
+        voter who already voted on it."""
+        votes = self._decisions.get(decision_id)
+        if votes is None or voter in votes.voters:
+            return None
+        votes.voters.add(voter)
+        if useful:
+            votes.useful += 1
+        else:
+            votes.noise += 1
+        self._decisions.move_to_end(decision_id)
+        return DecisionFeedbackUpdate(
+            decision_id=decision_id,
+            useful_count=votes.useful,
+            noise_count=votes.noise,
+        )
 
     # --- broadcast -----------------------------------------------------------
 

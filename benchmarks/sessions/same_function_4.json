@@ -1,0 +1,56 @@
+{
+ "name": "same_function_4",
+ "description": "both agents edit the same function",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.load"
+   ],
+   "line_ranges": [
+    [
+     20,
+     60
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 6,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.load"
+   ],
+   "line_ranges": [
+    [
+     25,
+     35
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  },
+  {
+   "t": 40,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.load"
+   ],
+   "line_ranges": [
+    [
+     20,
+     60
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

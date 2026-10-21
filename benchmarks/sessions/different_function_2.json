@@ -1,0 +1,56 @@
+{
+ "name": "different_function_2",
+ "description": "same file, disjoint functions far apart",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     170
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.send_activity"
+   ],
+   "line_ranges": [
+    [
+     400,
+     450
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  },
+  {
+   "t": 30,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.send_activity"
+   ],
+   "line_ranges": [
+    [
+     400,
+     450
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

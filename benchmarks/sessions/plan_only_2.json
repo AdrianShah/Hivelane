@@ -1,0 +1,36 @@
+{
+ "name": "plan_only_2",
+ "description": "alice planned the file but has not edited it yet",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "plan",
+   "prompt": "Rework Lane",
+   "files": [
+    "frontend/src/components/Lane.tsx"
+   ],
+   "symbols": [
+    "Lane"
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 10,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "frontend/src/components/Lane.tsx",
+   "symbols": [
+    "Lane"
+   ],
+   "line_ranges": [
+    [
+     1,
+     30
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}
