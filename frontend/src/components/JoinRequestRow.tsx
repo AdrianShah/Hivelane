@@ -1,3 +1,4 @@
+import { serverNowSeconds } from '../serverClock';
 import type { JoinRequest } from '../types';
 
 /**
@@ -11,7 +12,7 @@ interface JoinRequestRowProps {
 }
 
 function waitedFor(timestamp: number): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
+  const seconds = Math.max(0, Math.floor(serverNowSeconds() - timestamp));
   if (seconds < 60) return 'just now';
   return `${Math.floor(seconds / 60)} min ago`;
 }
@@ -34,14 +35,14 @@ export default function JoinRequestRow({ request, onDecide }: JoinRequestRowProp
       <div className="flex items-center gap-2 shrink-0">
         <button
           type="button"
-          className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold"
+          className="deploy-btn px-3.5 py-1.5 text-[13px] font-medium"
           onClick={() => onDecide(request.request_id, true)}
         >
           Approve
         </button>
         <button
           type="button"
-          className="rounded-xl border border-outline-soft px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-error hover:border-error/40 transition-colors"
+          className="rounded-md border border-outline-soft px-3.5 py-1.5 text-[13px] font-medium text-on-muted hover:text-error hover:border-error/40 transition-colors"
           onClick={() => onDecide(request.request_id, false)}
         >
           Deny

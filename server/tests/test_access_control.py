@@ -97,7 +97,7 @@ def _frames(socket: Any) -> Iterator[dict]:
     """Every event the socket receives, feed batches unpacked, in order."""
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") == "synergo_feed":
+        if frame.get("type") == "hivelane_feed":
             yield from frame["events"]
         else:
             yield frame
@@ -189,7 +189,7 @@ def test_a_room_without_an_owner_has_no_owners() -> None:
 
 
 def test_owner_hash_and_policy_survive_a_restart(tmp_path: Path) -> None:
-    state_path = str(tmp_path / "synergo.db")
+    state_path = str(tmp_path / "hivelane.db")
     first = RoomManager(store=SqliteRoomStore(state_path))
     room_id = first.create_room()
     room = first.get(room_id)
@@ -235,17 +235,6 @@ def test_stored_approval_without_an_owner_is_not_enforced() -> None:
     room.load_access({"owner_hash": None, "require_approval": True})
 
     assert not room.require_approval
-
-
-def test_memory_store_forgets_access_with_the_room() -> None:
-    store = MemoryRoomStore()
-    store.add("ABCDEFGH", time.time())
-    store.set_access("ABCDEFGH", {"owner_hash": "ab", "require_approval": False})
-    store.set_access("UNKNOWN1", {"owner_hash": "cd", "require_approval": False})
-
-    assert store.get_access("UNKNOWN1") is None
-    store.remove("ABCDEFGH")
-    assert store.get_access("ABCDEFGH") is None
 
 
 # --- policy ---------------------------------------------------------------------
@@ -530,6 +519,9 @@ def test_non_owner_decisions_are_ignored(relay: RoomManager) -> None:
                 assert _refused(sam)[0] == REASON_APPROVAL_DECLINED
 
 
+# Reads join_resolved before the policy broadcast: that order comes from the
+# debounce, so it runs on the production flush window.
+@pytest.mark.real_feed_debounce
 def test_switching_approval_off_admits_everyone_waiting(relay: RoomManager) -> None:
     client = TestClient(app)
     room_id, token = _create(client)

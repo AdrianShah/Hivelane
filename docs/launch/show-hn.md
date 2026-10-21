@@ -15,11 +15,11 @@ straight away.
 
 | Chars | Title |
 |------:|-------|
-| 77 | Show HN: Synergo – stop parallel coding agents from editing the same function |
-| 69 | Show HN: Synergo – pre-edit hooks that block colliding AI agent edits |
-| 77 | Show HN: Synergo – agents ask "is anyone else in this file?" before each edit |
-| 77 | Show HN: Synergo – coordination for Claude Code, Codex, Cursor and Gemini CLI |
-| 72 | Show HN: Synergo – keep parallel AI agents out of each other's functions |
+| 77 | Show HN: Hivelane – stop parallel coding agents from editing the same function |
+| 69 | Show HN: Hivelane – pre-edit hooks that block colliding AI agent edits |
+| 77 | Show HN: Hivelane – agents ask "is anyone else in this file?" before each edit |
+| 77 | Show HN: Hivelane – coordination for Claude Code, Codex, Cursor and Gemini CLI |
+| 72 | Show HN: Hivelane – keep parallel AI agents out of each other's functions |
 | 66 | Show HN: Open-source pre-edit checks for parallel AI coding agents |
 
 Recommended: the first. It names the problem and the granularity, and it does
@@ -27,13 +27,13 @@ not promise more than the tool does.
 
 ## Post body
 
-> Synergo is an open-source (Apache-2.0) coordination layer for AI coding
+> Hivelane is an open-source (Apache-2.0) coordination layer for AI coding
 > agents working in the same repo at the same time. Before an agent writes a
 > file, its own hook asks a shared relay whether a teammate's agent is already
 > working there, and the relay answers allow, warn or block. A blocked agent
 > gets a sentence like this instead of making the edit:
 >
->     Synergo: alice's claude-code is editing greet in src/hello.py (14s ago)
+>     Hivelane: alice's claude-code is editing greet in src/hello.py (14s ago)
 >     — wait, or pick another file (their task: "Add a greeting parameter to greet()")
 >
 > Why: with several agents in one repo (yours, or your teammates'), you find
@@ -44,10 +44,10 @@ not promise more than the tool does.
 >
 > How it works:
 >
-> - `synergo up` in a repo installs hooks for the agents it finds (Claude
+> - `hivelane up` in a repo installs hooks for the agents it finds (Claude
 >   Code, Codex CLI, Cursor, Gemini CLI), creates a room on the relay, writes
->   it to a committed `.synergo.toml`, and starts a small daemon on
->   127.0.0.1:4600. Teammates pull and run `synergo up`; no accounts.
+>   it to a committed `.hivelane.toml`, and starts a small daemon on
+>   127.0.0.1:4600. Teammates pull and run `hivelane up`; no accounts.
 > - Each hook call is a short-lived process that asks the local daemon, which
 >   asks the relay over a WebSocket. Measured with `scripts/bench_hook.py`
 >   against a local stub daemon, the hook's p95 is 117 ms on Windows (relay
@@ -69,7 +69,7 @@ not promise more than the tool does.
 >   and `scripts/benchmark_decisions.py` reproduces the numbers.
 > - A dashboard shows each agent's prompt, plan, diffs and decisions, and the
 >   team can mark each decision useful or noise.
-> - The relay is one FastAPI process you can run yourself: `synergo relay`
+> - The relay is one FastAPI process you can run yourself: `hivelane relay`
 >   on a LAN, or a Docker image with the dashboard bundled (Compose + Caddy,
 >   Fly, Render, Railway and Helm configs are in the repo).
 >
@@ -79,8 +79,8 @@ not promise more than the tool does.
 >   deny an edit from a hook. In Cursor, only the agent's write and delete
 >   tool calls can be denied; Tab completions and your own typing are not
 >   covered. The VS Code/Cursor extension only warns humans.
-> - Agents without pre-edit hooks are observe-only: `synergo run aider` and
->   `synergo watch` report edits after they happen, and the MCP server only
+> - Agents without pre-edit hooks are observe-only: `hivelane run aider` and
+>   `hivelane watch` report edits after they happen, and the MCP server only
 >   helps if the agent actually calls `check_file`. Files changed through a
 >   shell command are invisible to every adapter.
 > - Coordination is per checkout per machine. Several agent sessions in one
@@ -104,25 +104,25 @@ not promise more than the tool does.
 >
 > Try it (Python 3.12+):
 >
->     pipx install synergo
->     cd your-repo && synergo up --relay wss://<relay>/ws
+>     pipx install hivelane
+>     cd your-repo && hivelane up --relay wss://<relay>/ws
 >
-> Or locally with two checkouts and `synergo relay`; the README has the steps.
+> Or locally with two checkouts and `hivelane relay`; the README has the steps.
 >
 > I would most like to hear about false positives (blocks you think were
 > wrong), agents you want adapters for, and what would make you comfortable
 > running this on a real team.
 >
-> Repo: https://github.com/AdrianShah/Synergo
+> Repo: https://github.com/AdrianShah/Hivelane
 
 ## Before posting, replace or confirm
 
-- `pipx install synergo`: pending the PyPI release. Until then use
-  `pipx install git+https://github.com/AdrianShah/Synergo`.
+- `pipx install hivelane`: pending the PyPI release. Until then use
+  `pipx install git+https://github.com/AdrianShah/Hivelane`.
 - `wss://<relay>/ws`: the hosted relay URL once it exists (pending). If there
   is no hosted relay on launch day, replace the "Try it" block with the local
-  path: `pipx install "synergo[relay]"`, `synergo relay`, then
-  `synergo up` in two clones.
+  path: `pipx install "hivelane[relay]"`, `hivelane relay`, then
+  `hivelane up` in two clones.
 - The 117 ms number: re-run `scripts/bench_hook.py -n 50` the day before and
   use the fresh number, with the OS.
 - The benchmark numbers: re-run `scripts/benchmark_decisions.py`; the relay's
@@ -131,10 +131,10 @@ not promise more than the tool does.
   dashboard timeline and heat map): if they have merged, check each
   limitation above still holds.
 - The quoted block message: if the wait queue has merged, its wording
-  changes (place in line, a suggested file, `synergo wait`). Paste the exact
+  changes (place in line, a suggested file, `hivelane wait`). Paste the exact
   text from the demo recording.
 - Tree-sitter symbols need the optional `symbols` extra
-  (`pipx install "synergo[symbols]"`); keep the "if installed" wording.
+  (`pipx install "hivelane[symbols]"`); keep the "if installed" wording.
 
 ## Likely questions, with honest answers
 
@@ -149,7 +149,7 @@ The relay logs never contain prompts or diffs. If the operator sets
 `GEMINI_API_KEY`, cleartext rooms' prompts and diffs go to Google's API for
 captions; never from an e2e room.
 
-**Why not just use branches or worktrees?** Keep using them. Synergo warns
+**Why not just use branches or worktrees?** Keep using them. Hivelane warns
 "this will conflict at merge" when two agents change the same code on
 different branches, which is when the conflict is still cheap.
 
@@ -160,7 +160,7 @@ edits are still checked when the plan drifts.
 **Who can join my room?** Anyone with the 8-character code, like a document
 share link. Codes expire after 7 days and guesses are rate-limited. The
 creator can require approval for every newcomer
-(`synergo room require-approval on`).
+(`hivelane room require-approval on`).
 
 **Is there a hosted version / pricing?** Pending. Everything, relay
 included, can be self-hosted today.

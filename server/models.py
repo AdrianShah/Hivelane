@@ -1,9 +1,9 @@
 """Wire format for every WebSocket message, as the relay sees it.
 
-Mirrored on purpose in synergo/protocol.py (the daemon must not import the
+Mirrored on purpose in hivelane/protocol.py (the daemon must not import the
 relay package) and in frontend/src/types.ts. Mirrors drift, so the copies are
 pinned by tests: server/tests/test_protocol_contract.py requires every message
-here to have the same JSON schema as its synergo/protocol.py twin and a
+here to have the same JSON schema as its hivelane/protocol.py twin and a
 TypeScript declaration for each frame the dashboard receives, and
 protocol/schema.json is regenerated from the client copy by protocol/generate.py.
 """
@@ -85,7 +85,7 @@ class FileChange(BaseModel):
 
 
 class RoomSettings(BaseModel):
-    """Team-wide conflict windows from the repo's .synergo.toml.
+    """Team-wide conflict windows from the repo's .hivelane.toml.
 
     Sent on join so the relay enforces what the team committed, not its own
     defaults. Bounded so one member cannot disable blocking room-wide by
@@ -114,7 +114,7 @@ class JoinMessage(BaseModel):
     # the dashboard only consumes broadcasts and cannot silently under-report.
     protocol_version: int = 0
     repo_id: RepoId = ""
-    # Optional: a member that carries a committed .synergo.toml shares its
+    # Optional: a member that carries a committed .hivelane.toml shares its
     # windows with the room. None leaves the room's current settings alone.
     settings: Optional[RoomSettings] = None
     # Secret returned once by POST /rooms. A join carrying the matching
@@ -177,6 +177,11 @@ class FileRequest(BaseModel):
     file_path: str
     repo_id: RepoId = ""
     e2e: E2EBlob = ""
+    # Optional, like an edit_check's: what the requester means to edit, so
+    # holders are judged at the same granularity (a teammate on another
+    # branch, or in another function, does not hold the file).
+    branch: str = ""
+    symbols: list[str] = []
 
 
 class HistoryRequest(BaseModel):
@@ -276,6 +281,9 @@ class PlanMessage(BaseModel):
     branch: str = ""
     ttl_seconds: float = Field(1800, ge=60, le=86400)
     e2e: E2EBlob = ""
+    # Echoed on the plan_conflicts reply, so a client with several plans in
+    # flight can match each reply to its plan. Optional: "" when unset.
+    request_id: str = Field("", max_length=128)
 
 
 class DecisionFeedback(BaseModel):
@@ -297,6 +305,12 @@ class PlanConflict(BaseModel):
 class PlanConflicts(BaseModel):
     type: Literal["plan_conflicts"] = "plan_conflicts"
     conflicts: list[PlanConflict] = []
+    # The plan's request_id ("" for a plan that sent none). Every plan gets
+    # exactly one reply, even one the relay did not record.
+    request_id: str = ""
+    # Why the plan was not recorded ("rate_limited", "invalid"); "" when it
+    # was, in which case conflicts is the full answer.
+    reason: str = ""
 
 
 class PlanUpdate(BaseModel):
@@ -482,11 +496,11 @@ class HistoryChunk(BaseModel):
     done: bool
 
 
-class SynergoFeed(BaseModel):
+class HivelaneFeed(BaseModel):
     """Debounced room broadcast: one WebSocket frame every ~500ms carrying
-    all queued events for that room (the dashboard's Synergo feed)."""
+    all queued events for that room (the dashboard's Hivelane feed)."""
 
-    type: Literal["synergo_feed"] = "synergo_feed"
+    type: Literal["hivelane_feed"] = "hivelane_feed"
     events: list[dict]
 
 

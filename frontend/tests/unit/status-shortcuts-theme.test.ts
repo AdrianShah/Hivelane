@@ -124,3 +124,30 @@ test('people helpers', () => {
   assert.equal(relativeTime(null, NOW), 'never');
   assert.deepEqual(diffStat('--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new\n+more'), { added: 2, removed: 1 });
 });
+
+test('person colours avoid the status hues (red, orange, amber, rose)', async () => {
+  const { PERSON_PALETTE, isStatusHue } = await import('../../src/dashboard/people.ts');
+  for (const colour of PERSON_PALETTE) assert.ok(!isStatusHue(colour), `${colour} reads as a status colour`);
+  assert.ok(isStatusHue('#f43f5e') && isStatusHue('#f59e0b') && isStatusHue('#f97316'));
+});
+
+test('diff lines: ---/+++ are headers only outside a hunk (finding 06-22)', async () => {
+  const { parseDiff, diffStat: stat } = await import('../../src/dashboard/people.ts');
+  const diff = [
+    'diff --git a/x.sql b/x.sql',
+    '--- a/x.sql',
+    '+++ b/x.sql',
+    '@@ -1,3 +1,3 @@',
+    ' keep',
+    '--- old comment',
+    '+++x',
+    ' tail',
+    '\\ No newline at end of file',
+  ].join('\n');
+  const kinds = parseDiff(diff).map((l) => l.kind);
+  assert.deepEqual(kinds, ['meta', 'meta', 'meta', 'hunk', 'context', 'del', 'add', 'context', 'note']);
+  assert.deepEqual(stat(diff), { added: 1, removed: 1 });
+  assert.deepEqual(parseDiff(diff).filter((l) => l.ln != null).map((l) => l.ln), [1, 2, 3]);
+  // Bare snippets (no hunk header) are all body.
+  assert.deepEqual(stat('-a\n+b'), { added: 1, removed: 1 });
+});

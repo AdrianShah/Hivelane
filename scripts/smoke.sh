@@ -4,7 +4,7 @@
 # from different directories in the repo, which is the case unit tests on either
 # side alone cannot cover.
 #
-# Usage: scripts/smoke.sh        (needs `synergo` and `uvicorn` on PATH)
+# Usage: scripts/smoke.sh        (needs `hivelane` and `uvicorn` on PATH)
 set -euo pipefail
 
 RELAY_PORT=${RELAY_PORT:-8791}
@@ -12,20 +12,20 @@ PORT_A=${PORT_A:-4791}
 PORT_B=${PORT_B:-4792}
 WORK="$(mktemp -d)"
 PIDS=()
-# Both daemons and every hook share one private SYNERGO_HOME, so they share
-# the daemon token (synergo/auth.py) and nothing lands in the real home.
-export SYNERGO_HOME="$WORK/home"
-mkdir -p "$SYNERGO_HOME"
+# Both daemons and every hook share one private HIVELANE_HOME, so they share
+# the daemon token (hivelane/auth.py) and nothing lands in the real home.
+export HIVELANE_HOME="$WORK/home"
+mkdir -p "$HIVELANE_HOME"
 
 cleanup() {
-  local pid i alive
+  local pid alive
   for pid in "${PIDS[@]:-}"; do
     [[ -n "$pid" ]] || continue
     kill "$pid" 2>/dev/null || true
   done
   # Wait for them to actually go: the daemon unwinds over several seconds, and a
   # back-to-back run would otherwise trip the preflight port guard.
-  for i in $(seq 1 60); do
+  for _ in $(seq 1 60); do
     alive=0
     for pid in "${PIDS[@]:-}"; do
       [[ -n "$pid" ]] || continue
@@ -45,8 +45,8 @@ trap cleanup EXIT
 fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 
 wait_for() {
-  local url=$1 label=$2 i
-  for i in $(seq 1 60); do
+  local url=$1 label=$2
+  for _ in $(seq 1 60); do
     curl -fsS "$url" >/dev/null 2>&1 && return 0
     sleep 0.5
   done
@@ -78,7 +78,7 @@ printf 'def broadcast():\n    return 1\n' > "$REPO/server/room.py"
 
 start_daemon() {
   local name=$1 agent=$2 port=$3 cwd=$4
-  ( cd "$cwd" && exec synergo join "$ROOM" --name "$name" --agent "$agent" \
+  ( cd "$cwd" && exec hivelane join "$ROOM" --name "$name" --agent "$agent" \
       --server "ws://127.0.0.1:$RELAY_PORT/ws" --port "$port" \
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)
@@ -88,14 +88,14 @@ start_daemon() {
 
 # Every daemon route but /health wants the install's token.
 daemon_status() {
-  curl -fsS -H "X-Synergo-Token: $(cat "$SYNERGO_HOME/token")" "http://127.0.0.1:$1/status"
+  curl -fsS -H "X-Hivelane-Token: $(cat "$HIVELANE_HOME/token")" "http://127.0.0.1:$1/status"
 }
 
 echo "== daemon adrian (cwd = repo root), daemon sam (cwd = repo/server)"
 start_daemon adrian claude-code "$PORT_A" "$REPO"
 start_daemon sam cursor "$PORT_B" "$REPO/server"
 
-for i in $(seq 1 40); do
+for _ in $(seq 1 40); do
   a=$(daemon_status "$PORT_A")
   b=$(daemon_status "$PORT_B")
   if [[ "$a" == *'"sam"'* && "$b" == *'"adrian"'* ]]; then break; fi
@@ -117,7 +117,7 @@ print(json.dumps({"hook_event_name": sys.argv[1], "session_id": sys.argv[2],
                   "cwd": sys.argv[3], "tool_name": "Edit",
                   "tool_input": {"file_path": sys.argv[4]}}))' \
     "$event" "$session" "$cwd" "$REPO/server/room.py" \
-    | SYNERGO_PORT="$port" synergo hook claude-code
+    | HIVELANE_PORT="$port" hivelane hook claude-code
 }
 
 echo "== adrian edits server/room.py from the repo root"
@@ -126,7 +126,7 @@ hook_event PostToolUse s-adrian "$REPO" "$PORT_A" >/dev/null
 
 echo "== sam attempts the same file from repo/server"
 decision=""
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
   out=$(hook_event PreToolUse s-sam "$REPO/server" "$PORT_B" || true)
   if [[ -n "$out" ]]; then
     decision=$(printf '%s' "$out" | python3 -c '

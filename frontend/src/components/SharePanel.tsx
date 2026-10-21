@@ -19,11 +19,13 @@ interface SharePanelProps {
   roomId: string;
   /** Latest room_settings from the relay; null until the first one arrives. */
   settings: RoomSettingsUpdate | null;
+  /** The room's join policy (room_policy_update); null until known. */
+  requireApproval?: boolean | null;
 }
 
 type CopyState = { label: string; ok: boolean } | null;
 
-export default function SharePanel({ roomId, settings }: SharePanelProps) {
+export default function SharePanel({ roomId, settings, requireApproval = null }: SharePanelProps) {
   const [copyState, setCopyState] = useState<CopyState>(null);
 
   const copy = async (label: string, text: string) => {
@@ -47,12 +49,17 @@ export default function SharePanel({ roomId, settings }: SharePanelProps) {
     <section className="share-panel" aria-labelledby="share-panel-title">
       <header>
         <h2 id="share-panel-title">Share this room</h2>
-        <p>Anyone with the code can join, so share it with your team only.</p>
+        <p>
+          {requireApproval
+            ? 'People with the code can ask to join; an owner approves each request.'
+            : 'Anyone with the code can join, so share it with your team only.'}
+        </p>
         {settings?.e2e ? (
           <p>
             <span aria-hidden="true">🔒 </span>
             This room is end-to-end encrypted. Send the room key separately from this link
-            (`synergo key show` prints it): teammates run `synergo key set {roomId || 'CODE'}`,
+            (<code>hivelane key show</code> prints it): teammates run{' '}
+            <code>hivelane key set {roomId || 'CODE'}</code>,
             viewers add <code>#k=&lt;key&gt;</code> to the link or paste the key when asked.
           </p>
         ) : null}

@@ -55,6 +55,6 @@ export const STATUS_LABEL: Record<LaneStatus, string> = {
 export const STATUS_HINT: Record<LaneStatus, string> = {
   editing: 'Active in the last 2 minutes',
   idle: 'No activity for over 2 minutes',
-  blocked: 'Synergo blocked an edit in the last 30 seconds',
+  blocked: 'Hivelane blocked an edit in the last 30 seconds',
   offline: 'The agent left the room',
 };

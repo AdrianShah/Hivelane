@@ -1,4 +1,4 @@
-# One-shot local setup: install the synergo daemon and enable the repo git hooks.
+# One-shot local setup: install the hivelane daemon and enable the repo git hooks.
 # Mirrors setup.sh.
 # Usage: powershell -ExecutionPolicy Bypass -File setup.ps1
 $ErrorActionPreference = 'Stop'
@@ -25,5 +25,5 @@ if (-not (Get-Command graphify -ErrorAction SilentlyContinue)) {
 
 Write-Host ''
 Write-Host 'Setup complete.'
-Write-Host '  Install agent hooks: .venv\Scripts\synergo hook install claude-code'
-Write-Host '  Join a room:         .venv\Scripts\synergo join <ROOM> --name <your-name>'
+Write-Host '  Install agent hooks: .venv\Scripts\hivelane hook install claude-code'
+Write-Host '  Join a room:         .venv\Scripts\hivelane join <ROOM> --name <your-name>'

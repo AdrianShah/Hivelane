@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { PREVENTION_WINDOW_SECONDS, type PreventionSummary } from '../dashboard/prevented';
 import {
   canCopyImage,
@@ -9,7 +10,7 @@ import {
 import type { RoomStats } from '../dashboard/stats';
 
 /**
- * "Synergo prevented N collisions this session", with how it is counted and
+ * "Hivelane prevented N collisions this session", with how it is counted and
  * a shareable card. The heuristic itself is documented (and tested) in
  * dashboard/prevented.ts.
  */
@@ -30,7 +31,7 @@ export function PreventedCounter({ prevention, stats, onShare }: PreventedCounte
         </p>
         <div className="min-w-[min(100%,15rem)] flex-1">
           <h2 id="prevented-title" className="m-0 text-[15px] sm:text-[16px] font-bold text-on-surface tracking-tight">
-            Synergo prevented {n} collision{n === 1 ? '' : 's'} this session
+            Hivelane prevented {n} collision{n === 1 ? '' : 's'} this session
           </h2>
           <p className="m-0 mt-1 text-[12px] text-on-muted">
             {stats.blocks} block{stats.blocks === 1 ? '' : 's'} · {stats.warns} warning
@@ -62,7 +63,7 @@ export function PreventedCounter({ prevention, stats, onShare }: PreventedCounte
 }
 
 function describeCard(s: RoomStats): string {
-  return `Synergo session card: ${s.prevented} collisions prevented, ${s.blocks} blocks, ${s.warns} warnings, ${s.conflicts} overlaps, ${s.people} agents.`;
+  return `Hivelane session card: ${s.prevented} collisions prevented, ${s.blocks} blocks, ${s.warns} warnings, ${s.conflicts} overlaps, ${s.people} agents.`;
 }
 
 interface ShareCardDialogProps {
@@ -103,19 +104,8 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
     };
   }, [open, snapshot]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previous = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, [open, onClose]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(open, onClose, panelRef, closeRef);
 
   if (!open) return null;
 
@@ -123,7 +113,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
     if (!canvasRef.current) return;
     setBusy(true);
     try {
-      await downloadCanvasPng(canvasRef.current, 'synergo-session.png');
+      await downloadCanvasPng(canvasRef.current, 'hivelane-session.png');
       onNotice('Card downloaded');
     } catch {
       onNotice('Could not create the image');
@@ -143,7 +133,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-6" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <button type="button" className="absolute inset-0 overlay-backdrop" aria-label="Close dialog" tabIndex={-1} onClick={onClose} />
-      <div className="relative w-full max-w-3xl dialog-panel rounded-2xl p-4 sm:p-6 animate-fade-up max-h-full overflow-y-auto custom-scrollbar">
+      <div ref={panelRef} className="relative w-full max-w-3xl dialog-panel rounded-2xl p-4 sm:p-6 animate-fade-up max-h-full overflow-y-auto custom-scrollbar">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2 id={titleId} className="text-lg font-bold tracking-tight m-0">

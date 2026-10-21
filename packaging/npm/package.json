@@ -1,27 +1,27 @@
 {
-  "name": "synergo-cli",
+  "name": "hivelane-cli",
   "version": "0.1.0",
-  "description": "Run the Synergo CLI from npm: a zero-dependency launcher that hands off to uvx or pipx.",
+  "description": "Run the Hivelane CLI from npm: a zero-dependency launcher that hands off to uvx or pipx.",
   "keywords": [
-    "synergo",
+    "hivelane",
     "ai-agents",
     "claude-code",
     "coding-agents",
     "collaboration",
     "cli"
   ],
-  "homepage": "https://github.com/AdrianShah/Synergo#readme",
+  "homepage": "https://github.com/AdrianShah/Hivelane#readme",
   "bugs": {
-    "url": "https://github.com/AdrianShah/Synergo/issues"
+    "url": "https://github.com/AdrianShah/Hivelane/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/AdrianShah/Synergo.git",
+    "url": "git+https://github.com/AdrianShah/Hivelane.git",
     "directory": "packaging/npm"
   },
   "license": "Apache-2.0",
   "bin": {
-    "synergo": "bin/synergo.js"
+    "hivelane": "bin/hivelane.js"
   },
   "files": [
     "bin/",

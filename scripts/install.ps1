@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Install the Synergo CLI on Windows.
+    Install the Hivelane CLI on Windows.
 
 .DESCRIPTION
     Uses uv if it is installed, else pipx. With neither, installs uv with uv's
@@ -8,15 +8,15 @@
     3.12+). Asks no questions; every command is printed before it runs.
 
     Environment:
-      SYNERGO_VERSION=0.1.0   install that exact version instead of the latest
-      SYNERGO_DRY_RUN=1       same as -DryRun (for `irm ... | iex`, which cannot
+      HIVELANE_VERSION=0.1.0   install that exact version instead of the latest
+      HIVELANE_DRY_RUN=1       same as -DryRun (for `irm ... | iex`, which cannot
                               pass parameters)
 
 .PARAMETER DryRun
     Print the commands without running any of them.
 
 .EXAMPLE
-    irm https://raw.githubusercontent.com/AdrianShah/Synergo/main/scripts/install.ps1 | iex
+    irm https://raw.githubusercontent.com/AdrianShah/Hivelane/main/scripts/install.ps1 | iex
 
 .EXAMPLE
     powershell -ExecutionPolicy ByPass -File scripts\install.ps1 -DryRun
@@ -30,14 +30,14 @@ param(
 # caller's session, so a top-level $ErrorActionPreference would leak into it and
 # an `exit` would close their window. Failures `throw` instead, which still gives
 # a non-zero exit code under `powershell -File`.
-function Install-Synergo {
+function Install-Hivelane {
     param([bool]$DryRun)
 
     $ErrorActionPreference = 'Stop'
 
-    if ($env:SYNERGO_DRY_RUN -in @('1', 'true', 'yes')) { $DryRun = $true }
+    if ($env:HIVELANE_DRY_RUN -in @('1', 'true', 'yes')) { $DryRun = $true }
 
-    function Say([string]$Message) { Write-Host "synergo-install: $Message" }
+    function Say([string]$Message) { Write-Host "hivelane-install: $Message" }
 
     # Print a command, then run it unless this is a dry run.
     function Invoke-Step([string]$Exe, [string[]]$Arguments) {
@@ -52,12 +52,12 @@ function Install-Synergo {
         return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
     }
 
-    $version = "$env:SYNERGO_VERSION".Trim()
+    $version = "$env:HIVELANE_VERSION".Trim()
     if ($version.StartsWith('v')) { $version = $version.Substring(1) }
     if ($version -and $version -notmatch '^[0-9A-Za-z.+-]+$') {
-        throw "SYNERGO_VERSION does not look like a version: $env:SYNERGO_VERSION"
+        throw "HIVELANE_VERSION does not look like a version: $env:HIVELANE_VERSION"
     }
-    $spec = if ($version) { "synergo==$version" } else { 'synergo' }
+    $spec = if ($version) { "hivelane==$version" } else { 'hivelane' }
 
     if ($DryRun) { Say 'dry run: commands are printed, nothing is installed' }
 
@@ -96,9 +96,9 @@ function Install-Synergo {
 
     if ($DryRun) { return }
 
-    # Agent hooks run `synergo` from PATH, so a missing PATH entry silently turns
+    # Agent hooks run `hivelane` from PATH, so a missing PATH entry silently turns
     # coordination off (hooks fail open). Nothing later would say so; say it now.
-    if (-not (Test-Command 'synergo')) {
+    if (-not (Test-Command 'hivelane')) {
         $binDir = $null
         if ($tool -eq 'uv') {
             # try: Windows PowerShell turns redirected native stderr into errors.
@@ -110,12 +110,12 @@ function Install-Synergo {
         }
         if (-not $binDir) { $binDir = Join-Path $HOME '.local\bin' }
         Say "installed, but $binDir is not on your PATH yet."
-        Say "run ``$fix``, then open a new terminal. Agent hooks need ``synergo`` on PATH."
+        Say "run ``$fix``, then open a new terminal. Agent hooks need ``hivelane`` on PATH."
         $env:Path = "$binDir;$env:Path"
     }
 
-    $installed = 'synergo'
-    try { $installed = (& synergo --version 2>$null | Select-Object -First 1) } catch { }
+    $installed = 'hivelane'
+    try { $installed = (& hivelane --version 2>$null | Select-Object -First 1) } catch { }
 
     Write-Host ''
     Write-Host "$installed is installed."
@@ -123,10 +123,10 @@ function Install-Synergo {
     Write-Host 'Next, in a repository you work in:'
     Write-Host ''
     Write-Host '  cd path\to\your-repo'
-    Write-Host '  synergo up        # install agent hooks, create or join the room, start the daemon'
-    Write-Host '  synergo doctor    # if anything looks off'
+    Write-Host '  hivelane up        # install agent hooks, create or join the room, start the daemon'
+    Write-Host '  hivelane doctor    # if anything looks off'
     Write-Host ''
-    Write-Host 'Docs: https://github.com/AdrianShah/Synergo/blob/main/docs/install.md'
+    Write-Host 'Docs: https://github.com/AdrianShah/Hivelane/blob/main/docs/install.md'
 }
 
-Install-Synergo -DryRun $DryRun.IsPresent
+Install-Hivelane -DryRun $DryRun.IsPresent

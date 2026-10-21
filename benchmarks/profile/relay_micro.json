@@ -1,0 +1,129 @@
+{
+  "evaluate_edit_vs_touches": [
+    {
+      "touches_on_file": 0,
+      "us": 11.53,
+      "decision": "allow"
+    },
+    {
+      "touches_on_file": 1,
+      "us": 13.05,
+      "decision": "block"
+    },
+    {
+      "touches_on_file": 6,
+      "us": 23.1,
+      "decision": "block"
+    },
+    {
+      "touches_on_file": 25,
+      "us": 60.17,
+      "decision": "block"
+    },
+    {
+      "touches_on_file": 100,
+      "us": 201.54,
+      "decision": "block"
+    },
+    {
+      "touches_on_file": 500,
+      "us": 964.19,
+      "decision": "block"
+    }
+  ],
+  "evaluate_edit_vs_plans_intents": [
+    {
+      "peers_with_plan_and_intent": 0,
+      "us": 11.47
+    },
+    {
+      "peers_with_plan_and_intent": 6,
+      "us": 19.71
+    },
+    {
+      "peers_with_plan_and_intent": 25,
+      "us": 43.4
+    },
+    {
+      "peers_with_plan_and_intent": 100,
+      "us": 136.93
+    },
+    {
+      "peers_with_plan_and_intent": 500,
+      "us": 628.48
+    }
+  ],
+  "handle_edit_check": [
+    {
+      "members": 2,
+      "handle_edit_check_us": 79.6
+    },
+    {
+      "members": 6,
+      "handle_edit_check_us": 159.4
+    },
+    {
+      "members": 25,
+      "handle_edit_check_us": 171.4
+    },
+    {
+      "members": 100,
+      "handle_edit_check_us": 211.8
+    }
+  ],
+  "handle_activity_us": 52.5,
+  "log_info_line_us": 21.0,
+  "broadcast_flush": [
+    {
+      "sockets": 2,
+      "flush_10_events_ms": 0.275,
+      "serialize_once_ms": 0.129,
+      "feed_bytes": 24274
+    },
+    {
+      "sockets": 7,
+      "flush_10_events_ms": 0.95,
+      "serialize_once_ms": 0.129,
+      "feed_bytes": 24274
+    },
+    {
+      "sockets": 26,
+      "flush_10_events_ms": 3.61,
+      "serialize_once_ms": 0.131,
+      "feed_bytes": 24274
+    },
+    {
+      "sockets": 101,
+      "flush_10_events_ms": 13.493,
+      "serialize_once_ms": 0.13,
+      "feed_bytes": 24274
+    },
+    {
+      "sockets": 501,
+      "flush_10_events_ms": 67.542,
+      "serialize_once_ms": 0.129,
+      "feed_bytes": 24274
+    }
+  ],
+  "serialization_activity_update": {
+    "model_dump_us": 3.35,
+    "json_dumps_us": 16.67,
+    "model_dump_json_us": 5.69,
+    "model_validate_activity_us": 4.55,
+    "json_loads_activity_us": 19.65,
+    "orjson_dumps_us": 1.51,
+    "msgspec_dumps_us": 1.64
+  },
+  "history_record": [
+    {
+      "rooms_with_history": 1,
+      "record_5_events_us": 93.0
+    },
+    {
+      "rooms_with_history": 200,
+      "record_5_events_us": 129.4
+    }
+  ],
+  "webhook_observe_us": 0.58,
+  "room_settings_property_us": 2.29
+}

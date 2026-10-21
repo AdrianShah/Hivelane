@@ -65,22 +65,27 @@ test("daemon errors and offline are rejected", async () => {
 });
 
 test("repo selection, paths and status text", () => {
-  assert.equal(repoForPath(STATUS, "c:/work/app/sub/x.ts")?.room, "ROOM2");
+  assert.equal(repoForPath(STATUS, "C:/work/app/sub/x.ts")?.room, "ROOM2");
+  // Case-insensitive file systems (Windows, macOS) also match a differently cased path.
+  const folds = process.platform === "win32" || process.platform === "darwin";
+  assert.equal(repoForPath(STATUS, "c:/work/app/sub/x.ts")?.room, folds ? "ROOM2" : undefined);
   assert.equal(repoForPath(STATUS, "C:\\work\\app\\x.ts")?.room, "ROOM1");
   assert.equal(repoForPath(STATUS, "C:\\work\\apple\\x.ts"), undefined);
   assert.equal(relativeTo("C:\\work\\app", "C:\\work\\app\\src\\a.ts"), "src/a.ts");
-  assert.ok(pathsOverlap("C:\\work\\app", "c:/work"));
+  assert.ok(pathsOverlap("C:\\work\\app", "C:/work"));
   assert.ok(!pathsOverlap("C:\\work\\app", "C:\\work\\apple"));
-  assert.equal(statusText(undefined, undefined), "Synergo: offline");
-  assert.equal(statusText(STATUS, STATUS.repos[0]), "Synergo: ROOM1 · 3 online");
-  assert.equal(statusText(STATUS, STATUS.repos[1]), "Synergo: ROOM2 · connecting");
+  assert.equal(statusText(undefined, undefined), "Hivelane: offline");
+  assert.equal(statusText(STATUS, STATUS.repos[0]), "Hivelane: ROOM1 · 3 online");
+  assert.equal(statusText(STATUS, STATUS.repos[1]), "Hivelane: ROOM2 · connecting");
 });
 
 test("activity tracker ingests feeds, ignores self, expires", () => {
-  const t = new ActivityTracker("me", 60);
+  // Folding on explicitly so the test means the same on every platform; the
+  // per-platform default is covered by "path case folding is per platform".
+  const t = new ActivityTracker("me", 60, true);
   const changed = t.ingest(
     JSON.stringify({
-      type: "synergo_feed",
+      type: "hivelane_feed",
       events: [
         { type: "intent_update", user_id: "sam", agent: "claude-code", prompt: "fix login", timestamp: 100 },
         { type: "activity_update", user_id: "sam", agent: "claude-code", timestamp: 100, changes: [{ file_path: "src/Auth.ts", diff: "" }] },
@@ -91,14 +96,14 @@ test("activity tracker ingests feeds, ignores self, expires", () => {
     100
   );
   assert.deepEqual(changed, ["src/auth.ts"]);
-  const touch = t.get("src\\Auth.ts", 112)!;
+  const touch = t.get("src\\Auth.ts", undefined, 112)!;
   assert.equal(touch.prompt, "fix login");
   assert.equal(tooltip(touch, 112), "sam (claude-code) edited 12 s ago: fix login");
-  assert.equal(t.get("src/mine.ts", 100), undefined);
+  assert.equal(t.get("src/mine.ts", undefined, 100), undefined);
   assert.deepEqual([...t.online.keys()].sort(), ["ana", "me", "sam"]);
   t.ingest({ type: "user_left", user_id: "ana" });
   assert.ok(!t.online.has("ana"));
-  assert.equal(t.get("src/auth.ts", 161), undefined);
+  assert.equal(t.get("src/auth.ts", undefined, 161), undefined);
   assert.deepEqual(t.prune(161), ["src/auth.ts"]);
   assert.deepEqual(t.ingest("not json"), []);
 });
@@ -132,7 +137,7 @@ test("relay feed joins as spectator and receives frames", async () => {
       const join = JSON.parse(m.toString());
       assert.equal(join.type, "join");
       assert.equal(join.name, null);
-      sock.send(JSON.stringify({ type: "synergo_feed", events: [{ type: "user_joined", user_id: "sam" }] }));
+      sock.send(JSON.stringify({ type: "hivelane_feed", events: [{ type: "user_joined", user_id: "sam" }] }));
     });
   });
   const frames: string[] = [];

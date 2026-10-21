@@ -1,9 +1,9 @@
 """Opt-in room history, for the dashboard's replay view.
 
 A room whose settings say ``history_hours > 0`` (a team's committed
-``.synergo.toml``, sent on join, or the settings given to POST /rooms) keeps
+``.hivelane.toml``, sent on join, or the settings given to POST /rooms) keeps
 the feed events the relay broadcast to it. What is kept is exactly what
-spectators were sent: the ``synergo_feed`` events, field for field, so an
+spectators were sent: the ``hivelane_feed`` events, field for field, so an
 end-to-end encrypted room keeps only keyed hashes and the members' ciphertext
 blobs, never anything the relay could not already read.
 
@@ -20,11 +20,20 @@ In memory only: never written to the room store, disk or Redis. A relay
 restart loses it, a room that empties out and is evicted takes its history
 with it, and setting history_hours back to 0 drops it at once.
 
+The byte caps count compact JSON. Python objects take several times that in
+resident memory (roughly 3-8x), which is why the defaults (config.py) are
+sized for a 512 MB VM rather than to the JSON.
+
 A member or dashboard asks with ``history_request {since}`` and gets the kept
 events newer than ``since`` as ``history_chunk`` frames of at most
-HISTORY_CHUNK_EVENTS events, the last one with ``done: true`` (one empty,
-done chunk when nothing is kept). Each socket may ask once every
-HISTORY_REQUEST_INTERVAL_SECONDS. Feed events that carry no ``timestamp`` of
+HISTORY_CHUNK_EVENTS events and about HISTORY_CHUNK_MAX_BYTES (so no frame
+exceeds a client's 1 MiB default frame limit), the last one with
+``done: true`` (one empty, done chunk when nothing is kept). Replays are
+throttled three ways: each socket may ask once every
+HISTORY_REQUEST_INTERVAL_SECONDS, each client address (IPv6 by /64)
+HISTORY_REQUESTS_PER_IP_PER_MINUTE times a minute, and each room may send at
+most HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE of replay a minute, so opening many
+sockets does not multiply the egress. Feed events that carry no ``timestamp`` of
 their own (user_joined, user_left, ...) get the relay's broadcast time as
 ``timestamp`` in the chunk, so a replay can place them; every other field is
 as broadcast.
@@ -40,16 +49,18 @@ import weakref
 from collections import deque
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import ValidationError
 
 try:
-    from . import metrics
+    from . import config, limits, metrics
     from .models import HistoryChunk, HistoryRequest
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
+    import config  # type: ignore[no-redef]
+    import limits  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
     from models import HistoryChunk, HistoryRequest  # type: ignore[no-redef]
 
@@ -57,19 +68,27 @@ log = logging.getLogger(__name__)
 
 # Per-room bounds. Large enough for a busy afternoon (a member sends at most
 # two activity messages a second, and most frames are a few KB), small enough
-# that a room cannot make the relay hold more than this.
-HISTORY_MAX_EVENTS = 5000
-HISTORY_MAX_BYTES = 8 * 1024 * 1024
-# Across every room in this process.
-HISTORY_TOTAL_MAX_BYTES = 128 * 1024 * 1024
+# that a room cannot make the relay hold more than this. From server/config.py
+# (HIVELANE_HISTORY_MAX_EVENTS, HIVELANE_HISTORY_MAX_BYTES); 0 means no bound.
+HISTORY_MAX_EVENTS = config.HISTORY_MAX_EVENTS
+HISTORY_MAX_BYTES = config.HISTORY_MAX_BYTES
+# Across every room in this process (HIVELANE_HISTORY_TOTAL_MAX_BYTES).
+HISTORY_TOTAL_MAX_BYTES = config.HISTORY_TOTAL_MAX_BYTES
 # The same bound RoomSettings.history_hours has on the wire.
 MAX_HISTORY_HOURS = 24.0
 # Events per history_chunk frame: 200 typical events are well under the
 # relay's own 512 KB inbound frame cap, so a client never sees a frame larger
 # than it would send.
 HISTORY_CHUNK_EVENTS = 200
+# And at most about this many bytes of events per chunk (one event larger
+# than this still goes, alone in its chunk).
+HISTORY_CHUNK_MAX_BYTES = 256 * 1024
 # One history_request per socket per this many seconds; more are ignored.
 HISTORY_REQUEST_INTERVAL_SECONDS = 10.0
+# history_requests per client address (IPv6 by /64) per minute.
+HISTORY_REQUESTS_PER_IP_PER_MINUTE = 12
+# Replay bytes one room may send per minute, over all its sockets.
+HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE = 16 * 1024 * 1024
 
 # Every live RoomHistory, for the process-wide cap and the metrics gauges. A
 # WeakSet so a room that is dropped without clear() stops counting anyway.
@@ -77,12 +96,12 @@ _live: "weakref.WeakSet[RoomHistory]" = weakref.WeakSet()
 
 
 def total_events() -> int:
-    """Events kept across every room in this process (synergo_history_events)."""
+    """Events kept across every room in this process (hivelane_history_events)."""
     return sum(history.event_count for history in list(_live))
 
 
 def total_bytes() -> int:
-    """Bytes kept across every room in this process (synergo_history_bytes)."""
+    """Bytes kept across every room in this process (hivelane_history_bytes)."""
     return sum(history.byte_count for history in list(_live))
 
 
@@ -179,7 +198,8 @@ class RoomHistory:
         while self._events and self._events[0].at < cutoff:
             self._drop_oldest()
         while self._events and (
-            len(self._events) > self.max_events or self._bytes > self.max_bytes
+            (self.max_events > 0 and len(self._events) > self.max_events)
+            or (self.max_bytes > 0 and self._bytes > self.max_bytes)
         ):
             self._drop_oldest()
 
@@ -200,7 +220,7 @@ class RoomHistory:
             except (TypeError, ValueError):
                 log.debug("History: skipping an event that is not JSON")
                 continue
-            if size > self.max_bytes:
+            if self.max_bytes > 0 and size > self.max_bytes:
                 log.debug("History: skipping a %d-byte event (cap %d)", size, self.max_bytes)
                 continue
             self._events.append(_Kept(moment, size, event))
@@ -211,41 +231,60 @@ class RoomHistory:
     def _enforce_process_cap(self) -> None:
         """Over the process-wide cap: the room adding events gives up its own
         oldest first, so a quiet room's replay is not erased by a busy one."""
+        if self.total_max_bytes <= 0:
+            return
         excess = total_bytes() - self.total_max_bytes
         while excess > 0 and self._events:
             excess -= self._events[0].size
             self._drop_oldest()
 
-    def since(self, since: float = 0.0, now: float | None = None) -> list[dict]:
-        """Kept events broadcast after `since` (relay clock), oldest first.
-
-        Events without a timestamp of their own get the broadcast time as
-        `timestamp` (a copy; what is kept stays as it was sent)."""
+    def _since_sized(self, since: float, now: float | None) -> list[tuple[dict, int]]:
         if not self.enabled:
             return []
         self._prune(self._clock() if now is None else now)
-        out: list[dict] = []
+        out: list[tuple[dict, int]] = []
         for kept in self._events:
             if kept.at <= since:
                 continue
             event = kept.event
             if "timestamp" not in event:
                 event = {**event, "timestamp": kept.at}
-            out.append(event)
+            out.append((event, kept.size))
         return out
+
+    def since(self, since: float = 0.0, now: float | None = None) -> list[dict]:
+        """Kept events broadcast after `since` (relay clock), oldest first.
+
+        Events without a timestamp of their own get the broadcast time as
+        `timestamp` (a copy; what is kept stays as it was sent)."""
+        return [event for event, _ in self._since_sized(since, now)]
 
     def chunks(
         self,
         since: float = 0.0,
         now: float | None = None,
         size: int = HISTORY_CHUNK_EVENTS,
+        max_bytes: int = HISTORY_CHUNK_MAX_BYTES,
     ) -> list[list[dict]]:
-        """since() split into history_chunk payloads; always at least one,
-        so the requester always gets a frame with done=true."""
-        events = self.since(since, now)
+        """since() split into history_chunk payloads of at most `size` events
+        and about `max_bytes`; always at least one, so the requester always
+        gets a frame with done=true."""
+        events = self._since_sized(since, now)
         if not events:
             return [[]]
-        return [events[start : start + size] for start in range(0, len(events), size)]
+        out: list[list[dict]] = []
+        current: list[dict] = []
+        current_bytes = 0
+        for event, event_bytes in events:
+            if current and (
+                len(current) >= size or (max_bytes > 0 and current_bytes + event_bytes > max_bytes)
+            ):
+                out.append(current)
+                current, current_bytes = [], 0
+            current.append(event)
+            current_bytes += event_bytes
+        out.append(current)
+        return out
 
 
 class RequestThrottle:
@@ -278,6 +317,65 @@ class RequestThrottle:
 # One throttle for the process: sockets are unique across rooms.
 request_throttle = RequestThrottle()
 
+# Per client address, across every socket it opens.
+ip_limiter = limits.FixedWindowLimiter(
+    limit=HISTORY_REQUESTS_PER_IP_PER_MINUTE,
+    window_seconds=60,
+    max_keys=config.RATE_LIMIT_MAX_TRACKED_IPS,
+)
+
+
+class RoomReplayBudget:
+    """Replay bytes per room per minute (a token bucket per room, keyed
+    weakly by the Room so an evicted room's entry goes with it)."""
+
+    def __init__(
+        self,
+        bytes_per_minute: int = HISTORY_ROOM_REPLAY_BYTES_PER_MINUTE,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.bytes_per_minute = bytes_per_minute
+        self._clock = clock
+        self._state: "weakref.WeakKeyDictionary[object, list[float]]" = weakref.WeakKeyDictionary()
+
+    def take(self, room: object, amount: int) -> bool:
+        """Spend `amount` bytes of the room's budget, if it has them."""
+        if self.bytes_per_minute <= 0:
+            return True
+        now = self._clock()
+        try:
+            state = self._state.get(room)
+        except TypeError:  # not weak-referenceable (a test double)
+            return True
+        if state is None:
+            state = [float(self.bytes_per_minute), now]
+            self._state[room] = state
+        tokens = min(
+            float(self.bytes_per_minute),
+            state[0] + (now - state[1]) * self.bytes_per_minute / 60.0,
+        )
+        state[1] = now
+        # One replay larger than a whole minute's budget is still allowed
+        # from a full bucket, so a big history is not unreachable.
+        if tokens < min(amount, self.bytes_per_minute):
+            state[0] = tokens
+            return False
+        state[0] = tokens - amount
+        return True
+
+    def reset(self) -> None:
+        self._state = weakref.WeakKeyDictionary()
+
+
+room_budget = RoomReplayBudget()
+
+
+def _ip_key(socket: Any) -> Optional[str]:
+    try:
+        return limits.rate_key(socket)
+    except Exception:  # a test double without headers/client
+        return None
+
 
 async def handle_request(room: Any, socket: Any, raw: dict) -> None:
     """Answer a history_request from a member or dashboard socket.
@@ -297,8 +395,16 @@ async def handle_request(room: Any, socket: Any, raw: dict) -> None:
     if not request_throttle.allow(socket):
         log.debug("Ignoring a history_request inside the %gs budget", request_throttle.interval)
         return
+    key = _ip_key(socket)
+    if key is not None and not ip_limiter.check(key).allowed:
+        log.debug("Ignoring a history_request over the per-address budget")
+        return
     history: RoomHistory = room.history
     chunks = history.chunks(request.since)
+    total = sum(event_size(event) for chunk in chunks for event in chunk)
+    if not room_budget.take(room, total):
+        log.debug("Ignoring a history_request over the room's replay budget")
+        return
     log.debug(
         "Sending %d history event(s) in %d chunk(s)",
         sum(len(chunk) for chunk in chunks),
@@ -311,12 +417,19 @@ async def handle_request(room: Any, socket: Any, raw: dict) -> None:
 # Totals only: a per-room label would make one series per room code (and put
 # codes, which are secrets, into the metrics).
 metrics.register_gauge(
-    "synergo_history_events",
+    "hivelane_history_events",
     "Feed events kept for replay across every room with history on.",
     total_events,
 )
 metrics.register_gauge(
-    "synergo_history_bytes",
+    "hivelane_history_bytes",
     "Bytes (compact JSON) of feed events kept for replay across every room.",
     total_bytes,
 )
+
+
+def reset_throttles() -> None:
+    """Forget every replay throttle (tests)."""
+    request_throttle.reset()
+    ip_limiter.reset()
+    room_budget.reset()

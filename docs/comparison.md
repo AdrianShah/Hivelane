@@ -2,7 +2,7 @@
 
 Teams running several coding agents in one repository coordinate them in a
 handful of ways. This page compares those approaches in general terms, so you
-can pick what fits your team, including when that is not Synergo. They are
+can pick what fits your team, including when that is not Hivelane. They are
 not exclusive: most teams combine two or three.
 
 ## The approaches
@@ -23,7 +23,7 @@ any editor or agent, because it only looks at the disk.
 shared editing environment that merges keystrokes in real time, so there is
 only ever one copy of each file.
 
-**Hook-based pre-edit checks (Synergo).** Each agent's own hook asks a shared
+**Hook-based pre-edit checks (Hivelane).** Each agent's own hook asks a shared
 relay "is anyone else in this file?" before every edit, and the relay answers
 allow, warn or block from what the rest of the team's agents are doing, down
 to the function and line range.
@@ -74,8 +74,8 @@ Limited: a watcher sees an edit only after it is written, so by the time two
 people are flagged on one file, both have already changed it. Most watchers
 compare whole files, so two agents in unrelated functions of a large file
 raise the same alarm as two agents in the same function, and frequent false
-alarms train people to ignore them. (Synergo started as a file watcher and
-moved to hooks for exactly this reason; `synergo watch` and `synergo run`
+alarms train people to ignore them. (Hivelane started as a file watcher and
+moved to hooks for exactly this reason; `hivelane watch` and `hivelane run`
 remain as an observe-only fallback for agents without hooks.)
 
 ### Standalone multiplayer IDEs

@@ -16,7 +16,7 @@ A room's owner-configured webhooks (server/webhooks.py) are a third: their
 URLs are credentials, so they are never logged.
 
 Stdlib only, so this works on any host with a writable disk and adds nothing to
-operate. With several relay instances, SYNERGO_REDIS_URL moves the registry
+operate. With several relay instances, HIVELANE_REDIS_URL moves the registry
 into Redis (RedisRoomStore) so a code created on one instance is valid on all
 of them; the `redis` package is imported only then.
 """
@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import sqlite3
+import threading
 import time
 from typing import Any, Callable, Optional, Protocol
 
@@ -40,15 +41,17 @@ except ImportError:  # Render rootDir=server
 log = logging.getLogger(__name__)
 
 # A room code stops being valid after this long, so the table cannot grow
-# forever. Long enough that a code shared on a Monday still works all week.
+# forever. This is an upper bound: RoomManager also removes a code once its
+# room has been empty for the eviction grace period, so a code stays valid
+# for up to a week only while the room keeps being used (or across a restart).
 ROOM_TTL_SECONDS = 7 * 24 * 60 * 60.0
 
-STATE_PATH_ENV = "SYNERGO_STATE_PATH"
+STATE_PATH_ENV = "HIVELANE_STATE_PATH"
 # "local" keeps room codes on this instance (SQLite or memory) even when
-# SYNERGO_REDIS_URL is set, e.g. when Redis is there for rate limits only.
-ROOM_STORE_ENV = "SYNERGO_ROOM_STORE"
+# HIVELANE_REDIS_URL is set, e.g. when Redis is there for rate limits only.
+ROOM_STORE_ENV = "HIVELANE_ROOM_STORE"
 ROOM_STORE_CHOICES = ("redis", "local")
-REDIS_KEY_PREFIX = "synergo:rooms"
+REDIS_KEY_PREFIX = "hivelane:rooms"
 
 # Plain JSON object; see the module docstring for why it stays untyped here.
 StoredSettings = dict[str, Any]
@@ -57,6 +60,15 @@ StoredAccess = dict[str, Any]
 # Same: {"hooks": [{"id", "url", "kind", "events", "created_at"}]}, read by
 # webhooks.WebhookService.
 StoredWebhooks = dict[str, Any]
+# What get_record returns: {"created_at": float, "settings": dict | None,
+# "access": dict | None}, read in one go.
+StoredRoom = dict[str, Any]
+
+
+class StoreReadError(RuntimeError):
+    """get_record could not tell whether the room exists or what its access
+    record is. Callers must fail closed (refuse the connection) rather than
+    revive the room without its owner and approval policy."""
 
 
 class RoomStore(Protocol):
@@ -97,6 +109,12 @@ class RoomStore(Protocol):
         """Replace a known room's webhooks record; a no-op for an unknown code."""
         ...
 
+    def get_record(self, room_id: str) -> Optional[StoredRoom]:
+        """The code's creation time, settings and access record in one read,
+        or None if the code is unknown or expired. Raises StoreReadError when
+        the store cannot answer (never "unknown" for "could not read")."""
+        ...
+
     def remove(self, room_id: str) -> None: ...
 
     def count(self) -> int:
@@ -124,6 +142,9 @@ class MemoryRoomStore:
         settings: Optional[StoredSettings] = None,
     ) -> None:
         self._created_at[room_id] = created_at
+        # Like SQLite's INSERT OR REPLACE and Redis's hdel: a re-added code
+        # starts over, with no owner and no webhooks.
+        self._access.pop(room_id, None)
         self._webhooks.pop(room_id, None)
         if settings is None:
             self._settings.pop(room_id, None)
@@ -158,6 +179,15 @@ class MemoryRoomStore:
         if room_id in self._created_at:
             self._webhooks[room_id] = json.loads(json.dumps(webhooks))
 
+    def get_record(self, room_id: str) -> Optional[StoredRoom]:
+        if not self.exists(room_id):
+            return None
+        return {
+            "created_at": self._created_at[room_id],
+            "settings": self.get_settings(room_id),
+            "access": self.get_access(room_id),
+        }
+
     def remove(self, room_id: str) -> None:
         self._created_at.pop(room_id, None)
         self._settings.pop(room_id, None)
@@ -186,17 +216,23 @@ class MemoryRoomStore:
 class SqliteRoomStore:
     """Room codes in one sqlite file, so they outlive the process.
 
-    Writes are tiny and rare (one per room created or removed) and every call
-    comes from the event loop thread, so the connection is used directly rather
-    than through a thread pool. A storage failure is logged and degrades to
-    "code unknown" instead of raising: losing rejoin-after-restart is bad, but
-    taking the relay down with it is worse.
+    Writes are tiny and rare (one per room created or removed), so the
+    connection is used directly. Calls may come from the event loop or from a
+    worker thread (the routing middleware and webhook API offload store work
+    when Redis is in front of this store), so one lock serialises them. A
+    storage failure is logged and degrades to "code unknown" instead of
+    raising: losing rejoin-after-restart is bad, but taking the relay down
+    with it is worse. get_record is the exception: it raises StoreReadError,
+    so a room is never revived without its access record.
     """
 
     def __init__(self, path: str) -> None:
         self._path = path
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        self._conn = sqlite3.connect(path, check_same_thread=False)
+        self._lock = threading.RLock()
+        self._conn = _LockedConnection(
+            sqlite3.connect(path, check_same_thread=False), self._lock
+        )
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS rooms ("
@@ -355,6 +391,24 @@ class SqliteRoomStore:
                 "Could not persist webhooks for room %s at %s", room_id, self._path
             )
 
+    def get_record(self, room_id: str) -> Optional[StoredRoom]:
+        try:
+            row = self._conn.execute(
+                "SELECT created_at, settings, access FROM rooms "
+                "WHERE room_id = ? AND created_at > ?",
+                (room_id, time.time() - ROOM_TTL_SECONDS),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            log.exception("Could not read room %s from %s", room_id, self._path)
+            raise StoreReadError(f"room registry unreadable: {type(exc).__name__}") from exc
+        if row is None:
+            return None
+        return {
+            "created_at": float(row[0]),
+            "settings": _decode_record(row[1], "settings", room_id),
+            "access": _decode_record(row[2], "access", room_id),
+        }
+
     def remove(self, room_id: str) -> None:
         try:
             self._conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
@@ -386,6 +440,46 @@ class SqliteRoomStore:
         return cursor.rowcount
 
 
+class _LockedConnection:
+    """A sqlite3 connection whose execute (with fetching the result) and
+    commit hold one lock, so worker threads and the event loop cannot
+    interleave on it."""
+
+    def __init__(self, conn: sqlite3.Connection, lock: "threading.RLock") -> None:
+        self._conn = conn
+        self._lock = lock
+
+    def execute(self, sql: str, params: Any = ()) -> "_Result":
+        with self._lock:
+            cursor = self._conn.execute(sql, params)
+            return _Result(cursor.fetchall(), cursor.rowcount)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+
+class _Result:
+    """Rows already fetched under the lock, with the cursor API this module uses."""
+
+    def __init__(self, rows: list[Any], rowcount: int) -> None:
+        self._rows = rows
+        self.rowcount = rowcount
+
+    def fetchone(self) -> Any:
+        return self._rows[0] if self._rows else None
+
+    def fetchall(self) -> list[Any]:
+        return list(self._rows)
+
+    def __iter__(self) -> Any:
+        return iter(self._rows)
+
+
 def _decode_record(raw: Any, kind: str, room_id: str) -> Optional[dict[str, Any]]:
     if raw is None:
         return None
@@ -400,7 +494,7 @@ def _decode_record(raw: Any, kind: str, room_id: str) -> Optional[dict[str, Any]
 class RedisRoomStore:
     """Room codes in Redis, so every relay instance accepts every code.
 
-    Layout, under `prefix` (default synergo:rooms):
+    Layout, under `prefix` (default hivelane:rooms):
 
         <prefix>            sorted set, code -> created_at
         <prefix>:settings   hash, code -> settings JSON
@@ -508,6 +602,29 @@ class RedisRoomStore:
         self.local.set_webhooks(room_id, webhooks)
         self._set("webhooks", room_id, webhooks)
 
+    def get_record(self, room_id: str) -> Optional[StoredRoom]:
+        """One pipeline for the code, its settings and its access record, so
+        Redis failing between the reads cannot revive a room with the access
+        record missing. While Redis is down this instance's local copy
+        answers: a code it has seen comes back with the access record it
+        wrote alongside; any other is unknown (fail closed)."""
+
+        def call() -> Optional[StoredRoom]:
+            pipe = self.client.pipeline(transaction=False)
+            pipe.zscore(self._index, room_id)
+            pipe.hget(self._record_keys["settings"], room_id)
+            pipe.hget(self._record_keys["access"], room_id)
+            score, settings, access = pipe.execute()
+            if score is None or float(score) <= time.time() - ROOM_TTL_SECONDS:
+                return None
+            return {
+                "created_at": float(score),
+                "settings": _decode_record(settings, "settings", room_id),
+                "access": _decode_record(access, "access", room_id),
+            }
+
+        return self._guard.run(call, lambda: self.local.get_record(room_id))
+
     def remove(self, room_id: str) -> None:
         self.local.remove(room_id)
 
@@ -550,10 +667,10 @@ class RedisRoomStore:
 def build_room_store() -> RoomStore:
     """Pick a store from the environment.
 
-    - SYNERGO_REDIS_URL set: RedisRoomStore, shared by every instance, with the
+    - HIVELANE_REDIS_URL set: RedisRoomStore, shared by every instance, with the
       local store below as this instance's copy for Redis outages. Unless
-      SYNERGO_ROOM_STORE=local, which keeps codes on this instance only.
-    - Otherwise SQLite when SYNERGO_STATE_PATH points at a usable file, and
+      HIVELANE_ROOM_STORE=local, which keeps codes on this instance only.
+    - Otherwise SQLite when HIVELANE_STATE_PATH points at a usable file, and
       memory when it does not.
     """
     choice = (os.environ.get(ROOM_STORE_ENV) or "").strip().lower()
@@ -585,7 +702,7 @@ def build_room_store() -> RoomStore:
 
 
 def _build_local_store(*, warn_if_memory: bool) -> RoomStore:
-    """SQLite when SYNERGO_STATE_PATH points at a usable file, memory otherwise."""
+    """SQLite when HIVELANE_STATE_PATH points at a usable file, memory otherwise."""
     path = os.environ.get(STATE_PATH_ENV)
     if not path:
         if warn_if_memory:
@@ -609,3 +726,12 @@ def _build_local_store(*, warn_if_memory: bool) -> RoomStore:
         return MemoryRoomStore()
     log.info("Room codes persisted at %s", path)
     return store
+
+
+def store_kind(store: object) -> str:
+    """"redis", "sqlite" or "memory", for /readyz."""
+    if isinstance(store, RedisRoomStore):
+        return "redis"
+    if isinstance(store, SqliteRoomStore):
+        return "sqlite"
+    return "memory"

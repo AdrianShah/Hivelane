@@ -3,7 +3,7 @@
 *Draft. Publish on D-7 (see the launch checklist). Image:
 [../assets/watcher-vs-hook.svg](../assets/watcher-vs-hook.svg).*
 
-Synergo started as a file watcher. At a hackathon we wanted a live board of
+Hivelane started as a file watcher. At a hackathon we wanted a live board of
 what every teammate's AI agent was doing, so each laptop ran a small process
 that watched the working tree, diffed every saved file and sent the diff to
 a shared board. When two people's changes touched the same file within a
@@ -53,7 +53,7 @@ That has a cost beyond annoyance. An alert that is usually noise trains
 people to ignore it, which is how a real collision gets ignored too. When we
 replayed a set of synthetic two-agent sessions through a file-level rule, 10
 of its 23 blocks were false (the benchmark is described in
-[How Synergo decides](how-synergo-decides.md)).
+[How Hivelane decides](how-hivelane-decides.md)).
 
 ## A watcher talks to the wrong party
 
@@ -64,13 +64,13 @@ alert has to wait for a human to read it, interrupt the agent and explain.
 
 ## What a pre-edit hook changes
 
-Every agent that Synergo can block (Claude Code, Codex CLI, Cursor and
+Every agent that Hivelane can block (Claude Code, Codex CLI, Cursor and
 Gemini CLI) exposes hooks: commands the agent runs at fixed points, with a
 JSON description of what is about to happen on stdin, and a way to answer.
 The one that matters is the hook that runs **before a file edit**. It changes
 all three problems.
 
-**Timing.** The hook runs before the write. `synergo hook <agent>` asks a
+**Timing.** The hook runs before the write. `hivelane hook <agent>` asks a
 local daemon, which asks a shared relay whether a teammate's agent recently
 edited, or is planning to edit, the same code. If the answer is block, the
 agent's edit tool call is denied and the file is never written. There is
@@ -88,7 +88,7 @@ function, or overlapping lines, blocks.
 format. A blocked Claude Code agent reads:
 
 ```text
-Synergo: alice's claude-code is editing greet in src/hello.py (14s ago) — wait, or pick another file (their task: "Add a greeting parameter to greet()")
+Hivelane: alice's claude-code is editing greet in src/hello.py (14s ago) — wait, or pick another file (their task: "Add a greeting parameter to greet()")
 ```
 
 The agent can act on that sentence: wait, or move to other work. Its human
@@ -104,29 +104,29 @@ edited anything.
 Putting a check in front of every edit raises the bar for the check.
 
 - **It must be fast.** The agent starts the hook as a new process on every
-  file write. Synergo's hook imports only the standard library, and the test
+  file write. Hivelane's hook imports only the standard library, and the test
   suite fails if anything heavier creeps in. Measured with
   `scripts/bench_hook.py` against a local stub daemon, p95 is 117 ms on
   Windows (it was 1,665 ms before the hook path was stripped down). A check
   waits at most 1.5 s for the relay.
 - **It must fail open.** If the daemon or the relay is unreachable, or
-  anything in Synergo throws, the edit goes ahead and the agent shows a
-  "Synergo offline" notice at most once every ten minutes. A coordination
+  anything in Hivelane throws, the edit goes ahead and the agent shows a
+  "Hivelane offline" notice at most once every ten minutes. A coordination
   tool that can stall your agent is worse than none.
 - **A warning must not approve anything.** Several agents treat an explicit
   "allow" from a hook as approval that skips the user's own confirmation. A
-  Synergo warning only adds a message; the agent's normal permission flow
+  Hivelane warning only adds a message; the agent's normal permission flow
   still runs.
-- **It must not take over the config file.** Install merges Synergo's
+- **It must not take over the config file.** Install merges Hivelane's
   entries into the agent's existing hook config, finds them later by the
-  `synergo hook` command they run, leaves everything else alone, and refuses
+  `hivelane hook` command they run, leaves everything else alone, and refuses
   to touch a file it cannot parse.
 
 ## Where watchers still belong
 
 Hooks only exist where agents offer them. A watcher works for anything that
-writes to disk, which is why Synergo keeps one: `synergo run aider` and
-`synergo watch` share edits from agents without pre-edit hooks, and the
+writes to disk, which is why Hivelane keeps one: `hivelane run aider` and
+`hivelane watch` share edits from agents without pre-edit hooks, and the
 editor extension shares humans' saved edits. Those paths are honest about
 what they are: observe-only. They make the board complete and they warn, but
 they cannot stop an edit, for all the reasons above.
@@ -145,6 +145,6 @@ pre-edit hook can make sure it does not.
 
 ---
 
-Synergo is open source (Apache-2.0):
-[github.com/AdrianShah/Synergo](https://github.com/AdrianShah/Synergo).
-`synergo up` in a repo installs the hooks for the agents it finds.
+Hivelane is open source (Apache-2.0):
+[github.com/AdrianShah/Hivelane](https://github.com/AdrianShah/Hivelane).
+`hivelane up` in a repo installs the hooks for the agents it finds.

@@ -10,7 +10,7 @@ import { DaemonAuthError, DaemonClient, TOKEN_HEADER, defaultTokenPath, readToke
 const GOOD = "g".repeat(43);
 
 function tmpToken(value: string): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "synergo-token-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "hivelane-token-"));
   const file = path.join(dir, "token");
   fs.writeFileSync(file, value, "ascii");
   return file;
@@ -24,20 +24,20 @@ function guardedDaemon(accepted: () => string) {
     seen.push(token);
     const ok = token === accepted();
     res.writeHead(ok ? 200 : 401, { "content-type": "application/json" });
-    res.end(JSON.stringify(ok ? { version: "1", pid: 1, port: 0, repos: [] } : { detail: "missing or wrong X-Synergo-Token" }));
+    res.end(JSON.stringify(ok ? { version: "1", pid: 1, port: 0, repos: [] } : { detail: "missing or wrong X-Hivelane-Token" }));
   });
   return new Promise<{ server: http.Server; port: number; seen: (string | undefined)[] }>((r) =>
     server.listen(0, "127.0.0.1", () => r({ server, port: (server.address() as AddressInfo).port, seen }))
   );
 }
 
-test("token path honours SYNERGO_HOME, and only real tokens are read", () => {
-  assert.equal(defaultTokenPath({ SYNERGO_HOME: "/x/home" }, "/u"), path.join("/x/home", "token"));
-  assert.equal(defaultTokenPath({}, "/u"), path.join("/u", ".synergo", "token"));
+test("token path honours HIVELANE_HOME, and only real tokens are read", () => {
+  assert.equal(defaultTokenPath({ HIVELANE_HOME: "/x/home" }, "/u"), path.join("/x/home", "token"));
+  assert.equal(defaultTokenPath({}, "/u"), path.join("/u", ".hivelane", "token"));
   assert.equal(readToken(tmpToken(`${GOOD}\n`)), GOOD);
   assert.equal(readToken(tmpToken("short")), undefined);
   assert.equal(readToken(tmpToken("not a token\r\nX-Evil: 1")), undefined);
-  assert.equal(readToken(path.join(os.tmpdir(), "no-such-dir-synergo", "token")), undefined);
+  assert.equal(readToken(path.join(os.tmpdir(), "no-such-dir-hivelane", "token")), undefined);
 });
 
 test("the token is sent, and re-read once when the daemon refuses it", async () => {

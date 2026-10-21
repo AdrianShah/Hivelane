@@ -1,15 +1,26 @@
 /**
  * End-to-end encrypted rooms, dashboard side (the daemon's twin is
- * synergo/crypto.py; protocol/e2e-test-vectors.json pins both).
+ * hivelane/crypto.py; protocol/e2e-test-vectors.json pins both).
  *
- * In a room whose .synergo.toml says `e2e = true` the relay only ever sees
+ * In a room whose .hivelane.toml says `e2e = true` the relay only ever sees
  * keyed hashes (`h:` + 32 hex) where paths, symbols and branches would be,
  * empty diffs and prompts, and an opaque `e2e` blob per message. With the
  * room passphrase this module opens the blobs and puts the real values back:
  *
- *   enc/mac key = HKDF-SHA256(passphrase, salt "synergo-e2e-v1:" + ROOM, info "enc"/"mac")
- *   blob        = base64url(nonce(12) || AES-256-GCM(ciphertext || tag)), AD = message type
+ * Version 2 (what current daemons write):
+ *   ROOM        = room code with every whitespace and "-" removed, upper case
+ *                 (the relay's normalize_room_code)
+ *   salt        = "synergo-e2e-v2:" + ROOM
+ *   stretched   = PBKDF2-HMAC-SHA256(NFC(passphrase), salt, 600000, 32 bytes)
+ *   enc/mac key = HKDF-SHA256(stretched, salt, info "enc"/"mac")
+ *   blob        = "2." + base64url(nonce(12) || AES-256-GCM(ciphertext || tag)),
+ *                 AD = message type, plaintext padded with spaces to a size bucket
  *   hash        = "h:" + first 32 hex of HMAC-SHA256(mac key, name)
+ *
+ * Version 1 (read only, so stored blobs stay readable): ikm = the raw
+ * passphrase (no PBKDF2, no NFC), salt "synergo-e2e-v1:" + code.trim().upper(),
+ * no "2." prefix. A v2 key carries the v1 keys of the same passphrase, so
+ * a v1 blob opens and names hashed by a v1 daemon are learned too.
  *
  * The passphrase arrives in the URL fragment (`#k=...`, which browsers never
  * send to a server), is stripped from the address bar at once and kept in
@@ -19,14 +30,21 @@
  * shared vectors against this exact file (npm run test:e2e-crypto).
  */
 
-export const SALT_PREFIX = 'synergo-e2e-v1:';
+// Fixed key-derivation labels (the project's original name); changing them
+// would change every key. Must match hivelane/crypto.py.
+export const SALT_PREFIX_V1 = 'synergo-e2e-v1:';
+export const SALT_PREFIX = 'synergo-e2e-v2:';
+export const PBKDF2_ITERATIONS = 600_000;
+export const BLOB_V2_PREFIX = '2.';
+const PAD_MIN = 256;
+const PAD_LINEAR_STEP = 16 * 1024;
 export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check'] as const;
 export type EnvelopeType = (typeof ENVELOPE_TYPES)[number];
 
 const NONCE_BYTES = 12;
 const HASH_HEX = 32;
 const HASH_TOKEN = /h:[0-9a-f]{32}/g;
-const STORAGE_PREFIX = 'synergo:e2e:';
+const STORAGE_PREFIX = 'hivelane:e2e:';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -54,8 +72,28 @@ function subtle(): SubtleCrypto {
   return api;
 }
 
+/** The canonical room code keys are derived from: identical to the relay's
+ *  normalize_room_code and hivelane/crypto.py normalize_room (every run of
+ *  whitespace and "-" removed, then upper case). */
 export function normalizeRoom(room: string): string {
-  return room.trim().toUpperCase();
+  return (room ?? '').replace(/[\s-]+/g, '').toUpperCase();
+}
+
+/** v1's room rule (trim and upper case only), kept to open v1 blobs. */
+export function legacyRoom(room: string): string {
+  return (room ?? '').trim().toUpperCase();
+}
+
+/** Trailing spaces up to the next size bucket (as hivelane/crypto.py
+ *  pad_plaintext): powers of two from 256 bytes to 16 KiB, then multiples
+ *  of 16 KiB. Measured in UTF-8 bytes; JSON parsers ignore the spaces. */
+export function padPlaintext(text: string): string {
+  const size = encoder.encode(text).length;
+  let target: number;
+  if (size <= PAD_MIN) target = PAD_MIN;
+  else if (size <= PAD_LINEAR_STEP) target = 2 ** Math.ceil(Math.log2(size));
+  else target = Math.ceil(size / PAD_LINEAR_STEP) * PAD_LINEAR_STEP;
+  return text + ' '.repeat(target - size);
 }
 
 export function isHashed(value: unknown): value is string {
@@ -71,7 +109,10 @@ export function b64urlEncode(bytes: Uint8Array): string {
 }
 
 export function b64urlDecode(text: string): Uint8Array<ArrayBuffer> {
-  const base64 = text.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const body = text.trim();
+  // Strict, like hivelane/crypto.py b64url_decode: atob() would accept '+', '/' and padding.
+  if (!/^[A-Za-z0-9_-]*$/.test(body) || body.length % 4 === 1) throw new DecryptError('not a base64url blob');
+  const base64 = body.replace(/-/g, '+').replace(/_/g, '/');
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
   let binary: string;
   try {
@@ -96,42 +137,104 @@ export function fromHex(hex: string): Uint8Array<ArrayBuffer> {
 
 // --- keys, blobs, hashes ---------------------------------------------------------
 
+export type KeyVersion = 1 | 2;
+
 export interface RoomKey {
   room: string;
+  version: KeyVersion;
   encKey: CryptoKey;
   macKey: CryptoKey;
   /** Raw key bytes, kept for the test vectors; never displayed. */
   encRaw: Uint8Array<ArrayBuffer>;
   macRaw: Uint8Array<ArrayBuffer>;
+  /** PBKDF2 output (v2 only), kept for the test vectors. */
+  stretchedRaw?: Uint8Array<ArrayBuffer>;
+  /** The v1 keys of the same passphrase and room (on a v2 key): open
+   *  pre-v2 blobs and learn names a v1 daemon hashed. */
+  legacy?: { encKey: CryptoKey; macKey: CryptoKey };
 }
 
-export async function deriveRoomKey(passphrase: string, room: string): Promise<RoomKey> {
-  if (!passphrase) throw new DecryptError('an empty passphrase is not a room key');
+async function hkdfPair(
+  ikm: Uint8Array<ArrayBuffer>,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<{ encRaw: Uint8Array<ArrayBuffer>; macRaw: Uint8Array<ArrayBuffer>; encKey: CryptoKey; macKey: CryptoKey }> {
   const api = subtle();
-  const ikm = await api.importKey('raw', encoder.encode(passphrase), 'HKDF', false, ['deriveBits']);
-  const salt = encoder.encode(SALT_PREFIX + normalizeRoom(room));
+  const base = await api.importKey('raw', ikm, 'HKDF', false, ['deriveBits']);
   const derive = async (info: string) =>
     new Uint8Array(
-      await api.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode(info) }, ikm, 256),
+      await api.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt, info: encoder.encode(info) }, base, 256),
     );
   const encRaw = await derive('enc');
   const macRaw = await derive('mac');
   return {
-    room: normalizeRoom(room),
-    encKey: await api.importKey('raw', encRaw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']),
-    macKey: await api.importKey('raw', macRaw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
     encRaw,
     macRaw,
+    encKey: await api.importKey('raw', encRaw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']),
+    macKey: await api.importKey('raw', macRaw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
   };
+}
+
+/** The PBKDF2 step of v2 (exported for the test vectors). */
+export async function stretchV2(passphrase: string, room: string): Promise<Uint8Array<ArrayBuffer>> {
+  const api = subtle();
+  const pw = await api.importKey('raw', encoder.encode(passphrase.normalize('NFC')), 'PBKDF2', false, [
+    'deriveBits',
+  ]);
+  const salt = encoder.encode(SALT_PREFIX + normalizeRoom(room));
+  return new Uint8Array(
+    await api.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS }, pw, 256),
+  );
+}
+
+/** The room key: v2 (with the v1 keys alongside) unless asked otherwise.
+ *  PBKDF2 at 600k iterations takes a few hundred ms; derive it once per room. */
+export async function deriveRoomKey(passphrase: string, room: string, version: KeyVersion = 2): Promise<RoomKey> {
+  if (!passphrase) throw new DecryptError('an empty passphrase is not a room key');
+  const v1 = await hkdfPair(encoder.encode(passphrase), encoder.encode(SALT_PREFIX_V1 + legacyRoom(room)));
+  if (version === 1) {
+    return { room: normalizeRoom(room), version: 1, encKey: v1.encKey, macKey: v1.macKey, encRaw: v1.encRaw, macRaw: v1.macRaw };
+  }
+  const stretchedRaw = await stretchV2(passphrase, room);
+  const v2 = await hkdfPair(stretchedRaw, encoder.encode(SALT_PREFIX + normalizeRoom(room)));
+  return {
+    room: normalizeRoom(room),
+    version: 2,
+    encKey: v2.encKey,
+    macKey: v2.macKey,
+    encRaw: v2.encRaw,
+    macRaw: v2.macRaw,
+    stretchedRaw,
+    legacy: { encKey: v1.encKey, macKey: v1.macKey },
+  };
+}
+
+async function hmacToken(macKey: CryptoKey, value: string): Promise<string> {
+  const mac = new Uint8Array(await subtle().sign('HMAC', macKey, encoder.encode(value)));
+  return 'h:' + toHex(mac).slice(0, HASH_HEX);
 }
 
 /** "h:" + 32 hex of HMAC-SHA256(mac key, value); "" stays "". */
 export async function hashName(key: RoomKey, value: string): Promise<string> {
   if (!value) return value;
-  const mac = new Uint8Array(await subtle().sign('HMAC', key.macKey, encoder.encode(value)));
-  return 'h:' + toHex(mac).slice(0, HASH_HEX);
+  return hmacToken(key.macKey, value);
 }
 
+/** Every token `value` may appear as on the relay: the v2 hash and, on a v2
+ *  key, the v1 hash a not-yet-upgraded daemon would send. */
+export async function hashNames(key: RoomKey, value: string): Promise<string[]> {
+  if (!value) return [];
+  const tokens = [await hmacToken(key.macKey, value)];
+  if (key.legacy) tokens.push(await hmacToken(key.legacy.macKey, value));
+  return tokens;
+}
+
+/** What a daemon sends as `repo_id` in an e2e room; "" stays "". */
+export async function repoToken(key: RoomKey, repoId: string): Promise<string> {
+  return repoId ? hashName(key, 'repo:' + repoId) : repoId;
+}
+
+/** [`2.`] base64url(nonce || ciphertext || tag), `type` as associated data.
+ *  No padding here (sealEnvelope pads); `nonce` is for test vectors only. */
 export async function encryptBlob(
   key: RoomKey,
   type: string,
@@ -149,17 +252,34 @@ export async function encryptBlob(
   const out = new Uint8Array(iv.length + sealed.length);
   out.set(iv, 0);
   out.set(sealed, iv.length);
-  return b64urlEncode(out);
+  return (key.version >= 2 ? BLOB_V2_PREFIX : '') + b64urlEncode(out);
+}
+
+/** encryptBlob() of an envelope's compact JSON, padded (v2) to a size bucket. */
+export async function sealEnvelope(key: RoomKey, type: string, envelope: Envelope): Promise<string> {
+  const text = JSON.stringify(envelope);
+  return encryptBlob(key, type, key.version >= 2 ? padPlaintext(text) : text);
 }
 
 export async function decryptBlob(key: RoomKey, type: string, blob: string): Promise<string> {
-  const raw = b64urlDecode(blob);
+  if (typeof blob !== 'string') throw new DecryptError('not a blob');
+  let body = blob.trim();
+  let encKey = key.encKey;
+  if (body.startsWith(BLOB_V2_PREFIX)) {
+    if (key.version < 2) throw new DecryptError('a v2 blob needs a v2 key');
+    body = body.slice(BLOB_V2_PREFIX.length);
+  } else if (key.version >= 2) {
+    // A v1 blob (stored before the upgrade) under a v2 key.
+    if (!key.legacy) throw new DecryptError('a v1 blob and no v1 key to open it');
+    encKey = key.legacy.encKey;
+  }
+  const raw = b64urlDecode(body);
   if (raw.length < NONCE_BYTES + 16) throw new DecryptError('blob too short');
   let plain: ArrayBuffer;
   try {
     plain = await subtle().decrypt(
       { name: 'AES-GCM', iv: raw.slice(0, NONCE_BYTES), additionalData: encoder.encode(type) },
-      key.encKey,
+      encKey,
       raw.slice(NONCE_BYTES),
     );
   } catch (err) {
@@ -298,7 +418,6 @@ export class E2EDecoder {
   private readonly key: Promise<RoomKey> | null;
   private readonly names = new Map<string, string>();
   private readonly report: (state: E2EState) => void;
-  private opened = false;
   private state: E2EState = 'off';
 
   constructor(passphrase: string | null, room: string, onState: (state: E2EState) => void = () => {}) {
@@ -344,7 +463,8 @@ export class E2EDecoder {
     if (typeof envelope.branch === 'string') found.push(envelope.branch);
     found.push(...asStrings(envelope.files), ...asStrings(envelope.symbols));
     for (const value of found) {
-      if (value && value !== '<imports>') this.names.set(await hashName(key, value), value);
+      if (!value || value === '<imports>') continue;
+      for (const token of await hashNames(key, value)) this.names.set(token, value);
     }
   }
 
@@ -364,7 +484,6 @@ export class E2EDecoder {
     try {
       const { envelope } = await openEnvelope(key, blob);
       await this.learn(key, envelope);
-      this.opened = true;
       this.setState('ok');
       return envelope;
     } catch (err) {
@@ -442,9 +561,5 @@ export class E2EDecoder {
         break;
     }
     return out as unknown as T;
-  }
-
-  get anyOpened(): boolean {
-    return this.opened;
   }
 }

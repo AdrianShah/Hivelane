@@ -299,7 +299,8 @@ export default function TimelineView({
         </p>
         {counter}
         {filterBar}
-        <p className="text-[11.5px] text-on-dim m-0 mb-3" aria-live="polite">
+        {/* Live only while filtering (a result count); new entries alone must not chatter. */}
+        <p className="text-[11.5px] text-on-dim m-0 mb-3" aria-live={filtering ? 'polite' : 'off'}>
           {filtering
             ? `${entries.length} of ${log.timeline.length} entries match`
             : `${log.timeline.length} entries`}
@@ -313,7 +314,7 @@ export default function TimelineView({
             <p className="text-[13px] text-on-muted mt-2 mb-0">
               {filtering
                 ? 'Clear a filter or widen the search.'
-                : 'When Synergo warns or blocks an edit, or two agents change the same file, it shows up here.'}
+                : 'When Hivelane warns or blocks an edit, or two agents change the same file, it shows up here.'}
             </p>
           </div>
         ) : (

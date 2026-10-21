@@ -15,6 +15,7 @@ from __future__ import annotations
 import bisect
 import math
 import threading
+import time
 from collections.abc import Callable, Iterable, Sequence
 
 CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8"
@@ -33,9 +34,20 @@ WS_REJECTION_REASONS = (
     "approval_timeout",
     "approval_queue_full",
     "frame_too_large",
+    # No valid join in time (close 4408); the room registry could not answer.
+    "handshake_timeout",
+    "store_unavailable",
 )
 # Why an inbound WebSocket message was discarded after the join.
-MESSAGE_DROP_REASONS = ("room_quota", "invalid", "frame_too_large")
+MESSAGE_DROP_REASONS = (
+    "room_quota",
+    "invalid",
+    "frame_too_large",
+    # A dashboard over its own budget; a member over its edit-check budget
+    # (that check is still answered, with warn).
+    "spectator_quota",
+    "edit_check_quota",
+)
 DECISION_SCOPES = ("symbol", "lines", "file", "intent", "plan", "branch")
 
 # Edit checks sit on an agent's blocking hook with a 1.5 s client budget; the
@@ -113,18 +125,47 @@ class Counter:
         return lines
 
 class Gauge:
-    """Gauge read from a callback at scrape time, so it can never go stale."""
+    """Gauge read from a callback at scrape time, so it can never go stale.
 
-    def __init__(self, name: str, help_text: str, read: Callable[[], float]) -> None:
+    With `cache_seconds`, a value is reused for that long: for a gauge whose
+    read costs a store round trip (the durable room count), so scrape spam
+    cannot turn into one blocking Redis or SQLite call per request."""
+
+    def __init__(
+        self,
+        name: str,
+        help_text: str,
+        read: Callable[[], float],
+        *,
+        cache_seconds: float = 0.0,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self.name = name
         self.help_text = help_text
         self._read = read
+        self.cache_seconds = cache_seconds
+        self._clock = clock
+        self._cached: tuple[float, float] | None = None  # (read at, value)
+
+    def value(self) -> float:
+        if self.cache_seconds <= 0:
+            return float(self._read())
+        now = self._clock()
+        if self._cached is not None and now - self._cached[0] < self.cache_seconds:
+            return self._cached[1]
+        value = float(self._read())
+        self._cached = (now, value)
+        return value
+
+    def reset(self) -> None:
+        """Forget the cached value (tests only)."""
+        self._cached = None
 
     def render(self) -> list[str]:
         return [
             f"# HELP {self.name} {self.help_text}",
             f"# TYPE {self.name} gauge",
-            f"{self.name} {_format_value(float(self._read()))}",
+            f"{self.name} {_format_value(self.value())}",
         ]
 
 
@@ -184,10 +225,11 @@ class Registry:
         self._metrics = [metric for metric in self._metrics if metric.name != name]
 
     def reset(self) -> None:
-        """Zero every counter and histogram. Tests only: a scraper treats a
-        counter that goes backwards as a process restart."""
+        """Zero every counter and histogram, and drop cached gauge values.
+        Tests only: a scraper treats a counter that goes backwards as a
+        process restart."""
         for metric in self._metrics:
-            if isinstance(metric, (Counter, Histogram)):
+            if isinstance(metric, (Counter, Histogram, Gauge)):
                 metric.reset()
 
     def render(self) -> str:
@@ -200,40 +242,40 @@ class Registry:
 registry = Registry()
 
 edit_checks_total = Counter(
-    "synergo_edit_checks_total",
+    "hivelane_edit_checks_total",
     "Edit checks answered, by decision and the scope that decided it.",
     label=("decision", "scope"),
     values=[(d, sc) for d in EDIT_DECISIONS for sc in DECISION_SCOPES],
 )
 decision_feedback_total = Counter(
-    "synergo_decision_feedback_total",
+    "hivelane_decision_feedback_total",
     "Dashboard votes on warn/block decisions: useful or noise, by scope.",
     label=("useful", "scope"),
     values=[(u, sc) for u in ("true", "false") for sc in DECISION_SCOPES],
 )
 activity_messages_total = Counter(
-    "synergo_activity_messages_total",
+    "hivelane_activity_messages_total",
     "Activity messages accepted (valid and not rate-limited).",
 )
 intents_total = Counter(
-    "synergo_intents_total",
+    "hivelane_intents_total",
     "Intent messages accepted (valid and not rate-limited).",
 )
 ws_rejections_total = Counter(
-    "synergo_ws_rejections_total",
+    "hivelane_ws_rejections_total",
     "WebSocket connections or join attempts refused, by reason.",
     label="reason",
     values=WS_REJECTION_REASONS,
 )
 messages_dropped_total = Counter(
-    "synergo_messages_dropped_total",
+    "hivelane_messages_dropped_total",
     "Inbound WebSocket messages discarded: over the room's message quota, "
     "malformed (or over a field cap such as the e2e blob), or in an oversized frame.",
     label="reason",
     values=MESSAGE_DROP_REASONS,
 )
 edit_check_seconds = Histogram(
-    "synergo_edit_check_seconds",
+    "hivelane_edit_check_seconds",
     "Server-side time to decide an edit check, from receipt to reply ready.",
     EDIT_CHECK_BUCKETS,
 )
@@ -250,11 +292,13 @@ for _metric in (
     registry.register(_metric)
 
 
-def register_gauge(name: str, help_text: str, read: Callable[[], float]) -> None:
+def register_gauge(
+    name: str, help_text: str, read: Callable[[], float], *, cache_seconds: float = 0.0
+) -> None:
     """Add (or replace) a scrape-time gauge. Replacing keeps re-imports and
-    test reloads from listing one gauge twice."""
+    test reloads from listing one gauge twice. `cache_seconds`: see Gauge."""
     registry.unregister(name)
-    registry.register(Gauge(name, help_text, read))
+    registry.register(Gauge(name, help_text, read, cache_seconds=cache_seconds))
 
 
 def render() -> str:

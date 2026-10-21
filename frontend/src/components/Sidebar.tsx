@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { relayHttpOrigin } from '../relayUrl';
+import { Mark } from '../brand/BrandArt';
 
 export type AppView =
   | 'dashboard'
@@ -20,13 +22,26 @@ interface SidebarProps {
   view: AppView;
   onNavigate: (view: AppView) => void;
   conflictCount: number;
-  elapsedSeconds: number;
   roomId?: string;
   onCopyRoom?: () => void;
   copied?: boolean;
   onInvite?: () => void;
   onNewRoom?: () => void;
   creatingRoom?: boolean;
+}
+
+/**
+ * The session clock ticks here, not in App: a 1 s state update at the root
+ * re-rendered every lane, the timeline and the heat map each second.
+ */
+function SessionClock() {
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  return <>{formatElapsed(Math.max(0, Math.floor((now - startedAt) / 1000)))}</>;
 }
 
 function formatElapsed(seconds: number): string {
@@ -38,7 +53,7 @@ function formatElapsed(seconds: number): string {
 
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
-  { id: 'agents', label: 'Synergo feed', icon: 'dynamic_feed' },
+  { id: 'agents', label: 'Hivelane feed', icon: 'dynamic_feed' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'heatmap', label: 'Heat map', icon: 'local_fire_department' },
   { id: 'invite', label: 'Invite', icon: 'group_add' },
@@ -54,7 +69,6 @@ export default function Sidebar({
   view,
   onNavigate,
   conflictCount,
-  elapsedSeconds,
   roomId,
   onCopyRoom,
   copied = false,
@@ -65,34 +79,33 @@ export default function Sidebar({
   const navigate = useNavigate();
 
   return (
-    <aside className="hidden md:flex flex-col w-[232px] shrink-0 glass-sidebar h-full py-6 px-3">
-      <div className="flex items-center gap-3 px-2.5 mb-8">
+    <aside className="hidden md:flex flex-col w-[220px] shrink-0 glass-sidebar h-full min-h-0 overflow-y-auto custom-scrollbar py-4 px-2">
+      <div className="flex items-center gap-2.5 px-2 mb-6">
         <button
           type="button"
-          className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgb(var(--c-ink)/0.06)] hover:border-lavender/40 transition-colors"
+          className="w-7 h-7 flex items-center justify-center"
           title="Back to home"
+          aria-label="Back to Hivelane home"
           onClick={() => navigate('/')}
         >
-          <span className="material-symbols-outlined text-lavender text-[20px]">
-            hub
-          </span>
+          <Mark size={26} />
         </button>
         <div className="min-w-0">
           <button
             type="button"
-            className="text-[13px] font-semibold text-on-surface truncate leading-tight tracking-tight hover:text-primary transition-colors text-left max-w-full"
+            className="text-[13px] font-medium text-on-surface truncate leading-tight tracking-tight hover:text-primary transition-colors text-left max-w-full"
             onClick={onCopyRoom}
             title="Copy shareable link"
           >
-            {roomId || 'Synergo'}
+            {roomId || 'Hivelane'}
           </button>
-          <p className="text-[10px] text-on-dim font-mono mt-1 tracking-wide tabular-nums">
-            {copied ? 'Link copied' : `Session ${formatElapsed(elapsedSeconds)}`}
+          <p className="text-[11px] text-on-dim font-mono mt-0.5 tabular-nums">
+            {copied ? 'Link copied' : <SessionClock />}
           </p>
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1">
+      <nav className="flex-1 space-y-1" aria-label="Dashboard views">
         {NAV.map((item) => {
           const active = view === item.id;
           return (
@@ -100,20 +113,22 @@ export default function Sidebar({
               key={item.id}
               type="button"
               onClick={() => onNavigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 ${
+              aria-current={active ? 'page' : undefined}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-left transition-colors duration-150 ${
                 active
                   ? 'nav-active'
                   : 'text-on-muted hover:bg-ink/[0.04] hover:text-on-surface'
               }`}
             >
-              <span className="material-symbols-outlined text-[18px] opacity-90">
+              <span className="material-symbols-outlined text-[16px] opacity-80" aria-hidden="true">
                 {item.icon}
               </span>
-              <span className="text-[11px] font-semibold uppercase tracking-[0.1em]">
+              <span className="text-[13px] font-medium">
                 {item.label}
               </span>
               {item.id === 'conflicts' && conflictCount > 0 ? (
                 <span className="ml-auto min-w-5 h-5 px-1.5 rounded-full bg-error/15 text-error text-[10px] font-bold flex items-center justify-center border border-error/25">
+                  <span className="sr-only">: </span>
                   {conflictCount}
                 </span>
               ) : null}
@@ -125,34 +140,34 @@ export default function Sidebar({
       <div className="mt-auto space-y-3 pt-5 border-t border-outline-soft/70 px-1">
         <button
           type="button"
-          className="w-full flex items-center justify-center gap-2 rounded-lg border border-outline-soft bg-surface-raised/40 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-on-muted hover:text-lavender-bright hover:border-lavender/35 hover:bg-lavender/5 transition-all duration-150 disabled:opacity-50"
+          className="w-full flex items-center justify-center gap-2 rounded-md border border-outline-soft px-3 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors duration-150 disabled:opacity-50"
           onClick={onNewRoom}
           disabled={creatingRoom}
         >
-          <span className="material-symbols-outlined text-base">account_tree</span>
-          {creatingRoom ? 'Creating…' : 'New Room'}
+          <span className="material-symbols-outlined text-base" aria-hidden="true">add</span>
+          {creatingRoom ? 'Creating…' : 'New room'}
         </button>
         {onInvite ? (
           <button
             type="button"
-            className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-primary hover:bg-primary/10 transition-all duration-150"
+            className="w-full flex items-center justify-center gap-2 rounded-md px-3 py-2 text-[13px] font-medium text-primary hover:bg-primary/10 transition-colors duration-150"
             onClick={onInvite}
           >
-            <span className="material-symbols-outlined text-base">person_add</span>
+            <span className="material-symbols-outlined text-base" aria-hidden="true">person_add</span>
             Invite teammates
           </button>
         ) : null}
         <div className="flex items-center justify-between px-1.5">
           <button
             type="button"
-            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
             onClick={() => onNavigate('docs')}
           >
             Docs
           </button>
           <button
             type="button"
-            className="text-[10px] font-semibold uppercase tracking-[0.12em] text-on-dim hover:text-on-muted transition-colors"
+            className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
             onClick={() =>
               window.open(
                 `${relayHttpOrigin()}/docs`,
@@ -160,9 +175,9 @@ export default function Sidebar({
                 'noopener,noreferrer',
               )
             }
-            title="Open relay API docs"
+            title="Open the relay's API reference"
           >
-            Support
+            API reference
           </button>
         </div>
       </div>

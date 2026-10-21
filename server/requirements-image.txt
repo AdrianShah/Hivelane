@@ -1,0 +1,9 @@
+# What the relay image (Dockerfile) installs: the relay's pins plus redis.
+# redis is optional for the relay, imported only when HIVELANE_REDIS_URL is set
+# (shared room codes, room leases and rate limits across instances; see
+# docs/self-hosting.md#scaling-out), but baked into the image so one image
+# serves every topology. It stays out of requirements.txt so a plain
+# single-instance install does not need it. Listed here (not inline in the
+# Dockerfile) so Dependabot and audit.yml see the pin.
+-r requirements.txt
+redis==8.1.0

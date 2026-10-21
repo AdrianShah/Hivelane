@@ -6,7 +6,7 @@
    "t": 0,
    "user": "alice",
    "kind": "post_edit",
-   "file": "synergo/daemon.py",
+   "file": "hivelane/daemon.py",
    "symbols": [
     "x"
    ],
@@ -22,7 +22,7 @@
    "t": 3,
    "user": "bob",
    "kind": "pre_edit",
-   "file": "synergo/protocol.py",
+   "file": "hivelane/protocol.py",
    "symbols": [
     "y"
    ],

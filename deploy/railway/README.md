@@ -12,10 +12,10 @@ crashes. Railway injects `$PORT`, which the image listens on.
      (Railway only looks for `railway.json` at the repo root by default).
    - **Networking → Generate Domain** (or add your own domain).
 3. **Volume**: right-click the service → **Attach volume**, mount path
-   `/data`. Room codes live there (`SYNERGO_STATE_PATH=/data/synergo.db` is
+   `/data`. Room codes live there (`HIVELANE_STATE_PATH=/data/hivelane.db` is
    set in the image), so they survive deploys.
 4. **Variables**:
-   - `SYNERGO_ENV=production`
+   - `HIVELANE_ENV=production`
    - `CORS_ORIGINS=https://<your-service>.up.railway.app` (required in
      production; add any dashboard hosted elsewhere, comma-separated)
    - `TRUST_PROXY_HEADER=true` (Railway's proxy terminates TLS; see
@@ -24,7 +24,7 @@ crashes. Railway injects `$PORT`, which the image listens on.
 5. Deploy, then check `https://<your-service>.up.railway.app/readyz`.
 
 `https://<your-service>.up.railway.app/` is the dashboard, and teammates run
-`synergo up --relay wss://<your-service>.up.railway.app/ws`.
+`hivelane up --relay wss://<your-service>.up.railway.app/ws`.
 
 ## Things to know
 

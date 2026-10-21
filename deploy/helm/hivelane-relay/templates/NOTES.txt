@@ -1,0 +1,29 @@
+The Hivelane relay is starting ({{ .Values.replicaCount }} replica{{ if gt (int .Values.replicaCount) 1 }}s{{ end }}).
+
+{{- if .Values.ingress.enabled }}
+{{- range $host := .Values.ingress.hosts }}
+{{- $scheme := ternary "https" "http" (gt (len $.Values.ingress.tls) 0) }}
+
+  Check it:       curl {{ $scheme }}://{{ $host.host }}/readyz
+{{- if $.Values.relay.serveDashboard }}
+  Dashboard:      {{ $scheme }}://{{ $host.host }}/
+{{- end }}
+  Teammates run:  hivelane up --relay {{ ternary "wss" "ws" (gt (len $.Values.ingress.tls) 0) }}://{{ $host.host }}/ws
+{{- end }}
+{{- else }}
+
+No ingress is enabled. To try it from this machine:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "hivelane-relay.fullname" . }} 8000:{{ .Values.service.port }}
+  curl http://127.0.0.1:8000/readyz
+{{- if .Values.relay.serveDashboard }}
+  open http://127.0.0.1:8000/
+{{- end }}
+{{- end }}
+{{- if gt (int .Values.replicaCount) 1 }}
+
+Several replicas: room codes and room leases are in Redis, but each room's
+WebSockets must still reach ONE pod. Make the ingress route by room code
+(e.g. ingress-nginx: nginx.ingress.kubernetes.io/upstream-hash-by: "$uri").
+Pods log a warning naming any room whose members land on different pods.
+{{- end }}

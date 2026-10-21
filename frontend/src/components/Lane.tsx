@@ -1,4 +1,4 @@
-import { useId, useState } from 'react';
+import { memo, useId, useState } from 'react';
 import type { LaneState, PlanUpdate } from '../types';
 import { decisionScope, scopeLabel, type FeedbackMap, type Vote } from '../detection';
 import type { LaneStatus } from '../dashboard/laneStatus';
@@ -45,11 +45,25 @@ interface LaneProps {
 
 const MAX_DIFFS = 5;
 
-function editKey(edit: Touch, i: number): string {
-  return `${edit.file_path}@${edit.timestamp}#${i}`;
+/**
+ * Keys that survive a new edit arriving at the top of the list (an index
+ * in the key shifted every key, collapsing an open diff and remounting rows).
+ * A repeat of the same file and second gets a suffix.
+ */
+function editKeys(edits: Touch[]): string[] {
+  const seen = new Map<string, number>();
+  return edits.map((edit) => {
+    const base = `${edit.file_path}@${edit.timestamp}`;
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return n === 0 ? base : `${base}~${n}`;
+  });
 }
 
-export default function Lane({
+/** Memoized: the dashboard re-renders on every relay frame, a lane only when its props change. */
+export default memo(Lane);
+
+function Lane({
   userId,
   state,
   inConflict = false,
@@ -92,6 +106,7 @@ export default function Lane({
   )
     .filter((edit) => (fileFilter ? fileFilter(edit.file_path) : true))
     .slice(0, MAX_DIFFS);
+  const keys = editKeys(edits);
 
   // "View overlap" highlights a file: its diff opens unless toggled by hand.
   const highlight = highlightFile ? normPath(highlightFile) : null;
@@ -212,7 +227,7 @@ export default function Lane({
                     <li key={file} className="flex items-center gap-2 text-[11.5px] min-w-0">
                       <span className={`plan-check ${edited ? 'is-edited' : ''}`} aria-hidden="true">
                         {edited ? (
-                          <span className="material-symbols-outlined text-[12px] leading-none">check</span>
+                          <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">check</span>
                         ) : null}
                       </span>
                       <code
@@ -235,7 +250,7 @@ export default function Lane({
         ) : null}
 
         {decisions.length > 0 ? (
-          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="Recent Synergo decisions">
+          <ul className="list-none m-0 p-0 flex flex-wrap gap-1.5" aria-label="Recent Hivelane decisions">
             {decisions.map((decision) => {
               const blocked = decision.decision === 'block';
               const others = decision.others.length ? `${decision.others.join(', ')} editing` : null;
@@ -283,7 +298,7 @@ export default function Lane({
           ) : (
             <ul className="list-none m-0 p-0 flex flex-col gap-1.5">
               {edits.map((edit, i) => {
-                const key = editKey(edit, i);
+                const key = keys[i];
                 const highlighted = highlight === edit.file_path;
                 const open = openEdits[key] ?? highlighted;
                 const panelId = `${baseId}-diff-${i}`;
@@ -298,7 +313,15 @@ export default function Lane({
                       className="diff-toggle w-full flex items-center gap-2 px-3 py-2 text-left transition-colors min-w-0"
                       aria-expanded={open}
                       aria-controls={panelId}
-                      onClick={() => setOpenEdits((prev) => ({ ...prev, [key]: !open }))}
+                      onClick={() =>
+                        setOpenEdits((prev) => {
+                          // Only keys still listed: the map no longer grows forever.
+                          const next: Record<string, boolean> = {};
+                          for (const k of keys) if (k in prev) next[k] = prev[k];
+                          next[key] = !open;
+                          return next;
+                        })
+                      }
                     >
                       <span
                         className={`material-symbols-outlined text-[16px] text-on-dim transition-transform duration-150 ${

@@ -1,8 +1,8 @@
 ---
-title: Synergo
-description: Live coordination for parallel AI coding agents. Synergo warns or blocks an edit when a teammate's agent is already in that file.
+title: Hivelane
+description: Live coordination for parallel AI coding agents. Hivelane warns or blocks an edit when a teammate's agent is already in that file.
 template: splash
-editUrl: https://github.com/AdrianShah/Synergo/edit/main/docs-site/pages/index.mdx
+editUrl: https://github.com/AdrianShah/Hivelane/edit/main/docs-site/pages/index.mdx
 hero:
   tagline: Live coordination for parallel AI coding agents. Every agent asks "is anyone else in this file?" before it writes, and is warned or blocked when a teammate already is.
   actions:
@@ -13,7 +13,7 @@ hero:
       link: '{{BASE}}/conflict-detection/'
       variant: minimal
     - text: GitHub
-      link: https://github.com/AdrianShah/Synergo
+      link: https://github.com/AdrianShah/Hivelane
       icon: github
       variant: minimal
 ---
@@ -21,8 +21,8 @@ hero:
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ```bash
-pipx install synergo      # or: uv tool install synergo
-synergo up                # in your repo: hooks, room, background daemon
+pipx install hivelane      # or: uv tool install hivelane
+hivelane up                # in your repo: hooks, room, background daemon
 ```
 
 <CardGrid>
@@ -33,7 +33,7 @@ synergo up                # in your repo: hooks, room, background daemon
   </Card>
   <Card title="Every agent, one room" icon="puzzle">
     Claude Code, Codex, Cursor and Gemini CLI through native hooks; Aider and
-    anything else through `synergo run`; humans through the VS Code extension.
+    anything else through `hivelane run`; humans through the VS Code extension.
   </Card>
   <Card title="Shared dashboard" icon="laptop">
     One lane per agent with intent, plans, captions and diffs, plus every warn
@@ -49,7 +49,7 @@ synergo up                # in your repo: hooks, room, background daemon
 
 <CardGrid>
   <LinkCard title="Install" href="{{BASE}}/install/" description="pipx, uv, Homebrew, Scoop, install scripts or npx." />
-  <LinkCard title="Write an adapter" href="{{BASE}}/adapters/" description="Teach Synergo a new coding agent's hooks." />
+  <LinkCard title="Write an adapter" href="{{BASE}}/adapters/" description="Teach Hivelane a new coding agent's hooks." />
   <LinkCard title="Wire protocol" href="{{BASE}}/protocol/" description="Build a client in another language." />
   <LinkCard title="Self-host the relay" href="{{BASE}}/self-hosting/" description="Docker, Compose with Caddy, Fly.io or Render." />
 </CardGrid>

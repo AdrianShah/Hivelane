@@ -1,5 +1,5 @@
 """One daemon per machine, many repos, against the real relay: a developer's
-single daemon adopts two repos from their .synergo.toml, joins each repo's own
+single daemon adopts two repos from their .hivelane.toml, joins each repo's own
 room, and a teammate in one room is blocked only by edits made in that room.
 """
 
@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from synergo.daemon import Daemon
+from hivelane.daemon import Daemon
 
 from .conftest import free_port, wait_until
 
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(
 def _repo(path: Path, room: str, relay: str) -> Path:
     (path / "server").mkdir(parents=True)
     subprocess.run(["git", "init", "-q", str(path)], check=True)
-    (path / ".synergo.toml").write_text(
+    (path / ".hivelane.toml").write_text(
         f'room = "{room}"\nrelay = "{relay}"\nblock_window_seconds = 20\n', encoding="utf-8"
     )
     for name in ("room.py", "other.py"):
@@ -52,9 +52,9 @@ def test_one_daemon_coordinates_two_repos_in_their_own_rooms(
 ) -> None:
     # The adopted repos take their display name from here, not from whoever
     # runs the tests.
-    monkeypatch.setenv("SYNERGO_HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("SYNERGO_NAME", "adrian")
-    monkeypatch.delenv("SYNERGO_RELAY", raising=False)
+    monkeypatch.setenv("HIVELANE_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HIVELANE_NAME", "adrian")
+    monkeypatch.delenv("HIVELANE_RELAY", raising=False)
 
     room_one, room_two = cluster.create_room(), cluster.create_room()
     one = _repo(tmp_path / "one", room_one, cluster.relay.ws_url)

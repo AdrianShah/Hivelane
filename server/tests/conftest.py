@@ -12,8 +12,26 @@ from starlette import testclient
 
 try:
     from server import limits
+    from server import room as room_module
 except ImportError:  # Render rootDir=server
     import limits
+    import room as room_module  # type: ignore[no-redef]
+
+# The feed debounce the suite runs with. The production value (0.5 s) is what
+# most server tests spent their time waiting on; tests that check the debounce
+# itself, or ordering across a real flush window, opt out with
+# @pytest.mark.real_feed_debounce.
+TEST_BROADCAST_FLUSH_SECONDS = 0.02
+
+
+@pytest.fixture(autouse=True)
+def _fast_feed_debounce(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if request.node.get_closest_marker("real_feed_debounce") is None:
+        monkeypatch.setattr(
+            room_module, "BROADCAST_FLUSH_SECONDS", TEST_BROADCAST_FLUSH_SECONDS
+        )
 
 
 @pytest.fixture(autouse=True)
