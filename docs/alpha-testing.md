@@ -10,7 +10,7 @@ Pages:
 
 ## 1. Install (each person, once)
 
-You need Python 3.11+, [pipx](https://pipx.pypa.io/), git, and access to
+You need Python 3.12+, [pipx](https://pipx.pypa.io/), git, and access to
 `AdrianShah/Hivelane`.
 
 ```bash
