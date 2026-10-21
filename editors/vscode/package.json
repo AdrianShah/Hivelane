@@ -83,7 +83,7 @@
         "hivelane.dashboardUrl": {
           "type": "string",
           "default": "",
-          "description": "Base URL of the Hivelane dashboard; rooms open at <url>/r/ROOM (with ?relay= when the relay is elsewhere). Empty: $HIVELANE_DASHBOARD, else http://localhost:5173 for a local relay and https://hivelane.dev for any other."
+          "description": "Base URL of the Hivelane dashboard; rooms open at <url>/r/ROOM (with ?relay= when the relay is elsewhere). Empty: $HIVELANE_DASHBOARD, else http://localhost:5173 for a local relay and https://adrianshah.github.io/Hivelane for any other."
         },
         "hivelane.warnOnEdit": {
           "type": "boolean",

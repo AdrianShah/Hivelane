@@ -17,7 +17,7 @@ The extension talks to your local Hivelane daemon (`hivelane up`, default `http:
 | Setting | Default | |
 |---|---|---|
 | `hivelane.port` | `4600` | Daemon port. Folder, workspace and user settings win in that order; unset, `HIVELANE_PORT` from the editor's own environment is used (GUI-launched editors often don't inherit it). |
-| `hivelane.dashboardUrl` | `""` | Base URL of the dashboard. Empty: `HIVELANE_DASHBOARD`, else `http://localhost:5173` for a local relay and `https://hivelane.dev` otherwise. Room links carry `?relay=`. |
+| `hivelane.dashboardUrl` | `""` | Base URL of the dashboard. Empty: `HIVELANE_DASHBOARD`, else `http://localhost:5173` for a local relay and `https://adrianshah.github.io/Hivelane` otherwise. Room links carry `?relay=`. |
 | `hivelane.joinApprovalRooms` | `false` | In approval-required rooms, ask an owner to admit this editor as a spectator so badges work. A declined request is not retried. |
 | `hivelane.warnOnEdit` | `true` | Run the pre-edit check when you start editing. |
 | `hivelane.shareHumanEdits` | `true` | Share your saved edits with the room. |

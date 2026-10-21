@@ -43,7 +43,7 @@ WAIT_TIMEOUT = 90.0
 WAIT_SLICE = 5.0
 
 DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173"
-DEFAULT_DASHBOARD = "https://hivelane.dev"
+DEFAULT_DASHBOARD = "https://adrianshah.github.io/Hivelane"
 DASHBOARD_ENV = "HIVELANE_DASHBOARD"
 INSTALL_COMMAND = "pipx install hivelane"
 

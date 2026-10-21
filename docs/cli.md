@@ -132,10 +132,10 @@ hivelane open [--root PATH]
 Opens `<dashboard>/r/<ROOM>` in your browser. The dashboard base is
 `HIVELANE_DASHBOARD` if set, else the local dev server (`http://localhost:5173`)
 for a local relay, else the hosted dashboard on GitHub Pages
-(`https://hivelane.dev`). The URL is also printed for
+(`https://adrianshah.github.io/Hivelane`). The URL is also printed for
 headless machines. A dashboard that is not served by the relay itself needs to
 be told which relay to use: add `?relay=<ws url>` to the link (for example
-`https://hivelane.dev/r/K7M2PQ2X?relay=wss://relay.example.com/ws`);
+`https://adrianshah.github.io/Hivelane/r/K7M2PQ2X?relay=wss://relay.example.com/ws`);
 the dashboard remembers it for the rest of the browser tab.
 
 | Option | Description |

@@ -237,7 +237,7 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-export const DEFAULT_DASHBOARD = "https://hivelane.dev";
+export const DEFAULT_DASHBOARD = "https://adrianshah.github.io/Hivelane";
 export const DEFAULT_DASHBOARD_LOCAL = "http://localhost:5173";
 
 function httpUrl(wsOrHttp: string): URL {

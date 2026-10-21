@@ -15,10 +15,10 @@ services:
     # idle, which drops every daemon's WebSocket.
     plan: 0.5c-512mb
     healthCheckPath: /readyz
-    # Deploys are driven by .github/workflows/deploy.yml after CI passes: copy
-    # this service's Deploy Hook URL into the RELAY_DEPLOY_HOOK_URL secret.
-    # Use "checksPass" instead to let Render deploy on its own after CI.
-    autoDeployTrigger: "off"
+    # Render deploys each commit on main once its GitHub checks (CI) pass.
+    # To drive deploys from .github/workflows/deploy.yml instead, set this to
+    # "off" and copy the Deploy Hook URL into the RELAY_DEPLOY_HOOK_URL secret.
+    autoDeployTrigger: checksPass
     # Room codes live here so they survive deploys. A service with a disk
     # cannot scale past one instance, which is also what the relay needs today:
     # rooms are held in the process's memory.
@@ -36,11 +36,17 @@ services:
       - key: TRUST_PROXY_HEADER
         value: "true"
       # Exact origin(s) of dashboards hosted elsewhere, comma-separated. The
-      # bundled dashboard (served at /) is same-origin and needs no entry, but
-      # the relay will not boot in production without one: use the service's
-      # own URL if it is the only dashboard. Render prompts for it on first apply.
+      # bundled dashboard (served at /) is same-origin and needs no entry; this
+      # is the GitHub Pages dashboard (add https://hivelane.dev once that
+      # domain is live).
       - key: CORS_ORIGINS
-        sync: false
+        value: https://adrianshah.github.io
+      # Public-relay limits from docs/performance.md (one process handles about
+      # 180-200 busy members; a room stays fast up to about 25).
+      - key: HIVELANE_MAX_MEMBERS
+        value: "25"
+      - key: HIVELANE_MAX_ROOMS
+        value: "500"
       # Optional AI captions and conflict summaries.
       - key: GEMINI_API_KEY
         sync: false
