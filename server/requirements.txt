@@ -1,7 +1,7 @@
-fastapi==0.142.2
-uvicorn[standard]==0.34.0
+fastapi==0.146.0
+uvicorn[standard]==0.54.0
 websockets==15.0.1
 pydantic>=2.12.5,<3
 python-dotenv==1.2.4
 httpx==0.28.1
-google-genai==2.14.0
+google-genai==2.31.0
