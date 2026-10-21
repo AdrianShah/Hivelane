@@ -53,20 +53,32 @@ wait_for() {
   fail "$label did not come up at $url"
 }
 
-for port in "$RELAY_PORT" "$PORT_A" "$PORT_B"; do
+# SMOKE_RELAY=https://relay.example.com runs against a deployed relay instead
+# of starting one here.
+RELAY_HTTP=${SMOKE_RELAY:-http://127.0.0.1:$RELAY_PORT}
+RELAY_HTTP=${RELAY_HTTP%/}
+RELAY_WS="ws${RELAY_HTTP#http}/ws"
+
+local_ports=("$PORT_A" "$PORT_B")
+[[ -n "${SMOKE_RELAY:-}" ]] || local_ports+=("$RELAY_PORT")
+for port in "${local_ports[@]}"; do
   if curl -fsS --max-time 1 "http://127.0.0.1:$port/status" >/dev/null 2>&1 \
      || curl -fsS --max-time 1 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
     fail "port $port is already serving — stop it first (a stale daemon can fake a pass)"
   fi
 done
 
-echo "== starting relay on :$RELAY_PORT"
-uvicorn server.main:app --port "$RELAY_PORT" --log-level warning >"$WORK/relay.log" 2>&1 &
-PIDS+=($!)
-disown
-wait_for "http://127.0.0.1:$RELAY_PORT/health" "relay"
+if [[ -n "${SMOKE_RELAY:-}" ]]; then
+  echo "== using the relay at $RELAY_HTTP"
+else
+  echo "== starting relay on :$RELAY_PORT"
+  uvicorn server.main:app --port "$RELAY_PORT" --log-level warning >"$WORK/relay.log" 2>&1 &
+  PIDS+=($!)
+  disown
+fi
+wait_for "$RELAY_HTTP/health" "relay"
 
-ROOM=$(curl -fsS -X POST "http://127.0.0.1:$RELAY_PORT/rooms" \
+ROOM=$(curl -fsS -X POST "$RELAY_HTTP/rooms" \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["room_id"])')
 echo "== room $ROOM"
 
@@ -79,7 +91,7 @@ printf 'def broadcast():\n    return 1\n' > "$REPO/server/room.py"
 start_daemon() {
   local name=$1 agent=$2 port=$3 cwd=$4
   ( cd "$cwd" && exec hivelane join "$ROOM" --name "$name" --agent "$agent" \
-      --server "ws://127.0.0.1:$RELAY_PORT/ws" --port "$port" \
+      --server "$RELAY_WS" --port "$port" \
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)
   disown
