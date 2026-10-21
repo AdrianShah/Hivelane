@@ -7,7 +7,7 @@
 # --- dashboard ---------------------------------------------------------------
 # A static build, identical on every architecture, so it runs on the build
 # host's own platform even when the image is cross-built for arm64.
-FROM --platform=$BUILDPLATFORM node:20-slim AS dashboard
+FROM --platform=$BUILDPLATFORM node:25-slim AS dashboard
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
