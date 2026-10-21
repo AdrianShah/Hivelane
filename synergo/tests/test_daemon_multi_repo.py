@@ -19,6 +19,7 @@ import httpx
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
+from synergo import auth
 from synergo import daemon as daemon_module
 from synergo.daemon import Daemon, IgnoreRules, default_name, sanitize_name
 from synergo.events import NormalizedEvent
@@ -428,7 +429,10 @@ def test_admin_endpoints_register_remove_and_shut_down(tmp_path: Path) -> None:
             daemon = Daemon(port=port)
             run = asyncio.create_task(daemon.run())
             base = f"http://127.0.0.1:{port}"
-            async with httpx.AsyncClient(base_url=base, timeout=5.0, trust_env=False) as http:
+            headers = {auth.TOKEN_HEADER: daemon.ensure_token()}
+            async with httpx.AsyncClient(
+                base_url=base, timeout=5.0, trust_env=False, headers=headers
+            ) as http:
                 await wait_for_http(http)
                 body = {
                     "root": str(repo),

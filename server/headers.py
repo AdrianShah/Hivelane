@@ -1,0 +1,77 @@
+"""Security headers on every HTTP response the relay sends.
+
+A pure ASGI middleware rather than Starlette's BaseHTTPMiddleware: it only
+rewrites the response-start message, so streaming bodies, background tasks and
+WebSocket upgrades pass through untouched (WebSocket scopes are skipped).
+
+- X-Content-Type-Options: nosniff and Referrer-Policy: no-referrer everywhere.
+  no-referrer matters more than usual here: a dashboard URL carries the room
+  code (/r/<code>), so it must never leak to another site through a Referer
+  header.
+- Strict-Transport-Security only when the deploy is known to sit behind TLS
+  (SYNERGO_ENV=staging or production): sent from a plain-http dev relay it
+  would pin the browser to https for localhost.
+- Content-Security-Policy (plus X-Frame-Options) on HTML responses only, i.e.
+  when the relay serves the bundled dashboard. JSON and metrics need none.
+
+The CSP fits the dashboard as built today: frontend/index.html loads Tailwind's
+browser build from cdn.tailwindcss.com, configures it in an inline script, and
+pulls fonts from Google Fonts. Those are the only third-party origins allowed;
+script-src needs 'unsafe-inline' for the config block until it moves into a
+bundled file (at which point drop it and the CDN origin). connect-src allows
+any ws:/wss: target because the relay URL is baked in at build time and may
+differ from the page's origin. frame-ancestors 'none' keeps the dashboard out
+of other sites' frames, so nobody can overlay an owner's "Approve" button.
+"""
+
+from __future__ import annotations
+
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+HSTS_VALUE = "max-age=31536000; includeSubDomains"
+
+DASHBOARD_CSP = "; ".join(
+    (
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "connect-src 'self' ws: wss:",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    )
+)
+
+
+class SecurityHeadersMiddleware:
+    """Adds the headers above. Headers a route already set are left alone,
+    so one endpoint can still opt into a different policy."""
+
+    def __init__(self, app: ASGIApp, *, hsts: bool, csp: str = DASHBOARD_CSP) -> None:
+        self.app = app
+        self.hsts = hsts
+        self.csp = csp
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                headers.setdefault("X-Content-Type-Options", "nosniff")
+                headers.setdefault("Referrer-Policy", "no-referrer")
+                if self.hsts:
+                    headers.setdefault("Strict-Transport-Security", HSTS_VALUE)
+                content_type = headers.get("content-type", "")
+                if content_type.lower().startswith("text/html"):
+                    headers.setdefault("Content-Security-Policy", self.csp)
+                    headers.setdefault("X-Frame-Options", "DENY")
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)

@@ -2,10 +2,13 @@
 
 The project file is committed, so a teammate who pulls the repo joins the same
 room with the same conflict windows. The personal file holds what differs per
-person (display name, a private relay). Precedence, highest first: explicit
-overrides (CLI flags) > environment > personal file > project file > defaults —
-except `room` and the windows, which the project file owns so one person's
-personal config cannot silently split them from the team.
+person (display name, a private relay) and the secrets that must never be
+committed: e2e room keys (`room_keys`) and room owner tokens (`owner_tokens`),
+both tables keyed by room code, the file kept owner-only (0600). Precedence,
+highest first: explicit overrides (CLI flags) > environment > personal file >
+project file > defaults — except `room`, the windows and `e2e`, which the
+project file owns so one person's personal config cannot silently split them
+from the team.
 
 Stdlib only (tomllib for reading, a tiny writer for the handful of keys we
 emit), because the hook path may import this on its lazy-start branch.
@@ -29,6 +32,9 @@ DEFAULT_WARN_WINDOW = 60.0
 RELAY_ENV = "SYNERGO_RELAY"
 NAME_ENV = "SYNERGO_NAME"
 HOME_ENV = "SYNERGO_HOME"
+# The e2e room passphrase for whichever repo the process runs in; overrides
+# the personal config's room_keys.
+ROOM_KEY_ENV = "SYNERGO_ROOM_KEY"
 
 # Keys the writer knows how to emit, in the order they are written.
 _PROJECT_KEYS = (
@@ -38,9 +44,16 @@ _PROJECT_KEYS = (
     "warn_window_seconds",
     "ignore",
     "share_diffs",
+    "e2e",
+    "redact",
+    "redact_patterns",
+    "insecure",
 )
 # What write_personal_config emits: the per-person keys.
-_PERSONAL_KEYS = ("name", "relay", "agent")
+_PERSONAL_KEYS = ("name", "relay", "agent", "insecure", "room_keys", "owner_tokens")
+# Secrets: personal file only. One found in the committed project file has
+# already leaked to everyone with the repo, so it is an error, not ignored.
+_SECRET_TABLES = ("room_keys", "owner_tokens")
 
 # A room code ends up in the relay's WebSocket path, so keep it path-safe.
 _ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -61,17 +74,57 @@ class SynergoConfig:
     warn_window_seconds: float = DEFAULT_WARN_WINDOW
     ignore: tuple[str, ...] = ()
     share_diffs: bool = True
+    # End-to-end encryption (the team's choice: project file only).
+    e2e: bool = False
+    # Secret redaction before anything leaves the machine (synergo.redact).
+    redact: bool = True
+    redact_patterns: tuple[str, ...] = ()
+    # Allow a plaintext ws:// relay on a non-loopback host.
+    insecure: bool = False
+    # Personal secrets by room code: ((ROOM, value), ...).
+    room_keys: tuple[tuple[str, str], ...] = ()
+    owner_tokens: tuple[tuple[str, str], ...] = ()
     # Directory holding the project file, or None when there is none.
     root: Optional[Path] = None
     # Which files contributed, for `synergo doctor`.
     sources: tuple[Path, ...] = field(default_factory=tuple)
 
-    def room_settings(self) -> dict[str, float]:
+    def room_settings(self) -> dict[str, Any]:
         """The JoinMessage.settings payload (RoomSettings on the wire)."""
         return {
             "block_window_seconds": self.block_window_seconds,
             "warn_window_seconds": self.warn_window_seconds,
+            "e2e": self.e2e,
         }
+
+    def room_key(self, room: Optional[str] = None) -> Optional[str]:
+        """The e2e passphrase for room (default: this config's room):
+        SYNERGO_ROOM_KEY, else the personal file's room_keys entry."""
+        env = os.environ.get(ROOM_KEY_ENV, "").strip()
+        if env:
+            return env
+        return _lookup(self.room_keys, room or self.room)
+
+    def room_key_source(self, room: Optional[str] = None) -> Optional[str]:
+        if os.environ.get(ROOM_KEY_ENV, "").strip():
+            return ROOM_KEY_ENV
+        if _lookup(self.room_keys, room or self.room) is not None:
+            return f"{personal_config_path()} (room_keys)"
+        return None
+
+    def owner_token(self, room: Optional[str] = None) -> Optional[str]:
+        """The owner token `synergo up` stored when it created room."""
+        return _lookup(self.owner_tokens, room or self.room)
+
+
+def _lookup(pairs: tuple[tuple[str, str], ...], room: Optional[str]) -> Optional[str]:
+    if not room:
+        return None
+    wanted = room.strip().upper()
+    for code, value in pairs:
+        if code == wanted:
+            return value
+    return None
 
 
 def synergo_home() -> Path:
@@ -128,6 +181,37 @@ def _float(data: dict[str, Any], key: str, path: Path) -> Optional[float]:
     return float(value)
 
 
+def is_loopback_host(host: str) -> bool:
+    host = (host or "").strip("[]").lower()
+    return (
+        host in ("localhost", "::1", "0.0.0.0")
+        or host.endswith(".localhost")
+        or host.startswith("127.")
+    )
+
+
+def transport_problem(relay: str, insecure: bool = False) -> Optional[str]:
+    """Why relay may not be used, or None. A ws:// relay on anything but this
+    machine sends every path, diff and prompt in cleartext over the network
+    (and the room code with it), so it needs an explicit opt-in."""
+    from urllib.parse import urlsplit
+
+    text = (relay or "").strip()
+    if not text.lower().startswith("ws://") or insecure:
+        return None
+    try:
+        host = urlsplit(text).hostname or ""
+    except ValueError:
+        host = ""
+    if is_loopback_host(host):
+        return None
+    return (
+        f"refusing the plaintext relay {text}: ws:// to {host or 'a remote host'} sends your "
+        "paths, diffs and prompts unencrypted over the network. Use wss:// (TLS), or pass "
+        "--insecure (or set `insecure = true` in .synergo.toml) if this network is trusted"
+    )
+
+
 def _check_relay(value: str, source: str) -> str:
     if not value.startswith(_RELAY_SCHEMES):
         raise ConfigFileError(
@@ -136,7 +220,37 @@ def _check_relay(value: str, source: str) -> str:
     return value
 
 
+def _bool(data: dict[str, Any], key: str, path: Path) -> Optional[bool]:
+    if key not in data:
+        return None
+    if not isinstance(data[key], bool):
+        raise ConfigFileError(f"{path}: {key} must be true or false")
+    return data[key]
+
+
+def _secret_table(data: dict[str, Any], key: str, path: Path) -> tuple[tuple[str, str], ...]:
+    table = data[key]
+    if not isinstance(table, dict):
+        raise ConfigFileError(f'{path}: {key} must be a table of ROOM = "value"')
+    pairs: list[tuple[str, str]] = []
+    for room, value in table.items():
+        if not isinstance(room, str) or not _ROOM_RE.match(room.strip()):
+            raise ConfigFileError(f"{path}: {key} has a key that is not a room code ({room!r})")
+        if not isinstance(value, str) or not value.strip():
+            raise ConfigFileError(f"{path}: {key}.{room} must be a non-empty string")
+        pairs.append((room.strip().upper(), value.strip()))
+    return tuple(pairs)
+
+
 def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: bool) -> None:
+    if project:
+        leaked = [key for key in _SECRET_TABLES if key in data]
+        if leaked:
+            raise ConfigFileError(
+                f"{path}: {', '.join(leaked)} must never be in the committed project file "
+                f"(anyone with the repo can read it). Remove it, rotate the secret, and keep it "
+                f"in {personal_config_path()} or the {ROOM_KEY_ENV} environment variable instead"
+            )
     for key in ("room", "relay", "name", "agent"):
         if key in data:
             if not isinstance(data[key], str) or not data[key].strip():
@@ -164,6 +278,27 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
         if not isinstance(data["share_diffs"], bool):
             raise ConfigFileError(f"{path}: share_diffs must be true or false")
         base["share_diffs"] = data["share_diffs"]
+    e2e = _bool(data, "e2e", path)
+    if e2e is not None and project:
+        base["e2e"] = e2e  # the team's decision, like the room
+    for key in ("redact", "insecure"):
+        value = _bool(data, key, path)
+        if value is not None:
+            base[key] = value
+    if "redact_patterns" in data:
+        patterns = data["redact_patterns"]
+        if not isinstance(patterns, list) or not all(isinstance(p, str) and p for p in patterns):
+            raise ConfigFileError(f"{path}: redact_patterns must be a list of regular expressions")
+        from synergo.redact import validate_patterns
+
+        problem = validate_patterns(patterns)
+        if problem:
+            raise ConfigFileError(f"{path}: redact_patterns: {problem}")
+        base["redact_patterns"] = tuple(base.get("redact_patterns", ())) + tuple(patterns)
+    if not project:
+        for key in _SECRET_TABLES:
+            if key in data:
+                base[key] = _secret_table(data, key, path)
 
 
 def load_config(
@@ -237,6 +372,9 @@ def _toml_string(text: str) -> str:
     return '"' + "".join(out) + '"'
 
 
+_BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 def _toml_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -244,6 +382,13 @@ def _toml_value(value: Any) -> str:
         return repr(value)
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_toml_value(v) for v in value) + "]"
+    if isinstance(value, dict):
+        # An inline table: room_keys = { K7Q2XM = "..." }.
+        items = [
+            f"{key if _BARE_KEY.match(str(key)) else _toml_string(str(key))} = {_toml_value(v)}"
+            for key, v in value.items()
+        ]
+        return "{ " + ", ".join(items) + " }" if items else "{}"
     return _toml_string(str(value))
 
 
@@ -311,7 +456,7 @@ def _read_lines(path: Path, header: str = _HEADER) -> tuple[list[str], str]:
     return text.splitlines(), newline
 
 
-def _write_lines(path: Path, lines: list[str], newline: str) -> None:
+def _write_lines(path: Path, lines: list[str], newline: str, *, private: bool = False) -> None:
     text = newline.join(lines) + newline
     # Validate before touching the file: a broken write would otherwise
     # surface on a teammate's machine, far from the change that caused it.
@@ -321,6 +466,11 @@ def _write_lines(path: Path, lines: list[str], newline: str) -> None:
         raise ConfigFileError(
             f"refusing to write {path}: the result would not be valid TOML ({exc})"
         ) from None
+    if private:
+        from synergo.auth import write_private
+
+        write_private(path, text)
+        return
     path.write_text(text, encoding="utf-8", newline="")
 
 
@@ -341,18 +491,49 @@ def write_project_config(root: Path, **values: Any) -> Path:
 def write_personal_config(**values: Any) -> Path:
     """Create or update the personal `config.toml`, with the same preservation
     rules as write_project_config. Per-person keys only: the room and the
-    conflict windows belong to the project file."""
+    conflict windows belong to the project file. The file may hold room keys
+    and owner tokens, so it is kept owner-only (0600) where the OS has modes."""
     unknown = set(values) - set(_PERSONAL_KEYS)
     if unknown:
         raise ValueError(f"unsupported personal keys: {sorted(unknown)}")
     path = personal_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    return _update_file(path, values, _PERSONAL_KEYS, _PERSONAL_HEADER)
+    _update_file(path, values, _PERSONAL_KEYS, _PERSONAL_HEADER, private=True)
+    return path
 
 
-def _update_file(path: Path, values: dict[str, Any], keys: tuple[str, ...], header: str) -> Path:
+def personal_values() -> dict[str, Any]:
+    """The raw personal file ({} when there is none)."""
+    path = personal_config_path()
+    if not path.is_file():
+        return {}
+    return _read_toml(path)
+
+
+def set_personal_secret(table: str, room: str, value: Optional[str]) -> Path:
+    """Set (or with None remove) `table`.ROOM in the personal file, keeping
+    the table's other rooms. table is "room_keys" or "owner_tokens"."""
+    if table not in _SECRET_TABLES:
+        raise ValueError(f"not a secret table: {table!r}")
+    code = room.strip().upper()
+    if not _ROOM_RE.match(code):
+        raise ConfigFileError(f"{room!r} is not a room code")
+    current = personal_values().get(table) or {}
+    if not isinstance(current, dict):
+        raise ConfigFileError(f"{personal_config_path()}: {table} must be a table")
+    merged = {str(k).upper(): v for k, v in current.items()}
+    if value is None:
+        merged.pop(code, None)
+    else:
+        merged[code] = value
+    return write_personal_config(**{table: merged})
+
+
+def _update_file(
+    path: Path, values: dict[str, Any], keys: tuple[str, ...], header: str, *, private: bool = False
+) -> Path:
     """Set top-level `values` (None skipped) in the TOML file at `path`,
-    creating it with `header` if missing."""
+    creating it with `header` if missing (owner-only when private)."""
     pending = {k: v for k, v in values.items() if v is not None}
     lines, newline = _read_lines(path, header)
     entries, _ = _top_level_entries(lines)
@@ -381,7 +562,7 @@ def _update_file(path: Path, values: dict[str, Any], keys: tuple[str, ...], head
                 added.append("")
         lines[insert_at:insert_at] = added
 
-    _write_lines(path, lines, newline)
+    _write_lines(path, lines, newline, private=private)
     return path
 
 

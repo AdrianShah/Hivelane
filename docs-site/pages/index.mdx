@@ -1,0 +1,55 @@
+---
+title: Synergo
+description: Live coordination for parallel AI coding agents. Synergo warns or blocks an edit when a teammate's agent is already in that file.
+template: splash
+editUrl: https://github.com/AdrianShah/Synergo/edit/main/docs-site/pages/index.mdx
+hero:
+  tagline: Live coordination for parallel AI coding agents. Every agent asks "is anyone else in this file?" before it writes, and is warned or blocked when a teammate already is.
+  actions:
+    - text: Quick start
+      link: '{{BASE}}/quick-start/'
+      icon: right-arrow
+    - text: How conflicts are detected
+      link: '{{BASE}}/conflict-detection/'
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/AdrianShah/Synergo
+      icon: github
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+```bash
+pipx install synergo      # or: uv tool install synergo
+synergo up                # in your repo: hooks, room, background daemon
+```
+
+<CardGrid>
+  <Card title="Pre-edit checks" icon="approve-check">
+    Agent hooks ask the local daemon before every write. The relay answers
+    allow, warn or block from what the rest of the room is doing, down to the
+    function or line range.
+  </Card>
+  <Card title="Every agent, one room" icon="puzzle">
+    Claude Code, Codex, Cursor and Gemini CLI through native hooks; Aider and
+    anything else through `synergo run`; humans through the VS Code extension.
+  </Card>
+  <Card title="Shared dashboard" icon="laptop">
+    One lane per agent with intent, plans, captions and diffs, plus every warn
+    and block decision with its reason.
+  </Card>
+  <Card title="Self-hostable" icon="seti:docker">
+    The relay is one small FastAPI process in a container. Run it on your own
+    host and nothing leaves your network.
+  </Card>
+</CardGrid>
+
+## Where to go next
+
+<CardGrid>
+  <LinkCard title="Install" href="{{BASE}}/install/" description="pipx, uv, Homebrew, Scoop, install scripts or npx." />
+  <LinkCard title="Write an adapter" href="{{BASE}}/adapters/" description="Teach Synergo a new coding agent's hooks." />
+  <LinkCard title="Wire protocol" href="{{BASE}}/protocol/" description="Build a client in another language." />
+  <LinkCard title="Self-host the relay" href="{{BASE}}/self-hosting/" description="Docker, Compose with Caddy, Fly.io or Render." />
+</CardGrid>

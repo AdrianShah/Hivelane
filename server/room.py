@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import hashlib
+import hmac
 import logging
+import secrets
 import time
+import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional
@@ -18,10 +22,14 @@ from fastapi import WebSocket
 from pydantic import BaseModel
 
 try:
+    from . import config
+    from .limits import TokenBucket
     from .models import (
         ActivityMessage,
         DecisionFeedbackUpdate,
         DecisionScope,
+        JoinRequest,
+        JoinResolved,
         PeerKind,
         PlanConflict,
         PlanMessage,
@@ -30,15 +38,20 @@ try:
         AgentKind,
         Decision,
         IntentUpdate,
+        RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
         SynergoFeed,
     )
 except ImportError:  # Render rootDir=server
+    import config  # type: ignore[no-redef]
+    from limits import TokenBucket  # type: ignore[no-redef]
     from models import (
         ActivityMessage,
         DecisionFeedbackUpdate,
         DecisionScope,
+        JoinRequest,
+        JoinResolved,
         PeerKind,
         PlanConflict,
         PlanMessage,
@@ -47,6 +60,7 @@ except ImportError:  # Render rootDir=server
         AgentKind,
         Decision,
         IntentUpdate,
+        RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
         SynergoFeed,
@@ -94,6 +108,27 @@ IMPORTS_SYMBOL = "<imports>"
 
 # Feedback is kept for this many recent decisions per room (LRU).
 MAX_TRACKED_DECISIONS = 1000
+
+# Joiners that may wait for an owner's approval at once, per room. Bounded so a
+# script holding sockets open cannot grow the queue (or the owners' screens).
+MAX_PENDING_JOINS = 10
+
+# Bytes of randomness in an owner token (POST /rooms returns it once).
+OWNER_TOKEN_BYTES = 32
+
+
+def new_owner_token() -> str:
+    """A fresh owner secret: 32 random bytes, URL-safe base64 (43 characters)."""
+    return secrets.token_urlsafe(OWNER_TOKEN_BYTES)
+
+
+def hash_owner_token(token: str) -> str:
+    """What the relay keeps instead of the token: its SHA-256, hex.
+
+    Unsalted on purpose: the token is 256 random bits, so there is nothing to
+    precompute, and a stolen hash cannot be replayed as a token.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 # Files where "different function" is no comfort: manifests, lockfiles and
 # config are edited as a whole, so they are always judged at file level.
@@ -182,6 +217,9 @@ class FileTouch:
     branch: str = ""
     # How the peer is involved: an edit, a declared plan, or an intent mention.
     kind: PeerKind = "edited"
+    # The e2e blob of the message this touch came from, copied verbatim onto
+    # the PeerTouch / PlanConflict a peer receives (see models.E2EBlob).
+    e2e: str = ""
 
 
 @dataclass
@@ -209,6 +247,34 @@ class FileOverlap:
     file_path: str
     current_diff: str
     other: FileTouch
+
+
+def _settle(decision: asyncio.Future, approve: bool) -> None:
+    if not decision.done():
+        decision.set_result(approve)
+
+
+@dataclass
+class PendingJoin:
+    """Someone held at the door of an approval-required room.
+
+    `decision` resolves True (admit) or False (decline) when an owner answers,
+    or True when the policy is switched off (everyone waiting is admitted).
+    """
+
+    request_id: str
+    name: str
+    agent: AgentKind
+    created_at: float
+    decision: asyncio.Future
+
+    def request(self) -> JoinRequest:
+        return JoinRequest(
+            request_id=self.request_id,
+            name=self.name,
+            agent=self.agent,
+            timestamp=self.created_at,
+        )
 
 
 class Room:
@@ -249,6 +315,17 @@ class Room:
         # Queued room broadcasts → flushed as one synergo_feed every 500ms.
         self._broadcast_queue: list[dict] = []
         self._flush_task: Optional[asyncio.Task] = None
+        # --- access control (see the "access" section) ---
+        # SHA-256 of the owner token POST /rooms returned; None for rooms
+        # created before owner tokens, which therefore have no owners.
+        self._owner_hash: Optional[str] = None
+        self._require_approval = False
+        # Sockets (members or spectators) that presented the owner token.
+        self._owner_sockets: set[WebSocket] = set()
+        # request_id -> joiner waiting for approval, oldest first.
+        self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
+        # Inbound messages per minute, summed over every socket in the room.
+        self.message_quota = TokenBucket(config.ROOM_MESSAGE_LIMIT)
 
     # --- membership ----------------------------------------------------------
 
@@ -292,7 +369,9 @@ class Room:
         return self._member_agents.get(user_id, "unknown")
 
     def remove_member(self, user_id: str) -> None:
-        self._members.pop(user_id, None)
+        socket = self._members.pop(user_id, None)
+        if socket is not None:
+            self._owner_sockets.discard(socket)
         self._member_agents.pop(user_id, None)
         self._latest_updates.pop(user_id, None)
         self._latest_intents.pop(user_id, None)
@@ -318,6 +397,7 @@ class Room:
         return RoomSettingsUpdate(
             block_window_seconds=self._settings.block_window_seconds,
             warn_window_seconds=self._settings.warn_window_seconds,
+            e2e=self._settings.e2e,
             set_by=self._settings_set_by,
             timestamp=self._settings_updated_at,
         )
@@ -346,12 +426,15 @@ class Room:
         if settings == self._settings:
             return None
         log.info(
-            "Room settings changed by %s: block %gs -> %gs, warn %gs -> %gs",
+            "Room settings changed by %s: block %gs -> %gs, warn %gs -> %gs, "
+            "e2e %s -> %s",
             set_by or "the relay",
             self._settings.block_window_seconds,
             settings.block_window_seconds,
             self._settings.warn_window_seconds,
             settings.warn_window_seconds,
+            self._settings.e2e,
+            settings.e2e,
         )
         self._settings = settings.model_copy()
         self._settings_set_by = set_by
@@ -363,6 +446,148 @@ class Room:
 
     def remove_spectator(self, socket: WebSocket) -> None:
         self._spectators.discard(socket)
+        self._owner_sockets.discard(socket)
+
+    # --- access --------------------------------------------------------------
+    #
+    # The room code admits anyone who has it. Rooms created with an owner
+    # token can additionally require an owner to approve each new joiner.
+
+    def set_owner_hash(self, owner_hash: Optional[str]) -> None:
+        self._owner_hash = owner_hash
+
+    @property
+    def has_owner(self) -> bool:
+        return self._owner_hash is not None
+
+    def verify_owner_token(self, token: Optional[str]) -> bool:
+        """True if token is this room's owner token. Compared as hashes in
+        constant time, so timing says nothing about how close a guess was."""
+        if not token or self._owner_hash is None:
+            return False
+        return hmac.compare_digest(hash_owner_token(token), self._owner_hash)
+
+    def add_owner(self, socket: WebSocket) -> None:
+        self._owner_sockets.add(socket)
+
+    def is_owner(self, socket: WebSocket) -> bool:
+        return socket in self._owner_sockets
+
+    @property
+    def owner_count(self) -> int:
+        return len(self._owner_sockets)
+
+    @property
+    def require_approval(self) -> bool:
+        return self._require_approval
+
+    def policy_update(self) -> RoomPolicyUpdate:
+        return RoomPolicyUpdate(require_approval=self._require_approval)
+
+    def set_require_approval(self, value: bool) -> Optional[RoomPolicyUpdate]:
+        """Change the join policy. Returns the frame to broadcast, or None
+        when nothing changed. Switching approval off admits everyone waiting:
+        the rule they were held by no longer exists."""
+        if value == self._require_approval:
+            return None
+        self._require_approval = value
+        if not value:
+            for pending in list(self._pending.values()):
+                self.resolve_pending(pending.request_id, True)
+        return self.policy_update()
+
+    def access_record(self) -> dict[str, object]:
+        """What the store keeps about access. Never the token itself."""
+        return {
+            "owner_hash": self._owner_hash,
+            "require_approval": self._require_approval,
+        }
+
+    def load_access(self, record: Optional[dict]) -> None:
+        """Restore access_record() output from the store. Tolerates a missing
+        or foreign record: a room without one has no owner and no approval."""
+        if not isinstance(record, dict):
+            return
+        owner_hash = record.get("owner_hash")
+        self._owner_hash = (
+            owner_hash if isinstance(owner_hash, str) and owner_hash else None
+        )
+        # Approval without an owner would hold every joiner until timeout.
+        self._require_approval = bool(record.get("require_approval")) and self.has_owner
+
+    def open_pending(
+        self, name: str, agent: AgentKind = "unknown", now: Optional[float] = None
+    ) -> Optional[PendingJoin]:
+        """Queue a joiner for approval, or None when MAX_PENDING_JOINS wait."""
+        if len(self._pending) >= MAX_PENDING_JOINS:
+            return None
+        pending = PendingJoin(
+            request_id=uuid.uuid4().hex,
+            name=name,
+            agent=agent,
+            created_at=time.time() if now is None else now,
+            decision=asyncio.get_running_loop().create_future(),
+        )
+        self._pending[pending.request_id] = pending
+        return pending
+
+    def resolve_pending(self, request_id: str, approve: bool) -> bool:
+        """Answer a pending join. False for an unknown or already-answered id.
+
+        The waiting joiner's future belongs to the loop its socket runs on.
+        Under uvicorn that is the only loop; anything else (e.g. a test
+        client that gives each socket its own loop) is handed over safely.
+        """
+        pending = self._pending.get(request_id)
+        if pending is None or pending.decision.done():
+            return False
+        loop = pending.decision.get_loop()
+        try:
+            running: Optional[asyncio.AbstractEventLoop] = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            _settle(pending.decision, approve)
+        else:
+            loop.call_soon_threadsafe(_settle, pending.decision, approve)
+        return True
+
+    def close_pending(self, request_id: str) -> None:
+        pending = self._pending.pop(request_id, None)
+        if pending is not None and not pending.decision.done():
+            pending.decision.cancel()
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
+
+    def pending_requests(self) -> list[JoinRequest]:
+        """Unanswered requests, oldest first (an owner's catch-up)."""
+        return [
+            pending.request()
+            for pending in self._pending.values()
+            if not pending.decision.done()
+        ]
+
+    async def send_to_owners(self, message: BaseModel) -> None:
+        """Point-to-point to every owner socket, immediately rather than via
+        the feed: someone is waiting at the door."""
+        payload = message.model_dump()
+        for socket in list(self._owner_sockets):
+            try:
+                await socket.send_json(payload)
+            except Exception:
+                log.warning("Dropping unreachable owner socket")
+                self._owner_sockets.discard(socket)
+
+    async def announce_resolved(self, request_id: str, outcome: str) -> None:
+        """Tell every owner a request is settled, so no other owner's screen
+        keeps offering to approve someone who already got in (or left)."""
+        await self.send_to_owners(JoinResolved(request_id=request_id, outcome=outcome))
+
+    def allow_message(self) -> bool:
+        """Spend one unit of the room's inbound message quota."""
+        return self.message_quota.take()
 
     def is_activity_rate_limited(
         self,
@@ -424,6 +649,7 @@ class Room:
                 symbols=list(change.symbols),
                 line_ranges=[tuple(r) for r in change.line_ranges],
                 branch=message.branch,
+                e2e=message.e2e,
             )
 
     def remember_update(self, update: ActivityUpdate) -> None:
@@ -441,6 +667,7 @@ class Room:
         timestamp: float,
         agent: AgentKind = "unknown",
         repo_id: str = "",
+        e2e: str = "",
     ) -> IntentUpdate:
         """Store the user's latest intent and return it as the broadcast record.
 
@@ -453,6 +680,7 @@ class Room:
             prompt=prompt,
             timestamp=timestamp,
             repo_id=repo_id,
+            e2e=e2e,
         )
         self._latest_intents[user_id] = update
         return update
@@ -564,6 +792,7 @@ class Room:
                     agent=intent.agent,
                     repo_id=intent.repo_id,
                     kind="intent",
+                    e2e=intent.e2e,
                 )
             )
         matches.sort(key=lambda touch: touch.timestamp, reverse=True)
@@ -727,6 +956,7 @@ class Room:
                     symbols=list(plan.symbols),
                     branch=plan.branch,
                     kind="planned",
+                    e2e=plan.e2e,
                 )
             )
         matches.sort(key=lambda touch: touch.timestamp, reverse=True)
@@ -746,6 +976,7 @@ class Room:
             branch=message.branch,
             timestamp=now,
             expires_at=now + message.ttl_seconds,
+            e2e=message.e2e,
         )
         self._plans[message.user_id] = update
         return update
@@ -769,6 +1000,7 @@ class Room:
                         kind="planned",
                         summary=other.summary,
                         seconds_ago=max(0.0, now - other.timestamp),
+                        e2e=other.e2e,
                     ),
                 )
         window = self._settings.warn_window_seconds
@@ -791,6 +1023,7 @@ class Room:
                         kind="edited",
                         summary=touch.prompt or "",
                         seconds_ago=max(0.0, now - touch.timestamp),
+                        e2e=touch.e2e,
                     ),
                 )
         return sorted(conflicts.values(), key=lambda conflict: conflict.seconds_ago)
@@ -873,10 +1106,13 @@ class Room:
                     else:
                         dead_members.append(user_id)
         for user_id in dead_members:
-            self._members.pop(user_id, None)
+            dead = self._members.pop(user_id, None)
+            if dead is not None:
+                self._owner_sockets.discard(dead)
             self._member_agents.pop(user_id, None)
         for socket in dead_spectators:
             self._spectators.discard(socket)
+            self._owner_sockets.discard(socket)
 
     async def send(self, socket: WebSocket, message: BaseModel) -> None:
         await socket.send_json(message.model_dump())

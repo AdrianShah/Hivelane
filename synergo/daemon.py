@@ -19,6 +19,7 @@ import asyncio
 import difflib
 import getpass
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -28,7 +29,7 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlsplit
@@ -39,12 +40,13 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
-from synergo import __version__, gitinfo, symbols
+from synergo import __version__, auth, crypto, gitinfo, redact, symbols
 from synergo.depgraph import DepTracker
-from synergo.config import ConfigFileError, SynergoConfig, load_config
+from synergo.config import ConfigFileError, SynergoConfig, load_config, transport_problem
 from synergo.events import EventAck, NormalizedEvent
 from synergo.protocol import (
     AGENT_KINDS,
+    E2E_MAX_CHARS,
     PROTOCOL_VERSION,
     ActivityMessage,
     AgentKind,
@@ -52,9 +54,12 @@ from synergo.protocol import (
     EditCheckResponse,
     FileChange,
     IntentMessage,
+    JoinDecision,
     JoinMessage,
+    PeerTouch,
     PlanConflicts,
     PlanMessage,
+    RoomPolicy,
     RoomSettings,
 )
 
@@ -93,6 +98,43 @@ INLINE_SYMBOLS_BYTES = 40_000
 # `git ls-files` (plan candidate resolution) is re-run at most this often.
 LS_FILES_SECONDS = 60.0
 MAX_PLAN_FILES = 50
+# h:-token -> real name memory for an e2e room (own sends, teammates' blobs).
+E2E_NAME_CACHE_SIZE = 4096
+# Headroom under the relay's blob limit for JSON and base64 overhead.
+E2E_BLOB_BUDGET = E2E_MAX_CHARS - 1024
+# Diffs inside an envelope that would not fit are cut to this many characters.
+E2E_DIFF_FALLBACK_CHARS = 4000
+# A join request the owner has not answered is forgotten after this long (the
+# relay gives up on it well before).
+JOIN_REQUEST_TTL = 900.0
+_HASH_TOKEN = re.compile(r"h:[0-9a-f]{32}")
+
+# Mirrors server/room.py _ALWAYS_WARN_BASENAMES: files the relay always judges
+# at file level. In an e2e room it only sees a hashed path and cannot tell, so
+# the daemon sends such a file's edits with no symbols or line ranges, which
+# makes the relay's decision file-level for it too.
+_ALWAYS_WARN_BASENAMES = (
+    "package.json",
+    "pyproject.toml",
+    "requirements*.txt",
+    "*.lock",
+    "go.mod",
+    "Cargo.toml",
+    "tsconfig*.json",
+    ".env*",
+    "Dockerfile",
+    ".synergo.toml",
+)
+
+
+def is_always_warn_file(file_path: str) -> bool:
+    import fnmatch
+
+    parts = file_path.replace("\\", "/").split("/")
+    basename = parts[-1]
+    if any(fnmatch.fnmatchcase(basename, pattern) for pattern in _ALWAYS_WARN_BASENAMES):
+        return True
+    return ".github" in parts[:-1] and basename.endswith((".yml", ".yaml"))
 
 
 def unified_diff(file_path: str, old: str, new: str) -> str:
@@ -512,6 +554,8 @@ class RepoBinding:
     auto: bool = False
     # What it was registered with, so re-registering it unchanged is a no-op.
     spec: tuple[Any, ...] = ()
+    # Secret redaction for what this repo sends (`redact`, `redact_patterns`).
+    redactor: redact.Redactor = field(default_factory=redact.Redactor)
 
 
 class RoomConnection:
@@ -534,6 +578,8 @@ class RoomConnection:
         edit_check_timeout: float = EDIT_CHECK_TIMEOUT,
         settings: Optional[RoomSettings] = None,
         rename_hint: str = "Re-run with a different --name.",
+        e2e_key: Optional[crypto.RoomKey] = None,
+        owner_token: Optional[str] = None,
     ) -> None:
         self.room = room
         self.name = name
@@ -545,6 +591,25 @@ class RoomConnection:
         self.settings = settings
         self.rename_hint = rename_hint
         self._self_ids = {name, relay_user_id(name)}
+        # End-to-end encryption: the team's .synergo.toml says e2e, and this
+        # is the key derived from the room passphrase (None: not configured,
+        # which is fatal rather than a fallback to cleartext).
+        self.e2e_required = bool(settings is not None and settings.e2e)
+        self.e2e_key = e2e_key
+        # h:-token -> the name it hashes, learned from our own sends and from
+        # teammates' decrypted blobs, so relay reasons read in real names.
+        self._names: OrderedDict[str, str] = OrderedDict()
+        # user_id -> that teammate's latest decrypted task (intent or plan).
+        self._peer_tasks: dict[str, str] = {}
+        # Room ownership (the token POST /rooms returned to whoever created
+        # it): an owner socket is asked to approve joins.
+        self.owner_token = owner_token
+        # Set while the relay holds this join for an owner's approval.
+        self.awaiting_approval: Optional[dict[str, Any]] = None
+        # Join requests waiting on us as an owner: request_id -> details.
+        self.join_requests: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        # The room's join policy as last broadcast (None: never heard).
+        self.require_approval: Optional[bool] = None
 
         self.connected = False
         self.fatal: Optional[str] = None
@@ -573,6 +638,9 @@ class RoomConnection:
         # silently losing the payload.
         self._inflight: Optional[str] = None
         self._pending: dict[str, asyncio.Future[EditCheckResponse]] = {}
+        # request_id -> the repo-relative path asked about (the reply names it
+        # by hash in an e2e room).
+        self._pending_paths: dict[str, str] = {}
         self._peers: set[str] = set()
         self._old_content: OrderedDict[tuple[str, str], str] = OrderedDict()
 
@@ -594,6 +662,204 @@ class RoomConnection:
     @property
     def ws_url(self) -> str:
         return f"{self.server.rstrip('/')}/{self.room}"
+
+    @property
+    def live(self) -> bool:
+        """Joined and admitted: worth asking the relay before an edit."""
+        return self.connected and self.awaiting_approval is None
+
+    # --- end-to-end encryption -----------------------------------------------
+
+    def _hash(self, value: str) -> str:
+        """value's h:-token (remembered, to turn relay reasons back into names)."""
+        key = self.e2e_key
+        if key is None or not value or value == symbols.IMPORTS:
+            return value
+        token = key.hash(value)
+        self._remember_name(token, value)
+        return token
+
+    def _remember_name(self, token: str, value: str) -> None:
+        self._names.pop(token, None)
+        self._names[token] = value
+        while len(self._names) > E2E_NAME_CACHE_SIZE:
+            self._names.popitem(last=False)
+
+    def reveal(self, text: Optional[str]) -> Optional[str]:
+        """text with every h:-token we know replaced by its real name."""
+        if not text or self.e2e_key is None or "h:" not in text:
+            return text
+        return _HASH_TOKEN.sub(lambda m: self._names.get(m.group(0), m.group(0)), text)
+
+    def _learn(self, envelope: dict[str, Any]) -> None:
+        """Remember the hashes of every name in a decrypted envelope."""
+        key = self.e2e_key
+        if key is None:
+            return
+        names: list[str] = []
+        for change in envelope.get("changes") or []:
+            if isinstance(change, dict):
+                names.append(change.get("file_path"))
+                names.extend(change.get("symbols") or [])
+        names.append(envelope.get("file_path"))
+        names.extend(envelope.get("files") or [])
+        names.extend(envelope.get("symbols") or [])
+        names.append(envelope.get("branch"))
+        for name in names:
+            if isinstance(name, str) and name and name != symbols.IMPORTS:
+                self._remember_name(key.hash(name), name)
+
+    def open_blob(self, blob: str) -> Optional[tuple[str, dict[str, Any]]]:
+        """(type, envelope) of a teammate's blob, learning its names; None when
+        there is no key or it does not open (a teammate with the wrong key)."""
+        if not blob or self.e2e_key is None:
+            return None
+        try:
+            opened = self.e2e_key.open(blob)
+        except (crypto.DecryptError, crypto.E2EUnavailable) as exc:
+            print(f"synergo: room {self.room}: cannot decrypt a teammate's message ({exc})", file=sys.stderr)
+            return None
+        self._learn(opened[1])
+        return opened
+
+    def _seal(
+        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage
+    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage:
+        """The e2e form of message: names hashed, content emptied, the real
+        values in its blob. The relay still matches overlaps (equal names hash
+        equal) but can read nothing."""
+        key = self.e2e_key
+        assert key is not None
+        if isinstance(message, IntentMessage):
+            blob = key.seal("intent", {"v": 1, "prompt": message.prompt})
+            return message.model_copy(update={"prompt": "", "e2e": blob})
+        if isinstance(message, EditCheckRequest):
+            rel = message.file_path
+            names, ranges = list(message.symbols), list(message.line_ranges)
+            blob = key.seal(
+                "edit_check",
+                {"v": 1, "file_path": rel, "symbols": names, "branch": message.branch},
+            )
+            if is_always_warn_file(rel):
+                # The relay cannot see this is a manifest/lockfile: give it
+                # nothing finer than the file to judge by.
+                names, ranges = [], []
+            return message.model_copy(
+                update={
+                    "file_path": self._hash(rel),
+                    "symbol": None,
+                    "symbols": [self._hash(s) for s in names],
+                    "line_ranges": ranges,
+                    "branch": self._hash(message.branch),
+                    "e2e": blob,
+                }
+            )
+        if isinstance(message, PlanMessage):
+            blob = key.seal(
+                "plan",
+                {
+                    "v": 1,
+                    "summary": message.summary,
+                    "files": list(message.files),
+                    "symbols": list(message.symbols),
+                    "branch": message.branch,
+                },
+            )
+            return message.model_copy(
+                update={
+                    "summary": "",
+                    "files": [self._hash(f) for f in message.files],
+                    "symbols": [self._hash(s) for s in message.symbols],
+                    "branch": self._hash(message.branch),
+                    "e2e": blob,
+                }
+            )
+        # ActivityMessage
+        blob = _seal_activity(key, message)
+        changes = []
+        for change in message.changes:
+            warn_only = is_always_warn_file(change.file_path)
+            changes.append(
+                FileChange(
+                    file_path=self._hash(change.file_path),
+                    diff="",
+                    symbols=[] if warn_only else [self._hash(s) for s in change.symbols],
+                    line_ranges=[] if warn_only else list(change.line_ranges),
+                )
+            )
+        return message.model_copy(
+            update={
+                "prompt": None,
+                "changes": changes,
+                "branch": self._hash(message.branch),
+                "base_commit": self._hash(message.base_commit),
+                "e2e": blob,
+            }
+        )
+
+    def _open_peer(self, peer: PeerTouch) -> PeerTouch:
+        """A relay PeerTouch with the teammate's real task, symbols and branch."""
+        opened = self.open_blob(peer.e2e)
+        envelope = opened[1] if opened else {}
+        task = envelope.get("prompt") or envelope.get("summary") or self._peer_tasks.get(peer.user_id)
+        update: dict[str, Any] = {
+            "symbols": [self._names.get(s, s) for s in peer.symbols],
+            "branch": self._names.get(peer.branch, peer.branch),
+            # Opened: the agent's ack needs none of it, and a few teammates'
+            # blobs could otherwise push the ack past the hook's size cap.
+            "e2e": "",
+        }
+        if task and not peer.prompt:
+            update["prompt"] = str(task)
+        return peer.model_copy(update=update)
+
+    def _open_response(self, response: EditCheckResponse, rel: str) -> EditCheckResponse:
+        others = [self._open_peer(peer) for peer in response.others]
+        return response.model_copy(
+            update={
+                "file_path": rel,
+                "others": others,
+                "reason": self.reveal(response.reason) or "",
+            }
+        )
+
+    def _open_plan_conflicts(self, conflicts: PlanConflicts) -> PlanConflicts:
+        opened = []
+        for conflict in conflicts.conflicts:
+            found = self.open_blob(conflict.e2e)
+            envelope = found[1] if found else {}
+            summary = envelope.get("summary") or envelope.get("prompt") or conflict.summary
+            opened.append(
+                conflict.model_copy(
+                    update={
+                        "file_path": self._names.get(conflict.file_path, conflict.file_path),
+                        "summary": str(summary or ""),
+                    }
+                )
+            )
+        return conflicts.model_copy(update={"conflicts": opened})
+
+    def _open_feed_event(self, event: dict[str, Any]) -> dict[str, Any]:
+        """A feed event (dict) with a teammate's blob opened: real paths and
+        diffs for depgraph, and their latest task remembered."""
+        blob = event.get("e2e")
+        if not blob or self.e2e_key is None or not isinstance(blob, str):
+            return event
+        user_id = event.get("user_id")
+        if isinstance(user_id, str) and user_id in self._self_ids:
+            return event
+        opened = self.open_blob(blob)
+        if opened is None:
+            return event
+        kind, envelope = opened
+        task = envelope.get("prompt") or envelope.get("summary")
+        if isinstance(user_id, str) and isinstance(task, str) and task:
+            self._peer_tasks[user_id] = task[:500]
+            while len(self._peer_tasks) > 256:
+                self._peer_tasks.pop(next(iter(self._peer_tasks)))
+        if kind == "activity" and isinstance(envelope.get("changes"), list):
+            return {**event, "changes": envelope["changes"], "prompt": envelope.get("prompt")}
+        return event
 
     @property
     def queued_events(self) -> int:
@@ -628,7 +894,7 @@ class RoomConnection:
     async def handle_event(self, event: NormalizedEvent, binding: RepoBinding) -> EventAck:
         repo_id = await self.repo_id_for_cwd(event.cwd, binding)
         if event.kind == "intent":
-            return self._handle_intent(event, repo_id)
+            return self._handle_intent(event, repo_id, binding.redactor)
         root = self._root_for(event.cwd, binding)
         if event.kind == "plan":
             return await self._handle_plan(event, root, binding, repo_id)
@@ -650,15 +916,20 @@ class RoomConnection:
             return ack
         if head is not None:
             self._heads[repo_id] = (head.branch or "", head.commit or "")
-        return await self._handle_post_edit(event, rel, repo_id, binding.share_diffs)
+        return await self._handle_post_edit(
+            event, rel, repo_id, binding.share_diffs, binding.redactor
+        )
 
-    def _handle_intent(self, event: NormalizedEvent, repo_id: str = "") -> EventAck:
+    def _handle_intent(
+        self, event: NormalizedEvent, repo_id: str = "", redactor: Optional[redact.Redactor] = None
+    ) -> EventAck:
         if not event.prompt:
             return EventAck()
-        self._last_prompt = event.prompt
-        self._send(
-            IntentMessage(user_id=self.name, prompt=event.prompt, repo_id=repo_id)
-        )
+        # Redacted before it is remembered: the prompt rides on every later
+        # activity message too.
+        prompt = (redactor or redact.DEFAULT).text(event.prompt) or ""
+        self._last_prompt = prompt
+        self._send(IntentMessage(user_id=self.name, prompt=prompt, repo_id=repo_id))
         return EventAck()
 
     async def _handle_plan(
@@ -669,8 +940,9 @@ class RoomConnection:
         context (adapters never turn a plan ack into a permission decision);
         a reply that misses the ack is kept for the session's next ack."""
         summary = (event.summary or "").strip()
-        if not self.connected or (not summary and not event.files):
+        if not self.live or (not summary and not event.files):
             return EventAck()
+        summary = binding.redactor.text(summary) or ""
         tracked = await asyncio.to_thread(tracked_files, root) if root is not None else []
         files = [
             f for f in resolve_plan_files(event.files or [], tracked) if not binding.ignore.matches(f)
@@ -704,7 +976,7 @@ class RoomConnection:
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
 
-        if not self.connected:
+        if not self.live:
             return EventAck(file_path=rel)
 
         old = event.old_content
@@ -715,6 +987,7 @@ class RoomConnection:
         request_id = uuid.uuid4().hex
         future: asyncio.Future[EditCheckResponse] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
+        self._pending_paths[request_id] = rel
         self._send(
             EditCheckRequest(
                 request_id=request_id,
@@ -729,6 +1002,7 @@ class RoomConnection:
             response = await asyncio.wait_for(future, timeout=self.edit_check_timeout)
         except asyncio.TimeoutError:
             self._pending.pop(request_id, None)
+            self._pending_paths.pop(request_id, None)
             return EventAck(file_path=rel)
         return EventAck(
             decision=response.decision,
@@ -738,7 +1012,12 @@ class RoomConnection:
         )
 
     async def _handle_post_edit(
-        self, event: NormalizedEvent, rel: str, repo_id: str = "", share_diffs: bool = True
+        self,
+        event: NormalizedEvent,
+        rel: str,
+        repo_id: str = "",
+        share_diffs: bool = True,
+        redactor: Optional[redact.Redactor] = None,
     ) -> EventAck:
         old = event.old_content
         known_old = old is not None or (event.session_id, rel) in self._old_content
@@ -759,6 +1038,10 @@ class RoomConnection:
         if share_diffs:
             diff = unified_diff(rel, old, new)
             changed = bool(diff)
+            # Secrets out, and a sensitive file's diff withheld entirely; the
+            # path still goes, so overlaps on it are still detected.
+            if diff:
+                diff = (redactor or redact.DEFAULT).diff(rel, diff)
         else:
             # The path still goes out, so overlaps are still detected; the
             # content of the change stays on this machine.
@@ -823,11 +1106,22 @@ class RoomConnection:
     # --- relay socket --------------------------------------------------------
 
     def _send(
-        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage
+        self,
+        message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | JoinDecision | RoomPolicy,
     ) -> None:
+        if self.e2e_key is not None and isinstance(
+            message, (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage)
+        ):
+            message = self._seal(message)
+        elif self.e2e_required and isinstance(
+            message, (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage)
+        ):
+            # An e2e room without a key: never fall back to cleartext.
+            return
         payload = message.model_dump_json()
-        # A plan ack, like an edit_check, has an agent hook waiting on it.
-        if isinstance(message, (EditCheckRequest, PlanMessage)):
+        # A plan ack, like an edit_check, has an agent hook waiting on it; an
+        # owner's decision has a teammate waiting at the door.
+        if isinstance(message, (EditCheckRequest, PlanMessage, JoinDecision, RoomPolicy)):
             self._priority_outbox.put_nowait(payload)
         else:
             if self._outbox.qsize() >= OUTBOX_LIMIT:
@@ -836,9 +1130,60 @@ class RoomConnection:
         self._outbox_ready.set()
 
     def _join_payload(self) -> str:
-        return JoinMessage(
-            name=self.name, agent=self.agent, repo_id=self.repo_id, settings=self.settings
-        ).model_dump_json()
+        payload = JoinMessage(
+            name=self.name,
+            agent=self.agent,
+            repo_id=self.repo_id,
+            settings=self.settings,
+            owner_token=self.owner_token,
+        ).model_dump(mode="json")
+        settings = payload.get("settings")
+        if isinstance(settings, dict) and not settings.get("e2e"):
+            # Only ever switch e2e on. A teammate on an older .synergo.toml
+            # (no e2e line) must not turn the room's encryption flag off for
+            # everyone; the relay keeps the room's flag when the join omits it.
+            settings.pop("e2e", None)
+        if payload.get("owner_token") is None:
+            payload.pop("owner_token", None)
+        return json.dumps(payload, separators=(",", ":"))
+
+    # --- room ownership ------------------------------------------------------
+
+    def decide_join(self, request_id: str, approve: bool) -> bool:
+        """Answer a pending join request as the room's owner. False when this
+        connection has no such request (or is not an owner)."""
+        if not self.owner_token or request_id not in self.join_requests:
+            return False
+        self.join_requests.pop(request_id, None)
+        self._send(JoinDecision(request_id=request_id, approve=approve))
+        return True
+
+    def set_policy(self, require_approval: bool) -> bool:
+        if not self.owner_token:
+            return False
+        self._send(RoomPolicy(require_approval=require_approval))
+        return True
+
+    def pending_join_requests(self, now: Optional[float] = None) -> list[dict[str, Any]]:
+        now = time.time() if now is None else now
+        for request_id, request in list(self.join_requests.items()):
+            if now - request["received_at"] > JOIN_REQUEST_TTL:
+                del self.join_requests[request_id]
+        return list(self.join_requests.values())
+
+    def _e2e_problem(self) -> Optional[str]:
+        """Why this e2e room cannot be joined, or None."""
+        if not self.e2e_required:
+            return None
+        if self.e2e_key is None:
+            return (
+                f"room {self.room} is end-to-end encrypted (e2e = true in .synergo.toml) but no "
+                "room key is configured on this machine. Get the key from a teammate and run "
+                f"`synergo key set {self.room}` (or set SYNERGO_ROOM_KEY), then `synergo up` again"
+            )
+        if not crypto.available():
+            return f"room {self.room} is end-to-end encrypted, which needs the e2e extra: {crypto.INSTALL_HINT}"
+        return None
 
     def start(self) -> asyncio.Task[None]:
         """Start the relay loop on the running event loop (idempotent)."""
@@ -859,11 +1204,17 @@ class RoomConnection:
         self.fatal_at = time.monotonic()
 
     async def _relay_loop(self) -> None:
+        problem = self._e2e_problem()
+        if problem:
+            self._set_fatal(problem)
+            return
         backoff = 1.0
         while not self._stop.is_set():
             try:
                 async with ws_connect(self.ws_url) as socket:
                     self._socket = socket
+                    # A fresh join: any approval wait belonged to the old socket.
+                    self.awaiting_approval = None
                     await socket.send(self._join_payload())
                     self.connected = True
                     self.connected_since = time.time()
@@ -994,6 +1345,8 @@ class RoomConnection:
         if not self._plan_waiters:
             return
         session_id, future = self._plan_waiters.pop(0)
+        if self.e2e_key is not None:
+            conflicts = self._open_plan_conflicts(conflicts)
         if not future.done():
             future.set_result(conflicts)
             return
@@ -1031,11 +1384,77 @@ class RoomConnection:
             if other not in self._self_ids:
                 self._peers.add(other)
 
+    def _on_join_request(self, data: dict[str, Any]) -> None:
+        """Someone waits at the door of a room we own: keep it for `synergo
+        status` / `synergo room approve`, and say so in the log (one plain
+        line: the background daemon's console is a log file)."""
+        request_id = str(data.get("request_id") or "")
+        if not request_id:
+            return
+        name = str(data.get("name") or "someone")
+        agent = str(data.get("agent") or "unknown")
+        self.join_requests[request_id] = {
+            "request_id": request_id,
+            "name": name,
+            "agent": agent,
+            "timestamp": data.get("timestamp"),
+            "received_at": time.time(),
+        }
+        while len(self.join_requests) > 64:
+            self.join_requests.popitem(last=False)
+        print(
+            f"synergo: room {self.room}: {name} ({agent}) asks to join; "
+            f"approve with `synergo room approve {request_id}` "
+            f"or deny with `synergo room deny {request_id}`"
+        )
+
+    def _note_room_settings(self, event: dict[str, Any]) -> None:
+        """A teammate's .synergo.toml turned e2e on while ours says nothing of
+        it: stop rather than keep sending them cleartext."""
+        if event.get("type") != "room_settings" or not event.get("e2e"):
+            return
+        if self.e2e_required:
+            return
+        self._set_fatal(
+            f"room {self.room} is end-to-end encrypted (set by {event.get('set_by') or 'a teammate'}), "
+            "but this repo's .synergo.toml does not say `e2e = true`. Pull the latest "
+            ".synergo.toml (and get the room key: `synergo key set "
+            f"{self.room}`), then run `synergo up` again"
+        )
+
     def _dispatch_frame(self, data: dict[str, Any]) -> None:
         kind = data.get("type")
 
+        if kind == "join_pending":
+            self.awaiting_approval = {
+                "request_id": str(data.get("request_id") or ""),
+                "reason": str(data.get("reason") or ""),
+                "since": time.time(),
+            }
+            print(
+                f"synergo: room {self.room}: waiting for an owner to approve this join"
+                + (f" ({data['reason']})" if data.get("reason") else "")
+            )
+            return
+        if self.awaiting_approval is not None and kind not in ("room_rejected", "rate_limited"):
+            # Anything else after join_pending is the room's normal traffic:
+            # an owner let us in.
+            print(f"synergo: room {self.room}: join approved")
+            self.awaiting_approval = None
+
+        if kind == "join_request":
+            self._on_join_request(data)
+            return
+
+        if kind == "room_policy_update":
+            self.require_approval = bool(data.get("require_approval"))
+            return
+
         if kind == "edit_check_response":
             response = EditCheckResponse.model_validate(data)
+            rel = self._pending_paths.pop(response.request_id, None)
+            if self.e2e_key is not None and rel is not None:
+                response = self._open_response(response, rel)
             self._peers.update(other.user_id for other in response.others)
             future = self._pending.pop(response.request_id, None)
             if future is not None and not future.done():
@@ -1048,11 +1467,17 @@ class RoomConnection:
 
         if kind == "synergo_feed":
             for event in data.get("events") or []:
+                if not isinstance(event, dict):
+                    continue
                 self._note_peers(event)
-                if isinstance(event, dict) and event.get("type") == "activity_update":
+                self._note_room_settings(event)
+                event = self._open_feed_event(event)
+                if event.get("type") == "activity_update":
                     self._note_peer_activity(event)
             return
 
+        self._note_room_settings(data)
+        data = self._open_feed_event(data)
         if kind == "activity_update":
             self._note_peer_activity(data)
 
@@ -1089,6 +1514,38 @@ class RoomConnection:
                 f"the relay rejected room {self.room!r}: {data.get('reason', '')}\n"
                 "Check the room code, or have a teammate create the room first."
             )
+
+
+def _seal_activity(key: crypto.RoomKey, message: ActivityMessage) -> str:
+    """The activity blob, cut down until it fits the relay's blob limit:
+    whole diffs, then truncated ones, then paths and symbols alone."""
+
+    def envelope(limit: Optional[int], prompt: Optional[str]) -> dict[str, Any]:
+        return {
+            "v": 1,
+            "prompt": prompt,
+            "branch": message.branch,
+            "base_commit": message.base_commit,
+            "changes": [
+                {
+                    "file_path": change.file_path,
+                    "diff": change.diff if limit is None else change.diff[:limit],
+                    "symbols": list(change.symbols),
+                }
+                for change in message.changes
+            ],
+        }
+
+    blob = ""
+    for limit, prompt in (
+        (None, message.prompt),
+        (E2E_DIFF_FALLBACK_CHARS, message.prompt),
+        (0, (message.prompt or "")[:500] or None),
+    ):
+        blob = key.seal("activity", envelope(limit, prompt))
+        if len(blob) <= E2E_BLOB_BUDGET:
+            return blob
+    return blob
 
 
 def with_note(ack: EventAck, note: str) -> EventAck:
@@ -1131,10 +1588,32 @@ class RepoRegistration(BaseModel):
     settings: Optional[RoomSettings] = None
     ignore: list[str] = []
     share_diffs: bool = True
+    redact: bool = True
+    redact_patterns: list[str] = []
+    # The e2e room passphrase (settings.e2e rooms), resolved by the CLI from
+    # SYNERGO_ROOM_KEY or the personal config. Loopback and token-guarded;
+    # never echoed back by /status.
+    room_key: Optional[str] = None
+    # The room's owner token, if this machine created the room.
+    owner_token: Optional[str] = None
 
 
 class RepoRef(BaseModel):
     root: str
+
+
+class JoinAnswer(BaseModel):
+    """POST /rooms/decide body: an owner's answer to a join request."""
+
+    request_id: str
+    approve: bool
+
+
+class PolicyChange(BaseModel):
+    """POST /rooms/policy body: an owner's join policy for root's room."""
+
+    root: str
+    require_approval: bool
 
 
 _UNROUTED = object()
@@ -1180,6 +1659,71 @@ def _reject_cross_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="cross-origin requests are not accepted")
 
 
+_TOKEN_HEADER_KEY = auth.TOKEN_HEADER.lower().encode("ascii")
+
+
+class LocalGuard:
+    """ASGI middleware in front of every daemon route.
+
+    1. Host must be 127.0.0.1:<port> or localhost:<port>. A DNS-rebinding page
+       reaches the loopback socket under its own hostname, and this is the one
+       header it cannot forge (421 otherwise).
+    2. Every route except `GET /health` needs X-Synergo-Token equal to the
+       install's token (constant-time compare; 401 otherwise). On a mismatch
+       the token file is re-read once, so a token regenerated on disk while the
+       daemon runs (a deleted SYNERGO_HOME, say) heals instead of locking
+       every client out until a restart.
+
+    Plain ASGI rather than @app.middleware: BaseHTTPMiddleware costs a task
+    and a memory stream per request, and every edit's hook waits on this one.
+    """
+
+    def __init__(self, app: Any, daemon: "Daemon") -> None:
+        self.app = app
+        self.daemon = daemon
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        host = b""
+        presented = b""
+        for name, value in scope.get("headers") or ():
+            if name == b"host":
+                host = value
+            elif name == _TOKEN_HEADER_KEY:
+                presented = value
+        if host.lower() not in self.daemon.allowed_hosts():
+            await _plain_reply(send, 421, "this daemon only answers requests for 127.0.0.1 or localhost")
+            return
+        if scope.get("path") == "/health" and scope.get("method") in ("GET", "HEAD"):
+            await self.app(scope, receive, send)
+            return
+        if not self.daemon.token_matches(presented):
+            await _plain_reply(
+                send,
+                401,
+                f"missing or wrong {auth.TOKEN_HEADER} header (the token is in {auth.token_path()})",
+            )
+            return
+        await self.app(scope, receive, send)
+
+
+async def _plain_reply(send: Any, status: int, detail: str) -> None:
+    body = json.dumps({"detail": detail}).encode("utf-8")
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", str(len(body)).encode("ascii")),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
+
+
 class Daemon:
     """The loopback HTTP endpoint for agent hooks, routing each event by its
     cwd to the repo it belongs to.
@@ -1207,11 +1751,22 @@ class Daemon:
         ignore: Iterable[str] = (),
         share_diffs: bool = True,
         auto_register: Optional[bool] = None,
+        token: Optional[str] = None,
+        room_key: Optional[str] = None,
+        owner_token: Optional[str] = None,
+        redact: bool = True,
+        redact_patterns: Iterable[str] = (),
     ) -> None:
         if (room is None) != (name is None):
             raise ValueError("room and name go together: both for single-room mode, neither for multi-repo")
         self.port = port
         self.server = server
+        # The secret every HTTP caller presents (synergo.auth). None until the
+        # daemon serves: run() loads or creates SYNERGO_HOME/token then, so
+        # tests driving handle_event directly never touch the file.
+        self.token: Optional[str] = token
+        self._token_pinned = token is not None
+        self._token_path: Optional[Path] = None
         self._timing = {"batch_seconds": batch_seconds, "edit_check_timeout": edit_check_timeout}
         # Explicit project root (--root). Replaces git discovery for path keys:
         # outside a repo it is the only anchor teammates can share.
@@ -1219,6 +1774,7 @@ class Daemon:
 
         self._default: Optional[RepoBinding] = None
         if room is not None and name is not None:
+            room_settings = _room_settings(settings)
             connection = RoomConnection(
                 room,
                 name,
@@ -1226,13 +1782,16 @@ class Daemon:
                 server=server,
                 batch_seconds=batch_seconds,
                 edit_check_timeout=edit_check_timeout,
-                settings=_room_settings(settings),
+                settings=room_settings,
+                e2e_key=_room_key(room_settings, room_key, room),
+                owner_token=owner_token,
             )
             self._default = RepoBinding(
                 root=self.root,
                 connection=connection,
                 ignore=IgnoreRules(ignore),
                 share_diffs=share_diffs,
+                redactor=_redactor(redact, redact_patterns),
             )
         # Single-room mode sends everything to its room, as it always has; only
         # the per-machine daemon adopts repos from their .synergo.toml.
@@ -1290,8 +1849,45 @@ class Daemon:
 
     # --- local HTTP ----------------------------------------------------------
 
+    def allowed_hosts(self) -> tuple[bytes, ...]:
+        """Host header values LocalGuard accepts (lowercase)."""
+        port = str(self.port).encode("ascii")
+        return (b"127.0.0.1:" + port, b"localhost:" + port)
+
+    def ensure_token(self) -> str:
+        if self.token is None:
+            # Pinned at first use: the file this daemon trusts does not move
+            # if SYNERGO_HOME changes under it later.
+            self._token_path = auth.token_path()
+            self.token = auth.ensure_token(self._token_path)
+        return self.token
+
+    def token_matches(self, presented: bytes) -> bool:
+        """Constant-time check of a request's X-Synergo-Token."""
+        expected = self.ensure_token().encode("ascii")
+        if presented and hmac.compare_digest(presented, expected):
+            return True
+        if not presented or self._token_pinned:
+            return False
+        fresh = auth.read_token(self._token_path)
+        if fresh is None or fresh == self.token:
+            return False
+        if hmac.compare_digest(presented, fresh.encode("ascii")):
+            print("synergo: the token file changed on disk; using the new token")
+            self.token = fresh
+            return True
+        return False
+
     def _build_app(self) -> FastAPI:
         app = FastAPI(title="synergo-daemon", docs_url=None, redoc_url=None)
+        app.add_middleware(LocalGuard, daemon=self)
+
+        @app.get("/health")
+        async def health() -> dict[str, Any]:
+            # Unauthenticated, so it says nothing beyond "a synergo daemon is
+            # here": enough for `is_running` and for a client to tell a token
+            # problem from a dead port.
+            return {"ok": True, "service": "synergo-daemon"}
 
         @app.get("/status")
         async def status() -> dict[str, Any]:
@@ -1314,6 +1910,10 @@ class Daemon:
                     settings=body.settings,
                     ignore=body.ignore,
                     share_diffs=body.share_diffs,
+                    redact=body.redact,
+                    redact_patterns=body.redact_patterns,
+                    room_key=body.room_key,
+                    owner_token=body.owner_token,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -1323,6 +1923,38 @@ class Daemon:
         async def remove_repo(body: RepoRef, request: Request) -> dict[str, Any]:
             _reject_cross_origin(request)
             return {"removed": await self.unregister(body.root)}
+
+        @app.post("/rooms/decide")
+        async def decide(body: JoinAnswer, request: Request) -> dict[str, Any]:
+            _reject_cross_origin(request)
+            for conn in self._connections():
+                if body.request_id in conn.join_requests:
+                    if not conn.decide_join(body.request_id, body.approve):
+                        break
+                    return {"sent": True, "room": conn.room, "approve": body.approve}
+            raise HTTPException(
+                status_code=404,
+                detail=f"no pending join request {body.request_id!r} in a room this machine owns "
+                "(see `synergo status`; requests expire)",
+            )
+
+        @app.post("/rooms/policy")
+        async def policy(body: PolicyChange, request: Request) -> dict[str, Any]:
+            _reject_cross_origin(request)
+            binding = await self.binding_for(body.root)
+            if binding is None:
+                raise HTTPException(status_code=404, detail=f"{body.root} is not connected to a room")
+            conn = binding.connection
+            if not conn.owner_token:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"this machine has no owner token for room {conn.room} "
+                    "(only the machine that created the room holds one)",
+                )
+            if not conn.live:
+                raise HTTPException(status_code=409, detail=f"room {conn.room} is not connected right now")
+            conn.set_policy(body.require_approval)
+            return {"sent": True, "room": conn.room, "require_approval": body.require_approval}
 
         @app.post("/shutdown")
         async def shutdown(request: Request) -> dict[str, Any]:
@@ -1363,7 +1995,7 @@ class Daemon:
             "server": conn.ws_url,
             "name": conn.name,
             "agent": conn.agent,
-            "connected": conn.connected,
+            "connected": conn.live,
             "last_relay_contact": conn.last_relay_contact,
             "connected_since": conn.connected_since,
             "peers": sorted(conn._peers),
@@ -1374,6 +2006,17 @@ class Daemon:
             "ignore": list(binding.ignore.patterns),
             "share_diffs": binding.share_diffs,
             "auto": binding.auto,
+            "redact": binding.redactor.enabled,
+            # Whether, never what: the key and the owner token stay in here.
+            "e2e": conn.e2e_required,
+            "e2e_key": conn.e2e_key is not None,
+            "owner": bool(conn.owner_token),
+            "require_approval": conn.require_approval,
+            "awaiting_approval": dict(conn.awaiting_approval) if conn.awaiting_approval else None,
+            "join_requests": [
+                {k: v for k, v in request.items() if k != "received_at"}
+                for request in conn.pending_join_requests()
+            ],
         }
 
     def status(self) -> dict[str, Any]:
@@ -1391,7 +2034,7 @@ class Daemon:
             conn = binding.connection
             result.update(
                 {
-                    "connected": conn.connected,
+                    "connected": conn.live,
                     "room": conn.room,
                     "name": conn.name,
                     "agent": conn.agent,
@@ -1496,6 +2139,13 @@ class Daemon:
             print(f"synergo: ignoring settings in {config.root}: {exc}", file=sys.stderr)
             settings = None
         agent = config.agent if config.agent in AGENT_KINDS else "unknown"
+        if transport_problem(config.relay, config.insecure):
+            print(
+                f"synergo: not coordinating {config.root}: {transport_problem(config.relay, config.insecure)}",
+                file=sys.stderr,
+            )
+            self._remember_unconfigured(cwd)
+            return None
         try:
             return await self.register(
                 key,
@@ -1506,6 +2156,10 @@ class Daemon:
                 settings=settings,
                 ignore=config.ignore,
                 share_diffs=config.share_diffs,
+                redact=config.redact,
+                redact_patterns=config.redact_patterns,
+                room_key=config.room_key(),
+                owner_token=config.owner_token(),
                 auto=True,
             )
         except ValueError as exc:
@@ -1539,13 +2193,20 @@ class Daemon:
         relay: str = DEFAULT_SERVER,
         name: Optional[str] = None,
         agent: AgentKind = "claude-code",
-        settings: Optional[dict[str, float] | RoomSettings] = None,
+        settings: Optional[dict[str, Any] | RoomSettings] = None,
         ignore: Iterable[str] = (),
         share_diffs: bool = True,
         auto: bool = False,
+        redact: bool = True,
+        redact_patterns: Iterable[str] = (),
+        room_key: Optional[str] = None,
+        owner_token: Optional[str] = None,
     ) -> RepoBinding:
         """Coordinate the repo at root in room (replacing any earlier
-        registration of it). Raises ValueError for an unusable registration."""
+        registration of it). Raises ValueError for an unusable registration.
+
+        `room_key` is the e2e passphrase (used only when settings say e2e);
+        `owner_token` marks this machine as the room's owner on join."""
         try:
             key = Path(root).expanduser().resolve()
         except (OSError, ValueError) as exc:
@@ -1565,6 +2226,9 @@ class Daemon:
             if not name:
                 raise ValueError("no display name: set `name` in ~/.synergo/config.toml")
         ignore = tuple(ignore)
+        redact_patterns = tuple(redact_patterns)
+        redactor = _redactor(redact, redact_patterns)
+        e2e_key = _room_key(room_settings, room_key, room)
         # Warm the per-root identity cache off the event loop, so neither the
         # join nor the first hook from this repo waits on git.
         repo_id = await asyncio.to_thread(repo_id_for, key)
@@ -1577,6 +2241,12 @@ class Daemon:
             room_settings.model_dump_json() if room_settings is not None else None,
             ignore,
             share_diffs,
+            redact,
+            redact_patterns,
+            # Fingerprints, so a changed key or token re-registers; the
+            # secrets themselves are kept only on the connection.
+            hashlib.sha256(room_key.encode("utf-8")).hexdigest() if room_key else None,
+            hashlib.sha256(owner_token.encode("utf-8")).hexdigest() if owner_token else None,
         )
         existing = self._bindings.get(key)
         if existing is not None and existing.spec == spec and existing.connection.fatal is None:
@@ -1588,6 +2258,11 @@ class Daemon:
         self._disabled.discard(key)
 
         conn = self._shared_connection(relay, room, name, agent)
+        if conn is not None:
+            # One socket per name per room: a repo joining it brings what it
+            # knows (a key for the same room, an owner token) to the shared link.
+            conn.e2e_key = conn.e2e_key or e2e_key
+            conn.owner_token = conn.owner_token or owner_token
         if conn is None:
             conn = RoomConnection(
                 room,
@@ -1601,6 +2276,8 @@ class Daemon:
                     "Pick another name (`name` in ~/.synergo/config.toml or "
                     "SYNERGO_NAME) and reconnect the repo."
                 ),
+                e2e_key=e2e_key,
+                owner_token=owner_token,
             )
             conn.repo_id = repo_id
             if self._running:
@@ -1612,12 +2289,14 @@ class Daemon:
             share_diffs=share_diffs,
             auto=auto,
             spec=spec,
+            redactor=redactor,
         )
         self._bindings[key] = binding
         self._route_cache.clear()
         self._negative.clear()
         how = "found" if auto else "registered"
-        print(f"synergo: {how} {key}: room {room} as {name} via {relay}")
+        extras = " (end-to-end encrypted)" if conn.e2e_required else ""
+        print(f"synergo: {how} {key}: room {room} as {name} via {relay}{extras}")
         return binding
 
     async def unregister(self, root: str | Path) -> bool:
@@ -1729,6 +2408,8 @@ class Daemon:
             # and so the first hook from it finds the identity already cached.
             default.connection.repo_id = await default.connection.repo_id_for_cwd(cwd, default)
 
+        # Before the socket opens: the first hook must find the token on disk.
+        await asyncio.to_thread(self.ensure_token)
         config = uvicorn.Config(
             self.app,
             host=LOOPBACK,
@@ -1780,11 +2461,28 @@ class Daemon:
 
 
 def _room_settings(
-    settings: Optional[dict[str, float] | RoomSettings],
+    settings: Optional[dict[str, Any] | RoomSettings],
 ) -> Optional[RoomSettings]:
     if settings is None or isinstance(settings, RoomSettings):
         return settings
     return RoomSettings.model_validate(settings)
+
+
+def _room_key(
+    settings: Optional[RoomSettings], passphrase: Optional[str], room: str
+) -> Optional[crypto.RoomKey]:
+    """The derived key for an e2e room, or None (not e2e, or no passphrase:
+    the connection then refuses to join rather than send cleartext)."""
+    if settings is None or not settings.e2e or not passphrase:
+        return None
+    return crypto.derive(passphrase, room)
+
+
+def _redactor(enabled: bool, patterns: Iterable[str]) -> redact.Redactor:
+    try:
+        return redact.Redactor(enabled, patterns)
+    except re.error as exc:
+        raise ValueError(f"invalid redact_patterns: {exc}") from None
 
 
 def _delegate(attr: str) -> property:

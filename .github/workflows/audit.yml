@@ -1,0 +1,110 @@
+name: Audit
+
+# Known-vulnerability scan of every dependency manifest in the repo. Weekly,
+# because advisories get published against code that has not changed, and on
+# any pull request that touches a manifest, so a vulnerable version cannot be
+# merged in. Dependabot (.github/dependabot.yml) proposes the upgrades; this is
+# the gate. A finding fails the run in both cases: a red scheduled run on main
+# is the signal, and nobody should have to remember to read a report.
+on:
+  schedule:
+    # Mondays, off the hour: scheduled runs on the hour are the most delayed.
+    - cron: "23 6 * * 1"
+  pull_request:
+    paths:
+      - "pyproject.toml"
+      - "server/requirements*.txt"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "editors/vscode/package.json"
+      - "editors/vscode/package-lock.json"
+      - "docs-site/package.json"
+      - "docs-site/package-lock.json"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# pip-audit has no severity threshold (most PyPI advisories carry no score), so
+# any known vulnerability fails the Python jobs. One with no fix yet, judged not
+# to affect Synergo, can be skipped with `--ignore-vuln <ID>` on the audit
+# step, next to a comment saying why and when to look again.
+jobs:
+  relay:
+    name: pip-audit (relay requirements)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          # The relay image's Python; resolution depends on the interpreter.
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit
+        # The relay's pinned dependencies, as the Docker image installs them.
+        run: pip-audit --progress-spinner off --desc on -r server/requirements.txt
+
+  package:
+    name: pip-audit (synergo package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Resolve the package with every extra
+        # pyproject.toml's ranges resolved the way `pipx install synergo` (with
+        # any of its extras) would resolve them today, then pinned, so the
+        # audit sees exact versions. The extras are read from pyproject.toml
+        # so a new one is covered without editing this file.
+        run: |
+          extras=$(python -c "import tomllib; print(','.join(tomllib.load(open('pyproject.toml', 'rb'))['project'].get('optional-dependencies', {})))")
+          python -m venv "$RUNNER_TEMP/synergo-env"
+          "$RUNNER_TEMP/synergo-env/bin/pip" install --quiet ".[$extras]"
+          "$RUNNER_TEMP/synergo-env/bin/pip" freeze --exclude-editable \
+            | grep -v '^synergo' > "$RUNNER_TEMP/synergo-requirements.txt"
+          cat "$RUNNER_TEMP/synergo-requirements.txt"
+      - name: Audit
+        run: >-
+          pip-audit --progress-spinner off --desc on --no-deps --disable-pip
+          -r "$RUNNER_TEMP/synergo-requirements.txt"
+
+  npm:
+    # npm audit reads package-lock.json, so nothing is installed or run.
+    # packaging/npm is left out: the launcher has no dependencies, and so no
+    # lockfile to audit.
+    name: npm audit (${{ matrix.dir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dir: frontend
+            flags: ""
+          # The extension ships only its runtime dependency (ws); vsce and its
+          # secretlint -> globby -> braces chain run on the packager's machine
+          # and carry an advisory with no fixed release yet.
+          - dir: editors/vscode
+            flags: "--omit=dev"
+          - dir: docs-site
+            flags: ""
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - name: Audit
+        # High and critical fail; moderate and low are printed but pass, since
+        # they are mostly dev-server and build-tool issues Dependabot handles.
+        run: npm audit --audit-level=high ${{ matrix.flags }}

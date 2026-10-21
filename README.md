@@ -123,10 +123,15 @@ Full precedence and every command: [docs/cli.md](https://github.com/AdrianShah/S
 | `CORS_ORIGIN_REGEX` | — | Opt-in wildcard for preview deploys. Empty by default; a regex here widens who can call the relay. |
 | `SYNERGO_STATE_PATH` | — (`/data/synergo.db` in the image) | SQLite file on a persistent disk. Without it, room codes live only in memory and every deploy invalidates them. |
 | `TRUST_PROXY_HEADER` | `false` | Read the client IP from `X-Forwarded-For`. See the warning below. |
+| `TRUSTED_PROXY_HOPS` | `1` | With `TRUST_PROXY_HEADER`, how many `X-Forwarded-For` entries from the right your own proxies appended. The client IP is the entry that many hops in, never the client-supplied leftmost one. |
+| `TRUST_CLOUDFLARE` | `false` | Read the client IP from `CF-Connecting-IP`. On Fly (`FLY_APP_NAME` set) `Fly-Client-IP` is used automatically. |
 | `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS` | `10` / `3600` | Room creations allowed per IP per window. |
 | `WS_ATTEMPT_LIMIT` / `WS_ATTEMPT_WINDOW_SECONDS` | `30` / `60` | WebSocket connection attempts per IP per window. |
 | `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. |
-| `SYNERGO_REDIS_URL` | — | `redis://`, `rediss://` or `unix://` URL. Keeps the rate-limit counters in Redis so every relay instance shares one budget. Needs the `redis` package (included in the Docker image). |
+| `SYNERGO_REDIS_URL` | — | `redis://`, `rediss://` or `unix://` URL. Shares rate-limit counters, room codes and room-ownership leases across relay instances. Needs the `redis` package (included in the Docker image). |
+| `SYNERGO_ROOM_STORE` | — | Set to `local` to keep room codes in SQLite/memory even when `SYNERGO_REDIS_URL` is set (Redis for rate limits only). |
+| `SYNERGO_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's id in room-ownership leases. |
+| `SYNERGO_STATIC_DIR` | — (`/app/static` in the image) | Built dashboard to serve from the relay, same-origin, so the bundled dashboard needs no CORS entry. |
 | `GEMINI_API_KEY` | — | Enables AI captions and conflict explanations |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Model override |
 | `GEMINI_CAPTION_TIMEOUT` | `4.0` | Seconds before caption fallback |
@@ -135,7 +140,8 @@ Full precedence and every command: [docs/cli.md](https://github.com/AdrianShah/S
 > **`TRUST_PROXY_HEADER` cuts both ways.** Behind Render or Cloudflare the socket
 > peer is the proxy, so with it off every user shares one rate-limit bucket. With
 > it on but no proxy in front, a client can spoof `X-Forwarded-For` and bypass the
-> limits entirely. Set it to match your actual topology.
+> limits. Set it, and `TRUSTED_PROXY_HOPS`, to match your actual topology; see
+> [docs/security.md](https://github.com/AdrianShah/Synergo/blob/main/docs/security.md).
 
 > Rate limits are **per process** unless `SYNERGO_REDIS_URL` is set. Run more
 > than one relay instance without it and each one grants the full budget. If
@@ -480,5 +486,5 @@ ngrok http 8000
 
 ## License
 
-Apache-2.0, as declared in `pyproject.toml`. The full license text has not been
-added to the repository yet.
+Apache-2.0. See [LICENSE](https://github.com/AdrianShah/Synergo/blob/main/LICENSE)
+and [NOTICE](https://github.com/AdrianShah/Synergo/blob/main/NOTICE).

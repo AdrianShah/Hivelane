@@ -30,7 +30,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-from synergo import hook_fast
+from synergo import auth, hook_fast
 from synergo.config import SynergoConfig, synergo_home
 
 DEFAULT_PORT = hook_fast.DEFAULT_PORT
@@ -59,6 +59,24 @@ WINDOWS_STARTUP_SCRIPT = "synergo-daemon.vbs"
 
 class ServiceError(Exception):
     """The daemon could not be started, reached or changed. User-facing."""
+
+
+class DaemonAuthError(ServiceError):
+    """A daemon answers on the port but refuses this client's token."""
+
+
+def auth_problem(port: int) -> str:
+    """Why a daemon on port refused us, and what to do about it."""
+    path = auth.token_path()
+    if auth.read_token() is None:
+        return (
+            f"the daemon on {LOOPBACK}:{port} requires a token and {path} is missing or "
+            "unreadable; run `synergo down` then `synergo up` to restart it with a fresh one"
+        )
+    return (
+        f"the daemon on {LOOPBACK}:{port} refused the token in {path}. It was probably "
+        "started with a different SYNERGO_HOME; use the same one, or stop that daemon"
+    )
 
 
 # A proxy-less opener: HTTP(S)_PROXY in the environment must never route a
@@ -117,17 +135,34 @@ def _remove_pid(only_if: Optional[int] = None) -> None:
 
 
 def _request(
-    port: int, method: str, path: str, body: Any = None, timeout: float = STATUS_TIMEOUT
+    port: int,
+    method: str,
+    path: str,
+    body: Any = None,
+    timeout: float = STATUS_TIMEOUT,
+    *,
+    authenticate: bool = True,
 ) -> Any:
+    """One JSON call to the daemon. The token is read from disk per call (it
+    is a few bytes), so a regenerated token never needs a restart here. A 401
+    becomes DaemonAuthError; other HTTP errors propagate as HTTPError."""
     data = None if body is None else json.dumps(body).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if authenticate:
+        headers.update(auth.auth_headers())
     request = urllib.request.Request(
         f"http://{LOOPBACK}:{port}{path}",
         data=data,
         method=method,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
     )
-    with _OPENER.open(request, timeout=timeout) as response:
-        raw = response.read()
+    try:
+        with _OPENER.open(request, timeout=timeout) as response:
+            raw = response.read()
+    except urllib.error.HTTPError as exc:
+        if exc.code == 401 and authenticate:
+            raise DaemonAuthError(auth_problem(port)) from None
+        raise
     return json.loads(raw) if raw else None
 
 
@@ -150,7 +185,12 @@ _UNREACHABLE = (OSError, ValueError, http.client.HTTPException)
 
 
 def status(port: int, timeout: float = 1.0) -> Optional[dict]:
-    """The daemon's GET /status, or None if nothing usable answers on port."""
+    """The daemon's GET /status, or None if nothing usable answers on port.
+
+    Raises DaemonAuthError when a daemon answers but refuses our token: that
+    is not "no daemon", and treating it as one would start a second daemon
+    that can only fail to bind the port.
+    """
     if not _port_accepts(port, min(timeout, CONNECT_PROBE)):
         return None
     try:
@@ -160,8 +200,35 @@ def status(port: int, timeout: float = 1.0) -> Optional[dict]:
     return data if isinstance(data, dict) else None
 
 
+def health(port: int, timeout: float = 1.0) -> bool:
+    """True when a Synergo daemon answers on port (unauthenticated /health)."""
+    if not _port_accepts(port, min(timeout, CONNECT_PROBE)):
+        return False
+    try:
+        data = _request(port, "GET", "/health", timeout=timeout, authenticate=False)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 404:
+            return False
+        # A daemon from before /health existed: it still answers /status.
+        try:
+            return status(port, timeout) is not None
+        except DaemonAuthError:
+            return True
+    except _UNREACHABLE:
+        return False
+    return isinstance(data, dict) and data.get("ok") is True
+
+
 def is_running(port: int) -> bool:
-    return status(port) is not None
+    return health(port)
+
+
+def _status_quietly(port: int, timeout: float = 1.0) -> tuple[Optional[dict], bool]:
+    """(status or None, whether a daemon refused our token)."""
+    try:
+        return status(port, timeout), False
+    except DaemonAuthError:
+        return None, True
 
 
 def _pid_from(current: dict) -> int:
@@ -275,7 +342,14 @@ def log_tail(lines: int = LOG_TAIL_LINES) -> str:
 def start_background(port: int, *, wait: float = 8.0) -> int:
     """Start the daemon detached in the background and return its pid once it
     answers on port. An already-running daemon is left alone and its pid
-    returned. Raises ServiceError (with the log tail) if it never comes up."""
+    returned. Raises ServiceError (with the log tail) if it never comes up,
+    and DaemonAuthError when the daemon already there refuses our token."""
+    # Before the daemon exists, so whichever of us creates the token file, the
+    # daemon and this CLI read the same one.
+    try:
+        auth.ensure_token()
+    except OSError as exc:
+        raise ServiceError(f"could not create the daemon token {auth.token_path()} ({exc})") from None
     current = status(port)
     if current is not None:
         return _pid_from(current)
@@ -309,7 +383,9 @@ def stop(port: int, timeout: float = 5.0) -> bool:
     """Stop the daemon on port: ask it to shut down gracefully (it flushes
     batched edits and closes its relay sockets), then fall back to killing the
     pid it reported. True when no daemon is left on port."""
-    current = status(port)
+    # A daemon that refuses our token cannot be asked to shut down; it is
+    # treated like a hung one (killed by the pid we recorded, if it is ours).
+    current, _ = _status_quietly(port)
     pid = _pid_from(current) if current is not None else read_pid()
     if current is None:
         # Nothing answers. A live pid only counts as ours if something still
@@ -329,14 +405,14 @@ def stop(port: int, timeout: float = 5.0) -> bool:
         pass
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if status(port, timeout=0.3) is None and not _pid_alive(pid):
+        if not health(port, timeout=0.3) and not _pid_alive(pid):
             break
         time.sleep(POLL_INTERVAL)
     else:
         if pid and _pid_alive(pid):
             _kill(pid)
             _wait_dead(pid, 2.0)
-    if status(port, timeout=0.3) is not None:
+    if health(port, timeout=0.3):
         return False
     _remove_pid()
     return True
@@ -358,6 +434,12 @@ def registration(root: Path, config: SynergoConfig) -> dict[str, Any]:
         "settings": config.room_settings() if config.root is not None else None,
         "ignore": list(config.ignore),
         "share_diffs": config.share_diffs,
+        "redact": config.redact,
+        "redact_patterns": list(config.redact_patterns),
+        # Secrets, over the token-guarded loopback socket only: the e2e
+        # passphrase (rooms that say e2e) and the owner token, if any.
+        "room_key": config.room_key() if config.e2e else None,
+        "owner_token": config.owner_token(),
     }
 
 
@@ -462,11 +544,11 @@ def serve(port: int, *, log_file: bool = False) -> int:
     """
     if log_file:
         _log_to_file()
-    existing = status(port, timeout=0.5)
-    if existing is not None:
+    if health(port, timeout=0.5):
+        existing, _ = _status_quietly(port, timeout=0.5)
         print(
             f"synergo: a daemon is already serving {LOOPBACK}:{port} "
-            f"(pid {existing.get('pid', '?')}); not starting another"
+            f"(pid {(existing or {}).get('pid', '?')}); not starting another"
         )
         return 0
 

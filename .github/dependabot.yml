@@ -1,0 +1,87 @@
+# Upgrade PRs for every dependency manifest in the repo. .github/workflows/audit.yml
+# is the matching gate: it fails a pull request (and the weekly run) on a known
+# vulnerability, and these PRs are how one gets fixed.
+#
+# Weekly and grouped, so routine minor and patch bumps arrive as one PR per
+# manifest rather than one per package. Security updates are never grouped or
+# delayed: Dependabot opens those as soon as an advisory lands, independently
+# of this schedule, once "Dependabot security updates" is enabled in the
+# repository settings.
+version: 2
+
+updates:
+  # The synergo CLI package: pyproject.toml's dependency ranges.
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      synergo:
+        update-types: [minor, patch]
+
+  # The relay's pinned requirements (server/requirements*.txt).
+  - package-ecosystem: pip
+    directory: "/server"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      relay:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      dashboard:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/editors/vscode"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      extension:
+        update-types: [minor, patch]
+    ignore:
+      # @types/vscode tracks engines.vscode in package.json, the oldest editor
+      # the extension supports; raising it is a compatibility decision, not a
+      # routine bump.
+      - dependency-name: "@types/vscode"
+        update-types: [version-update:semver-minor, version-update:semver-major]
+
+  - package-ecosystem: npm
+    directory: "/docs-site"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      docs-site:
+        update-types: [minor, patch]
+
+  # The zero-dependency npm launcher. Nothing to update today; listed so a
+  # dependency added later is not silently left behind.
+  - package-ecosystem: npm
+    directory: "/packaging/npm"
+    schedule:
+      interval: monthly
+
+  # The relay image's base (Dockerfile).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

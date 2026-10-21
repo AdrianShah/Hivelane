@@ -1,13 +1,14 @@
-# Self-hosted relay: the relay image behind Caddy, which obtains and renews a
-# TLS certificate for RELAY_DOMAIN automatically. Full guide:
+# Self-hosted relay and dashboard: the relay image (which serves the dashboard
+# at https://RELAY_DOMAIN/) behind Caddy, which obtains and renews a TLS
+# certificate for RELAY_DOMAIN automatically. Full guide:
 # docs/self-hosting.md. From this directory:
 #
 #   cp .env.example .env      # set RELAY_DOMAIN and CORS_ORIGINS
 #   docker compose up -d --build
 #
-# Optional Redis for shared rate-limit counters: set COMPOSE_PROFILES=redis and
-# SYNERGO_REDIS_URL=redis://redis:6379/0 in .env (see .env.example for when it
-# is worth it).
+# Optional Redis: set COMPOSE_PROFILES=redis and
+# SYNERGO_REDIS_URL=redis://redis:6379/0 in .env (see .env.example for what it
+# changes and when it is worth it).
 name: synergo
 
 services:
@@ -22,12 +23,20 @@ services:
       SYNERGO_ENV: ${SYNERGO_ENV:-production}
       CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to your dashboard origin(s) in .env}
       SYNERGO_STATE_PATH: /data/synergo.db
+      # The dashboard, built into the image, at https://RELAY_DOMAIN/. It talks
+      # to the relay on its own origin, so it needs no CORS entry. Set
+      # SYNERGO_STATIC_DIR= (empty) in .env to serve the API only.
+      SYNERGO_STATIC_DIR: ${SYNERGO_STATIC_DIR-/app/static}
       # Safe here: Caddy discards any X-Forwarded-For a client sends and sets
       # the real address, so the relay sees each user's own IP.
       TRUST_PROXY_HEADER: "true"
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      # Empty keeps rate limits in-process; see the redis profile below.
+      # Empty keeps room codes and rate limits in this container; see the
+      # redis profile below.
       SYNERGO_REDIS_URL: ${SYNERGO_REDIS_URL:-}
+      # With Redis for rate limits only, keep room codes on the volume:
+      # SYNERGO_ROOM_STORE=local in .env.
+      SYNERGO_ROOM_STORE: ${SYNERGO_ROOM_STORE:-}
     volumes:
       # Room codes: without this every restart invalidates every room.
       - relay-data:/data
@@ -59,8 +68,11 @@ services:
     image: redis:8-alpine
     profiles: ["redis"]
     restart: unless-stopped
-    # Rate-limit counters are short-lived; nothing here is worth persisting.
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # Holds room codes (unless SYNERGO_ROOM_STORE=local) as well as
+    # short-lived rate-limit counters, so it persists to its volume.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -69,5 +81,6 @@ services:
 
 volumes:
   relay-data:
+  redis-data:
   caddy-data:
   caddy-config:

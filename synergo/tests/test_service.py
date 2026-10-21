@@ -12,13 +12,14 @@ import plistlib
 import socket
 import sys
 import time
+import urllib.error
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from synergo import hook_fast, service
+from synergo import auth, hook_fast, service
 from synergo.config import SynergoConfig
 
 
@@ -78,6 +79,17 @@ def test_background_daemon_lifecycle(port: int, home: Path, tmp_path: Path) -> N
     assert service.read_pid() == pid
     # Already running: the same daemon, not a second one.
     assert service.start_background(port) == pid
+
+    # The token the daemon demands is the one in SYNERGO_HOME, and nothing
+    # else gets past /health.
+    token = auth.read_token()
+    assert token and (home / "token").is_file()
+    if os.name != "nt":
+        assert (home / "token").stat().st_mode & 0o777 == 0o600
+    assert service.health(port)
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        service._request(port, "GET", "/status", authenticate=False)
+    assert refused.value.code == 401
     # serve() in another process (a login item, a racing hook) backs off too.
     assert service.serve(port) == 0
 
@@ -93,7 +105,7 @@ def test_background_daemon_lifecycle(port: int, home: Path, tmp_path: Path) -> N
     entry = service.connect_repo(port, repo, config)
     assert entry["root"] == str(repo.resolve())
     assert (entry["room"], entry["name"], entry["connected"], entry["fatal"]) == ("TEAM1", "ada", False, None)
-    assert entry["settings"] == {"block_window_seconds": 10.0, "warn_window_seconds": 30.0}
+    assert entry["settings"] == {"block_window_seconds": 10.0, "warn_window_seconds": 30.0, "e2e": False}
     assert entry["ignore"] == ["*.lock"]
     assert [r["root"] for r in service.status(port)["repos"]] == [str(repo.resolve())]
 

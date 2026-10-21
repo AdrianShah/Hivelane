@@ -49,10 +49,27 @@ class DaemonDown(Exception):
     pass
 
 
+# Loopback only: HTTP(S)_PROXY must never route a call to the daemon (and its
+# token) through a proxy.
+_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
 class DaemonClient:
-    def __init__(self, port: int, timeout: float = HTTP_TIMEOUT) -> None:
+    """Talks to the daemon's loopback HTTP API with the install's token
+    (SYNERGO_HOME/token, read per request; synergo.auth)."""
+
+    def __init__(self, port: int, timeout: float = HTTP_TIMEOUT, token: Optional[str] = None) -> None:
         self.base = f"http://127.0.0.1:{port}"
         self.timeout = timeout
+        # An explicit token (tests) is used as given; otherwise the file is read.
+        self.token = token
+
+    def _headers(self) -> dict[str, str]:
+        from synergo import auth
+
+        headers = {"Content-Type": "application/json"}
+        headers.update(auth.auth_headers(self.token))
+        return headers
 
     def _request(self, path: str, body: Optional[dict[str, Any]] = None) -> Any:
         data = json.dumps(body).encode() if body is not None else None
@@ -60,12 +77,19 @@ class DaemonClient:
             self.base + path,
             data=data,
             method="POST" if body is not None else "GET",
-            headers={"Content-Type": "application/json"},
+            headers=self._headers(),
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with _OPENER.open(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode() or "null")
         except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                from synergo import auth
+
+                raise DaemonDown(
+                    f"the synergo daemon at {self.base} refused this client's token "
+                    f"({auth.token_path()}); run `synergo doctor`"
+                ) from None
             raise DaemonDown(f"daemon answered HTTP {exc.code} for {path}") from None
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise DaemonDown(f"synergo daemon not reachable at {self.base} ({exc})") from None

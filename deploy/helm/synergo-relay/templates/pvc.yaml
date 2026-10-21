@@ -1,0 +1,22 @@
+{{- if and (include "synergo-relay.usePVC" .) (not .Values.persistence.existingClaim) }}
+# Room codes (SQLite at /data/synergo.db), so they survive restarts and
+# upgrades. Only with one replica: several keep their codes in Redis.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "synergo-relay.fullname" . }}
+  labels:
+    {{- include "synergo-relay.labels" . | nindent 4 }}
+  annotations:
+    # Uninstalling the release keeps the room codes; delete the claim by hand.
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

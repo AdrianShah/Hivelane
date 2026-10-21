@@ -8,6 +8,7 @@ when required values are missing.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -24,6 +25,20 @@ DEFAULT_ROOM_CREATE_WINDOW_SECONDS = 3600
 DEFAULT_WS_ATTEMPT_LIMIT = 30
 DEFAULT_WS_ATTEMPT_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS = 4096
+# Inbound WebSocket messages per minute per room, summed over every socket in
+# it (a token bucket, so short bursts up to this many are fine).
+DEFAULT_ROOM_MESSAGE_LIMIT = 600
+# Proxies between the internet and the relay that each append to
+# X-Forwarded-For (Render, a single nginx/Caddy/Traefik: 1).
+DEFAULT_TRUSTED_PROXY_HOPS = 1
+
+# Origins no real dashboard has. A CORS_ORIGIN_REGEX that matches any of them
+# matches everything, which production refuses (see _cors_wildcard_problem).
+_CORS_PROBE_ORIGINS = (
+    "https://cors-wildcard-probe.invalid",
+    "http://cors-wildcard-probe.invalid",
+    "null",
+)
 
 # Schemes redis-py's from_url understands. Checked here so a typo fails the boot
 # instead of quietly leaving every instance on its own per-process budget.
@@ -46,6 +61,10 @@ class Settings:
     ws_attempt_window_seconds: int
     rate_limit_max_tracked_ips: int
     redis_url: str | None
+    trusted_proxy_hops: int = DEFAULT_TRUSTED_PROXY_HOPS
+    trust_cloudflare: bool = False
+    behind_fly: bool = False
+    room_message_limit: int = DEFAULT_ROOM_MESSAGE_LIMIT
 
     @property
     def is_production(self) -> bool:
@@ -54,6 +73,12 @@ class Settings:
     @property
     def is_development(self) -> bool:
         return self.env == "development"
+
+    @property
+    def hsts_enabled(self) -> bool:
+        """Strict-Transport-Security only where TLS is certain: a dev relay on
+        http://localhost would otherwise pin the browser to https for it."""
+        return self.env in ("staging", "production")
 
 
 def _csv(raw: str | None) -> tuple[str, ...]:
@@ -98,6 +123,25 @@ def _redis_url(env: Mapping[str, str]) -> str | None:
     return raw
 
 
+def _cors_wildcard_problem(
+    origins: tuple[str, ...], regex: str | None
+) -> str | None:
+    """Why this CORS policy amounts to "any origin", or None if it does not.
+
+    Probed rather than pattern-matched against ".*": "https?://.*",
+    "^.+$" and friends are all wildcards, and the only reliable test is
+    whether they accept an origin nobody listed.
+    """
+    if "*" in origins:
+        return "CORS_ORIGINS contains '*'"
+    if regex is None:
+        return None
+    for probe in _CORS_PROBE_ORIGINS:
+        if re.fullmatch(regex, probe):
+            return f"CORS_ORIGIN_REGEX {regex!r} matches any origin (e.g. {probe!r})"
+    return None
+
+
 def load_settings(env: Mapping[str, str]) -> Settings:
     name = (env.get("SYNERGO_ENV") or "development").strip().lower()
     if name not in VALID_ENVIRONMENTS:
@@ -120,6 +164,20 @@ def load_settings(env: Mapping[str, str]) -> Settings:
     # Empty by default: a regex that silently matches nothing — or too much —
     # is worse than an explicit origin list.
     regex = (env.get("CORS_ORIGIN_REGEX") or "").strip() or None
+    if regex is not None:
+        try:
+            re.compile(regex)
+        except re.error as exc:
+            raise ConfigError(f"CORS_ORIGIN_REGEX is not a valid regex: {exc}") from exc
+    if name == "production":
+        problem = _cors_wildcard_problem(origins, regex)
+        if problem is not None:
+            raise ConfigError(
+                f"{problem}. A production relay must name the dashboard origins it "
+                "serves; a wildcard lets any web page drive it from a visitor's "
+                "browser. List exact origins in CORS_ORIGINS, or scope the regex "
+                r"to your own domain (e.g. https://.*\.example\.com)."
+            )
 
     return Settings(
         env=name,
@@ -147,6 +205,20 @@ def load_settings(env: Mapping[str, str]) -> Settings:
             env, "RATE_LIMIT_MAX_TRACKED_IPS", DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS
         ),
         redis_url=_redis_url(env),
+        # How many X-Forwarded-For entries, counted from the right, were added
+        # by proxies you run or rent. Only read with TRUST_PROXY_HEADER on.
+        trusted_proxy_hops=_positive_int(
+            env, "TRUSTED_PROXY_HOPS", DEFAULT_TRUSTED_PROXY_HOPS
+        ),
+        # Read CF-Connecting-IP. Only safe when the origin accepts traffic from
+        # Cloudflare alone; otherwise anyone can send the header directly.
+        trust_cloudflare=_bool(env.get("TRUST_CLOUDFLARE"), default=False),
+        # Fly.io sets FLY_APP_NAME on every machine, and its proxy overwrites
+        # Fly-Client-IP on every request, so that header cannot be forged.
+        behind_fly=bool((env.get("FLY_APP_NAME") or "").strip()),
+        room_message_limit=_positive_int(
+            env, "ROOM_MESSAGE_LIMIT", DEFAULT_ROOM_MESSAGE_LIMIT
+        ),
     )
 
 
@@ -164,3 +236,8 @@ WS_ATTEMPT_LIMIT: int = SETTINGS.ws_attempt_limit
 WS_ATTEMPT_WINDOW_SECONDS: int = SETTINGS.ws_attempt_window_seconds
 RATE_LIMIT_MAX_TRACKED_IPS: int = SETTINGS.rate_limit_max_tracked_ips
 REDIS_URL: str | None = SETTINGS.redis_url
+TRUSTED_PROXY_HOPS: int = SETTINGS.trusted_proxy_hops
+TRUST_CLOUDFLARE: bool = SETTINGS.trust_cloudflare
+BEHIND_FLY: bool = SETTINGS.behind_fly
+ROOM_MESSAGE_LIMIT: int = SETTINGS.room_message_limit
+HSTS_ENABLED: bool = SETTINGS.hsts_enabled

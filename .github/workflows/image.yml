@@ -1,0 +1,137 @@
+name: Image
+
+# Builds the relay image (relay + bundled dashboard, from the root Dockerfile)
+# for linux/amd64 and linux/arm64 and publishes it to GitHub Container Registry:
+#
+#   ghcr.io/adrianshah/synergo-relay:edge        every push to main
+#   ghcr.io/adrianshah/synergo-relay:1.2.3, 1.2  v* tags
+#   ghcr.io/adrianshah/synergo-relay:latest      v* tags that are not prereleases
+#
+# Pull requests build both platforms and boot the amd64 image, but push nothing.
+# Runs beside deploy.yml and release.yml, which also fire on main and v* tags,
+# in a concurrency group of its own so none of them waits on or cancels another.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - server/**
+      - frontend/**
+      - .github/workflows/image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: image-${{ github.ref }}
+  # A newer PR push supersedes the build in flight; a publish always finishes,
+  # so a tag's image is never half-pushed.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # GHCR names must be lower case, unlike the GitHub owner.
+  IMAGE: ghcr.io/adrianshah/synergo-relay
+
+jobs:
+  image:
+    name: build, boot, publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE }}
+          # latest=auto: `latest` goes on stable v* tags only, never on a
+          # prerelease such as v1.0.0-rc1 or on edge.
+          flavor: latest=auto
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=edge,branch=main
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=Synergo relay
+            org.opencontainers.image.description=Synergo relay with the bundled dashboard
+            org.opencontainers.image.licenses=Apache-2.0
+
+      # The same checks as ci.yml's "relay image" job, plus the dashboard: the
+      # amd64 image is built into the local daemon and booted before anything
+      # is pushed. Its layers land in the cache the multi-arch build reuses.
+      - name: Build (amd64, for the boot check)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: synergo-relay:check
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot and check the relay and dashboard
+        run: |
+          docker run -d --name relay -p 8000:8000 \
+            -e SYNERGO_ENV=production \
+            -e CORS_ORIGINS=https://example.test \
+            synergo-relay:check
+          ready=""
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/readyz >/dev/null 2>&1; then
+              ready=yes
+              break
+            fi
+            sleep 2
+          done
+          status=0
+          if [ -z "$ready" ]; then
+            echo "::error title=Relay not ready::/readyz did not answer within 60s"
+            status=1
+          else
+            curl -fsS http://127.0.0.1:8000/readyz && echo
+            curl -fsS http://127.0.0.1:8000/health && echo
+            # The dashboard at /, and the single-page-app fallback for a room link.
+            curl -fsS http://127.0.0.1:8000/ | grep -qi '<div id="root"' \
+              || { echo "::error title=No dashboard::GET / did not return the dashboard"; status=1; }
+            curl -fsS http://127.0.0.1:8000/r/ABCDEFGH | grep -qi '<div id="root"' \
+              || { echo "::error title=No SPA fallback::GET /r/ABCDEFGH did not return the dashboard"; status=1; }
+          fi
+          if [ "$status" -ne 0 ]; then docker logs relay >&2; fi
+          docker rm -f relay >/dev/null
+          exit "$status"
+
+      # Pull requests, and manual runs on a branch with no tag to publish under,
+      # build only.
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request' && steps.meta.outputs.tags != ''
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (amd64 + arm64) and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' && steps.meta.outputs.tags != '' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
