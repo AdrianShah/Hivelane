@@ -19,7 +19,7 @@ export const REPO_ROOT = resolve(SITE_ROOT, '..');
 export const OUT_DIR = join(SITE_ROOT, 'src', 'content', 'docs');
 
 // The site is published by .github/workflows/pages.yml to GitHub Pages, under
-// the dashboard: https://hivelane.dev/docs/. Links between
+// the dashboard: https://adrianshah.github.io/Hivelane/docs/. Links between
 // pages are built from BASE, so changing these two is enough to move the site
 // (DOCS_SITE / DOCS_BASE override them for a one-off build elsewhere).
 export const SITE = process.env.DOCS_SITE || 'https://adrianshah.github.io';

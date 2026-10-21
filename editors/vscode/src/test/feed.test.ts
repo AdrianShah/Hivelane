@@ -228,7 +228,7 @@ test("room codes normalize like the dashboard", () => {
 
 test("dashboard URL follows the CLI and carries ?relay=", () => {
   assert.equal(dashboardBase("", "wss://relay.example/ws", {}), DEFAULT_DASHBOARD);
-  assert.equal(DEFAULT_DASHBOARD, "https://hivelane.dev");
+  assert.equal(DEFAULT_DASHBOARD, "https://adrianshah.github.io/Hivelane");
   assert.equal(dashboardBase("", "ws://localhost:8000/ws", {}), DEFAULT_DASHBOARD_LOCAL);
   assert.equal(dashboardBase("", "wss://relay.example/ws", { HIVELANE_DASHBOARD: "https://dash.example/" }), "https://dash.example");
   assert.equal(dashboardBase("https://mine.example/", "wss://relay.example/ws", { HIVELANE_DASHBOARD: "https://dash.example" }), "https://mine.example");
@@ -236,7 +236,7 @@ test("dashboard URL follows the CLI and carries ?relay=", () => {
   assert.ok(!relayIsLocal("wss://relay.example/ws"));
   assert.equal(
     roomLink(DEFAULT_DASHBOARD, "k7m2-pq2x", "wss://relay.example/ws"),
-    "https://hivelane.dev/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws"
+    "https://adrianshah.github.io/Hivelane/r/K7M2PQ2X?relay=wss%3A%2F%2Frelay.example%2Fws"
   );
   // The relay serving its own dashboard: no parameter needed.
   assert.equal(roomLink("https://relay.example", "ROOM", "wss://relay.example/ws"), "https://relay.example/r/ROOM");

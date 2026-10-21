@@ -110,7 +110,7 @@ def test_relay_flag_is_normalized_used_recorded_and_shared(
     assert machine.relay.urls("POST") == ["https://relay.example.com/rooms"]
     assert project_values(machine) == {"room": "K7Q2XM", "relay": "wss://relay.example.com/ws"}
     assert machine.service.called("connect_repo")[0][3].relay == "wss://relay.example.com/ws"
-    assert "https://hivelane.dev/r/K7Q2XM?relay=wss%3A%2F%2Frelay.example.com%2Fws" in out
+    assert "https://adrianshah.github.io/Hivelane/r/K7Q2XM?relay=wss%3A%2F%2Frelay.example.com%2Fws" in out
     assert "hivelane up --room K7Q2XM --relay wss://relay.example.com/ws" in out
 
 

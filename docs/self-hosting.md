@@ -89,7 +89,7 @@ and `vite preview`, which use `ws://localhost:8000/ws`.
 hosts no relay. The dashboard asks for one: room links carry `?relay=wss://…`,
 and the Home page has a relay field. Set the repository variable
 `PAGES_RELAY_URL=wss://relay.example.com/ws` to bake a default relay in, and
-add the site's origin (`https://hivelane.dev`) to that relay's `CORS_ORIGINS`.
+add the site's origin (`https://adrianshah.github.io`, or `https://hivelane.dev` once the custom domain is live) to that relay's `CORS_ORIGINS`.
 
 Without a custom domain, the site is at `https://adrianshah.github.io/Hivelane/`.
 To serve it at `hivelane.dev`:

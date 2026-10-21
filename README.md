@@ -22,8 +22,8 @@ hivelane up                # in your repo: hooks, room, background daemon
 > `raw.githubusercontent.com` URLs in [docs/install.md](docs/install.md) 404
 > for anyone without repo access until the repository is public or the
 > packages are published. The dashboard and docs are public at
-> <https://hivelane.dev/> and
-> <https://hivelane.dev/docs/>.
+> <https://adrianshah.github.io/Hivelane/> and
+> <https://adrianshah.github.io/Hivelane/docs/>.
 
 ---
 
@@ -125,7 +125,7 @@ Full precedence and every command: [docs/cli.md](https://github.com/AdrianShah/H
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HIVELANE_RELAY` | `ws://localhost:8000/ws` | Relay WebSocket base used when no `--relay` is given. |
-| `HIVELANE_DASHBOARD` | local dev server for a local relay, else `https://hivelane.dev` | Dashboard base for room links (`<dashboard>/r/<CODE>`) and `hivelane open`. |
+| `HIVELANE_DASHBOARD` | local dev server for a local relay, else `https://adrianshah.github.io/Hivelane` | Dashboard base for room links (`<dashboard>/r/<CODE>`) and `hivelane open`. |
 | `HIVELANE_NAME` | git `user.name`, else the OS user | Your display name in rooms. |
 | `HIVELANE_PORT` | `4600` | Loopback port the daemon listens on and the hooks call. |
 | `HIVELANE_HOME` | `~/.hivelane` | Personal config, daemon state and logs (`logs/daemon.log`). |
