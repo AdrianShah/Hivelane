@@ -12,6 +12,10 @@ PORT_A=${PORT_A:-4791}
 PORT_B=${PORT_B:-4792}
 WORK="$(mktemp -d)"
 PIDS=()
+# Both daemons and every hook share one private SYNERGO_HOME, so they share
+# the daemon token (synergo/auth.py) and nothing lands in the real home.
+export SYNERGO_HOME="$WORK/home"
+mkdir -p "$SYNERGO_HOME"
 
 cleanup() {
   local pid i alive
@@ -79,7 +83,12 @@ start_daemon() {
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)
   disown
-  wait_for "http://127.0.0.1:$port/status" "daemon $name"
+  wait_for "http://127.0.0.1:$port/health" "daemon $name"
+}
+
+# Every daemon route but /health wants the install's token.
+daemon_status() {
+  curl -fsS -H "X-Synergo-Token: $(cat "$SYNERGO_HOME/token")" "http://127.0.0.1:$1/status"
 }
 
 echo "== daemon adrian (cwd = repo root), daemon sam (cwd = repo/server)"
@@ -87,14 +96,18 @@ start_daemon adrian claude-code "$PORT_A" "$REPO"
 start_daemon sam cursor "$PORT_B" "$REPO/server"
 
 for i in $(seq 1 40); do
-  a=$(curl -fsS "http://127.0.0.1:$PORT_A/status")
-  b=$(curl -fsS "http://127.0.0.1:$PORT_B/status")
+  a=$(daemon_status "$PORT_A")
+  b=$(daemon_status "$PORT_B")
   if [[ "$a" == *'"sam"'* && "$b" == *'"adrian"'* ]]; then break; fi
   sleep 0.5
 done
 [[ "$a" == *'"sam"'* && "$b" == *'"adrian"'* ]] \
   || fail "daemons never saw each other as peers (a=$a b=$b)"
 echo "   both daemons see each other"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT_A/status")
+[[ "$code" == "401" ]] || fail "a request without the daemon token got HTTP $code, not 401"
+echo "   a request without the token is refused"
 
 hook_event() {
   local event=$1 session=$2 cwd=$3 port=$4

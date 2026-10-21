@@ -48,6 +48,14 @@ export default function SharePanel({ roomId, settings }: SharePanelProps) {
       <header>
         <h2 id="share-panel-title">Share this room</h2>
         <p>Anyone with the code can join, so share it with your team only.</p>
+        {settings?.e2e ? (
+          <p>
+            <span aria-hidden="true">🔒 </span>
+            This room is end-to-end encrypted. Send the room key separately from this link
+            (`synergo key show` prints it): teammates run `synergo key set {roomId || 'CODE'}`,
+            viewers add <code>#k=&lt;key&gt;</code> to the link or paste the key when asked.
+          </p>
+        ) : null}
       </header>
 
       <div className="share-code">

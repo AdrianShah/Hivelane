@@ -46,6 +46,7 @@ export interface Activity {
   changes: FileChange[];
   agent?: AgentKind;
   repo_id?: RepoId;
+  e2e?: string;
 }
 
 /** Server → clients broadcast after an activity message. */
@@ -59,6 +60,8 @@ export interface ActivityUpdate {
   agent?: AgentKind;
   repo_id?: RepoId;
   branch?: string;
+  /** Opaque client ciphertext (e2e rooms only); the relay never reads it. */
+  e2e?: string;
 }
 
 /** What an agent is currently trying to do — latest per user wins. */
@@ -69,6 +72,7 @@ export interface IntentUpdate {
   timestamp: number;
   agent?: AgentKind;
   repo_id?: RepoId;
+  e2e?: string;
 }
 
 /** A pre-edit check that came back non-allow; allow decisions aren't broadcast. */
@@ -85,6 +89,7 @@ export interface EditDecision {
   scope?: DecisionScope;
   /** Non-empty for warn/block; key for decision_feedback votes. */
   decision_id?: string;
+  e2e?: string;
 }
 
 /** A member's declared plan (files/symbols it intends to change). */
@@ -99,6 +104,7 @@ export interface PlanUpdate {
   branch?: string;
   timestamp: number;
   expires_at: number;
+  e2e?: string;
 }
 
 export interface PlanConflict {
@@ -108,6 +114,7 @@ export interface PlanConflict {
   kind: 'edited' | 'planned';
   summary: string;
   seconds_ago: number;
+  e2e?: string;
 }
 
 /** Point-to-point reply to a member's plan message. */
@@ -179,8 +186,60 @@ export interface RoomSettingsUpdate {
   type: 'room_settings';
   block_window_seconds: number;
   warn_window_seconds: number;
+  /** The team committed `e2e = true`: payloads arrive encrypted in `e2e`. */
+  e2e?: boolean;
   set_by: string | null;
   timestamp: number;
+}
+
+/**
+ * Sent to a joiner (member or spectator) held for owner approval. The socket
+ * stays open; the next frame is normal traffic (approved) or room_rejected.
+ */
+export interface JoinPending {
+  type: 'join_pending';
+  request_id: string;
+  reason: string;
+}
+
+/** Sent to owner sockets: someone is waiting to join. Answer with JoinDecision. */
+export interface JoinRequest {
+  type: 'join_request';
+  request_id: string;
+  /** "dashboard viewer" for a spectator. */
+  name: string;
+  agent?: AgentKind;
+  timestamp: number;
+}
+
+/**
+ * How a pending join request ended. Sent to owner sockets, and (outcome
+ * "approved") to the admitted joiner itself, which must not send anything
+ * before it arrives.
+ */
+export interface JoinResolved {
+  type: 'join_resolved';
+  request_id: string;
+  outcome: 'approved' | 'declined' | 'timed_out' | 'withdrawn';
+}
+
+/** Owner → relay: admit or decline a pending joiner. */
+export interface JoinDecision {
+  type: 'join_decision';
+  request_id: string;
+  approve: boolean;
+}
+
+/** Owner → relay: turn join approval on or off. */
+export interface RoomPolicy {
+  type: 'room_policy';
+  require_approval: boolean;
+}
+
+/** The room's join policy: in every spectator's catch-up and broadcast on change. */
+export interface RoomPolicyUpdate {
+  type: 'room_policy_update';
+  require_approval: boolean;
 }
 
 /** Debounced room broadcast — one frame every ~500ms with queued events. */
@@ -198,6 +257,7 @@ export type FeedEvent =
   | PlanUpdate
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
+  | RoomPolicyUpdate
   | UserJoined
   | UserLeft;
 
@@ -205,6 +265,7 @@ export type FeedEvent =
 export interface RoomSettings {
   block_window_seconds: number;
   warn_window_seconds: number;
+  e2e?: boolean;
 }
 
 /**
@@ -220,6 +281,8 @@ export interface JoinMessage {
   protocol_version?: number;
   repo_id?: RepoId;
   settings?: RoomSettings | null;
+  /** Secret from POST /rooms; marks this socket as a room owner. */
+  owner_token?: string | null;
 }
 
 export type ServerMessage =
@@ -232,6 +295,10 @@ export type ServerMessage =
   | PlanConflicts
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
+  | RoomPolicyUpdate
+  | JoinPending
+  | JoinRequest
+  | JoinResolved
   | UserJoined
   | UserLeft
   | NameRejected

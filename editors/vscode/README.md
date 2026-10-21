@@ -20,6 +20,7 @@ The extension talks to your local Synergo daemon (`synergo up`, default `http://
 | `synergo.dashboardUrl` | `http://localhost:5173` | Base URL of the dashboard. |
 | `synergo.warnOnEdit` | `true` | Run the pre-edit check when you start editing. |
 | `synergo.shareHumanEdits` | `true` | Share your saved edits with the room. |
+| `synergo.tokenPath` | `""` | The daemon's access token file. Empty means `$SYNERGO_HOME/token`, else `~/.synergo/token`; set it if VS Code runs with a different `SYNERGO_HOME` than the daemon. |
 
 ## Install from a .vsix
 

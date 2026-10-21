@@ -1,0 +1,54 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        To ask for support for another coding agent, use the **Adapter request**
+        form instead: it asks for what an adapter author needs to know.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and what gets in the way today? Describe the situation, not the solution.
+      placeholder: When three agents work on the same service, I can't tell from the dashboard which one ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like to happen
+      description: How you imagine it working. Commands, config, sketches, anything helps.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you have considered
+      description: Workarounds you use today, or other ways this could be solved.
+    validations:
+      required: false
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - CLI / daemon
+        - Agent hooks / adapters
+        - Relay
+        - Dashboard
+        - VS Code / Cursor extension
+        - Self-hosting / deployment
+        - Docs
+        - Not sure
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to work on this myself.
+          required: false

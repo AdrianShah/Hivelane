@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 from collections.abc import Iterator
 
+import anyio.from_thread
 import pytest
+from starlette import testclient
 
 try:
     from server import limits
@@ -37,3 +40,24 @@ def _reset_rate_limits() -> Iterator[None]:
     yield
     limits.room_creation_limiter.reset()
     limits.ws_attempt_limiter.reset()
+
+
+@pytest.fixture(autouse=True)
+def _one_event_loop_per_test(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Run every TestClient session in a test on one shared event loop.
+
+    Starlette >= 1.0 gives each websocket_connect its own blocking portal (its
+    own loop and thread) unless the client is entered as a context manager.
+    The relay fans a broadcast out from whichever socket's handler produced
+    it, so with a loop per socket the send to another socket waits forever on
+    a stream that loop does not own. Uvicorn runs the relay on one loop, so
+    the tests should too.
+    """
+    with anyio.from_thread.start_blocking_portal() as portal:
+
+        @contextlib.contextmanager
+        def shared_portal(self: testclient.TestClient) -> Iterator[object]:
+            yield self.portal if self.portal is not None else portal
+
+        monkeypatch.setattr(testclient.TestClient, "_portal_factory", shared_portal)
+        yield

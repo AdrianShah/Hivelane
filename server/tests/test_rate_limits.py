@@ -44,10 +44,24 @@ except ImportError:  # Render rootDir=server
 
 
 def _connection(
-    *, peer: tuple[str, int] | None, forwarded: str | None = None
+    *,
+    peer: tuple[str, int] | None,
+    forwarded: str | None = None,
+    extra: dict[str, str] | None = None,
 ) -> HTTPConnection:
     headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded else []
+    for name, value in (extra or {}).items():
+        headers.append((name.lower().encode(), value.encode()))
     return HTTPConnection({"type": "http", "headers": headers, "client": peer})
+
+
+@pytest.fixture
+def no_platform_headers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """client_ip as on a plain host: not on Fly, not trusting Cloudflare, one
+    proxy hop, whatever the test machine's environment says."""
+    monkeypatch.setattr(config, "BEHIND_FLY", False)
+    monkeypatch.setattr(config, "TRUST_CLOUDFLARE", False)
+    monkeypatch.setattr(config, "TRUSTED_PROXY_HOPS", 1)
 
 
 # --- a Redis double -----------------------------------------------------------
@@ -509,7 +523,7 @@ def test_malformed_redis_url_fails_the_boot_without_echoing_it() -> None:
 
 
 def test_client_ip_uses_socket_peer_by_default(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
 ) -> None:
     monkeypatch.setattr(config, "TRUST_PROXY_HEADER", False)
 
@@ -519,19 +533,148 @@ def test_client_ip_uses_socket_peer_by_default(
 
 
 def test_client_ip_honours_forwarded_header_when_trusted(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
 ) -> None:
     monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
 
+    connection = _connection(peer=("10.0.0.7", 51234), forwarded="203.0.113.9")
+
+    assert client_ip(connection) == "203.0.113.9"
+
+
+def test_client_ip_ignores_the_client_supplied_left_of_the_header(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    """Behind one proxy, everything left of the last entry is whatever the
+    caller sent: trusting the leftmost let anyone pick their own IP."""
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+
+    spoofed = _connection(
+        peer=("10.0.0.7", 51234), forwarded="1.2.3.4, 5.6.7.8, 203.0.113.9"
+    )
+
+    assert client_ip(spoofed) == "203.0.113.9"
+
+
+@pytest.mark.parametrize(
+    "hops,forwarded,expected",
+    [
+        # CDN -> load balancer -> relay: the CDN appended the client.
+        (2, "203.0.113.9, 70.41.3.18", "203.0.113.9"),
+        (2, "6.6.6.6, 203.0.113.9, 70.41.3.18", "203.0.113.9"),
+        # Fewer entries than hops: the leftmost was still written by a proxy.
+        (3, "203.0.113.9, 70.41.3.18", "203.0.113.9"),
+        # Blank entries do not count as hops.
+        (1, "6.6.6.6, , 203.0.113.9 ,", "203.0.113.9"),
+    ],
+)
+def test_trusted_proxy_hops_picks_the_entry_from_the_right(
+    monkeypatch: pytest.MonkeyPatch,
+    no_platform_headers: None,
+    hops: int,
+    forwarded: str,
+    expected: str,
+) -> None:
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+    monkeypatch.setattr(config, "TRUSTED_PROXY_HOPS", hops)
+
+    assert client_ip(_connection(peer=("10.0.0.7", 1), forwarded=forwarded)) == expected
+
+
+def test_fly_client_ip_wins_on_fly(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    monkeypatch.setattr(config, "BEHIND_FLY", True)
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+
     connection = _connection(
-        peer=("10.0.0.7", 51234), forwarded="203.0.113.9, 70.41.3.18"
+        peer=("172.16.0.2", 1),
+        forwarded="6.6.6.6, 198.51.100.1",
+        extra={"Fly-Client-IP": "203.0.113.9"},
     )
 
     assert client_ip(connection) == "203.0.113.9"
 
 
+def test_fly_client_ip_is_ignored_off_fly(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", False)
+
+    connection = _connection(peer=("10.0.0.7", 1), extra={"Fly-Client-IP": "6.6.6.6"})
+
+    assert client_ip(connection) == "10.0.0.7"
+
+
+def test_cloudflare_header_needs_opt_in(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", False)
+    connection = _connection(
+        peer=("10.0.0.7", 1), extra={"CF-Connecting-IP": "203.0.113.9"}
+    )
+
+    assert client_ip(connection) == "10.0.0.7"
+
+    monkeypatch.setattr(config, "TRUST_CLOUDFLARE", True)
+    assert client_ip(connection) == "203.0.113.9"
+
+
+def test_platform_header_missing_falls_through_to_forwarded(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    monkeypatch.setattr(config, "BEHIND_FLY", True)
+    monkeypatch.setattr(config, "TRUST_CLOUDFLARE", True)
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+
+    connection = _connection(peer=("10.0.0.7", 1), forwarded="203.0.113.9")
+
+    assert client_ip(connection) == "203.0.113.9"
+
+
+def test_client_ip_source_describes_the_order(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", False)
+    assert limits.client_ip_source() == "socket"
+
+    monkeypatch.setattr(config, "BEHIND_FLY", True)
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+    monkeypatch.setattr(config, "TRUSTED_PROXY_HOPS", 2)
+    assert limits.client_ip_source() == "fly-client-ip,x-forwarded-for[-2],socket"
+
+
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({}, (1, False, False)),
+        (
+            {"TRUSTED_PROXY_HOPS": "2", "TRUST_CLOUDFLARE": "true", "FLY_APP_NAME": "synergo"},
+            (2, True, True),
+        ),
+    ],
+)
+def test_proxy_settings_are_read_from_the_environment(
+    env: dict[str, str], expected: tuple[int, bool, bool]
+) -> None:
+    settings = config.load_settings(env)
+
+    assert (
+        settings.trusted_proxy_hops,
+        settings.trust_cloudflare,
+        settings.behind_fly,
+    ) == expected
+
+
+def test_trusted_proxy_hops_must_be_positive() -> None:
+    with pytest.raises(config.ConfigError) as excinfo:
+        config.load_settings({"TRUSTED_PROXY_HOPS": "0"})
+
+    assert "TRUSTED_PROXY_HOPS" in str(excinfo.value)
+
+
 def test_client_ip_falls_back_to_peer_when_header_is_empty(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
 ) -> None:
     monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
 
@@ -540,7 +683,9 @@ def test_client_ip_falls_back_to_peer_when_header_is_empty(
     assert client_ip(connection) == "10.0.0.7"
 
 
-def test_client_ip_survives_a_missing_peer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_client_ip_survives_a_missing_peer(
+    monkeypatch: pytest.MonkeyPatch, no_platform_headers: None
+) -> None:
     monkeypatch.setattr(config, "TRUST_PROXY_HEADER", False)
 
     assert client_ip(_connection(peer=None)) == limits.UNKNOWN_IP

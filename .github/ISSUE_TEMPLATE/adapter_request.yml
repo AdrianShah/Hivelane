@@ -1,0 +1,74 @@
+name: Adapter request
+description: Ask for Synergo to support another coding agent through its native hooks.
+title: "Adapter: "
+labels: ["adapter", "good first adapter"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An adapter turns an agent's hook payloads into Synergo events and renders
+        allow / warn / block back in the agent's own format. It is one small
+        module plus golden fixtures; [docs/adapters.md](https://github.com/AdrianShah/Synergo/blob/main/docs/adapters.md)
+        explains the contract. The more of the questions below you can answer,
+        the sooner someone can pick this up.
+
+        An agent with no hook support can already join a room, observe-only,
+        through `synergo run -- <command>`, `synergo watch` or the MCP server.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent
+      description: Its name, and a link to its homepage or repository.
+    validations:
+      required: true
+  - type: input
+    id: hook-docs
+    attributes:
+      label: Hook documentation
+      description: A link to the agent's documentation for hooks, lifecycle events or extensions.
+    validations:
+      required: true
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: What the agent's hooks can do
+      description: Tick what you know to be true and leave the rest.
+      options:
+        - label: Runs a command before a file edit, with the file path in its input (needed for pre-edit checks)
+        - label: That pre-edit hook can deny the edit (so Synergo can block, not only warn)
+        - label: Runs a command after a file edit
+        - label: Runs a command when the user submits a prompt (lets Synergo share intent)
+        - label: Exposes a plan or todo list to hooks
+  - type: input
+    id: config
+    attributes:
+      label: Where hooks are configured
+      description: The config file path, per user and per project.
+      placeholder: ~/.example/hooks.json and <repo>/.example/hooks.json
+    validations:
+      required: false
+  - type: textarea
+    id: payload
+    attributes:
+      label: Sample hook payloads
+      description: |
+        What the agent passes to a hook (usually JSON on stdin) for a prompt, a pre-edit and
+        a post-edit event. Real captures are best; remove anything private. These become the
+        adapter's golden fixtures.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: output
+    attributes:
+      label: How a hook answers
+      description: How a hook tells the agent to go ahead, show the user a warning, or deny the action (exit codes, stdout JSON fields).
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I would like to write this adapter myself.
+          required: false

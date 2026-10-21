@@ -12,9 +12,12 @@ deployed relays run from the Dockerfile image.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -24,7 +27,9 @@ from pydantic import BaseModel, ValidationError, model_validator
 
 try:
     from . import config, limits, logging_config, metrics
-    from .gemini import classify_conflict, generate_caption
+    from . import dashboard, directory
+    from .gemini import classify_conflict, generate_caption, heuristic_conflict_alert
+    from .headers import SecurityHeadersMiddleware
     from .limits import check_room_creation, check_ws_attempt, client_ip
     from .models import (
         MIN_SUPPORTED_PROTOCOL,
@@ -39,33 +44,55 @@ try:
         EditCheckResponse,
         EditDecision,
         IntentMessage,
+        JoinDecision,
         JoinMessage,
+        JoinPending,
+        JoinResolved,
         NameRejected,
         PeerTouch,
         PlanConflicts,
         PlanMessage,
         RateLimited,
+        RoomPolicy,
         RoomRejected,
         RoomSettings,
         UserJoined,
         UserLeft,
         VersionRejected,
+        placeholder_caption,
     )
     from .room import (
         DEFAULT_SETTINGS,
         FileOverlap,
         FileTouch,
         Room,
+        hash_owner_token,
+        new_owner_token,
         settings_problem,
     )
     from .room_manager import MAX_MEMBERS, RoomManager
-    from .sanitize import sanitize_name
+    from .sanitize import (
+        MAX_FRAME_BYTES,
+        cap_activity,
+        cap_edit_check,
+        cap_intent,
+        cap_plan,
+        sanitize_name,
+    )
 except ImportError:  # Render runs with rootDir=server as a flat module tree
+    # Imported as server.main (installed, or from the repo root), an
+    # ImportError is a genuinely missing dependency. Falling through would
+    # import whatever top-level `config` module happens to be on sys.path.
+    if __package__:
+        raise
     import config  # type: ignore[no-redef]
+    import dashboard  # type: ignore[no-redef]
+    import directory  # type: ignore[no-redef]
     import limits  # type: ignore[no-redef]
     import logging_config  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
-    from gemini import classify_conflict, generate_caption
+    from gemini import classify_conflict, generate_caption, heuristic_conflict_alert
+    from headers import SecurityHeadersMiddleware  # type: ignore[no-redef]
     from limits import check_room_creation, check_ws_attempt, client_ip
     from models import (
         MIN_SUPPORTED_PROTOCOL,
@@ -80,32 +107,53 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         EditCheckResponse,
         EditDecision,
         IntentMessage,
+        JoinDecision,
         JoinMessage,
+        JoinPending,
+        JoinResolved,
         NameRejected,
         PeerTouch,
         PlanConflicts,
         PlanMessage,
         RateLimited,
+        RoomPolicy,
         RoomRejected,
         RoomSettings,
         UserJoined,
         UserLeft,
         VersionRejected,
+        placeholder_caption,
     )
     from room import (  # type: ignore[no-redef]
         DEFAULT_SETTINGS,
         FileOverlap,
         FileTouch,
         Room,
+        hash_owner_token,
+        new_owner_token,
         settings_problem,
     )
     from room_manager import MAX_MEMBERS, RoomManager
-    from sanitize import sanitize_name
+    from sanitize import (  # type: ignore[no-redef]
+        MAX_FRAME_BYTES,
+        cap_activity,
+        cap_edit_check,
+        cap_intent,
+        cap_plan,
+        sanitize_name,
+    )
 
 logging_config.configure()
 log = logging.getLogger("relay")
 
-app = FastAPI(title="Synergo relay")
+
+app = FastAPI(
+    title="Synergo relay",
+    # With several relay instances, keep this one's room leases alive while it
+    # runs and hand them back at shutdown (see directory.py). A single instance
+    # holds no leases, and this does nothing.
+    lifespan=lambda _app: directory.maintain_leases(lambda: room_manager),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,14 +163,27 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
 )
+# Added after CORS so it wraps it: preflights and error responses get the
+# headers too. See headers.py for what is sent and why.
+app.add_middleware(SecurityHeadersMiddleware, hsts=config.HSTS_ENABLED)
+# Outermost: an upgrade for a room another instance owns is answered with
+# fly-replay (on Fly.io) before any route accepts it. Looked up per call so
+# tests can swap room_manager.
+app.add_middleware(directory.RoomAffinityMiddleware, router=lambda: room_manager)
+# The bundled dashboard (Docker image, `synergo relay`), when
+# SYNERGO_STATIC_DIR points at a build. Only answers what no route matches.
+dashboard.install(app)
 
 log.info(
     "Synergo relay configured: env=%s cors_origins=%s cors_origin_regex=%s "
-    "trust_proxy_header=%s",
+    "trust_proxy_header=%s client_ip_from=%s room_message_limit=%d/min hsts=%s",
     config.ENV,
     ", ".join(config.CORS_ORIGINS),
     config.CORS_ORIGIN_REGEX or "-",
     config.TRUST_PROXY_HEADER,
+    limits.client_ip_source(),
+    config.ROOM_MESSAGE_LIMIT,
+    config.HSTS_ENABLED,
 )
 
 room_manager = RoomManager()
@@ -147,6 +208,11 @@ metrics.register_gauge(
     "Dashboards connected across all rooms.",
     lambda: room_manager.spectator_count,
 )
+metrics.register_gauge(
+    "synergo_room_leases",
+    "Rooms this instance owns in the shared room directory (0 without Redis).",
+    lambda: room_manager.leases_held,
+)
 
 # Drop activity spam: same user must wait this long between accepted updates.
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
@@ -161,10 +227,123 @@ WS_CLOSE_ROOM_NOT_FOUND = 4404
 WS_CLOSE_VERSION_TOO_OLD = 4426
 # Private-use close code: too many connection attempts from this IP.
 WS_CLOSE_RATE_LIMITED = 4429
+# Private-use close code: an approval-required room did not let this joiner in
+# (an owner declined, nobody answered in time, or too many were waiting).
+WS_CLOSE_JOIN_REFUSED = 4403
+# Standard close code (RFC 6455 "message too big"): a frame over MAX_FRAME_BYTES.
+WS_CLOSE_FRAME_TOO_LARGE = 1009
+
+# How long a joiner waits for an owner's answer before being turned away.
+JOIN_APPROVAL_TIMEOUT_SECONDS = 5 * 60.0
+# What owners see for a dashboard waiting to watch an approval-required room.
+SPECTATOR_DISPLAY_NAME = "dashboard viewer"
+
+# room_rejected reasons for an approval-required room. Short and stable: a
+# client may show them verbatim.
+REASON_APPROVAL_DECLINED = "an owner declined your request"
+REASON_APPROVAL_TIMED_OUT = "approval timed out"
+REASON_APPROVAL_QUEUE_FULL = (
+    "too many join requests are waiting for approval; try again later"
+)
 
 
 class VersionTooOld(Exception):
     """Raised by the handshake so the caller closes with the right code."""
+
+
+class JoinRefused(Exception):
+    """Raised while waiting for approval: the joiner may not come in.
+
+    `reason` goes to the client as room_rejected; `metric` is the
+    synergo_ws_rejections_total label."""
+
+    def __init__(self, reason: str, metric: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.metric = metric
+
+
+class FrameTooLarge(Exception):
+    """A frame over MAX_FRAME_BYTES arrived; the socket is closed with 1009."""
+
+
+@dataclass
+class Admission:
+    """Who a socket turned out to be once the handshake (and any approval)
+    finished. user_id is None for a spectator."""
+
+    user_id: Optional[str]
+    agent: AgentKind
+    settings: Optional[RoomSettings]
+    is_owner: bool = False
+
+    @property
+    def is_spectator(self) -> bool:
+        return self.user_id is None
+
+
+async def receive_frame(socket: WebSocket) -> object:
+    """The next frame, decoded as JSON. WebSocket.receive_json, plus a size cap.
+
+    Raises FrameTooLarge for a frame over MAX_FRAME_BYTES, and
+    WebSocketDisconnect when the peer leaves. A frame that is not JSON comes
+    back as None instead of raising, so one bad frame cannot end the session.
+
+    uvicorn has already read the whole frame by now (its own cap is
+    --ws-max-size, 16 MiB by default), so this bounds what the relay stores and
+    fans out, not what it receives; set --ws-max-size too to bound that.
+    """
+    message = await socket.receive()
+    if message["type"] == "websocket.disconnect":
+        raise WebSocketDisconnect(message.get("code", 1000), message.get("reason"))
+    text = message.get("text")
+    if text is None:
+        data = message.get("bytes") or b""
+        if len(data) > MAX_FRAME_BYTES:
+            raise FrameTooLarge
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return None
+    # A character is 1-4 bytes in UTF-8, so only a long frame needs encoding.
+    elif len(text) > MAX_FRAME_BYTES or (
+        len(text) * 4 > MAX_FRAME_BYTES and len(text.encode("utf-8")) > MAX_FRAME_BYTES
+    ):
+        raise FrameTooLarge
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
+
+
+async def _close_quietly(socket: WebSocket, code: int, reason: str) -> None:
+    """Close, ignoring a peer that is already gone."""
+    with contextlib.suppress(Exception):
+        await socket.close(code=code, reason=reason)
+
+
+async def _close_frame_too_large(socket: WebSocket) -> None:
+    await _close_quietly(
+        socket,
+        WS_CLOSE_FRAME_TOO_LARGE,
+        f"Frame larger than {MAX_FRAME_BYTES // 1024} KB",
+    )
+
+
+def _validation_summary(exc: ValidationError) -> str:
+    """Which fields failed and why, without the submitted values: str(exc)
+    echoes input, and input here is prompts and diffs."""
+    problems = [
+        f"{'.'.join(str(part) for part in error['loc']) or '<message>'}: {error['msg']}"
+        for error in exc.errors(include_url=False, include_input=False)[:5]
+    ]
+    more = exc.error_count() - len(problems)
+    return "; ".join(problems) + (f" (+{more} more)" if more > 0 else "")
+
+
+def _drop_invalid(kind: str, sender: str, exc: ValidationError) -> None:
+    metrics.messages_dropped_total.inc("invalid")
+    log.warning("Ignoring malformed %s from %s: %s", kind, sender, _validation_summary(exc))
 
 
 def _schedule_empty_room_cleanup(room_id: str) -> None:
@@ -209,11 +388,16 @@ async def create_room(
     request: Request, body: Optional[CreateRoomRequest] = None
 ) -> dict[str, object]:
     """Generate a fresh room code. The room code is the shared secret —
-    whoever has it can join, same trust model as a Google Docs share link.
+    whoever has it can join, same trust model as a Google Docs share link —
+    unless an owner turns on join approval.
 
     The body is optional: no body creates a room on the default windows,
     exactly as before settings existed. The response echoes the windows in
     force so a CLI can show them without joining first.
+
+    The response also carries owner_token, returned this once and never
+    stored (the relay keeps its SHA-256). A join presenting it is an owner:
+    it may approve joiners and set the room's join policy.
 
     Unauthenticated, so it is rate-limited per IP: without that, a short script
     can exhaust MAX_ROOMS and deny room creation to everyone for as long as the
@@ -235,8 +419,17 @@ async def create_room(
         # 503 means the relay itself is full, not that this caller is throttled;
         # the dashboard shows different copy for each.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    owner_token = new_owner_token()
+    room = room_manager.get(room_id)
+    if room is not None:
+        room.set_owner_hash(hash_owner_token(owner_token))
+        room_manager.save_access(room_id, room)
     effective = settings if settings is not None else DEFAULT_SETTINGS
-    return {"room_id": room_id, "settings": effective.model_dump()}
+    return {
+        "room_id": room_id,
+        "settings": effective.model_dump(),
+        "owner_token": owner_token,
+    }
 
 
 @app.get("/health")
@@ -264,6 +457,9 @@ async def readyz() -> dict[str, object]:
         "cors_origins_configured": len(config.CORS_ORIGINS),
         "cors_origin_regex_configured": config.CORS_ORIGIN_REGEX is not None,
         "trust_proxy_header": config.TRUST_PROXY_HEADER,
+        # Which header client_ip reads first; "socket" alone means none.
+        "client_ip_from": limits.client_ip_source(),
+        "room_message_limit_per_minute": config.ROOM_MESSAGE_LIMIT,
         "protocol_version": PROTOCOL_VERSION,
         "min_supported_protocol": MIN_SUPPORTED_PROTOCOL,
         "rooms": room_manager.room_count,
@@ -300,23 +496,119 @@ def _parse_join(raw: object) -> Optional[JoinMessage]:
         return join
 
 
-async def handshake(
-    socket: WebSocket, room: Room
-) -> Optional[tuple[str, AgentKind, Optional[RoomSettings]]]:
-    """Run the join handshake. Returns (user_id, agent, settings) for a named
-    member, or None for a spectator. Re-prompts on the same socket when a name
-    is rejected. Settings are returned rather than applied: only a member who
-    is actually admitted gets to change the room's windows."""
+async def _until_disconnect(socket: WebSocket) -> None:
+    """Read and discard frames from a joiner still waiting for approval, and
+    return once it disconnects. Nothing it sends counts until it is admitted."""
     while True:
-        raw = await socket.receive_json()
+        message = await socket.receive()
+        if message["type"] == "websocket.disconnect":
+            return
+
+
+def _pending_reason(room: Room) -> str:
+    minutes = int(JOIN_APPROVAL_TIMEOUT_SECONDS // 60)
+    if room.owner_count == 0:
+        return (
+            "This room requires an owner's approval to join. No owner is "
+            f"connected right now; you will be let in if one approves within "
+            f"{minutes} minutes."
+        )
+    return (
+        "This room requires an owner's approval to join. Waiting up to "
+        f"{minutes} minutes for an owner to let you in."
+    )
+
+
+async def await_approval(
+    socket: WebSocket, room: Room, name: str, agent: AgentKind
+) -> str:
+    """Hold a joiner until an owner of an approval-required room answers.
+
+    Returns the request id once approved; the caller confirms admission to
+    the joiner with admit_joiner once nothing else stands in the way. Raises
+    JoinRefused (declined, timed out, queue full) or WebSocketDisconnect (the
+    joiner left). Either way the request leaves the queue and every owner is
+    told how it ended.
+
+    Frames the joiner sends while waiting are read and discarded (that is how
+    a disconnect is noticed), which is why the joiner must wait for its own
+    join_resolved before sending anything.
+    """
+    pending = room.open_pending(name, agent)
+    if pending is None:
+        raise JoinRefused(REASON_APPROVAL_QUEUE_FULL, "approval_queue_full")
+    outcome = "withdrawn"
+    try:
+        await room.send(
+            socket,
+            JoinPending(request_id=pending.request_id, reason=_pending_reason(room)),
+        )
+        await room.send_to_owners(pending.request())
+        log.info(
+            "Join request %s from %s waiting for approval (%d pending, %d owner(s) online)",
+            pending.request_id[:8],
+            name,
+            room.pending_count,
+            room.owner_count,
+        )
+        watcher = asyncio.create_task(_until_disconnect(socket))
+        try:
+            done, _ = await asyncio.wait(
+                {pending.decision, watcher},
+                timeout=JOIN_APPROVAL_TIMEOUT_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            watcher.cancel()
+            with contextlib.suppress(BaseException):
+                await watcher
+        if watcher in done:
+            raise WebSocketDisconnect(1001)
+        if pending.decision not in done:
+            outcome = "timed_out"
+            raise JoinRefused(REASON_APPROVAL_TIMED_OUT, "approval_timeout")
+        if not pending.decision.result():
+            outcome = "declined"
+            raise JoinRefused(REASON_APPROVAL_DECLINED, "approval_declined")
+        outcome = "approved"
+        return pending.request_id
+    finally:
+        room.close_pending(pending.request_id)
+        log.info("Join request %s %s", pending.request_id[:8], outcome)
+        await room.announce_resolved(pending.request_id, outcome)
+
+
+async def admit_joiner(socket: WebSocket, room: Room, request_id: str) -> None:
+    """Tell an approved joiner it is in. Until this frame arrives it cannot
+    know: a member's normal join has no acknowledgement of its own."""
+    await room.send(socket, JoinResolved(request_id=request_id, outcome="approved"))
+
+
+async def handshake(socket: WebSocket, room: Room) -> Admission:
+    """Run the join handshake: who is this socket, and may it come in?
+
+    Re-prompts on the same socket when a name is rejected. A join carrying
+    the room's owner token is an owner. In an approval-required room every
+    other joiner (spectators too) waits in await_approval first. Settings are
+    returned rather than applied: only a member who is actually admitted gets
+    to change the room's windows."""
+    while True:
+        raw = await receive_frame(socket)
         join = _parse_join(raw)
         if join is None:
             metrics.ws_rejections_total.inc("name")
             await room.send(socket, NameRejected(reason="Invalid name"))
             continue
 
+        is_owner = room.verify_owner_token(join.owner_token)
+
         if join.is_spectator:
-            return None
+            if room.require_approval and not is_owner:
+                request_id = await await_approval(
+                    socket, room, SPECTATOR_DISPLAY_NAME, join.agent
+                )
+                await admit_joiner(socket, room, request_id)
+            return Admission(None, join.agent, None, is_owner)
 
         if join.protocol_version < MIN_SUPPORTED_PROTOCOL:
             log.info(
@@ -354,7 +646,20 @@ async def handshake(
             await room.send(socket, NameRejected(reason="Room full"))
             continue
 
-        return user_id, join.agent, join.settings
+        if room.require_approval and not is_owner:
+            request_id = await await_approval(socket, room, user_id, join.agent)
+            # Waiting took time: the name or the last seat may be gone since.
+            if room.is_taken(user_id):
+                metrics.ws_rejections_total.inc("name")
+                await room.send(socket, NameRejected(reason="Name taken"))
+                continue
+            if len(room.member_ids) >= MAX_MEMBERS:
+                metrics.ws_rejections_total.inc("name")
+                await room.send(socket, NameRejected(reason="Room full"))
+                continue
+            await admit_joiner(socket, room, request_id)
+
+        return Admission(user_id, join.agent, join.settings, is_owner)
 
 
 async def apply_member_settings(
@@ -365,7 +670,17 @@ async def apply_member_settings(
     Last join wins: a team shares one .synergo.toml, so differing settings mean
     someone is on an older or newer commit, and the member joining now is the
     best evidence of the current one. Persisted so a revived room keeps them.
+
+    e2e is the exception to "last join wins": a join can switch it on but
+    never off. A daemon that predates the flag sends only the windows, and a
+    teammate on a stale .synergo.toml (or a hostile client) must not be able
+    to tell everyone else the room is cleartext again. Turning e2e off takes a
+    new room.
     """
+    if room.settings.e2e and not settings.e2e:
+        if "e2e" in settings.model_fields_set:
+            log.info("Ignoring e2e=false from %s: a join cannot clear e2e", user_id)
+        settings = settings.model_copy(update={"e2e": True})
     update = room.apply_settings(settings, set_by=user_id)
     if update is None:
         return
@@ -382,20 +697,25 @@ async def evaluate_and_broadcast_conflicts(
     """Classify each overlapping file and broadcast conflict_alert when warranted.
 
     Fully isolated from the activity_update path — any failure here is logged
-    and swallowed so the main broadcast loop keeps working.
+    and swallowed so the main broadcast loop keeps working. In an e2e room
+    nothing is sent to Gemini: the deterministic same-file alert is used.
     """
     if not overlaps:
         return
 
+    private = room.settings.e2e
     for overlap in overlaps:
         try:
-            alert = await classify_conflict(
-                file_path=overlap.file_path,
-                current_user=user_id,
-                current_diff=overlap.current_diff,
-                current_prompt=message.prompt,
-                other=overlap.other,
-            )
+            if private:
+                alert = heuristic_conflict_alert(overlap.file_path, user_id, overlap.other)
+            else:
+                alert = await classify_conflict(
+                    file_path=overlap.file_path,
+                    current_user=user_id,
+                    current_diff=overlap.current_diff,
+                    current_prompt=message.prompt,
+                    other=overlap.other,
+                )
             if alert is None:
                 continue
             log.info(
@@ -418,8 +738,9 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     try:
         message = ActivityMessage.model_validate(raw)
     except ValidationError as exc:
-        log.warning("Ignoring malformed activity from %s: %s", user_id, exc)
+        _drop_invalid("activity", user_id, exc)
         return
+    cap_activity(message)
 
     # The connection owns its identity; never trust a client-supplied user_id.
     # agent is labeling-only and is taken from the client (validated by Pydantic).
@@ -437,11 +758,16 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     room.record_activity(message)
 
     # Always broadcast the activity update first — conflict work is best-effort.
-    try:
-        caption = await generate_caption(message)
-    except Exception as exc:
-        log.warning("Caption path crashed; using empty caption: %s", exc)
-        caption = None
+    if room.settings.e2e:
+        # The readable content is in the e2e blob, and nothing from an e2e
+        # room goes to a third party: the no-network placeholder caption.
+        caption: Optional[str] = placeholder_caption(message)
+    else:
+        try:
+            caption = await generate_caption(message)
+        except Exception as exc:
+            log.warning("Caption path crashed; using empty caption: %s", exc)
+            caption = None
 
     update = ActivityUpdate(
         user_id=message.user_id,
@@ -452,6 +778,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
         agent=message.agent,
         repo_id=message.repo_id,
         branch=message.branch,
+        e2e=message.e2e,
     )
     room.remember_update(update)
     log.info(
@@ -475,8 +802,9 @@ async def handle_intent(room: Room, user_id: str, raw: dict) -> None:
     try:
         message = IntentMessage.model_validate(raw)
     except ValidationError as exc:
-        log.warning("Ignoring malformed intent from %s: %s", user_id, exc)
+        _drop_invalid("intent", user_id, exc)
         return
+    cap_intent(message)
 
     message.user_id = user_id
     message.timestamp = time.time()
@@ -494,8 +822,10 @@ async def handle_intent(room: Room, user_id: str, raw: dict) -> None:
         message.timestamp,
         room.member_agent(user_id),
         repo_id=message.repo_id,
+        e2e=message.e2e,
     )
-    log.info("intent from %s: %s", user_id, message.prompt)
+    # Never the prompt itself: it is the user's words, and logs outlive rooms.
+    log.debug("intent from %s (%d chars)", user_id, len(message.prompt))
     await room.broadcast(update)
 
 
@@ -504,8 +834,9 @@ async def handle_plan(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
     try:
         message = PlanMessage.model_validate(raw)
     except ValidationError as exc:
-        log.warning("Ignoring malformed plan from %s: %s", user_id, exc)
+        _drop_invalid("plan", user_id, exc)
         return
+    cap_plan(message)
 
     message.user_id = user_id
     if room.is_activity_rate_limited(
@@ -532,7 +863,8 @@ async def handle_decision_feedback(room: Room, voter: str, raw: dict) -> None:
     try:
         message = DecisionFeedback.model_validate(raw)
     except ValidationError as exc:
-        log.debug("Ignoring malformed decision_feedback: %s", exc)
+        metrics.messages_dropped_total.inc("invalid")
+        log.debug("Ignoring malformed decision_feedback: %s", _validation_summary(exc))
         return
     scope = room.decision_scope(message.decision_id)
     update = room.record_feedback(message.decision_id, message.useful, voter)
@@ -600,8 +932,9 @@ async def handle_edit_check(
     try:
         request = EditCheckRequest.model_validate(raw)
     except ValidationError as exc:
-        log.warning("Ignoring malformed edit_check from %s: %s", user_id, exc)
+        _drop_invalid("edit_check", user_id, exc)
         return
+    cap_edit_check(request)
 
     now = time.time()
     symbols = list(request.symbols)
@@ -632,6 +965,7 @@ async def handle_edit_check(
                 symbols=list(peer.symbols),
                 branch=peer.branch,
                 kind=peer.kind,
+                e2e=peer.e2e,
             )
             for peer in peers
         ],
@@ -665,8 +999,58 @@ async def handle_edit_check(
             repo_id=request.repo_id,
             scope=scope,
             decision_id=decision_id,
+            e2e=request.e2e,
         )
     )
+
+
+async def handle_join_decision(room: Room, socket: WebSocket, raw: dict) -> None:
+    """An owner admits or declines someone waiting. Ignored from non-owners:
+    without the owner token, a join_decision is just a frame."""
+    if not room.is_owner(socket):
+        log.debug("Ignoring join_decision from a socket without the owner token")
+        return
+    try:
+        decision = JoinDecision.model_validate(raw)
+    except ValidationError as exc:
+        metrics.messages_dropped_total.inc("invalid")
+        log.debug("Ignoring malformed join_decision: %s", _validation_summary(exc))
+        return
+    if not room.resolve_pending(decision.request_id, decision.approve):
+        log.debug("join_decision for unknown or settled request %s", decision.request_id[:8])
+
+
+async def handle_room_policy(
+    room: Room, room_id: str, socket: WebSocket, raw: dict
+) -> None:
+    """An owner turns join approval on or off: persisted, then broadcast."""
+    if not room.is_owner(socket):
+        log.debug("Ignoring room_policy from a socket without the owner token")
+        return
+    try:
+        policy = RoomPolicy.model_validate(raw)
+    except ValidationError as exc:
+        metrics.messages_dropped_total.inc("invalid")
+        log.debug("Ignoring malformed room_policy: %s", _validation_summary(exc))
+        return
+    update = room.set_require_approval(policy.require_approval)
+    if update is None:
+        return
+    room_manager.save_access(room_id, room)
+    log.info(
+        "Room %s now %s approval to join",
+        room_id,
+        "requires" if update.require_approval else "does not require",
+    )
+    await room.broadcast(update)
+
+
+def _over_quota(room: Room) -> bool:
+    """Spend one unit of the room's message quota; True means drop the frame."""
+    if room.allow_message():
+        return False
+    metrics.messages_dropped_total.inc("room_quota")
+    return True
 
 
 @app.websocket("/ws/{room_id}")
@@ -712,22 +1096,50 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         return
 
     try:
-        joined = await handshake(socket, room)
+        admission = await handshake(socket, room)
     except VersionTooOld:
         await socket.close(code=WS_CLOSE_VERSION_TOO_OLD, reason="Client too old")
+        _schedule_empty_room_cleanup(room_id)
+        return
+    except JoinRefused as refusal:
+        metrics.ws_rejections_total.inc(refusal.metric)
+        with contextlib.suppress(Exception):
+            await room.send(socket, RoomRejected(reason=refusal.reason))
+        await _close_quietly(socket, WS_CLOSE_JOIN_REFUSED, "Join refused")
+        _schedule_empty_room_cleanup(room_id)
+        return
+    except FrameTooLarge:
+        metrics.ws_rejections_total.inc("frame_too_large")
+        await _close_frame_too_large(socket)
         _schedule_empty_room_cleanup(room_id)
         return
     except (WebSocketDisconnect, RuntimeError):
         _schedule_empty_room_cleanup(room_id)
         return
 
-    if joined is None:
-        room.add_spectator(socket)
-        log.info("Spectator connected to room %s", room_id)
-        # Catch up: the windows in force, current lanes, and each user's most
-        # recent activity snapshot. Settings go first: they frame everything
-        # the dashboard renders after them.
+    if admission.is_spectator:
+        await serve_spectator(socket, room, room_id, admission)
+    else:
+        await serve_member(socket, room, room_id, admission)
+
+
+async def serve_spectator(
+    socket: WebSocket, room: Room, room_id: str, admission: Admission
+) -> None:
+    """A dashboard: catch-up, then votes and (for owners) access decisions."""
+    room.add_spectator(socket)
+    if admission.is_owner:
+        room.add_owner(socket)
+    log.info(
+        "Spectator connected to room %s%s", room_id, " (owner)" if admission.is_owner else ""
+    )
+    voter = f"socket:{id(socket)}"
+    try:
+        # Catch up: the windows in force, the join policy, current lanes, and
+        # each user's most recent activity snapshot. Settings go first: they
+        # frame everything the dashboard renders after them.
         await room.send(socket, room.settings_update())
+        await room.send(socket, room.policy_update())
         for existing in room.member_ids:
             await room.send(
                 socket,
@@ -739,19 +1151,40 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
             await room.send(socket, plan)
         for update in room.latest_updates():
             await room.send(socket, update)
-        voter = f"socket:{id(socket)}"
-        try:
-            while True:
-                raw = await socket.receive_json()
-                if isinstance(raw, dict) and raw.get("type") == "decision_feedback":
-                    await handle_decision_feedback(room, voter, raw)
-        except (WebSocketDisconnect, RuntimeError):
-            room.remove_spectator(socket)
-            log.info("Spectator disconnected from room %s", room_id)
-            _schedule_empty_room_cleanup(room_id)
-        return
+        if admission.is_owner:
+            for request in room.pending_requests():
+                await room.send(socket, request)
+        while True:
+            raw = await receive_frame(socket)
+            if _over_quota(room):
+                continue
+            if not isinstance(raw, dict):
+                metrics.messages_dropped_total.inc("invalid")
+                continue
+            kind = raw.get("type")
+            if kind == "decision_feedback":
+                await handle_decision_feedback(room, voter, raw)
+            elif kind == "join_decision":
+                await handle_join_decision(room, socket, raw)
+            elif kind == "room_policy":
+                await handle_room_policy(room, room_id, socket, raw)
+    except FrameTooLarge:
+        metrics.messages_dropped_total.inc("frame_too_large")
+        await _close_frame_too_large(socket)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        room.remove_spectator(socket)
+        log.info("Spectator disconnected from room %s", room_id)
+        _schedule_empty_room_cleanup(room_id)
 
-    user_id, agent, settings = joined
+
+async def serve_member(
+    socket: WebSocket, room: Room, room_id: str, admission: Admission
+) -> None:
+    """A named agent: announce it, then dispatch its messages until it leaves."""
+    assert admission.user_id is not None
+    user_id, agent, settings = admission.user_id, admission.agent, admission.settings
     # Tell the joiner who is already here before announcing them, so a daemon
     # that connects second still knows its peers.
     for existing in room.member_ids:
@@ -760,19 +1193,30 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
         )
     room.add_member(user_id, socket, agent)
     log.info(
-        "%s joined room %s as %s (%d in room)",
+        "%s joined room %s as %s (%d in room%s)",
         user_id,
         room_id,
         agent,
         len(room.member_ids),
+        ", owner" if admission.is_owner else "",
     )
     await room.broadcast(UserJoined(user_id=user_id, agent=agent))
     if settings is not None:
         await apply_member_settings(room, room_id, user_id, settings)
 
     try:
+        if admission.is_owner:
+            room.add_owner(socket)
+            await room.send(socket, room.policy_update())
+            for request in room.pending_requests():
+                await room.send(socket, request)
         while True:
-            raw = await socket.receive_json()
+            raw = await receive_frame(socket)
+            if _over_quota(room):
+                continue
+            if not isinstance(raw, dict):
+                metrics.messages_dropped_total.inc("invalid")
+                continue
             kind = raw.get("type")
             if kind == "activity":
                 await handle_activity(room, user_id, raw)
@@ -784,8 +1228,15 @@ async def websocket_endpoint(socket: WebSocket, room_id: str) -> None:
                 await handle_plan(room, socket, user_id, raw)
             elif kind == "decision_feedback":
                 await handle_decision_feedback(room, f"socket:{id(socket)}", raw)
+            elif kind == "join_decision":
+                await handle_join_decision(room, socket, raw)
+            elif kind == "room_policy":
+                await handle_room_policy(room, room_id, socket, raw)
             else:
                 log.debug("Unhandled message type from %s: %s", user_id, kind)
+    except FrameTooLarge:
+        metrics.messages_dropped_total.inc("frame_too_large")
+        await _close_frame_too_large(socket)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
