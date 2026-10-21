@@ -4,12 +4,17 @@ import { relayHttpOrigin } from '../relayUrl';
 export type AppView =
   | 'dashboard'
   | 'agents'
+  | 'timeline'
+  | 'heatmap'
   | 'invite'
   | 'conflicts'
   | 'history'
   | 'analytics'
   | 'settings'
-  | 'docs';
+  | 'docs'
+  // Phase 5: ReplayView.tsx and NotificationsSettings.tsx.
+  | 'replay'
+  | 'notifications';
 
 interface SidebarProps {
   view: AppView;
@@ -34,10 +39,14 @@ function formatElapsed(seconds: number): string {
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'agents', label: 'Synergo feed', icon: 'dynamic_feed' },
+  { id: 'timeline', label: 'Timeline', icon: 'timeline' },
+  { id: 'heatmap', label: 'Heat map', icon: 'local_fire_department' },
   { id: 'invite', label: 'Invite', icon: 'group_add' },
   { id: 'conflicts', label: 'Conflicts', icon: 'warning' },
   { id: 'history', label: 'History', icon: 'history' },
+  { id: 'replay', label: 'Replay', icon: 'replay' },
   { id: 'analytics', label: 'Analytics', icon: 'monitoring' },
+  { id: 'notifications', label: 'Notifications', icon: 'notifications' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
@@ -60,7 +69,7 @@ export default function Sidebar({
       <div className="flex items-center gap-3 px-2.5 mb-8">
         <button
           type="button"
-          className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:border-lavender/40 transition-colors"
+          className="w-9 h-9 rounded-xl bg-gradient-to-br from-lavender/20 to-primary/10 border border-lavender/20 flex items-center justify-center shadow-[inset_0_1px_0_rgb(var(--c-ink)/0.06)] hover:border-lavender/40 transition-colors"
           title="Back to home"
           onClick={() => navigate('/')}
         >
@@ -94,7 +103,7 @@ export default function Sidebar({
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all duration-150 ${
                 active
                   ? 'nav-active'
-                  : 'text-on-muted hover:bg-white/[0.035] hover:text-on-surface'
+                  : 'text-on-muted hover:bg-ink/[0.04] hover:text-on-surface'
               }`}
             >
               <span className="material-symbols-outlined text-[18px] opacity-90">

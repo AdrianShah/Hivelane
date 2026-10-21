@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test:e2e-crypto": "node --test tests/e2e-crypto.test.ts",
+    "test:unit": "node --test \"tests/unit/*.test.ts\"",
     "preview": "vite preview"
   },
   "dependencies": {

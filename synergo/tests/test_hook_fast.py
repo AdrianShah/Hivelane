@@ -234,15 +234,19 @@ def legacy_normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
 
 
 def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
-    """claude_code.render_response as it was before the fast path, verbatim."""
+    """claude_code.render_response as it was before the fast path, verbatim
+    (plus the Phase 5 `synergo wait` hint on a block)."""
     if event.kind != "pre_edit" or ack.decision == "allow":
         return ""
-    path = ack.file_path or event.file_path or "this file"
+    named = ack.file_path or event.file_path
+    path = named or "this file"
     detail = ack.reason or f"a teammate's agent is already working in {path}"
     if len(ack.others) > 1:
         extra = len(ack.others) - 1
         detail += f" (and {extra} other{'s' if extra > 1 else ''})"
     message = f"{detail} — {claude_code.CALL_TO_ACTION[ack.decision]}"
+    if ack.decision == "block" and named:
+        message += f"; run `synergo wait {named}` to wait your turn"
     if ack.others and ack.others[0].prompt:
         message += f' (their task: "{ack.others[0].prompt}")'
     if ack.decision == "block":
@@ -385,7 +389,7 @@ def test_plural_and_fallback_wording_is_pinned(tmp_path: Path) -> None:
     block = json.loads(claude_code.render_response(event, ACKS["block-two-missing-reason"]))
     assert block["hookSpecificOutput"]["permissionDecisionReason"] == (
         "Synergo: a teammate's agent is already working in server/room.py (and 1 other)"
-        " — wait, or pick another file"
+        " — wait, or pick another file; run `synergo wait server/room.py` to wait your turn"
     )
 
 
@@ -525,7 +529,8 @@ def test_daemon_adopts_a_token_regenerated_on_disk(live_daemon: tuple[Any, int])
     new = auth.ensure_token()
     assert new != old
     assert hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}, port) == {
-        "decision": "allow", "reason": "", "file_path": None, "others": []
+        "decision": "allow", "reason": "", "file_path": None, "others": [],
+        "queue_position": 0, "suggestion": "",
     }
     assert daemon.token == new
 

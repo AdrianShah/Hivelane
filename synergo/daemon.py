@@ -37,7 +37,7 @@ from urllib.parse import urlsplit
 import uvicorn
 import websockets
 from fastapi import FastAPI, HTTPException, Request
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
 from synergo import __version__, auth, crypto, gitinfo, redact, symbols
@@ -53,6 +53,7 @@ from synergo.protocol import (
     EditCheckRequest,
     EditCheckResponse,
     FileChange,
+    FileRequest,
     IntentMessage,
     JoinDecision,
     JoinMessage,
@@ -107,6 +108,16 @@ E2E_DIFF_FALLBACK_CHARS = 4000
 # A join request the owner has not answered is forgotten after this long (the
 # relay gives up on it well before).
 JOIN_REQUEST_TTL = 900.0
+# Wait queues. Mirrors server/file_queue.py RELEASE_GRACE_SECONDS: how long
+# the relay keeps a released file for us before offering it to the next in
+# line, so a file_released older than this no longer means "go".
+RELEASE_GRACE = 10.0
+# A file_released note is still shown on the session's next pre_edit for this long.
+RELEASE_NOTE_TTL = 60.0
+# Files whose queue state (our place in line, a release) is remembered.
+QUEUE_MEMORY = 256
+# One POST /wait holds at most this long; `synergo wait` polls in slices.
+WAIT_SLICE_MAX = 30.0
 _HASH_TOKEN = re.compile(r"h:[0-9a-f]{32}")
 
 # Mirrors server/room.py _ALWAYS_WARN_BASENAMES: files the relay always judges
@@ -656,8 +667,21 @@ class RoomConnection:
         self._heads: dict[str, tuple[str, str]] = {}
         # Plan events waiting for the relay's plan_conflicts reply, in order.
         self._plan_waiters: list[tuple[str, asyncio.Future[PlanConflicts]]] = []
-        # session_id -> plan conflict note to surface on that session's next ack.
+        # session_id -> notes (plan conflicts, someone waiting for a file we
+        # hold) to surface on that session's next pre_edit ack. "*:<repo_id>"
+        # holds notes for whichever session in that repo comes first.
         self._session_notes: dict[str, str] = {}
+        # Wait queues (server/file_queue.py). (repo_id, path key) -> our place
+        # in line for a teammate's file: {"position", "sessions", "since"}.
+        self._queued: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+        # (repo_id, path key) -> a file_released not yet used: {"at", "sessions"}.
+        self._released: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+        # (repo_id, path key) -> the session that last edited it through us,
+        # i.e. who a teammate's file_requested is about.
+        self._last_editor: OrderedDict[tuple[str, str], str] = OrderedDict()
+        # `synergo wait` callers: (repo_id, path key) -> futures resolved with
+        # how the file came free ("released" or "allowed").
+        self._file_waiters: dict[tuple[str, str], list[asyncio.Future[str]]] = {}
 
     @property
     def ws_url(self) -> str:
@@ -723,13 +747,20 @@ class RoomConnection:
         return opened
 
     def _seal(
-        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage
-    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage:
+        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest
+    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest:
         """The e2e form of message: names hashed, content emptied, the real
         values in its blob. The relay still matches overlaps (equal names hash
         equal) but can read nothing."""
         key = self.e2e_key
         assert key is not None
+        if isinstance(message, FileRequest):
+            # An edit_check-shaped envelope: the relay copies it onto the
+            # file_requested a holder gets, whose daemon opens it like any
+            # edit_check blob (no new envelope type for dashboards to learn).
+            rel = message.file_path
+            blob = key.seal("edit_check", {"v": 1, "file_path": rel, "symbols": [], "branch": ""})
+            return message.model_copy(update={"file_path": self._hash(rel), "e2e": blob})
         if isinstance(message, IntentMessage):
             blob = key.seal("intent", {"v": 1, "prompt": message.prompt})
             return message.model_copy(update={"prompt": "", "e2e": blob})
@@ -820,6 +851,7 @@ class RoomConnection:
                 "file_path": rel,
                 "others": others,
                 "reason": self.reveal(response.reason) or "",
+                "suggestion": self.reveal(response.suggestion) or "",
             }
         )
 
@@ -908,14 +940,16 @@ class RoomConnection:
             branch = (head.branch or "") if head else ""
             ack = await self._handle_pre_edit(event, rel, repo_id, branch=branch)
             for note in (
+                self._release_note(repo_id, rel, event.session_id, ack),
                 self.deps.note_for(rel, event.old_content, repo_id),
-                self._session_notes.pop(event.session_id, None),
+                self._take_session_notes(event.session_id, repo_id),
             ):
                 if note:
                     ack = with_note(ack, note)
             return ack
         if head is not None:
             self._heads[repo_id] = (head.branch or "", head.commit or "")
+        self._remember_bounded(self._last_editor, (repo_id, rel), event.session_id)
         return await self._handle_post_edit(
             event, rel, repo_id, binding.share_diffs, binding.redactor
         )
@@ -1004,12 +1038,151 @@ class RoomConnection:
             self._pending.pop(request_id, None)
             self._pending_paths.pop(request_id, None)
             return EventAck(file_path=rel)
+        key = (repo_id, rel)
+        if response.decision == "block":
+            if response.queue_position > 0:
+                queued = self._queued.get(key) or {"sessions": set(), "since": time.time()}
+                queued["sessions"].add(event.session_id)
+                queued["position"] = response.queue_position
+                self._remember_bounded(self._queued, key, queued)
+        else:
+            # Ours now (or never contested): out of line, and anyone running
+            # `synergo wait` on it can stop.
+            self._queued.pop(key, None)
+            self._resolve_file_waiters(key, "allowed")
         return EventAck(
             decision=response.decision,
             reason=response.reason,
             file_path=response.file_path or rel,
             others=response.others,
+            queue_position=response.queue_position,
+            suggestion=response.suggestion,
         )
+
+    # --- wait queues -----------------------------------------------------------
+
+    @staticmethod
+    def _remember_bounded(table: OrderedDict, key: Any, value: Any) -> None:
+        table.pop(key, None)
+        table[key] = value
+        while len(table) > QUEUE_MEMORY:
+            table.popitem(last=False)
+
+    def _add_session_note(self, session_id: str, note: str) -> None:
+        existing = self._session_notes.get(session_id)
+        if existing and note in existing:
+            return
+        self._session_notes[session_id] = f"{existing}; {note}" if existing else note
+        while len(self._session_notes) > 256:
+            self._session_notes.pop(next(iter(self._session_notes)))
+
+    def _take_session_notes(self, session_id: str, repo_id: str) -> Optional[str]:
+        notes = [
+            note
+            for note in (
+                self._session_notes.pop(session_id, None),
+                self._session_notes.pop(f"*:{repo_id}", None),
+            )
+            if note
+        ]
+        return "; ".join(notes) or None
+
+    def _release_note(
+        self, repo_id: str, rel: str, session_id: str, ack: EventAck
+    ) -> Optional[str]:
+        """The "it's your turn" note for the first pre_edit of a file the relay released
+        to us, by a session that was waiting for it (any session, when the
+        release answered a `synergo wait`). Used up either way; a block means
+        a holder came back, and the relay's answer stands."""
+        key = (repo_id, rel)
+        released = self._released.get(key)
+        if released is None:
+            return None
+        sessions = released["sessions"]
+        if sessions and session_id not in sessions:
+            return None
+        self._released.pop(key, None)
+        if ack.decision == "block" or time.time() - released["at"] > RELEASE_NOTE_TTL:
+            return None
+        return f"{rel} was released to you — it's your turn"
+
+    def _resolve_file_waiters(self, key: tuple[str, str], how: str) -> None:
+        for future in self._file_waiters.pop(key, []):
+            if not future.done():
+                future.set_result(how)
+
+    def _frame_path(self, data: dict[str, Any]) -> str:
+        """A queue frame's file_path as a repo-relative path: in an e2e room
+        it is a hash, which our own sends (or the requester's blob) explain."""
+        path = str(data.get("file_path") or "")
+        if self.e2e_key is not None:
+            blob = data.get("e2e")
+            if isinstance(blob, str) and blob:
+                self.open_blob(blob)
+            path = self._names.get(path, path)
+        return path
+
+    def _on_file_released(self, data: dict[str, Any]) -> None:
+        rel = self._frame_path(data)
+        if not rel:
+            return
+        key = (str(data.get("repo_id") or ""), rel)
+        queued = self._queued.pop(key, None)
+        sessions = set(queued["sessions"]) if queued else set()
+        self._remember_bounded(self._released, key, {"at": time.time(), "sessions": sessions})
+        self._resolve_file_waiters(key, "released")
+        place = f" (you were #{queued['position']} in line)" if queued and queued.get("position") else ""
+        print(f"synergo: room {self.room}: {rel} is free — your turn{place}")
+
+    def _on_file_requested(self, data: dict[str, Any]) -> None:
+        rel = self._frame_path(data)
+        if not rel:
+            return
+        repo_id = str(data.get("repo_id") or "")
+        by = str(data.get("by") or "a teammate")
+        agent = str(data.get("agent") or "unknown")
+        session = self._last_editor.get((repo_id, rel))
+        self._add_session_note(
+            session or f"*:{repo_id}",
+            f"{by}'s agent is waiting for {rel} — finish up or hand it off",
+        )
+        print(f"synergo: room {self.room}: {by} ({agent}) is waiting for {rel}")
+
+    async def wait_for_file(self, rel: str, repo_id: str, timeout: float) -> dict[str, Any]:
+        """One slice of `synergo wait`: ask the relay for the file (it answers
+        file_released when the file is, or becomes, ours to take) and wait up
+        to timeout for that, or for one of our edit checks on it to pass.
+
+        Every slice re-sends the file_request: the relay keeps our place and
+        restarts its expiry, and a request lost to a reconnect is renewed."""
+        key = (repo_id, rel)
+        result: dict[str, Any] = {"file_path": rel, "room": self.room}
+        if not self.live:
+            # Fail open, like every hook: edits are not checked right now.
+            return {**result, "free": True, "state": "offline"}
+        released = self._released.get(key)
+        if released is not None and time.time() - released["at"] <= RELEASE_GRACE:
+            return {**result, "free": True, "state": "released"}
+        future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+        self._file_waiters.setdefault(key, []).append(future)
+        self._send(FileRequest(file_path=rel, repo_id=repo_id))
+        try:
+            state = await asyncio.wait_for(asyncio.shield(future), timeout=max(0.0, timeout))
+        except asyncio.TimeoutError:
+            queued = self._queued.get(key) or {}
+            return {
+                **result,
+                "free": False,
+                "state": "waiting",
+                "queue_position": int(queued.get("position") or 0),
+            }
+        finally:
+            waiters = self._file_waiters.get(key)
+            if waiters is not None and future in waiters:
+                waiters.remove(future)
+                if not waiters:
+                    del self._file_waiters[key]
+        return {**result, "free": True, "state": state}
 
     async def _handle_post_edit(
         self,
@@ -1107,21 +1280,25 @@ class RoomConnection:
 
     def _send(
         self,
-        message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | JoinDecision | RoomPolicy,
+        message: ActivityMessage
+        | IntentMessage
+        | EditCheckRequest
+        | PlanMessage
+        | FileRequest
+        | JoinDecision
+        | RoomPolicy,
     ) -> None:
-        if self.e2e_key is not None and isinstance(
-            message, (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage)
-        ):
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest)
+        if self.e2e_key is not None and isinstance(message, sealable):
             message = self._seal(message)
-        elif self.e2e_required and isinstance(
-            message, (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage)
-        ):
+        elif self.e2e_required and isinstance(message, sealable):
             # An e2e room without a key: never fall back to cleartext.
             return
         payload = message.model_dump_json()
         # A plan ack, like an edit_check, has an agent hook waiting on it; an
-        # owner's decision has a teammate waiting at the door.
-        if isinstance(message, (EditCheckRequest, PlanMessage, JoinDecision, RoomPolicy)):
+        # owner's decision has a teammate waiting at the door; a file_request
+        # has `synergo wait` (and so an agent) waiting on it.
+        if isinstance(message, (EditCheckRequest, PlanMessage, FileRequest, JoinDecision, RoomPolicy)):
             self._priority_outbox.put_nowait(payload)
         else:
             if self._outbox.qsize() >= OUTBOX_LIMIT:
@@ -1143,6 +1320,14 @@ class RoomConnection:
             # (no e2e line) must not turn the room's encryption flag off for
             # everyone; the relay keeps the room's flag when the join omits it.
             settings.pop("e2e", None)
+        if (
+            isinstance(settings, dict)
+            and self.settings is not None
+            and "history_hours" not in self.settings.model_fields_set
+        ):
+            # Sent only when the .synergo.toml sets it: the relay then keeps
+            # the room's history setting (and what it has kept) as it was.
+            settings.pop("history_hours", None)
         if payload.get("owner_token") is None:
             payload.pop("owner_token", None)
         return json.dumps(payload, separators=(",", ":"))
@@ -1213,8 +1398,11 @@ class RoomConnection:
             try:
                 async with ws_connect(self.ws_url) as socket:
                     self._socket = socket
-                    # A fresh join: any approval wait belonged to the old socket.
+                    # A fresh join: any approval wait belonged to the old socket,
+                    # and so did our places in the relay's wait queues.
                     self.awaiting_approval = None
+                    self._queued.clear()
+                    self._released.clear()
                     await socket.send(self._join_payload())
                     self.connected = True
                     self.connected_since = time.time()
@@ -1352,9 +1540,7 @@ class RoomConnection:
             return
         note = plan_conflict_note(conflicts)
         if note:
-            self._session_notes[session_id] = note
-            while len(self._session_notes) > 256:
-                self._session_notes.pop(next(iter(self._session_notes)))
+            self._add_session_note(session_id, note)
 
     def _note_peer_activity(self, event: dict[str, Any]) -> None:
         """Remember signature changes in a teammate's diffs (depgraph notes)."""
@@ -1448,6 +1634,14 @@ class RoomConnection:
 
         if kind == "room_policy_update":
             self.require_approval = bool(data.get("require_approval"))
+            return
+
+        if kind == "file_released":
+            self._on_file_released(data)
+            return
+
+        if kind == "file_requested":
+            self._on_file_requested(data)
             return
 
         if kind == "edit_check_response":
@@ -1614,6 +1808,15 @@ class PolicyChange(BaseModel):
 
     root: str
     require_approval: bool
+
+
+class WaitRequest(BaseModel):
+    """POST /wait body (`synergo wait`): wait up to timeout seconds for
+    file_path (absolute, cwd-relative, or repo-relative) to be free."""
+
+    cwd: str
+    file_path: str
+    timeout: float = Field(default=5.0, ge=0, le=WAIT_SLICE_MAX)
 
 
 _UNROUTED = object()
@@ -1956,6 +2159,11 @@ class Daemon:
             conn.set_policy(body.require_approval)
             return {"sent": True, "room": conn.room, "require_approval": body.require_approval}
 
+        @app.post("/wait")
+        async def wait(body: WaitRequest, request: Request) -> dict[str, Any]:
+            _reject_cross_origin(request)
+            return await self.wait_for_file(body.cwd, body.file_path, body.timeout)
+
         @app.post("/shutdown")
         async def shutdown(request: Request) -> dict[str, Any]:
             _reject_cross_origin(request)
@@ -1964,6 +2172,36 @@ class Daemon:
             return {"stopping": True, "pid": os.getpid()}
 
         return app
+
+    # --- synergo wait -------------------------------------------------------------
+
+    @staticmethod
+    def _wait_path(file_path: str, cwd: str, binding: RepoBinding) -> str:
+        """The path key for a path typed at a shell: absolute, relative to the
+        cwd when that names a file, else relative to the repo root (the form
+        block messages print, so it works from any directory of the repo)."""
+        candidate = Path(file_path)
+        if not candidate.is_absolute():
+            local = Path(cwd) / candidate
+            if local.exists():
+                candidate = local
+            else:
+                root = binding.root if binding.root is not None else repo_root(cwd)
+                if root is None:
+                    return relative_path(str(local), cwd)
+                candidate = root / candidate
+        return repo_relative_path(str(candidate), cwd, binding.root)
+
+    async def wait_for_file(self, cwd: str, file_path: str, timeout: float) -> dict[str, Any]:
+        binding = await self.binding_for(cwd)
+        if binding is None:
+            return {"free": True, "state": "uncoordinated", "file_path": file_path}
+        rel = self._wait_path(file_path, cwd, binding)
+        if binding.ignore.matches(rel):
+            return {"free": True, "state": "ignored", "file_path": rel}
+        conn = binding.connection
+        repo_id = await conn.repo_id_for_cwd(cwd, binding)
+        return await conn.wait_for_file(rel, repo_id, timeout)
 
     # --- status ----------------------------------------------------------------
 
@@ -2002,7 +2240,12 @@ class Daemon:
             "queued_events": conn.queued_events,
             "repo_id": self._binding_repo_id(binding),
             "fatal": conn.fatal,
-            "settings": conn.settings.model_dump() if conn.settings is not None else None,
+            # What the team's file set (history_hours only when it says so).
+            "settings": (
+                conn.settings.model_dump(exclude_unset=True)
+                if conn.settings is not None
+                else None
+            ),
             "ignore": list(binding.ignore.patterns),
             "share_diffs": binding.share_diffs,
             "auto": binding.auto,
@@ -2016,6 +2259,11 @@ class Daemon:
             "join_requests": [
                 {k: v for k, v in request.items() if k != "received_at"}
                 for request in conn.pending_join_requests()
+            ],
+            # Teammates' files this connection is waiting in line for.
+            "queued": [
+                {"file_path": rel, "position": queued.get("position", 0)}
+                for (_, rel), queued in conn._queued.items()
             ],
         }
 

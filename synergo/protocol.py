@@ -103,6 +103,10 @@ class RoomSettings(BaseModel):
     # paths into each message's e2e blob. The relay only stores and
     # broadcasts the flag so every client (and the dashboard) knows.
     e2e: bool = False
+    # Hours of room events the relay keeps for the dashboard's replay view
+    # (served on history_request). 0 keeps no history. Capped so a room
+    # cannot make the relay hold more than a day of events.
+    history_hours: float = Field(default=0, ge=0, le=24)
 
 
 class JoinMessage(BaseModel):
@@ -156,6 +160,18 @@ class EditCheckRequest(BaseModel):
     e2e: E2EBlob = ""
 
 
+class FileRequest(BaseModel):
+    type: Literal["file_request"] = "file_request"
+    file_path: str
+    repo_id: RepoId = ""
+    e2e: E2EBlob = ""
+
+
+class HistoryRequest(BaseModel):
+    type: Literal["history_request"] = "history_request"
+    since: float = 0
+
+
 ClientMessage = ActivityMessage | IntentMessage | EditCheckRequest
 
 
@@ -182,6 +198,11 @@ class EditCheckResponse(BaseModel):
     reason: str = ""
     scope: DecisionScope = "file"
     decision_id: str = ""
+    # 1 = next in line for this file once its holder lapses; 0 = not queued.
+    queue_position: int = 0
+    # Something actionable to do meanwhile, built from room state (a free
+    # file nearby, the module's tests, or how long to wait). May be empty.
+    suggestion: str = ""
 
 
 class ActivityUpdate(BaseModel):
@@ -219,6 +240,8 @@ class EditDecision(BaseModel):
     repo_id: RepoId = ""
     scope: DecisionScope = "file"
     decision_id: str = ""
+    queue_position: int = 0
+    suggestion: str = ""
     e2e: E2EBlob = ""
 
 
@@ -290,6 +313,7 @@ class RoomSettingsUpdate(BaseModel):
     block_window_seconds: float
     warn_window_seconds: float
     e2e: bool = False
+    history_hours: float = 0
     set_by: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
 
@@ -387,6 +411,30 @@ class RateLimited(BaseModel):
     retry_after: int
 
 
+class FileRequested(BaseModel):
+    type: Literal["file_requested"] = "file_requested"
+    file_path: str
+    repo_id: RepoId = ""
+    by: str
+    agent: AgentKind = "unknown"
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+
+
+class FileReleased(BaseModel):
+    type: Literal["file_released"] = "file_released"
+    file_path: str
+    repo_id: RepoId = ""
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+
+
+class HistoryChunk(BaseModel):
+    type: Literal["history_chunk"] = "history_chunk"
+    events: list[dict]
+    done: bool
+
+
 class SynergoFeed(BaseModel):
     type: Literal["synergo_feed"] = "synergo_feed"
     events: list[dict]
@@ -404,6 +452,8 @@ CLIENT_TO_RELAY: tuple[type[BaseModel], ...] = (
     DecisionFeedback,
     JoinDecision,
     RoomPolicy,
+    FileRequest,
+    HistoryRequest,
 )
 
 RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
@@ -426,5 +476,8 @@ RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
     JoinRequest,
     JoinResolved,
     RoomPolicyUpdate,
+    FileRequested,
+    FileReleased,
+    HistoryChunk,
     SynergoFeed,
 )

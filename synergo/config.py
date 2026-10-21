@@ -6,9 +6,9 @@ person (display name, a private relay) and the secrets that must never be
 committed: e2e room keys (`room_keys`) and room owner tokens (`owner_tokens`),
 both tables keyed by room code, the file kept owner-only (0600). Precedence,
 highest first: explicit overrides (CLI flags) > environment > personal file >
-project file > defaults — except `room`, the windows and `e2e`, which the
-project file owns so one person's personal config cannot silently split them
-from the team.
+project file > defaults — except `room`, the windows, `e2e` and
+`history_hours`, which the project file owns so one person's personal config
+cannot silently split them from the team.
 
 Stdlib only (tomllib for reading, a tiny writer for the handful of keys we
 emit), because the hook path may import this on its lazy-start branch.
@@ -28,6 +28,9 @@ PROJECT_FILE = ".synergo.toml"
 DEFAULT_RELAY = "ws://localhost:8000/ws"
 DEFAULT_BLOCK_WINDOW = 20.0
 DEFAULT_WARN_WINDOW = 60.0
+# Hours of room events the relay keeps for the dashboard's replay view
+# (RoomSettings.history_hours has the same bound). 0 keeps none.
+MAX_HISTORY_HOURS = 24.0
 
 RELAY_ENV = "SYNERGO_RELAY"
 NAME_ENV = "SYNERGO_NAME"
@@ -42,6 +45,7 @@ _PROJECT_KEYS = (
     "relay",
     "block_window_seconds",
     "warn_window_seconds",
+    "history_hours",
     "ignore",
     "share_diffs",
     "e2e",
@@ -72,6 +76,9 @@ class SynergoConfig:
     agent: str = "claude-code"
     block_window_seconds: float = DEFAULT_BLOCK_WINDOW
     warn_window_seconds: float = DEFAULT_WARN_WINDOW
+    # Room history for replay (project file only). None: the file does not
+    # say, so joins leave the room's setting alone; 0 turns history off.
+    history_hours: Optional[float] = None
     ignore: tuple[str, ...] = ()
     share_diffs: bool = True
     # End-to-end encryption (the team's choice: project file only).
@@ -90,12 +97,16 @@ class SynergoConfig:
     sources: tuple[Path, ...] = field(default_factory=tuple)
 
     def room_settings(self) -> dict[str, Any]:
-        """The JoinMessage.settings payload (RoomSettings on the wire)."""
-        return {
+        """The JoinMessage.settings payload (RoomSettings on the wire).
+        history_hours is included only when the project file sets it."""
+        settings: dict[str, Any] = {
             "block_window_seconds": self.block_window_seconds,
             "warn_window_seconds": self.warn_window_seconds,
             "e2e": self.e2e,
         }
+        if self.history_hours is not None:
+            settings["history_hours"] = self.history_hours
+        return settings
 
     def room_key(self, room: Optional[str] = None) -> Optional[str]:
         """The e2e passphrase for room (default: this config's room):
@@ -269,6 +280,14 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
         value = _float(data, key, path)
         if value is not None and project:
             base[key] = value
+    hours = _float(data, "history_hours", path)
+    if hours is not None:
+        if hours > MAX_HISTORY_HOURS:
+            raise ConfigFileError(
+                f"{path}: history_hours must be between 0 and {MAX_HISTORY_HOURS:g}"
+            )
+        if project:
+            base["history_hours"] = hours  # the team's, like the windows
     if "ignore" in data:
         ignore = data["ignore"]
         if not isinstance(ignore, list) or not all(isinstance(g, str) for g in ignore):

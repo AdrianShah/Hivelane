@@ -46,7 +46,7 @@ its `join`. Owners can approve joiners and change the room's join policy.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds"}}`. Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
 | `GET` | `/health` | Liveness: `{"status": "ok", "rooms": N}`. |
 | `GET` | `/readyz` | Readiness and configuration, including `protocol_version` and `min_supported_protocol`. |
 | `GET` | `/metrics` | Prometheus counters and gauges. Aggregates only, no room codes or names. |
@@ -104,10 +104,11 @@ client                                        relay
 Two kinds of frames come from the relay:
 
 - **Point-to-point, sent at once:** replies to the sender
-  (`edit_check_response`, `plan_conflicts`), handshake results
-  (`name_rejected`, `version_rejected`, `room_rejected`, `rate_limited`,
-  `join_pending`), owner notifications (`join_request`, `join_resolved`) and
-  the catch-up frames above.
+  (`edit_check_response`, `plan_conflicts`, `history_chunk`), handshake
+  results (`name_rejected`, `version_rejected`, `room_rejected`,
+  `rate_limited`, `join_pending`), owner notifications (`join_request`,
+  `join_resolved`), [wait-queue](#wait-queues) notifications
+  (`file_requested`, `file_released`) and the catch-up frames above.
 - **Room broadcasts, batched:** every other relay-to-client message is queued
   and delivered to every member and spectator, the sender included, inside a
   `synergo_feed` frame about every 500 ms. A feed's `events` are complete
@@ -125,10 +126,12 @@ arrived on its own.
 | [`activity`](#activity) | members | `activity_update` broadcast |
 | [`intent`](#intent) | members | `intent_update` broadcast |
 | [`edit_check`](#edit_check) | members | `edit_check_response` to the sender; an `edit_decision` broadcast for warn/block |
+| [`file_request`](#file_request) | members | `file_released` to the sender when the file is (or becomes) theirs; `file_requested` to its holders |
 | [`plan`](#plan) | members | `plan_conflicts` to the sender; a `plan_update` broadcast |
 | [`decision_feedback`](#decision_feedback) | members and spectators | `decision_feedback_update` broadcast |
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
+| [`history_request`](#history_request) | members and spectators | `history_chunk` frames to the sender |
 
 The relay ignores fields it does not know, frames that are not JSON objects,
 messages with an unknown `type`, and messages that fail validation (they are
@@ -158,6 +161,7 @@ The team's conflict windows, as committed in `.synergo.toml`. The relay applies 
 | `block_window_seconds` | number (0 to 600) | `20` | A peer's edit at most this old can block. |
 | `warn_window_seconds` | number (0 to 3600) | `60` | A peer's edit at most this old can warn. |
 | `e2e` | boolean | `false` | The room's members encrypt content (the team committed `e2e = true`). Informational for the relay. |
+| `history_hours` | number (0 to 24) | `0` | Hours of feed events the relay keeps in memory for [`history_request`](#history_request) (the dashboard's replay). `0` keeps none. A join that omits it leaves the room's value alone. |
 
 ```json
 {"type": "join", "name": "adrian", "agent": "claude-code", "protocol_version": 1,
@@ -235,6 +239,37 @@ the agent is blocked until it arrives. Edit checks are not rate-limited.
 The decision rules (symbols, line ranges, windows, branches, plans) are in
 [Conflict detection](conflict-detection.md). A client should give up waiting
 after a short timeout (the daemon uses 1.5 s) and treat the edit as allowed.
+A blocked check also puts the sender in the file's [wait queue](#wait-queues),
+and the file's queue can block a check no touch blocks.
+
+### file_request
+
+"Let me have this file next." Joins (or keeps the sender's place in) the
+file's [wait queue](#wait-queues) and tells the members holding it, once per
+requester, with `file_requested`. When nothing keeps the sender out and
+nobody is ahead of it, the relay answers at once with `file_released`.
+Re-sending keeps the sender's place and restarts its expiry; `synergo wait`
+re-sends every few seconds while it waits.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | string | required | The file wanted, repo-relative (a keyed hash in an encrypted room). |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
+| `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+
+### history_request
+
+Replay the room's kept feed events (see `history_hours` in
+[RoomSettings](#roomsettings)) newer than `since`. Answered, to the sender
+only, with `history_chunk` frames of at most 200 events in timestamp order,
+the last with `done: true`; a room keeping no history answers with one empty,
+done chunk. One request per socket per 10 s; more are ignored. Kept events
+are exactly what spectators were sent, so an encrypted room's history holds
+only hashes and ciphertext.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `since` | number | `0` | Unix time; only events newer than this. `0` for everything kept. |
 
 ### plan
 
@@ -300,6 +335,8 @@ The answer to an `edit_check`, sent only to the member who asked.
 | `reason` | string | `""` | One sentence about the peer that drove the decision; `""` for allow. |
 | `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan` or `branch`. |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
+| `queue_position` | integer | `0` | The sender's place in the file's [wait queue](#wait-queues) after this check, `1` being next; `0` when not queued (allowed, or the queue was full). |
+| `suggestion` | string | `""` | For warn/block, one short thing to do instead, built from room state: another file nobody active is in (this module's tests, the sender's own plan, a neighbour in the same directory) and, for a block, how long to wait. `""` when there is nothing to offer. Paths are never suggested in encrypted rooms. |
 
 #### PeerTouch
 
@@ -320,6 +357,8 @@ One peer's recent involvement with the checked file.
 {"type": "edit_check_response", "request_id": "c3f1a2", "decision": "block",
  "file_path": "server/room.py", "scope": "symbol", "decision_id": "9b1c...",
  "reason": "sam's claude-code is editing Room.broadcast in server/room.py (4s ago)",
+ "queue_position": 1,
+ "suggestion": "try server/tests/test_room.py (tests for this module) meanwhile, or wait ~16s (they edited it 4s ago)",
  "others": [{"user_id": "sam", "agent": "claude-code", "seconds_ago": 4.2,
              "prompt": "Rewrite broadcast fan-out", "symbols": ["Room.broadcast"],
              "branch": "main", "kind": "edited", "e2e": ""}]}
@@ -409,6 +448,8 @@ show it. Allowed edits are not broadcast.
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
 | `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan` or `branch`. |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
+| `queue_position` | integer | `0` | As in `edit_check_response`: the member's place in the file's wait queue. |
+| `suggestion` | string | `""` | As in `edit_check_response`. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
 ### conflict_alert
@@ -435,6 +476,7 @@ change them, and sent first in every spectator's catch-up.
 | `block_window_seconds` | number | required | The block window now in force. |
 | `warn_window_seconds` | number | required | The warn window now in force. |
 | `e2e` | boolean | `false` | Whether the room's members encrypt content. |
+| `history_hours` | number | `0` | Hours of feed events the relay keeps for `history_request`; `0` when it keeps none. |
 | `set_by` | string or `null` | `null` | The member whose join set these, or `null` for the room's creation settings. |
 | `timestamp` | number | now | Unix time in seconds. |
 
@@ -538,6 +580,50 @@ spectators must handle it too. Followed by close 4429.
 | `reason` | string | required | Why. The socket closes with 4429. |
 | `retry_after` | integer | required | Seconds to wait before reconnecting. |
 
+### file_requested
+
+Sent, point-to-point, to each member holding a file when someone is waiting
+for it (a blocked `edit_check`, or a `file_request`): once per requester per
+stay in the queue. A member holds a file while its latest edit of it still
+blocks the waiting member, or while it holds a claim on it (see
+[Wait queues](#wait-queues)). The daemon passes it on to the holding agent as
+a note on its next edit check.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | string | required | The file, as the requester named it. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
+| `by` | string | required | The waiting member. |
+| `agent` | [agent kind](#agent-kinds) | `"unknown"` | The waiting member's agent. |
+| `timestamp` | number | now | Unix time in seconds. |
+| `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), the requester's, copied from its `edit_check` or `file_request`; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+
+### file_released
+
+Sent, point-to-point, to the member first in a file's wait queue when the
+file frees up: every blocking edit aged past the block window, the holders
+left, or (for a `file_request`) it was free already. The file is held for
+that member for a 10 s grace, during which every other member's
+`edit_check` on it is blocked behind it; if it does not take the file in
+time, the next in line is released. If a holder edits the file again first,
+the release is withdrawn and a new `file_released` follows later.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | string | required | The file, as the recipient named it. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
+| `timestamp` | number | now | When the file was released to the recipient (the grace starts here). |
+| `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), the recipient's own, copied from the request that queued it; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+
+### history_chunk
+
+The answer to a `history_request`, sent only to its sender.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `events` | object[] | required | Kept feed events, oldest first, each exactly as broadcast (events without a `timestamp` of their own get the broadcast time). |
+| `done` | boolean | required | `true` on the last chunk of the answer. |
+
 ### synergo_feed
 
 A batch of room broadcasts. See [Delivery](#delivery).
@@ -545,6 +631,44 @@ A batch of room broadcasts. See [Delivery](#delivery).
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `events` | object[] | required | Room broadcasts queued since the last feed, oldest first; each is a complete relay-to-client message. |
+
+## Wait queues
+
+A blocked agent is not left to guess when to retry. Every file
+(`repo_id`, `file_path`) can have a line of members waiting for it, and the
+relay works it:
+
+- **Joining.** A blocked `edit_check` or a `file_request` puts the sender at
+  the back of the line, or keeps its place if it is already in it. One place
+  per member; at most 8 members per line and 256 lines per room (a full line
+  answers `queue_position: 0`).
+- **Holders.** The members whose edits still block the member at the head of
+  the line (judged with the symbols and line ranges it last asked about), and
+  anyone holding a claim. Each holder is told once per requester with
+  `file_requested`.
+- **Release.** When the head has no holders left, it is sent
+  `file_released` and has a 10 s grace to take the file. During the grace an
+  `edit_check` from anyone else is blocked behind it (`scope: "file"`, a
+  reason naming who is next), even though no edit blocks it any more. A
+  holder editing the file again withdraws the release.
+- **Taking.** An `edit_check` that passes takes the sender out of the line.
+  If others are still waiting, the sender holds a claim: its edit was allowed
+  but its activity has not arrived yet, so the next in line must not be
+  released into the middle of it. A claim blocks the others (a reason saying
+  who just took the file) until the claimer's activity on the file arrives,
+  the block window passes, or the claimer leaves.
+- **Expiry.** A place lasts the room's warn window from its latest request
+  (`synergo wait` re-requests every few seconds), a released head lasts its
+  grace, and a member that leaves loses its places and claims. A holder that
+  leaves releases its files at once.
+
+The relay sweeps every line on each member message and once a second while
+any line or claim exists. Nothing can wait forever: each state that makes
+someone wait ends on a clock (an edit after the block window, a claim after
+the block window, a release after the grace, a place after the warn window),
+and a lapsed grace releases the next in line in the same sweep. Two agents
+each holding the file the other wants are both blocked, so neither edits,
+both edits lapse, and both lines move.
 
 ## Agent kinds
 
@@ -572,6 +696,10 @@ not depend on the exact numbers.
 | Connection attempts per address (`WS_ATTEMPT_LIMIT`) | 30 per minute | `rate_limited`, close 4429 |
 | Members per room | 6 | `name_rejected` "Room full" |
 | Joiners waiting for approval, per room | 10 | `room_rejected`, close 4403 |
+| Members waiting in one file's queue | 8 | Not queued (`queue_position: 0`); still blocked |
+| Files with a wait queue, per room | 256 | Not queued (`queue_position: 0`); still blocked |
+| `history_request` per socket | one per 10 s | Ignored |
+| Kept history per room | 24 h, 5,000 events, 8 MB | Oldest events dropped |
 
 ## Close codes
 
@@ -609,8 +737,10 @@ directions, so they ship without touching either number:
 
 That is why the protocol is still at version 1 after
 gaining symbols, line ranges, branches, plans, decision feedback, join
-approval and encrypted payloads: every one of them was an optional field or an
-ignorable message.
+approval, encrypted payloads, wait queues and replayable history: every one of
+them was an optional field or an ignorable message. A client that never sends
+`file_request` still gets queued by its blocked checks; it simply ignores the
+`file_requested` and `file_released` frames it does not know.
 
 **Anything an older peer cannot satisfy is a breaking change:** removing or
 renaming a field, changing a field's type or meaning, making an optional
@@ -649,7 +779,9 @@ relay only ever compares values for equality:
 - the real values travel in the message's `e2e` field, AES-256-GCM under the
   room's encryption key, which the relay copies untouched onto the matching
   broadcasts (and onto `PeerTouch` and `PlanConflict` entries derived from
-  that member's messages) for key holders to decrypt.
+  that member's messages) for key holders to decrypt. A `file_request`
+  carries an `edit_check` envelope; `file_requested` and `file_released`
+  carry the blob of the request that queued the member.
 
 Keys come from a passphrase that never reaches the relay or the repository.
 The key schedule and the blob format are specified in
