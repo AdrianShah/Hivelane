@@ -1,0 +1,7 @@
+{"payload": {"session_id": "c1", "turn_id": "t1", "cwd": "{tmp}", "hook_event_name": "PreToolUse", "tool_name": "apply_patch", "tool_use_id": "call_2",
+  "tool_input": {"command": "*** Begin Patch\n*** Add File: pkg/new.py\n+x = 1\n*** Update File: room.py\n*** Move to: pkg/room.py\n@@\n-    pass\n+    return 1\n*** Delete File: old.py\n*** End Patch\n"}},
+ "expect": [
+  {"kind": "pre_edit", "file_path": "{tmp}/pkg/new.py", "tool": "apply_patch", "old_content": null},
+  {"kind": "pre_edit", "file_path": "{tmp}/room.py", "tool": "apply_patch", "old_content": "def room():\n    pass\n"},
+  {"kind": "pre_edit", "file_path": "{tmp}/pkg/room.py", "tool": "apply_patch", "old_content": null},
+  {"kind": "pre_edit", "file_path": "{tmp}/old.py", "tool": "apply_patch", "old_content": null}]}

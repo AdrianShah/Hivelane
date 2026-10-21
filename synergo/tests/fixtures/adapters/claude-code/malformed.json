@@ -1,0 +1,2 @@
+{"payload": {"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": "not an object"},
+ "expect": []}

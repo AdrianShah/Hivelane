@@ -1,0 +1,2 @@
+{"payload": {"session_id": "g1", "cwd": "{tmp}", "hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": {"command": "pytest"}},
+ "expect": []}

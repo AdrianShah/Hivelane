@@ -1,0 +1,3 @@
+{"payload": {"session_id": "s1", "cwd": "{tmp}", "hook_event_name": "PostToolUse", "tool_name": "Write",
+  "tool_input": {"file_path": "{tmp}/room.py", "content": "x"}, "tool_response": {"success": true}},
+ "expect": [{"kind": "post_edit", "file_path": "{tmp}/room.py", "tool": "Write", "new_content": "def room():\n    pass\n"}]}

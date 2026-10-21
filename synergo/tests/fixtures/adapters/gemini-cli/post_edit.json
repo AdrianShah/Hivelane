@@ -1,0 +1,3 @@
+{"payload": {"session_id": "g1", "transcript_path": "/tmp/t.json", "cwd": "{tmp}", "hook_event_name": "AfterTool", "timestamp": "2026-10-04T10:00:02Z",
+  "tool_name": "write_file", "tool_input": {"file_path": "room.py", "content": "def room():\n    pass\n"}, "tool_response": {"llmContent": "ok"}},
+ "expect": [{"kind": "post_edit", "file_path": "{tmp}/room.py", "tool": "write_file", "new_content": "def room():\n    pass\n"}]}

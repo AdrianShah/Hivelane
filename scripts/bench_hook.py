@@ -13,6 +13,7 @@ interpreter, which no hook can beat.
 Usage:
     .venv/Scripts/python scripts/bench_hook.py            # 20 runs per scenario
     .venv/Scripts/python scripts/bench_hook.py -n 50
+    .venv/Scripts/python scripts/bench_hook.py --agent codex
     .venv/Scripts/python scripts/bench_hook.py --command "synergo hook claude-code"
 """
 
@@ -59,7 +60,7 @@ def unused_port() -> int:
         return int(sock.getsockname()[1])
 
 
-def default_command() -> list[str]:
+def default_command(agent: str = "claude-code") -> list[str]:
     """The console script Claude Code actually runs, falling back to -m.
 
     The installed entry point imports synergo.cli the same way the hook does in
@@ -69,14 +70,40 @@ def default_command() -> list[str]:
     for name in ("synergo.exe", "synergo"):
         candidate = scripts / name
         if candidate.exists():
-            return [str(candidate), "hook", "claude-code"]
+            return [str(candidate), "hook", agent]
     found = shutil.which("synergo")
     if found:
-        return [found, "hook", "claude-code"]
-    return [sys.executable, "-m", "synergo.cli", "hook", "claude-code"]
+        return [found, "hook", agent]
+    return [sys.executable, "-m", "synergo.cli", "hook", agent]
 
 
-def payload(target: Path) -> bytes:
+def payload(target: Path, agent: str = "claude-code") -> bytes:
+    if agent == "codex":
+        return json.dumps(
+            {
+                "session_id": "bench",
+                "turn_id": "t1",
+                "cwd": str(target.parent),
+                "hook_event_name": "PreToolUse",
+                "model": "gpt-5-codex",
+                "permission_mode": "default",
+                "tool_name": "apply_patch",
+                "tool_use_id": "call_bench",
+                "tool_input": {
+                    "command": "\n".join(
+                        [
+                            "*** Begin Patch",
+                            f"*** Update File: {target.name}",
+                            "@@",
+                            "-def room():",
+                            "+def room(code: str):",
+                            "*** End Patch",
+                            "",
+                        ]
+                    )
+                },
+            }
+        ).encode()
     return json.dumps(
         {
             "session_id": "bench",
@@ -131,17 +158,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-n", "--runs", type=int, default=20, help="timed runs per scenario (default 20)")
     parser.add_argument("--warmup", type=int, default=2, help="untimed runs first, to settle disk caches")
+    parser.add_argument("--agent", default="claude-code", help="adapter to bench: claude-code or codex")
     parser.add_argument("--command", default=None, help="hook command line (default: the installed synergo script)")
     args = parser.parse_args(argv)
 
-    command = shlex.split(args.command, posix=os.name != "nt") if args.command else default_command()
+    command = shlex.split(args.command, posix=os.name != "nt") if args.command else default_command(args.agent)
     print(f"command: {' '.join(command)}")
 
     with tempfile.TemporaryDirectory(prefix="synergo-bench-") as work:
         work_path = Path(work)
         target = work_path / "room.py"
         target.write_text("def room():\n    pass\n" * 50, encoding="utf-8")
-        stdin = payload(target)
+        stdin = payload(target, args.agent)
 
         env = dict(os.environ)
         # Keep the offline notice's rate-limit state out of the user's real home.

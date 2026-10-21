@@ -1,0 +1,2 @@
+{"payload": {"session_id": "g1", "hook_event_name": "BeforeTool", "tool_name": "write_file", "tool_input": {"file_path": 42}},
+ "expect": []}
