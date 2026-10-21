@@ -1,0 +1,56 @@
+{
+    "##": [
+        "Template for a Scoop bucket (see README.md next to this file). Downloads the",
+        "wheel from PyPI so Scoop verifies its hash, then installs it with uv (or pipx",
+        "when installed with --independent and uv is absent) into $dir. Everything lives",
+        "under the app directory, so `scoop uninstall` and `scoop update` clean up fully.",
+        "The hash is a placeholder until the first PyPI release; `checkver -u` fills it."
+    ],
+    "version": "0.1.0",
+    "description": "Live coordination for parallel AI coding agents: warns or blocks an edit when a teammate's agent is already in that file.",
+    "homepage": "https://github.com/AdrianShah/Synergo",
+    "license": "Apache-2.0",
+    "depends": "uv",
+    "url": "https://files.pythonhosted.org/packages/py3/s/synergo/synergo-0.1.0-py3-none-any.whl",
+    "hash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "installer": {
+        "script": [
+            "$wheel = \"$dir\\synergo-$version-py3-none-any.whl\"",
+            "$names = 'UV_TOOL_DIR', 'UV_TOOL_BIN_DIR', 'PIPX_HOME', 'PIPX_BIN_DIR'",
+            "$saved = @{}",
+            "foreach ($name in $names) { $saved[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }",
+            "try {",
+            "    if (Get-Command uv -ErrorAction SilentlyContinue) {",
+            "        $env:UV_TOOL_DIR = \"$dir\\tools\"",
+            "        $env:UV_TOOL_BIN_DIR = \"$dir\\bin\"",
+            "        uv tool install --force $wheel",
+            "    } elseif (Get-Command pipx -ErrorAction SilentlyContinue) {",
+            "        $env:PIPX_HOME = \"$dir\\pipx\"",
+            "        $env:PIPX_BIN_DIR = \"$dir\\bin\"",
+            "        pipx install --force $wheel",
+            "    } else {",
+            "        throw 'synergo needs uv (scoop install uv) or pipx to install.'",
+            "    }",
+            "    if ($LASTEXITCODE -ne 0) { throw \"Installing synergo $version failed (exit $LASTEXITCODE).\" }",
+            "} finally {",
+            "    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $saved[$name], 'Process') }",
+            "}"
+        ]
+    },
+    "bin": "bin\\synergo.exe",
+    "notes": [
+        "Agent hooks call `synergo` from your PATH, which this install provides.",
+        "In a repository, run: synergo up"
+    ],
+    "checkver": {
+        "url": "https://pypi.org/pypi/synergo/json",
+        "jsonpath": "$.info.version"
+    },
+    "autoupdate": {
+        "url": "https://files.pythonhosted.org/packages/py3/s/synergo/synergo-$version-py3-none-any.whl",
+        "hash": {
+            "url": "https://pypi.org/pypi/synergo/$version/json",
+            "jsonpath": "$.urls[?(@.filename == '$basename')].digests.sha256"
+        }
+    }
+}

@@ -119,15 +119,12 @@ class DaemonPool:
         assert self._ready.wait(STARTUP_TIMEOUT), "daemon loop failed to start"
 
     def request_stop(self) -> None:
-        """Ask every daemon to wind down once its relay connection ends.
-
-        Daemon has no public stop: `synergo join` ends on a signal. This sets
-        the flag its relay loop checks, so closing the relay then lets run()
-        unwind through its normal shutdown path instead of being cancelled.
-        """
+        """Ask every daemon to wind down through its normal shutdown path
+        (flush, close the relay socket, stop HTTP) instead of being cancelled.
+        Daemon.stop() is safe to call from this, the test's, thread."""
         assert self._loop is not None
         for daemon in self.daemons:
-            self._loop.call_soon_threadsafe(daemon._shutdown.set)
+            daemon.stop()
 
     def join(self) -> None:
         self.thread.join(SHUTDOWN_TIMEOUT)
@@ -142,7 +139,8 @@ class DaemonClient:
 
     def __init__(self, daemon: Daemon, http: httpx.Client) -> None:
         self.daemon = daemon
-        self.name = daemon.name
+        # A multi-repo daemon has no single name: each repo carries its own.
+        self.name = getattr(daemon, "name", "")
         self.base = f"http://{LOOPBACK}:{daemon.port}"
         self._http = http
 
@@ -226,9 +224,7 @@ class Cluster:
             daemons.append(
                 Daemon(room, name, server=self.relay.ws_url, port=free_port(), **kwargs)
             )
-        self._pool = DaemonPool(daemons)
-        self._pool.start()
-        clients = [DaemonClient(daemon, self.http) for daemon in daemons]
+        clients = self.run_daemons(daemons)
         names = {client.name for client in clients}
 
         def all_connected() -> bool:
@@ -241,6 +237,19 @@ class Cluster:
             return True
 
         wait_until(all_connected, what="every daemon to join and see its peers")
+        return clients
+
+    def run_daemons(self, daemons: list[Daemon]) -> list[DaemonClient]:
+        """Start already-built daemons (any mode) and wait for their HTTP side;
+        what "ready" means beyond that is up to the test."""
+        assert self._pool is None, "start all daemons in one call"
+        self._pool = DaemonPool(daemons)
+        self._pool.start()
+        clients = [DaemonClient(daemon, self.http) for daemon in daemons]
+        wait_until(
+            lambda: all(client.status() is not None for client in clients),
+            what="every daemon's HTTP endpoint",
+        )
         return clients
 
     def close(self) -> None:

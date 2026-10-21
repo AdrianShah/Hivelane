@@ -1,0 +1,44 @@
+# Render Blueprint for the Synergo relay. Setup steps: README.md here.
+#
+# When creating the Blueprint in the Render dashboard, set the Blueprint Path
+# to deploy/render/render.yaml (Render looks for render.yaml at the root).
+services:
+  - type: web
+    name: synergo-relay
+    runtime: docker
+    # Paths are relative to the repo root.
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    branch: main
+    region: oregon
+    # Smallest paid plan. Free instances cannot attach a disk and sleep when
+    # idle, which drops every daemon's WebSocket.
+    plan: 0.5c-512mb
+    healthCheckPath: /readyz
+    # Deploys are driven by .github/workflows/deploy.yml after CI passes: copy
+    # this service's Deploy Hook URL into the RELAY_DEPLOY_HOOK_URL secret.
+    # Use "checksPass" instead to let Render deploy on its own after CI.
+    autoDeployTrigger: "off"
+    # Room codes live here so they survive deploys. A service with a disk
+    # cannot scale past one instance, which is also what the relay needs today:
+    # rooms are held in the process's memory.
+    disk:
+      name: synergo-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: SYNERGO_ENV
+        value: production
+      - key: SYNERGO_STATE_PATH
+        value: /data/synergo.db
+      # Render's proxy terminates TLS; without this every user shares one
+      # rate-limit bucket. See the client-IP caveat in docs/self-hosting.md.
+      - key: TRUST_PROXY_HEADER
+        value: "true"
+      # Exact dashboard origin(s), comma-separated. Required: the relay will not
+      # boot in production without it. Render prompts for it on first apply.
+      - key: CORS_ORIGINS
+        sync: false
+      # Optional AI captions and conflict summaries.
+      - key: GEMINI_API_KEY
+        sync: false

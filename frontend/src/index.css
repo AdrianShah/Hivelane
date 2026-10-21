@@ -478,3 +478,79 @@ body {
   padding-top: 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
+
+/* Share-this-room panel: same surface as .connect-panel, with the room code
+   set large enough to read across a table. Copy rows reuse .connect-command. */
+.share-panel {
+  max-width: 46rem;
+  padding: 1.5rem;
+  border-radius: 0.75rem;
+  background: rgba(8, 12, 20, 0.45);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.share-panel header h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.share-panel header p {
+  margin: 0;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.share-code {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 1.25rem 0 0.25rem;
+}
+
+.share-code__value {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: clamp(1.5rem, 4vw, 2rem);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  color: #5eead4;
+  overflow-wrap: anywhere;
+}
+
+.share-row {
+  margin-top: 1rem;
+}
+
+.share-row .section-label {
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.share-settings {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.share-settings p {
+  margin: 0;
+}
+
+.share-settings__windows {
+  color: #e2e8f0;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.share-settings__source {
+  margin-top: 0.15rem !important;
+  color: rgba(226, 232, 240, 0.55);
+  font-size: 0.78rem;
+}
