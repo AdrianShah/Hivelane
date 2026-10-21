@@ -112,6 +112,20 @@ export interface RateLimited {
   retry_after: number;
 }
 
+/**
+ * The conflict windows the relay enforces for this room. Sent first in a
+ * spectator's catch-up, and broadcast in the feed whenever a member's join
+ * changes them. set_by is null for relay defaults or settings chosen when the
+ * room was created.
+ */
+export interface RoomSettingsUpdate {
+  type: 'room_settings';
+  block_window_seconds: number;
+  warn_window_seconds: number;
+  set_by: string | null;
+  timestamp: number;
+}
+
 /** Debounced room broadcast — one frame every ~500ms with queued events. */
 export interface SynergoFeed {
   type: 'synergo_feed';
@@ -124,8 +138,15 @@ export type FeedEvent =
   | ConflictAlert
   | EditDecision
   | IntentUpdate
+  | RoomSettingsUpdate
   | UserJoined
   | UserLeft;
+
+/** Team-wide conflict windows from a repo's committed .synergo.toml. */
+export interface RoomSettings {
+  block_window_seconds: number;
+  warn_window_seconds: number;
+}
 
 /**
  * First message after connect.
@@ -139,6 +160,7 @@ export interface JoinMessage {
   agent?: AgentKind;
   protocol_version?: number;
   repo_id?: RepoId;
+  settings?: RoomSettings | null;
 }
 
 export type ServerMessage =
@@ -147,6 +169,7 @@ export type ServerMessage =
   | ConflictAlert
   | EditDecision
   | IntentUpdate
+  | RoomSettingsUpdate
   | UserJoined
   | UserLeft
   | NameRejected

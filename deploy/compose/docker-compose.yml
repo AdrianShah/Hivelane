@@ -1,0 +1,73 @@
+# Self-hosted relay: the relay image behind Caddy, which obtains and renews a
+# TLS certificate for RELAY_DOMAIN automatically. Full guide:
+# docs/self-hosting.md. From this directory:
+#
+#   cp .env.example .env      # set RELAY_DOMAIN and CORS_ORIGINS
+#   docker compose up -d --build
+#
+# Optional Redis for shared rate-limit counters: set COMPOSE_PROFILES=redis and
+# SYNERGO_REDIS_URL=redis://redis:6379/0 in .env (see .env.example for when it
+# is worth it).
+name: synergo
+
+services:
+  relay:
+    build:
+      # The repo root, so the image is the same one CI builds and boots.
+      context: ../..
+      dockerfile: Dockerfile
+    image: synergo-relay:local
+    restart: unless-stopped
+    environment:
+      SYNERGO_ENV: ${SYNERGO_ENV:-production}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS to your dashboard origin(s) in .env}
+      SYNERGO_STATE_PATH: /data/synergo.db
+      # Safe here: Caddy discards any X-Forwarded-For a client sends and sets
+      # the real address, so the relay sees each user's own IP.
+      TRUST_PROXY_HEADER: "true"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      # Empty keeps rate limits in-process; see the redis profile below.
+      SYNERGO_REDIS_URL: ${SYNERGO_REDIS_URL:-}
+    volumes:
+      # Room codes: without this every restart invalidates every room.
+      - relay-data:/data
+    # Not published: only Caddy talks to the relay.
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      relay:
+        # The image's HEALTHCHECK polls /health.
+        condition: service_healthy
+    ports:
+      - "80:80"     # ACME HTTP challenge, then redirects to HTTPS
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      RELAY_DOMAIN: ${RELAY_DOMAIN:?set RELAY_DOMAIN to the relay's public hostname in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account: keep them, or every restart re-issues
+      # and you hit the CA's rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+
+  redis:
+    image: redis:8-alpine
+    profiles: ["redis"]
+    restart: unless-stopped
+    # Rate-limit counters are short-lived; nothing here is worth persisting.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  relay-data:
+  caddy-data:
+  caddy-config:

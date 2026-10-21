@@ -4,7 +4,7 @@ import { relayHttpOrigin } from '../relayUrl';
 export type AppView =
   | 'dashboard'
   | 'agents'
-  | 'watchers'
+  | 'invite'
   | 'conflicts'
   | 'history'
   | 'analytics'
@@ -19,7 +19,7 @@ interface SidebarProps {
   roomId?: string;
   onCopyRoom?: () => void;
   copied?: boolean;
-  onDeployAgent?: () => void;
+  onInvite?: () => void;
   onNewRoom?: () => void;
   creatingRoom?: boolean;
 }
@@ -34,7 +34,7 @@ function formatElapsed(seconds: number): string {
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'agents', label: 'Synergo feed', icon: 'dynamic_feed' },
-  { id: 'watchers', label: 'Watchers', icon: 'radar' },
+  { id: 'invite', label: 'Invite', icon: 'group_add' },
   { id: 'conflicts', label: 'Conflicts', icon: 'warning' },
   { id: 'history', label: 'History', icon: 'history' },
   { id: 'analytics', label: 'Analytics', icon: 'monitoring' },
@@ -49,7 +49,7 @@ export default function Sidebar({
   roomId,
   onCopyRoom,
   copied = false,
-  onDeployAgent,
+  onInvite,
   onNewRoom,
   creatingRoom = false,
 }: SidebarProps) {
@@ -123,14 +123,14 @@ export default function Sidebar({
           <span className="material-symbols-outlined text-base">account_tree</span>
           {creatingRoom ? 'Creating…' : 'New Room'}
         </button>
-        {onDeployAgent ? (
+        {onInvite ? (
           <button
             type="button"
             className="w-full flex items-center justify-center gap-2 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-primary hover:bg-primary/10 transition-all duration-150"
-            onClick={onDeployAgent}
+            onClick={onInvite}
           >
-            <span className="material-symbols-outlined text-base">rocket_launch</span>
-            Deploy Agent
+            <span className="material-symbols-outlined text-base">person_add</span>
+            Invite teammates
           </button>
         ) : null}
         <div className="flex items-center justify-between px-1.5">

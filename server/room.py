@@ -22,6 +22,8 @@ try:
         AgentKind,
         Decision,
         IntentUpdate,
+        RoomSettings,
+        RoomSettingsUpdate,
         SynergoFeed,
     )
 except ImportError:  # Render rootDir=server
@@ -31,17 +33,26 @@ except ImportError:  # Render rootDir=server
         AgentKind,
         Decision,
         IntentUpdate,
+        RoomSettings,
+        RoomSettingsUpdate,
         SynergoFeed,
     )
 
 log = logging.getLogger(__name__)
 
-# How long a peer's last touch of a file stays eligible for conflict comparison.
+# Defaults for a room nobody has configured. A room's own RoomSettings (from
+# POST /rooms or a member's committed .synergo.toml) replace these per room.
+#
+# How long a peer's last touch of a file stays eligible for conflict comparison
+# (the "warn" window).
 CONFLICT_WINDOW_SECONDS = 60.0
 
 # A touch past the comparison window is invisible to every reader, so it is swept
 # instead of being kept for the life of the room. Tied to the window on purpose:
-# widening one without the other would start pruning touches still in use.
+# widening one without the other would start pruning touches still in use. A
+# room with a wider warn window retains touches for that long instead (see
+# Room.retention_seconds); a narrower one keeps this floor, so narrowing the
+# window and widening it again does not lose touches in between.
 ACTIVITY_RETENTION_SECONDS = CONFLICT_WINDOW_SECONDS
 ACTIVITY_PRUNE_INTERVAL_SECONDS = 60.0
 
@@ -52,10 +63,32 @@ EDIT_BLOCK_WINDOW_SECONDS = 20.0
 # How long a declared intent still describes what a peer is doing. Longer than
 # the touch window because stating a task precedes editing, but bounded: an
 # unbounded intent warns about the same file for the rest of the session.
+# Not a room setting: it describes how long a stated task stays current, not
+# how close two edits may land.
 INTENT_WINDOW_SECONDS = 300.0
 
 # Debounce room-wide broadcasts into a single Synergo feed frame.
 BROADCAST_FLUSH_SECONDS = 0.5
+
+DEFAULT_SETTINGS = RoomSettings(
+    block_window_seconds=EDIT_BLOCK_WINDOW_SECONDS,
+    warn_window_seconds=CONFLICT_WINDOW_SECONDS,
+)
+
+
+def settings_problem(settings: RoomSettings) -> Optional[str]:
+    """Why these settings cannot be enforced, or None if they can.
+
+    The per-field bounds live on the model; this is the cross-field rule a
+    model field cannot express. A block window wider than the warn window would
+    block on touches that check_edit never looks at.
+    """
+    if settings.warn_window_seconds < settings.block_window_seconds:
+        return (
+            f"warn window ({settings.warn_window_seconds:g}s) is shorter than "
+            f"block window ({settings.block_window_seconds:g}s)"
+        )
+    return None
 
 
 @dataclass
@@ -81,7 +114,15 @@ class FileOverlap:
 
 
 class Room:
-    def __init__(self) -> None:
+    def __init__(self, settings: Optional[RoomSettings] = None) -> None:
+        # Conflict windows in force. Never None and always valid: callers that
+        # load settings from elsewhere validate them first (apply_settings).
+        self._settings = (
+            DEFAULT_SETTINGS.model_copy() if settings is None else settings.model_copy()
+        )
+        # Who last changed the settings, and when (for room_settings frames).
+        self._settings_set_by: Optional[str] = None
+        self._settings_updated_at = time.time()
         self._members: dict[str, WebSocket] = {}
         self._member_agents: dict[str, AgentKind] = {}
         self._spectators: set[WebSocket] = set()
@@ -156,6 +197,64 @@ class Room:
         for key in [k for k in self._last_activity_at if k[0] == user_id]:
             self._last_activity_at.pop(key, None)
 
+    # --- settings ------------------------------------------------------------
+
+    @property
+    def settings(self) -> RoomSettings:
+        return self._settings.model_copy()
+
+    @property
+    def retention_seconds(self) -> float:
+        """How long a touch is kept before the sweep drops it: the warn window,
+        but never less than the default so a briefly narrowed window does not
+        throw away touches a later, wider one would still compare against."""
+        return max(self._settings.warn_window_seconds, ACTIVITY_RETENTION_SECONDS)
+
+    def settings_update(self) -> RoomSettingsUpdate:
+        """The current settings as a room_settings frame (join catch-up)."""
+        return RoomSettingsUpdate(
+            block_window_seconds=self._settings.block_window_seconds,
+            warn_window_seconds=self._settings.warn_window_seconds,
+            set_by=self._settings_set_by,
+            timestamp=self._settings_updated_at,
+        )
+
+    def apply_settings(
+        self, settings: RoomSettings, set_by: Optional[str] = None
+    ) -> Optional[RoomSettingsUpdate]:
+        """Adopt new conflict windows. Returns the frame to broadcast, or None
+        when nothing changed.
+
+        Invalid settings are logged and ignored rather than raised: they come
+        from a member's committed config, and refusing the member over it would
+        take their coordination offline for a typo. Keeping the old windows is
+        the safe reading of "this config is broken".
+        """
+        problem = settings_problem(settings)
+        if problem is not None:
+            log.warning(
+                "Ignoring room settings from %s: %s; keeping block=%gs warn=%gs",
+                set_by or "the relay",
+                problem,
+                self._settings.block_window_seconds,
+                self._settings.warn_window_seconds,
+            )
+            return None
+        if settings == self._settings:
+            return None
+        log.info(
+            "Room settings changed by %s: block %gs -> %gs, warn %gs -> %gs",
+            set_by or "the relay",
+            self._settings.block_window_seconds,
+            settings.block_window_seconds,
+            self._settings.warn_window_seconds,
+            settings.warn_window_seconds,
+        )
+        self._settings = settings.model_copy()
+        self._settings_set_by = set_by
+        self._settings_updated_at = time.time()
+        return self.settings_update()
+
     def add_spectator(self, socket: WebSocket) -> None:
         self._spectators.add(socket)
 
@@ -195,12 +294,13 @@ class Room:
         if now - self._last_prune_at < ACTIVITY_PRUNE_INTERVAL_SECONDS:
             return
         self._last_prune_at = now
+        retention = self.retention_seconds
         for file_path in list(self._file_activity):
             touches = self._file_activity[file_path]
             for key in [
                 key
                 for key, touch in touches.items()
-                if now - touch.timestamp > ACTIVITY_RETENTION_SECONDS
+                if now - touch.timestamp > retention
             ]:
                 del touches[key]
             if not touches:
@@ -262,10 +362,16 @@ class Room:
         *,
         repo_id: str = "",
         active_only: bool = True,
-        window_seconds: float = CONFLICT_WINDOW_SECONDS,
+        window_seconds: Optional[float] = None,
     ) -> list[FileTouch]:
         """Other users' recent touches of the same file, in the same repo,
-        within the conflict window."""
+        within window_seconds (default: this room's warn window). A window of
+        zero turns touch comparison off rather than matching same-instant
+        touches only."""
+        if window_seconds is None:
+            window_seconds = self._settings.warn_window_seconds
+        if window_seconds <= 0:
+            return []
         touches = self._file_activity.get(file_path, {})
         results: list[FileTouch] = []
         for (touch_repo, other_id), touch in touches.items():
@@ -353,21 +459,24 @@ class Room:
         """Decide whether user_id may edit file_path (in repo_id) right now.
 
         Returns the decision plus the peers that justified it, newest first.
+        Both windows are this room's settings; a block window of zero never
+        blocks, so the room still warns.
         """
+        block_window = self._settings.block_window_seconds
         others = self.recent_other_touches(
             file_path,
             user_id,
             now,
             repo_id=repo_id,
             active_only=True,
-            window_seconds=CONFLICT_WINDOW_SECONDS,
+            window_seconds=self._settings.warn_window_seconds,
         )
         others.sort(key=lambda touch: touch.timestamp, reverse=True)
 
         blocking = [
             touch
             for touch in others
-            if now - touch.timestamp <= EDIT_BLOCK_WINDOW_SECONDS
+            if block_window > 0 and now - touch.timestamp <= block_window
         ]
         if blocking:
             return "block", blocking

@@ -9,8 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies first so code edits do not invalidate the install layer.
+# redis is optional for the relay — imported only when SYNERGO_REDIS_URL is set
+# (shared rate limits, e.g. deploy/compose's `redis` profile) — but baked in so
+# one image serves every topology. It stays out of server/requirements.txt so a
+# plain single-instance install does not need it.
 COPY server/requirements.txt ./server/requirements.txt
-RUN pip install --no-cache-dir -r server/requirements.txt
+RUN pip install --no-cache-dir -r server/requirements.txt redis==8.1.0
 
 COPY server/ ./server/
 

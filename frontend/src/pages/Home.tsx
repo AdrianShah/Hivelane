@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { normalizeRoomCode, relayHttpOrigin } from '../relayUrl';
+import {
+  isValidRoomCode,
+  normalizeRoomCode,
+  relayHttpOrigin,
+  roomPath,
+} from '../relayUrl';
 import './Home.css';
 
 export default function Home() {
@@ -16,7 +21,7 @@ export default function Home() {
       const response = await fetch(`${relayHttpOrigin()}/rooms`, { method: 'POST' });
       if (!response.ok) throw new Error(`Server returned ${response.status}`);
       const data = (await response.json()) as { room_id: string };
-      navigate(`/room/${data.room_id}`);
+      navigate(roomPath(data.room_id));
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(
@@ -28,9 +33,17 @@ export default function Home() {
 
   const joinWorkspace = (event: React.FormEvent) => {
     event.preventDefault();
+    // Accepts "abcd-2345", "ABCD 2345" or a pasted room link.
     const code = normalizeRoomCode(joinCode);
     if (!code) return;
-    navigate(`/room/${code}`);
+    if (!isValidRoomCode(code)) {
+      setError(
+        'Room codes are 8 letters and digits (rooms from before the switch have 6). Check the code and try again.',
+      );
+      return;
+    }
+    setError(null);
+    navigate(roomPath(code));
   };
 
   return (
@@ -53,8 +66,9 @@ export default function Home() {
             <em>See every agent, live.</em>
           </h1>
           <p className="home__sub">
-            Share a room, connect watchers, and catch overlapping file edits
-            before they become merge conflicts.
+            Create a room, run <code>synergo up</code> in each teammate&apos;s
+            repo, and catch overlapping file edits before they become merge
+            conflicts.
           </p>
 
           <div className="home__actions">
@@ -73,12 +87,16 @@ export default function Home() {
               <input
                 className="home__join-input"
                 value={joinCode}
-                onChange={(event) => setJoinCode(event.target.value)}
-                placeholder="ROOM"
-                maxLength={6}
+                onChange={(event) => {
+                  setJoinCode(event.target.value);
+                  if (error) setError(null);
+                }}
+                placeholder="ROOM CODE"
+                maxLength={200}
                 autoCapitalize="characters"
+                autoComplete="off"
                 spellCheck={false}
-                aria-label="Room code"
+                aria-label="Room code or room link"
               />
               <button
                 className="home__join-button"

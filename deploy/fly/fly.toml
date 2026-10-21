@@ -1,0 +1,84 @@
+# Fly.io config for the Synergo relay. One-time setup is in README.md here.
+#
+# Deploy from the REPO ROOT, so the build context contains server/:
+#
+#   fly deploy --config deploy/fly/fly.toml
+#
+# Non-secret settings live in [env] below. CORS_ORIGINS — the dashboard
+# origin(s) allowed to call the relay — is set with `fly secrets set`, so a new
+# dashboard domain needs no commit. The relay refuses to boot in production
+# without it, so a forgotten secret fails the deploy instead of serving open.
+
+# Fly app names are global: change this to the name you created.
+app = "synergo-relay"
+primary_region = "iad"
+
+# Regions. This runs ONE machine in primary_region. A second region is two
+# commands, e.g.
+#
+#   fly volumes create synergo_data --region fra --size 1 --yes
+#   fly scale count 2 --region iad,fra
+#
+# but do not do that yet: each relay process holds its rooms in memory and its
+# room codes on its own volume, and Fly routes every client to the nearest
+# machine. Two teammates landing on different machines would get "unknown room"
+# or two separate halves of one room, and never see each other's edits.
+
+[build]
+  # Relative to this file. The build context is the directory you deploy from.
+  dockerfile = "../../Dockerfile"
+
+[env]
+  SYNERGO_ENV = "production"
+  # On the volume mounted below, so room codes survive deploys and restarts.
+  SYNERGO_STATE_PATH = "/data/rooms.sqlite3"
+  # Fly's proxy terminates TLS, so without this every user shares one
+  # rate-limit bucket (the proxy's address). Caveat: the relay reads the
+  # leftmost X-Forwarded-For entry and Fly appends to whatever the client sent,
+  # so a determined client can still pick its own bucket. See README.md.
+  TRUST_PROXY_HEADER = "true"
+  # Set with `fly secrets set`, never here:
+  #   CORS_ORIGINS=https://your-dashboard.example.com   (required)
+  #   GEMINI_API_KEY=...                                (optional AI captions)
+
+[[mounts]]
+  source = "synergo_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Never stop for idleness: a stopped relay drops every daemon's WebSocket,
+  # and pre-edit checks fail open (no coordination) until they reconnect.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Every daemon and dashboard tab holds one WebSocket open for hours. Fly's
+  # default limits (25 connections) would cap a machine at a couple of teams.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 800
+    hard_limit = 1000
+
+  # Liveness: the process is up and serving.
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "15s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+  # Readiness: configuration loaded (env, CORS, protocol versions).
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/readyz"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

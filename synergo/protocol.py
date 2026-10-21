@@ -62,6 +62,18 @@ MIN_SUPPORTED_PROTOCOL = 1
 # --- Client -> relay ---------------------------------------------------------
 
 
+class RoomSettings(BaseModel):
+    """Team-wide conflict windows from the repo's .synergo.toml.
+
+    Sent on join so the relay enforces what the team committed, not its own
+    defaults. Bounded so one member cannot disable blocking room-wide by
+    accident (a zero block window still warns).
+    """
+
+    block_window_seconds: float = Field(default=20.0, ge=0, le=600)
+    warn_window_seconds: float = Field(default=60.0, ge=0, le=3600)
+
+
 class JoinMessage(BaseModel):
     type: Literal["join"] = "join"
     name: Optional[str] = None
@@ -70,6 +82,9 @@ class JoinMessage(BaseModel):
     # relay's twin defaults to 0 instead, meaning "a client too old to say".
     protocol_version: int = PROTOCOL_VERSION
     repo_id: RepoId = ""
+    # Optional: a member that carries a committed .synergo.toml shares its
+    # windows with the room. None leaves the room's current settings alone.
+    settings: Optional[RoomSettings] = None
 
 
 class ActivityMessage(BaseModel):
@@ -161,6 +176,14 @@ class ConflictAlert(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
 
+class RoomSettingsUpdate(BaseModel):
+    type: Literal["room_settings"] = "room_settings"
+    block_window_seconds: float
+    warn_window_seconds: float
+    set_by: Optional[str] = None
+    timestamp: float = Field(default_factory=time.time)
+
+
 class UserJoined(BaseModel):
     type: Literal["user_joined"] = "user_joined"
     user_id: str
@@ -216,6 +239,7 @@ RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
     IntentUpdate,
     EditDecision,
     ConflictAlert,
+    RoomSettingsUpdate,
     UserJoined,
     UserLeft,
     NameRejected,
