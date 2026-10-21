@@ -23,7 +23,7 @@ jobs:
       group: deploy-staging
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Deploy relay
         env:
           HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
@@ -49,7 +49,7 @@ jobs:
       group: deploy-production
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Deploy relay
         env:
           HOOK: ${{ secrets.RELAY_DEPLOY_HOOK_URL }}
