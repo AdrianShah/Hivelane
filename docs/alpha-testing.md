@@ -5,8 +5,8 @@ Everything runs against the hosted relay on Render and the dashboard on GitHub
 Pages:
 
 - Dashboard: <https://adrianshah.github.io/Hivelane/>
-- Relay: `wss://hivelane-relay.onrender.com/ws`. Its health check is
-  <https://hivelane-relay.onrender.com/readyz>.
+- Relay: `wss://hivelane.onrender.com/ws`. Its health check is
+  <https://hivelane.onrender.com/readyz>.
 
 ## 1. Install (each person, once)
 
@@ -33,7 +33,7 @@ throwaway repo is best for the first run.
 In the test repo:
 
 ```bash
-hivelane up --relay wss://hivelane-relay.onrender.com/ws
+hivelane up --relay wss://hivelane.onrender.com/ws
 ```
 
 This installs the agent hooks, creates a room, starts the background daemon
@@ -49,7 +49,7 @@ hivelane up
 ```
 
 It reads the room and relay from `.hivelane.toml`. Without pulling, use
-`hivelane up --room CODE --relay wss://hivelane-relay.onrender.com/ws`
+`hivelane up --room CODE --relay wss://hivelane.onrender.com/ws`
 instead.
 
 ## 5. Try a conflict
@@ -66,7 +66,10 @@ instead.
 - `hivelane doctor` explains what is wrong with the local setup.
 - `hivelane status` shows the daemon and whether the repo is connected.
 - `hivelane down` stops the daemon. `hivelane up` starts it again.
-- **Relay waking up:** the first connection after a deploy can take up to a
-  minute while Render starts the relay. The daemon keeps retrying on its own.
+- **Relay waking up:** the relay runs on Render's free plan, which sleeps
+  after about 15 minutes with no traffic. The first connection after that
+  takes up to a minute while it wakes; the daemon keeps retrying on its own.
+  A restart also clears every room, so run `hivelane up` again to create a
+  fresh one.
 - **Reporting a problem:** open an issue on the repo with the output of
   `hivelane doctor` and what the agents were doing.
