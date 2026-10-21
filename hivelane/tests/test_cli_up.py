@@ -55,7 +55,7 @@ def test_first_run_creates_room_writes_config_installs_hooks_and_connects(
     assert "commit it" in out
     assert "connected as ada-lovelace (1 teammate online: sam)" in out
     assert "http://localhost:5173/r/K7Q2XM" in out
-    assert "pipx install hivelane && hivelane up --room K7Q2XM\n" in out
+    assert "pipx install git+https://github.com/AdrianShah/Hivelane && hivelane up --room K7Q2XM\n" in out
 
 
 def test_second_run_reuses_the_room_and_changes_nothing(

@@ -12,7 +12,7 @@
 Hivelane streams agent intent, prompts, AI captions, and file diffs from every teammate into one shared board — and answers each agent's "is anyone else in this file?" before the edit lands.
 
 ```bash
-pipx install hivelane      # or: uv tool install hivelane
+pipx install git+https://github.com/AdrianShah/Hivelane   # not on PyPI yet
 hivelane up                # in your repo: hooks, room, background daemon
 ```
 
@@ -47,7 +47,7 @@ uses `ws://localhost:8000/ws`, which suits [developing locally](#develop-locally
 **1. Install the CLI** — once per machine:
 
 ```bash
-pipx install hivelane                  # or: uv tool install hivelane
+pipx install git+https://github.com/AdrianShah/Hivelane   # not on PyPI yet
 ```
 
 Other channels (Homebrew, Scoop, a one-line install script, `npx`) are in
