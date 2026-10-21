@@ -1,0 +1,39 @@
+{
+ "name": "import_block_1",
+ "description": "both agents add imports at the top of the file",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "<imports>"
+   ],
+   "line_ranges": [
+    [
+     1,
+     12
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "<imports>"
+   ],
+   "line_ranges": [
+    [
+     3,
+     8
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

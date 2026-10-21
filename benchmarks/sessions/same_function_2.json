@@ -1,0 +1,56 @@
+{
+ "name": "same_function_2",
+ "description": "both agents edit the same function",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     170
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 6,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     125,
+     135
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  },
+  {
+   "t": 40,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "synergo/daemon.py",
+   "symbols": [
+    "Daemon.reconnect"
+   ],
+   "line_ranges": [
+    [
+     120,
+     170
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

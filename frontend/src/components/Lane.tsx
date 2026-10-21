@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from 'react';
-import type { EditDecision, FileChange, LaneState } from '../types';
+import type { EditDecision, FileChange, LaneState, PlanUpdate } from '../types';
+import { decisionScope, scopeLabel, type FeedbackMap, type Vote } from '../detection';
 import ArchitectureMap from './ArchitectureMap';
+import DecisionFeedbackButtons from './DecisionFeedbackButtons';
 
 interface LaneProps {
   userId: string;
@@ -15,6 +17,19 @@ interface LaneProps {
    * dropping off is visible instead of their lane silently vanishing.
    */
   offlineSince?: number | null;
+  /** The agent's active declared plan, if any. */
+  plan?: PlanUpdate | null;
+  /** Branch from the agent's latest activity; empty when unknown. */
+  branch?: string;
+  /** Live vote tallies by decision_id. */
+  feedback?: FeedbackMap;
+  /** This dashboard's own votes by decision_id. */
+  votes?: Record<string, Vote>;
+  onVote?: (decisionId: string, vote: Vote) => void;
+}
+
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/');
 }
 
 const AVATAR_COLORS = [
@@ -130,7 +145,13 @@ export default function Lane({
   showArchitectureMap = false,
   index = 0,
   offlineSince = null,
+  plan = null,
+  branch = '',
+  feedback = {},
+  votes = {},
+  onVote,
 }: LaneProps) {
+  const editedPaths = new Set(state.changes.map((c) => normPath(c.file_path)));
   const { caption, changes, prompt, intent, decisions, timestamp, agent } = state;
   const activePrompt = prompt?.trim() ? prompt.trim() : null;
   const activeIntent = intent?.trim() ? intent.trim() : null;
@@ -232,6 +253,18 @@ export default function Lane({
         <span className="font-mono text-[10px] font-semibold tracking-[0.06em] text-primary bg-primary/10 border border-primary/25 px-2.5 py-1 rounded-md uppercase truncate max-w-[42%] backdrop-blur-sm">
           {badge}
         </span>
+        {branch ? (
+          <span
+            className="branch-badge"
+            title={`Branch: ${branch}`}
+            aria-label={`Branch ${branch}`}
+          >
+            <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
+              call_split
+            </span>
+            <span className="truncate">{branch}</span>
+          </span>
+        ) : null}
       </header>
 
       <div className="flex flex-col gap-3.5 p-5 flex-1">
@@ -246,6 +279,45 @@ export default function Lane({
             <span className="text-on-dim shrink-0">working on:</span>
             <span className="text-on-muted truncate">{activeIntent}</span>
           </p>
+        ) : null}
+
+        {plan ? (
+          <section className="plan-panel rounded-xl p-3" aria-label="Active plan">
+            <p className="m-0 flex items-center gap-1.5 text-[11.5px] min-w-0">
+              <span
+                className="material-symbols-outlined text-[14px] text-primary/80 shrink-0"
+                aria-hidden="true"
+              >
+                checklist
+              </span>
+              <span className="text-on-dim shrink-0">plan:</span>
+              <span className="text-on-muted truncate" title={plan.summary}>
+                {plan.summary || '(no summary)'}
+              </span>
+            </p>
+            {plan.files.length > 0 ? (
+              <ul className="list-none m-0 mt-2 p-0 flex flex-wrap gap-x-3 gap-y-1">
+                {plan.files.map((file) => {
+                  const edited = editedPaths.has(normPath(file));
+                  return (
+                    <li key={file} className="flex items-center gap-1.5 text-[11px] min-w-0">
+                      <span
+                        className={`plan-marker ${edited ? 'is-edited' : ''}`}
+                        role="img"
+                        aria-label={edited ? 'edited' : 'planned, not yet edited'}
+                      />
+                      <code className="font-mono text-on-muted truncate">{file}</code>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+            {plan.symbols.length > 0 ? (
+              <p className="m-0 mt-1.5 text-[10.5px] text-on-dim font-mono truncate">
+                symbols: {plan.symbols.join(', ')}
+              </p>
+            ) : null}
+          </section>
         ) : null}
 
         {decisions.length > 0 ? (
@@ -267,7 +339,21 @@ export default function Lane({
                   </span>
                   <span className="text-on-dim">·</span>
                   <code className="font-mono">{decision.file_path}</code>
+                  <span
+                    className={`scope-tag scope-${decisionScope(decision)}`}
+                    title={`Scope: ${decisionScope(decision)}`}
+                  >
+                    {scopeLabel(decision)}
+                  </span>
                   {note ? <span className="text-on-dim">— {note}</span> : null}
+                  {decision.decision_id && onVote ? (
+                    <DecisionFeedbackButtons
+                      decisionId={decision.decision_id}
+                      tally={feedback[decision.decision_id]}
+                      voted={votes[decision.decision_id]}
+                      onVote={onVote}
+                    />
+                  ) : null}
                 </li>
               );
             })}
@@ -330,6 +416,14 @@ export default function Lane({
                       <code className="font-mono text-[11.5px] text-primary truncate flex-1">
                         {change.file_path}
                       </code>
+                      {change.symbols && change.symbols.length > 0 ? (
+                        <span
+                          className="symbol-list font-mono text-[10.5px] text-lavender/90 truncate max-w-[45%]"
+                          title={`Symbols: ${change.symbols.join(', ')}`}
+                        >
+                          {change.symbols.join(', ')}
+                        </span>
+                      ) : null}
                       <span className="text-[10px] font-medium text-on-dim uppercase tracking-wider">
                         Diff
                       </span>

@@ -85,8 +85,9 @@ def normalize_payload(payload: Any) -> list[dict[str, Any]]:
         path = os.path.join(cwd, path)
     path = os.path.normpath(path)
     if event_name == "BeforeTool":
+        hints = base.string_hints(tool_input) if tool == "replace" else None
         return [base.make_event(AGENT, "pre_edit", session_id, cwd, file_path=path, tool=tool,
-                                old_content=base.read_text(path))]
+                                old_content=base.read_text(path), edit_hints=hints)]
     return [base.make_event(AGENT, "post_edit", session_id, cwd, file_path=path, tool=tool,
                             new_content=base.read_text(path))]
 

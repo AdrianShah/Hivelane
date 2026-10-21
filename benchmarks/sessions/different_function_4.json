@@ -1,0 +1,56 @@
+{
+ "name": "different_function_4",
+ "description": "same file, disjoint functions far apart",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.load"
+   ],
+   "line_ranges": [
+    [
+     20,
+     60
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 5,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.save"
+   ],
+   "line_ranges": [
+    [
+     90,
+     130
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  },
+  {
+   "t": 30,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/store.py",
+   "symbols": [
+    "Store.save"
+   ],
+   "line_ranges": [
+    [
+     90,
+     130
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

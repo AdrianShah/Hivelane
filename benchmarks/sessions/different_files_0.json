@@ -1,0 +1,39 @@
+{
+ "name": "different_files_0",
+ "description": "different files entirely",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "x"
+   ],
+   "line_ranges": [
+    [
+     1,
+     20
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 3,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/main.py",
+   "symbols": [
+    "y"
+   ],
+   "line_ranges": [
+    [
+     1,
+     20
+    ]
+   ],
+   "branch": "main",
+   "label": "no_conflict"
+  }
+ ]
+}

@@ -1,0 +1,56 @@
+{
+ "name": "same_function_0",
+ "description": "both agents edit the same function",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 6,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     461,
+     471
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  },
+  {
+   "t": 40,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

@@ -1,0 +1,35 @@
+{
+ "name": "config_file_1",
+ "description": "config file edited by both (always risky)",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "frontend/package.json",
+   "symbols": [],
+   "line_ranges": [
+    [
+     10,
+     12
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 8,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "frontend/package.json",
+   "symbols": [],
+   "line_ranges": [
+    [
+     40,
+     42
+    ]
+   ],
+   "branch": "main",
+   "label": "conflict"
+  }
+ ]
+}

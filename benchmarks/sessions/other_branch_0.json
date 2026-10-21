@@ -1,0 +1,39 @@
+{
+ "name": "other_branch_0",
+ "description": "same function but on different branches (merge conflict later, not now)",
+ "events": [
+  {
+   "t": 0,
+   "user": "alice",
+   "kind": "post_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "main"
+  },
+  {
+   "t": 4,
+   "user": "bob",
+   "kind": "pre_edit",
+   "file": "server/room.py",
+   "symbols": [
+    "Room.check_edit"
+   ],
+   "line_ranges": [
+    [
+     456,
+     492
+    ]
+   ],
+   "branch": "feature/x0",
+   "label": "no_conflict"
+  }
+ ]
+}

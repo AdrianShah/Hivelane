@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from synergo.protocol import AgentKind, Decision, PeerTouch
 
-EventKind = Literal["intent", "pre_edit", "post_edit"]
+EventKind = Literal["intent", "pre_edit", "post_edit", "plan"]
 
 
 class NormalizedEvent(BaseModel):
@@ -26,6 +26,13 @@ class NormalizedEvent(BaseModel):
     old_content: Optional[str] = None
     new_content: Optional[str] = None
     tool: Optional[str] = None
+    # Phase 3, all optional: string-replacement hints for pre_edit
+    # ([{"old": ..., "new": ...}]), and a plan event's text plus the candidate
+    # files / symbols the adapter pulled out of it.
+    edit_hints: Optional[list[dict[str, str]]] = None
+    summary: Optional[str] = None
+    files: Optional[list[str]] = None
+    symbols: Optional[list[str]] = None
 
 
 class EventAck(BaseModel):

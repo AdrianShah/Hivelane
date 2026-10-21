@@ -47,6 +47,7 @@ def test_pre_tool_use_normalizes(tmp_path: Path) -> None:
         file_path=str(target),
         old_content="def room():\n    pass\n",
         tool="Edit",
+        edit_hints=[{"old": "def room():", "new": "def room(code: str):"}],
     )
 
 

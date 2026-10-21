@@ -8,7 +8,9 @@
     "join": "#/$defs/JoinMessage",
     "activity": "#/$defs/ActivityMessage",
     "intent": "#/$defs/IntentMessage",
-    "edit_check": "#/$defs/EditCheckRequest"
+    "edit_check": "#/$defs/EditCheckRequest",
+    "plan": "#/$defs/PlanMessage",
+    "decision_feedback": "#/$defs/DecisionFeedback"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -23,6 +25,9 @@
     "version_rejected": "#/$defs/VersionRejected",
     "room_rejected": "#/$defs/RoomRejected",
     "rate_limited": "#/$defs/RateLimited",
+    "plan_conflicts": "#/$defs/PlanConflicts",
+    "plan_update": "#/$defs/PlanUpdate",
+    "decision_feedback_update": "#/$defs/DecisionFeedbackUpdate",
     "synergo_feed": "#/$defs/SynergoFeed"
   },
   "oneOf": [
@@ -37,6 +42,12 @@
     },
     {
       "$ref": "#/$defs/EditCheckRequest"
+    },
+    {
+      "$ref": "#/$defs/PlanMessage"
+    },
+    {
+      "$ref": "#/$defs/DecisionFeedback"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -73,6 +84,15 @@
     },
     {
       "$ref": "#/$defs/RateLimited"
+    },
+    {
+      "$ref": "#/$defs/PlanConflicts"
+    },
+    {
+      "$ref": "#/$defs/PlanUpdate"
+    },
+    {
+      "$ref": "#/$defs/DecisionFeedbackUpdate"
     },
     {
       "$ref": "#/$defs/SynergoFeed"
@@ -135,6 +155,16 @@
           "default": "",
           "maxLength": 64,
           "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "base_commit": {
+          "default": "",
+          "title": "Base Commit",
           "type": "string"
         }
       },
@@ -214,6 +244,11 @@
           "maxLength": 64,
           "title": "Repo Id",
           "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
         }
       },
       "required": [
@@ -270,6 +305,59 @@
       "title": "ConflictAlert",
       "type": "object"
     },
+    "DecisionFeedback": {
+      "properties": {
+        "type": {
+          "const": "decision_feedback",
+          "default": "decision_feedback",
+          "title": "Type",
+          "type": "string"
+        },
+        "decision_id": {
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "useful": {
+          "title": "Useful",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "decision_id",
+        "useful"
+      ],
+      "title": "DecisionFeedback",
+      "type": "object"
+    },
+    "DecisionFeedbackUpdate": {
+      "properties": {
+        "type": {
+          "const": "decision_feedback_update",
+          "default": "decision_feedback_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "decision_id": {
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "useful_count": {
+          "default": 0,
+          "title": "Useful Count",
+          "type": "integer"
+        },
+        "noise_count": {
+          "default": 0,
+          "title": "Noise Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "decision_id"
+      ],
+      "title": "DecisionFeedbackUpdate",
+      "type": "object"
+    },
     "EditCheckRequest": {
       "properties": {
         "type": {
@@ -302,6 +390,37 @@
           "default": "",
           "maxLength": 64,
           "title": "Repo Id",
+          "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "line_ranges": {
+          "default": [],
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Line Ranges",
+          "type": "array"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
           "type": "string"
         }
       },
@@ -348,6 +467,24 @@
         "reason": {
           "default": "",
           "title": "Reason",
+          "type": "string"
+        },
+        "scope": {
+          "default": "file",
+          "enum": [
+            "symbol",
+            "lines",
+            "file",
+            "intent",
+            "plan",
+            "branch"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "decision_id": {
+          "default": "",
+          "title": "Decision Id",
           "type": "string"
         }
       },
@@ -422,6 +559,24 @@
           "maxLength": 64,
           "title": "Repo Id",
           "type": "string"
+        },
+        "scope": {
+          "default": "file",
+          "enum": [
+            "symbol",
+            "lines",
+            "file",
+            "intent",
+            "plan",
+            "branch"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "decision_id": {
+          "default": "",
+          "title": "Decision Id",
+          "type": "string"
         }
       },
       "required": [
@@ -441,6 +596,32 @@
         "diff": {
           "title": "Diff",
           "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "line_ranges": {
+          "default": [],
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Line Ranges",
+          "type": "array"
         }
       },
       "required": [
@@ -656,6 +837,29 @@
           ],
           "default": null,
           "title": "Prompt"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "kind": {
+          "default": "edited",
+          "enum": [
+            "edited",
+            "planned",
+            "intent"
+          ],
+          "title": "Kind",
+          "type": "string"
         }
       },
       "required": [
@@ -663,6 +867,216 @@
         "seconds_ago"
       ],
       "title": "PeerTouch",
+      "type": "object"
+    },
+    "PlanConflict": {
+      "properties": {
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "edited",
+            "planned"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "seconds_ago": {
+          "title": "Seconds Ago",
+          "type": "number"
+        }
+      },
+      "required": [
+        "file_path",
+        "user_id",
+        "kind",
+        "seconds_ago"
+      ],
+      "title": "PlanConflict",
+      "type": "object"
+    },
+    "PlanConflicts": {
+      "properties": {
+        "type": {
+          "const": "plan_conflicts",
+          "default": "plan_conflicts",
+          "title": "Type",
+          "type": "string"
+        },
+        "conflicts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PlanConflict"
+          },
+          "title": "Conflicts",
+          "type": "array"
+        }
+      },
+      "title": "PlanConflicts",
+      "type": "object"
+    },
+    "PlanMessage": {
+      "properties": {
+        "type": {
+          "const": "plan",
+          "default": "plan",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "ttl_seconds": {
+          "default": 1800,
+          "maximum": 86400,
+          "minimum": 60,
+          "title": "Ttl Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "title": "PlanMessage",
+      "type": "object"
+    },
+    "PlanUpdate": {
+      "properties": {
+        "type": {
+          "const": "plan_update",
+          "default": "plan_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "title": "Summary",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "expires_at": {
+          "title": "Expires At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "user_id",
+        "timestamp",
+        "expires_at"
+      ],
+      "title": "PlanUpdate",
       "type": "object"
     },
     "RateLimited": {

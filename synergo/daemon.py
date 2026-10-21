@@ -39,7 +39,8 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
-from synergo import __version__
+from synergo import __version__, gitinfo, symbols
+from synergo.depgraph import DepTracker
 from synergo.config import ConfigFileError, SynergoConfig, load_config
 from synergo.events import EventAck, NormalizedEvent
 from synergo.protocol import (
@@ -52,6 +53,8 @@ from synergo.protocol import (
     FileChange,
     IntentMessage,
     JoinMessage,
+    PlanConflicts,
+    PlanMessage,
     RoomSettings,
 )
 
@@ -85,6 +88,11 @@ FATAL_RETRY_SECONDS = 300.0
 # spaces and lowercases, then rejects anything over 20 characters), so a long
 # git user.name degrades to a truncated name rather than a rejected one.
 NAME_MAX_LENGTH = 20
+# Symbol extraction on content larger than this runs in a worker thread.
+INLINE_SYMBOLS_BYTES = 40_000
+# `git ls-files` (plan candidate resolution) is re-run at most this often.
+LS_FILES_SECONDS = 60.0
+MAX_PLAN_FILES = 50
 
 
 def unified_diff(file_path: str, old: str, new: str) -> str:
@@ -211,6 +219,76 @@ def _git(root: Path, *args: str) -> str:
     if result.returncode != 0:
         return ""
     return result.stdout.strip()
+
+
+_ls_files: dict[str, tuple[float, list[str]]] = {}
+
+
+def tracked_files(root: Optional[Path], now: Optional[float] = None) -> list[str]:
+    """`git ls-files` of root (repo-relative, "/"-separated), cached for
+    LS_FILES_SECONDS. [] outside a repo or when git fails."""
+    if root is None:
+        return []
+    now = time.monotonic() if now is None else now
+    key = str(root)
+    cached = _ls_files.get(key)
+    if cached is not None and now - cached[0] < LS_FILES_SECONDS:
+        return cached[1]
+    files = [line for line in _git(root, "ls-files").splitlines() if line]
+    if len(_ls_files) > REPO_ROOT_CACHE_SIZE:
+        _ls_files.clear()
+    _ls_files[key] = (now, files)
+    return files
+
+
+def resolve_plan_files(candidates: Iterable[str], tracked: list[str]) -> list[str]:
+    """Tracked paths a plan's path-like tokens name: an exact repo-relative
+    path, or a path suffix ("room.py" -> "server/room.py", at most 3 matches).
+    With no tracked list (not a git repo) candidates pass through as given."""
+    out: list[str] = []
+    tracked_set = set(tracked)
+    for raw in candidates:
+        cand = raw.replace("\\", "/")
+        while cand.startswith("./"):
+            cand = cand[2:]
+        if not cand or cand.startswith("/") or ".." in cand.split("/"):
+            continue
+        if not tracked or cand in tracked_set:
+            matches = [cand]
+        else:
+            matches = [t for t in tracked if t.endswith("/" + cand)][:3]
+        for match in matches:
+            if match not in out:
+                out.append(match)
+        if len(out) >= MAX_PLAN_FILES:
+            break
+    return out[:MAX_PLAN_FILES]
+
+
+def edit_symbols(
+    rel: str, old: Optional[str], hints: Optional[list[dict[str, str]]]
+) -> tuple[list[str], list[tuple[int, int]]]:
+    """Symbols and line ranges a pending edit is predicted to touch, from its
+    old/new string hints against the file's current content."""
+    if not old or not hints or len(old) > symbols.MAX_SOURCE_BYTES:
+        return [], []
+    ranges: list[tuple[int, int]] = []
+    for hint in hints:
+        ranges.extend(symbols.predict_ranges(old, hint.get("old") or ""))
+    ranges = symbols.merge_ranges(ranges)
+    if not ranges:
+        return [], []
+    return symbols.symbols_for_ranges(rel, old, ranges), ranges
+
+
+def change_symbols(rel: str, old: str, new: str) -> tuple[list[str], list[tuple[int, int]]]:
+    """Symbols and new-file line ranges a finished edit changed."""
+    if max(len(old), len(new)) > symbols.MAX_SOURCE_BYTES:
+        return [], []
+    ranges = symbols.changed_line_ranges(old, new)
+    if not ranges:
+        return [], []
+    return symbols.symbols_for_ranges(rel, new, ranges), ranges[:200]
 
 
 def compute_repo_id(root: Path) -> str:
@@ -504,6 +582,14 @@ class RoomConnection:
         self._batch_deadline = 0.0
         self._batch_task: Optional[asyncio.Task[None]] = None
         self._last_prompt: Optional[str] = None
+        # Local signature-change memory for "you're editing a caller" notes.
+        self.deps = DepTracker()
+        # repo_id -> (branch, HEAD commit) seen at the last post_edit.
+        self._heads: dict[str, tuple[str, str]] = {}
+        # Plan events waiting for the relay's plan_conflicts reply, in order.
+        self._plan_waiters: list[tuple[str, asyncio.Future[PlanConflicts]]] = []
+        # session_id -> plan conflict note to surface on that session's next ack.
+        self._session_notes: dict[str, str] = {}
 
     @property
     def ws_url(self) -> str:
@@ -543,14 +629,28 @@ class RoomConnection:
         repo_id = await self.repo_id_for_cwd(event.cwd, binding)
         if event.kind == "intent":
             return self._handle_intent(event, repo_id)
+        root = self._root_for(event.cwd, binding)
+        if event.kind == "plan":
+            return await self._handle_plan(event, root, binding, repo_id)
         if not event.file_path:
             return EventAck()
         rel = repo_relative_path(event.file_path, event.cwd, binding.root)
         if binding.ignore.matches(rel):
             return EventAck(file_path=rel)
+        head = gitinfo.head_for(root)
         if event.kind == "pre_edit":
-            return await self._handle_pre_edit(event, rel, repo_id)
-        return self._handle_post_edit(event, rel, repo_id, binding.share_diffs)
+            branch = (head.branch or "") if head else ""
+            ack = await self._handle_pre_edit(event, rel, repo_id, branch=branch)
+            for note in (
+                self.deps.note_for(rel, event.old_content, repo_id),
+                self._session_notes.pop(event.session_id, None),
+            ):
+                if note:
+                    ack = with_note(ack, note)
+            return ack
+        if head is not None:
+            self._heads[repo_id] = (head.branch or "", head.commit or "")
+        return await self._handle_post_edit(event, rel, repo_id, binding.share_diffs)
 
     def _handle_intent(self, event: NormalizedEvent, repo_id: str = "") -> EventAck:
         if not event.prompt:
@@ -561,8 +661,45 @@ class RoomConnection:
         )
         return EventAck()
 
+    async def _handle_plan(
+        self, event: NormalizedEvent, root: Optional[Path], binding: RepoBinding, repo_id: str
+    ) -> EventAck:
+        """Send the agent's plan; the relay answers with the planned files
+        teammates are editing or planning. Those come back on this ack as
+        context (adapters never turn a plan ack into a permission decision);
+        a reply that misses the ack is kept for the session's next ack."""
+        summary = (event.summary or "").strip()
+        if not self.connected or (not summary and not event.files):
+            return EventAck()
+        tracked = await asyncio.to_thread(tracked_files, root) if root is not None else []
+        files = [
+            f for f in resolve_plan_files(event.files or [], tracked) if not binding.ignore.matches(f)
+        ]
+        if not files and not event.symbols:
+            return EventAck()
+        head = gitinfo.head_for(root)
+        future: asyncio.Future[PlanConflicts] = asyncio.get_running_loop().create_future()
+        self._plan_waiters.append((event.session_id, future))
+        self._send(
+            PlanMessage(
+                user_id=self.name,
+                summary=summary[:2000],
+                files=files,
+                symbols=list(event.symbols or [])[:50],
+                repo_id=repo_id,
+                branch=(head.branch or "") if head else "",
+            )
+        )
+        try:
+            conflicts = await asyncio.wait_for(asyncio.shield(future), timeout=self.edit_check_timeout)
+        except asyncio.TimeoutError:
+            future.cancel()  # tells _on_plan_conflicts to keep the note for later
+            return EventAck()
+        note = plan_conflict_note(conflicts)
+        return EventAck(decision="warn", reason=note) if note else EventAck()
+
     async def _handle_pre_edit(
-        self, event: NormalizedEvent, rel: str, repo_id: str = ""
+        self, event: NormalizedEvent, rel: str, repo_id: str = "", branch: str = ""
     ) -> EventAck:
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
@@ -570,11 +707,23 @@ class RoomConnection:
         if not self.connected:
             return EventAck(file_path=rel)
 
+        old = event.old_content
+        if old is not None and event.edit_hints and len(old) > INLINE_SYMBOLS_BYTES:
+            names, ranges = await asyncio.to_thread(edit_symbols, rel, old, event.edit_hints)
+        else:
+            names, ranges = edit_symbols(rel, old, event.edit_hints)
         request_id = uuid.uuid4().hex
         future: asyncio.Future[EditCheckResponse] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
         self._send(
-            EditCheckRequest(request_id=request_id, file_path=rel, repo_id=repo_id)
+            EditCheckRequest(
+                request_id=request_id,
+                file_path=rel,
+                repo_id=repo_id,
+                symbols=names,
+                line_ranges=ranges,
+                branch=branch,
+            )
         )
         try:
             response = await asyncio.wait_for(future, timeout=self.edit_check_timeout)
@@ -588,13 +737,25 @@ class RoomConnection:
             others=response.others,
         )
 
-    def _handle_post_edit(
+    async def _handle_post_edit(
         self, event: NormalizedEvent, rel: str, repo_id: str = "", share_diffs: bool = True
     ) -> EventAck:
         old = event.old_content
+        known_old = old is not None or (event.session_id, rel) in self._old_content
         if old is None:
             old = self._old_content.pop((event.session_id, rel), "")
         new = event.new_content or ""
+        # Which definitions changed. Without a known old version every line
+        # would count as changed, which says nothing, so nothing is sent.
+        names: list[str] = []
+        ranges: list[tuple[int, int]] = []
+        if known_old and old != new:
+            if max(len(old), len(new)) > INLINE_SYMBOLS_BYTES:
+                names, ranges = await asyncio.to_thread(change_symbols, rel, old, new)
+                await asyncio.to_thread(self.deps.record_local, rel, old, new, repo_id)
+            else:
+                names, ranges = change_symbols(rel, old, new)
+                self.deps.record_local(rel, old, new, repo_id)
         if share_diffs:
             diff = unified_diff(rel, old, new)
             changed = bool(diff)
@@ -604,7 +765,13 @@ class RoomConnection:
             diff = ""
             changed = old != new
         if changed:
-            self._batch[(repo_id, rel)] = FileChange(file_path=rel, diff=diff)
+            previous = self._batch.get((repo_id, rel))
+            if previous is not None:
+                # Two edits to one file inside a batch: report both edits' symbols.
+                names = list(dict.fromkeys([*previous.symbols, *names]))[: symbols.MAX_SYMBOLS]
+            self._batch[(repo_id, rel)] = FileChange(
+                file_path=rel, diff=diff, symbols=names, line_ranges=ranges
+            )
             self._schedule_flush()
         return EventAck(file_path=rel)
 
@@ -640,6 +807,7 @@ class RoomConnection:
             by_repo.setdefault(repo_id, []).append(change)
         self._batch.clear()
         for repo_id, changes in by_repo.items():
+            branch, commit = self._heads.get(repo_id, ("", ""))
             self._send(
                 ActivityMessage(
                     user_id=self.name,
@@ -647,14 +815,19 @@ class RoomConnection:
                     changes=changes,
                     agent=self.agent,
                     repo_id=repo_id,
+                    branch=branch,
+                    base_commit=commit,
                 )
             )
 
     # --- relay socket --------------------------------------------------------
 
-    def _send(self, message: ActivityMessage | IntentMessage | EditCheckRequest) -> None:
+    def _send(
+        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage
+    ) -> None:
         payload = message.model_dump_json()
-        if isinstance(message, EditCheckRequest):
+        # A plan ack, like an edit_check, has an agent hook waiting on it.
+        if isinstance(message, (EditCheckRequest, PlanMessage)):
             self._priority_outbox.put_nowait(payload)
         else:
             if self._outbox.qsize() >= OUTBOX_LIMIT:
@@ -814,6 +987,39 @@ class RoomConnection:
         except ValidationError as exc:
             print(f"synergo: ignoring malformed relay frame: {exc}", file=sys.stderr)
 
+    def _on_plan_conflicts(self, conflicts: PlanConflicts) -> None:
+        """Replies arrive in the order plans were sent. One whose plan ack is
+        still waiting goes on that ack; otherwise it is kept as a note for the
+        session's next pre_edit ack."""
+        if not self._plan_waiters:
+            return
+        session_id, future = self._plan_waiters.pop(0)
+        if not future.done():
+            future.set_result(conflicts)
+            return
+        note = plan_conflict_note(conflicts)
+        if note:
+            self._session_notes[session_id] = note
+            while len(self._session_notes) > 256:
+                self._session_notes.pop(next(iter(self._session_notes)))
+
+    def _note_peer_activity(self, event: dict[str, Any]) -> None:
+        """Remember signature changes in a teammate's diffs (depgraph notes)."""
+        user_id = event.get("user_id")
+        if not isinstance(user_id, str) or user_id in self._self_ids:
+            return
+        at = event.get("timestamp")
+        repo_id = str(event.get("repo_id") or "")
+        for change in event.get("changes") or []:
+            if isinstance(change, dict) and change.get("diff") and change.get("file_path"):
+                self.deps.record_peer_diff(
+                    user_id,
+                    str(change["file_path"]),
+                    str(change["diff"]),
+                    at if isinstance(at, (int, float)) else None,
+                    repo_id,
+                )
+
     def _note_peers(self, event: dict[str, Any]) -> None:
         user_id = event.get("user_id")
         if event.get("type") == "user_left":
@@ -836,10 +1042,19 @@ class RoomConnection:
                 future.set_result(response)
             return
 
+        if kind == "plan_conflicts":
+            self._on_plan_conflicts(PlanConflicts.model_validate(data))
+            return
+
         if kind == "synergo_feed":
             for event in data.get("events") or []:
                 self._note_peers(event)
+                if isinstance(event, dict) and event.get("type") == "activity_update":
+                    self._note_peer_activity(event)
             return
+
+        if kind == "activity_update":
+            self._note_peer_activity(data)
 
         # Join catch-up and other point-to-point events arrive unbatched, so the
         # same bookkeeping has to run on a bare frame as on a feed event.
@@ -874,6 +1089,32 @@ class RoomConnection:
                 f"the relay rejected room {self.room!r}: {data.get('reason', '')}\n"
                 "Check the room code, or have a teammate create the room first."
             )
+
+
+def with_note(ack: EventAck, note: str) -> EventAck:
+    """ack with a local warn-level note: allow becomes warn, an existing
+    warn/block keeps its decision and gains the note."""
+    reason = f"{ack.reason}; {note}" if ack.reason else note
+    decision = "warn" if ack.decision == "allow" else ack.decision
+    return ack.model_copy(update={"decision": decision, "reason": reason})
+
+
+def plan_conflict_note(conflicts: PlanConflicts) -> str:
+    """One line naming who is editing / planning which of the plan's files."""
+    parts: list[str] = []
+    for conflict in conflicts.conflicts[:5]:
+        verb = "is editing" if conflict.kind == "edited" else "plans to edit"
+        ago = int(conflict.seconds_ago)
+        when = f"{ago // 60} min ago" if ago >= 60 else f"{ago}s ago"
+        task = f' for "{conflict.summary[:80]}"' if conflict.summary else ""
+        parts.append(f"{conflict.user_id} {verb} {conflict.file_path}{task} ({when})")
+    if not parts:
+        return ""
+    text = "your plan overlaps teammates' work: " + "; ".join(parts)
+    extra = len(conflicts.conflicts) - len(parts)
+    if extra > 0:
+        text += f" (and {extra} more)"
+    return text
 
 
 # --- the per-machine daemon -------------------------------------------------------
