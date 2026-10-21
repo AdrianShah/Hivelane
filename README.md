@@ -115,6 +115,7 @@ Hooks replaced the file watcher because a watcher can only notice a collision af
 | `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_SECONDS` | `10` / `3600` | Room creations allowed per IP per window. |
 | `WS_ATTEMPT_LIMIT` / `WS_ATTEMPT_WINDOW_SECONDS` | `30` / `60` | WebSocket connection attempts per IP per window. |
 | `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. |
+| `SYNERGO_REDIS_URL` | — | `redis://`, `rediss://` or `unix://` URL. Keeps the rate-limit counters in Redis so every relay instance shares one budget. Needs `pip install redis`. |
 | `GEMINI_API_KEY` | — | Enables AI captions and conflict explanations |
 | `GEMINI_MODEL` | `gemini-2.0-flash` | Model override |
 | `GEMINI_CAPTION_TIMEOUT` | `4.0` | Seconds before caption fallback |
@@ -125,8 +126,10 @@ Hooks replaced the file watcher because a watcher can only notice a collision af
 > it on but no proxy in front, a client can spoof `X-Forwarded-For` and bypass the
 > limits entirely. Set it to match your actual topology.
 
-> Rate limits are **per process**. They are a speed bump, not a guarantee, and a
-> shared counter is needed before running more than one relay instance.
+> Rate limits are **per process** unless `SYNERGO_REDIS_URL` is set. Run more
+> than one relay instance without it and each one grants the full budget. If
+> Redis becomes unreachable the relay logs a warning and falls back to
+> per-process limits rather than refusing traffic.
 
 ### Dashboard (`frontend/`)
 
@@ -356,7 +359,8 @@ ngrok http 8000
 ├── server/          # FastAPI relay + Gemini helpers
 ├── synergo/         # CLI: hook installer, local daemon, status
 ├── frontend/        # Synergo dashboard (React + Vite)
-├── demo_proj/       # Tiny sample tree for demos
+├── examples/        # demo_proj/: tiny sample tree for demos
+├── tests/e2e/       # Relay + two daemons in one process, cross-cwd collision
 ├── pyproject.toml   # Installs the `synergo` CLI
 ├── .env.example
 └── README.md

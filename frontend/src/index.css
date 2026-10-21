@@ -142,6 +142,34 @@ body {
     0 18px 48px rgba(136, 19, 55, 0.28);
 }
 
+/* An agent that left the room: still on the board, visibly not live. The fade
+   goes on the children because animate-fade-up fills "both" and would pin the
+   lane's own opacity at 1. */
+.lane-shell.is-offline {
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+}
+
+.lane-shell.is-offline > * {
+  filter: grayscale(1);
+  opacity: 0.5;
+  transition: opacity 0.2s ease;
+}
+
+.lane-shell.is-offline:hover {
+  border-color: rgba(148, 163, 184, 0.38);
+}
+
+.lane-shell.is-offline:hover > * {
+  opacity: 0.75;
+}
+
+.lane-offline-note {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
 .prompt-panel,
 .analysis-panel {
   background: rgba(8, 12, 20, 0.45);
@@ -285,6 +313,13 @@ body {
 .agent-status-pill.is-idle {
   color: #94a3b8;
   border-color: rgba(148, 163, 184, 0.25);
+}
+
+.agent-status-pill.is-offline {
+  color: #94a3b8;
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(100, 116, 139, 0.12);
 }
 
 .decision-chip {

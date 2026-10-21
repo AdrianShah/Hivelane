@@ -1,7 +1,0 @@
-Watching C:\Hack Day\demo_proj (debounce 1.5s). Prompt source: Cursor state.vscdb (best-effort). Agent: cursor
-Ctrl+C to stop.
-Connecting to wss://hackday-hackthevalley.onrender.com/ws/BWR99L
-Joined as adrian
--> sent 1 change(s): src/hello.py prompt=null
--> sent 1 change(s): src/hello.py prompt=null
--> sent 1 change(s): src/hello.py prompt=null

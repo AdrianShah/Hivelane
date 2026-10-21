@@ -1,6 +1,8 @@
 """In-memory state for one workspace ("room"). A process may hold many Room
 instances at once (see room_manager.RoomManager) — each is fully isolated.
-Ephemeral by design: nothing here survives a server restart."""
+Ephemeral by design: the room *code* is durable (store.RoomStore), but nothing
+in a Room survives a relay restart; it re-forms from live activity, and every
+touch older than the conflict window would be ignored anyway."""
 
 from __future__ import annotations
 
@@ -64,6 +66,9 @@ class FileTouch:
     prompt: Optional[str]
     timestamp: float
     agent: AgentKind = "unknown"
+    # Which repository the path is relative to (see models.RepoId). Two touches
+    # conflict only when both the path and the repo_id match.
+    repo_id: str = ""
 
 
 @dataclass
@@ -80,8 +85,12 @@ class Room:
         self._members: dict[str, WebSocket] = {}
         self._member_agents: dict[str, AgentKind] = {}
         self._spectators: set[WebSocket] = set()
-        # file_path -> {user_id: FileTouch} — latest edit per user per file.
-        self._file_activity: dict[str, dict[str, FileTouch]] = {}
+        # file_path -> {(repo_id, user_id): FileTouch} — latest edit per user
+        # per file per repo. Together the two keys make a touch's identity
+        # (repo_id, file_path): the same relative path in two different repos
+        # is two different files. The path stays the outer key so a lookup by
+        # path is still one dict hit.
+        self._file_activity: dict[str, dict[tuple[str, str], FileTouch]] = {}
         # Message-clock timestamp of the last sweep (see _prune_file_activity).
         self._last_prune_at = 0.0
         # Last broadcast activity per connected user (for spectator catch-up).
@@ -115,6 +124,14 @@ class Room:
     @property
     def member_ids(self) -> list[str]:
         return list(self._members)
+
+    @property
+    def member_count(self) -> int:
+        return len(self._members)
+
+    @property
+    def spectator_count(self) -> int:
+        return len(self._spectators)
 
     @property
     def is_empty(self) -> bool:
@@ -180,12 +197,12 @@ class Room:
         self._last_prune_at = now
         for file_path in list(self._file_activity):
             touches = self._file_activity[file_path]
-            for user_id in [
-                user
-                for user, touch in touches.items()
+            for key in [
+                key
+                for key, touch in touches.items()
                 if now - touch.timestamp > ACTIVITY_RETENTION_SECONDS
             ]:
-                del touches[user_id]
+                del touches[key]
             if not touches:
                 del self._file_activity[file_path]
 
@@ -193,13 +210,14 @@ class Room:
         self._prune_file_activity(message.timestamp)
         for change in message.changes:
             touches = self._file_activity.setdefault(change.file_path, {})
-            touches[message.user_id] = FileTouch(
+            touches[(message.repo_id, message.user_id)] = FileTouch(
                 user_id=message.user_id,
                 file_path=change.file_path,
                 diff=change.diff,
                 prompt=message.prompt,
                 timestamp=message.timestamp,
                 agent=message.agent,
+                repo_id=message.repo_id,
             )
 
     def remember_update(self, update: ActivityUpdate) -> None:
@@ -216,13 +234,22 @@ class Room:
         prompt: str,
         timestamp: float,
         agent: AgentKind = "unknown",
-    ) -> None:
-        self._latest_intents[user_id] = IntentUpdate(
+        repo_id: str = "",
+    ) -> IntentUpdate:
+        """Store the user's latest intent and return it as the broadcast record.
+
+        repo_id is kept with the intent so a prompt naming main.py only warns
+        peers working in the same repository.
+        """
+        update = IntentUpdate(
             user_id=user_id,
             agent=agent,
             prompt=prompt,
             timestamp=timestamp,
+            repo_id=repo_id,
         )
+        self._latest_intents[user_id] = update
+        return update
 
     def latest_intents(self) -> list[IntentUpdate]:
         return list(self._latest_intents.values())
@@ -233,14 +260,16 @@ class Room:
         user_id: str,
         now: float,
         *,
+        repo_id: str = "",
         active_only: bool = True,
         window_seconds: float = CONFLICT_WINDOW_SECONDS,
     ) -> list[FileTouch]:
-        """Other users' recent touches of the same file within the conflict window."""
+        """Other users' recent touches of the same file, in the same repo,
+        within the conflict window."""
         touches = self._file_activity.get(file_path, {})
         results: list[FileTouch] = []
-        for other_id, touch in touches.items():
-            if other_id == user_id:
+        for (touch_repo, other_id), touch in touches.items():
+            if other_id == user_id or touch_repo != repo_id:
                 continue
             if active_only and not self.is_active(other_id):
                 continue
@@ -258,7 +287,10 @@ class Room:
         overlaps: list[FileOverlap] = []
         for change in message.changes:
             others = self.recent_other_touches(
-                change.file_path, message.user_id, message.timestamp
+                change.file_path,
+                message.user_id,
+                message.timestamp,
+                repo_id=message.repo_id,
             )
             if not others:
                 continue
@@ -273,14 +305,16 @@ class Room:
         return overlaps
 
     def _intent_mentions(
-        self, file_path: str, user_id: str, now: float
+        self, file_path: str, user_id: str, now: float, repo_id: str = ""
     ) -> list[FileTouch]:
         """Active peers whose recent declared intent names this file, newest first.
 
         Matching on the bare stem as well as the basename catches prompts that
         talk about the module rather than the file ("refactor the Room
         broadcast" vs server/room.py). Stems under 3 characters are skipped
-        because they match almost any sentence.
+        because they match almost any sentence. Only intents declared in the
+        same repo count: "fix main.py" in one project says nothing about
+        main.py in another.
         """
         basename = file_path.rsplit("/", 1)[-1].lower()
         stem = basename.rsplit(".", 1)[0]
@@ -291,6 +325,8 @@ class Room:
         matches: list[FileTouch] = []
         for other_id, intent in self._latest_intents.items():
             if other_id == user_id or not self.is_active(other_id):
+                continue
+            if intent.repo_id != repo_id:
                 continue
             if now - intent.timestamp > INTENT_WINDOW_SECONDS:
                 continue
@@ -305,15 +341,16 @@ class Room:
                     prompt=intent.prompt,
                     timestamp=intent.timestamp,
                     agent=intent.agent,
+                    repo_id=intent.repo_id,
                 )
             )
         matches.sort(key=lambda touch: touch.timestamp, reverse=True)
         return matches
 
     def check_edit(
-        self, user_id: str, file_path: str, now: float
+        self, user_id: str, file_path: str, now: float, repo_id: str = ""
     ) -> tuple[Decision, list[FileTouch]]:
-        """Decide whether user_id may edit file_path right now.
+        """Decide whether user_id may edit file_path (in repo_id) right now.
 
         Returns the decision plus the peers that justified it, newest first.
         """
@@ -321,6 +358,7 @@ class Room:
             file_path,
             user_id,
             now,
+            repo_id=repo_id,
             active_only=True,
             window_seconds=CONFLICT_WINDOW_SECONDS,
         )
@@ -336,7 +374,7 @@ class Room:
         if others:
             return "warn", others
 
-        mentions = self._intent_mentions(file_path, user_id, now)
+        mentions = self._intent_mentions(file_path, user_id, now, repo_id)
         if mentions:
             return "warn", mentions
         return "allow", []
