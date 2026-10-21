@@ -106,7 +106,7 @@ export default function DeployModal({
           <ol className="m-0 pl-4 text-[12px] text-on-muted space-y-1.5 list-decimal">
             <li>Open a terminal in the repository the agent works in.</li>
             <li>
-              Paste the command: <code className="text-primary">pipx install hivelane</code>{' '}
+              Paste the command: <code className="text-primary">pipx install git+https://github.com/AdrianShah/Hivelane</code>{' '}
               once, then <code className="text-primary">hivelane up</code> joins this
               room.
             </li>
