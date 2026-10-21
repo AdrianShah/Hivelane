@@ -20,7 +20,7 @@ ARG VITE_WS_URL
 RUN npm run build
 
 # --- relay ---------------------------------------------------------------------
-FROM python:3.12-slim AS relay
+FROM python:3.13-slim AS relay
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
