@@ -27,10 +27,10 @@ function steps(roomId: string): Step[] {
   return [
     {
       label: 'Install Hivelane (once per machine)',
-      command: 'pipx install hivelane',
+      command: 'pipx install git+https://github.com/AdrianShah/Hivelane',
       detail: (
         <>
-          Needs Python 3.12 or newer. <code>uv tool install hivelane</code> works too.
+          Needs Python 3.12 or newer. <code>uv tool install git+https://github.com/AdrianShah/Hivelane</code> works too.
         </>
       ),
     },

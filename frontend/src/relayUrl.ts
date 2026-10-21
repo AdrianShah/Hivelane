@@ -260,5 +260,5 @@ function needsInsecure(wsBase: string): boolean {
 
 /** The one line a teammate pastes to install Hivelane and join a room. */
 export function setupCommand(roomId: string): string {
-  return `pipx install hivelane && ${upCommand(roomId)}`;
+  return `pipx install git+https://github.com/AdrianShah/Hivelane && ${upCommand(roomId)}`;
 }
