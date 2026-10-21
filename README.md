@@ -71,6 +71,8 @@ write outright. The conflict is prevented instead of reported.
 
 ---
 
+**Editor extension:** a VS Code / Cursor / Windsurf extension (status bar, badges on files peers are editing, pre-edit warnings) lives in [`editors/vscode/`](editors/vscode/README.md).
+
 ## Architecture
 
 ```

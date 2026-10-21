@@ -1,0 +1,3 @@
+{"payload": {"conversation_id": "conv1", "generation_id": "g1", "model": "auto", "cursor_version": "2.0", "workspace_roots": ["{tmp}"], "user_email": null, "transcript_path": null, "hook_event_name": "preToolUse", "tool_name": "Shell", "tool_use_id": "t2", "cwd": "{tmp}",
+  "tool_input": {"command": "npm test"}},
+ "expect": []}

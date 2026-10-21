@@ -20,6 +20,10 @@ managing the daemon, or for advanced and scripted use.
 | [`service`](#synergo-service) | Start the daemon automatically at login (`install` / `uninstall`). |
 | [`join`](#synergo-join--synergo-daemon) | Run a single-room daemon in the foreground (advanced; `daemon` is an alias). |
 | [`hook`](#synergo-hook) | The agent hook entrypoint, plus `install` / `uninstall` for Claude Code. |
+| [`mcp`](#synergo-mcp) | MCP server (stdio) for agents without native hooks. |
+| [`watch`](#synergo-watch) | Observe-only file watcher for agents without hooks (e.g. Aider). |
+| [`run`](#synergo-run) | Run a hookless agent (e.g. `synergo run aider`) with the watcher. |
+| [`githook`](#synergo-githook) | Git pre-commit check against teammates' recent edits. |
 
 Global options: `--version` prints `synergo X.Y.Z`; `-h`/`--help` works on
 every command.
@@ -199,6 +203,10 @@ synergo hook uninstall claude-code [--global]
   `.claude/settings.json` in the current directory (`--global`:
   `~/.claude/settings.json`), leaving your other hooks untouched. `synergo up`
   does the install for you.
+- `gemini-cli` works the same way: `synergo hook install gemini-cli` adds
+  BeforeAgent/BeforeTool/AfterTool hooks (matching `write_file` and `replace`)
+  to `.gemini/settings.json` (`--global`: `~/.gemini/settings.json`). A block
+  is returned as `{"decision": "deny"}`; a warn as a `systemMessage`.
 
 ## Configuration files
 
@@ -237,3 +245,63 @@ from flags or the project file.
 `doctor` check, a failed connection). `2` bad local configuration or usage (an
 invalid flag, a malformed `.synergo.toml`). The `hook` entrypoint always exits
 0, by design.
+
+## synergo mcp
+
+```text
+synergo mcp [--agent ID] [--port PORT] [--print-config] [--agents-md]
+```
+
+Runs an MCP server over stdio (protocol `2025-11-25`; also accepts
+`2025-06-18`, `2025-03-26`, `2024-11-05`) for agents that have no native
+hooks. Tools: `check_file(path)` (asks whether a teammate is in the file),
+`declare_intent(text, files?)`, `who_is_here()` and `report_edit(path)`. If the
+daemon is down, tools return an error text and the server keeps running.
+`--agent` sets the agent id sent to the room (default `unknown`).
+
+`--print-config` prints a JSON snippet for your MCP client's config.
+`--agents-md` prints an instruction block for `AGENTS.md` / `CLAUDE.md` that
+tells the agent to call `declare_intent` first and `check_file` before edits.
+
+## synergo watch
+
+```text
+synergo watch [--agent ID] [--interval SECONDS] [--root PATH] [--port PORT]
+```
+
+Polls the repo every second and shares each created, modified or deleted text
+file as an edit. Observe only: it warns after the fact and cannot stop an
+edit. Skips `.git`, `node_modules`, `.venv`, `dist`, `build`, the
+`.synergo.toml` `ignore` globs, binaries and files over 256 KB. Ctrl+C stops.
+
+## synergo run
+
+```text
+synergo run [--agent ID] [--interval SECONDS] [--root PATH] [--port PORT] [--] COMMAND [ARGS...]
+```
+
+Runs `COMMAND` in this terminal (stdin/stdout inherited, cwd = the repo) while
+the `synergo watch` poller runs in the background, then stops the watcher and
+exits with the command's exit code (127 if it cannot be started). If `ARGS`
+contains `-m TEXT` / `--message TEXT`, that text is posted as the agent's
+intent before the command starts. `--agent` defaults to the command's name, so
+`synergo run aider -m "fix login"` reports as `aider`; an id that is not a
+known agent kind reports as `unknown`. Use `--` to wrap any other tool:
+`synergo run --agent unknown -- mytool --flag`. Observe only, like `watch`:
+edits are shared after they happen and cannot be blocked. This is how Aider
+(which has no pre-edit hook) joins a room; `synergo up` points to it when Aider
+is detected.
+
+## synergo githook
+
+```text
+synergo githook install|uninstall [--root PATH]
+synergo githook run [--root PATH] [--port PORT] [--strict]
+```
+
+`install` writes a `pre-commit` hook into the hooks directory (honouring
+`core.hooksPath`). An existing hook is moved unchanged to
+`pre-commit.synergo-prev` and still runs after the check; `uninstall` puts it
+back. Re-running `install` is a no-op. `run` warns about staged files a
+teammate touched recently. It never fails the commit unless `--strict`, and
+exits 0 silently when the daemon is not running.

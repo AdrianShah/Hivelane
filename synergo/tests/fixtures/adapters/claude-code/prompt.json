@@ -1,0 +1,2 @@
+{"payload": {"session_id": "s1", "cwd": "{tmp}", "hook_event_name": "UserPromptSubmit", "prompt": "refactor the room module"},
+ "expect": [{"kind": "intent", "prompt": "refactor the room module"}]}

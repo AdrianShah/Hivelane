@@ -38,6 +38,8 @@ AgentKind = Literal[
     "gemini-cli",
     "devin",
     "grok",
+    "aider",
+    "human",
     "unknown",
 ]
 

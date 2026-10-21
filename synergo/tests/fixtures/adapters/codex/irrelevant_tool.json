@@ -1,0 +1,3 @@
+{"payload": {"session_id": "c1", "turn_id": "t1", "cwd": "{tmp}", "hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_use_id": "call_3",
+  "tool_input": {"command": "cargo test"}},
+ "expect": []}

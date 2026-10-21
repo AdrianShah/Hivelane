@@ -11,6 +11,7 @@ and the reference can never drift apart.
 from __future__ import annotations
 
 from synergo import hook_json
+from synergo.adapters import base
 
 # Not `from typing import TYPE_CHECKING`: typing itself is a measurable import
 # on the hook path. Type checkers treat any name TYPE_CHECKING as True.
@@ -29,23 +30,10 @@ PRE_TOOL_TIMEOUT = 5
 OTHER_TIMEOUT = 10
 
 HOOK_COMMAND = "synergo hook claude-code"
-HOOK_MARKER = "synergo hook"
+HOOK_MARKER = base.HOOK_MARKER
 
-# Every NormalizedEvent field, so a dict built here serializes to exactly the
-# JSON the pydantic model would (None fields included, as model_dump_json does).
-EVENT_FIELDS: tuple[str, ...] = (
-    "kind",
-    "agent",
-    "session_id",
-    "cwd",
-    "prompt",
-    "file_path",
-    "old_content",
-    "new_content",
-    "tool",
-)
-
-DECISIONS: tuple[str, ...] = ("allow", "warn", "block")
+EVENT_FIELDS = base.EVENT_FIELDS
+DECISIONS = base.DECISIONS
 
 
 def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]]:
@@ -77,20 +65,11 @@ def _file_path(tool_input: dict[str, Any]) -> Optional[str]:
     return value if isinstance(value, str) and value else None
 
 
-def _read(path: str) -> Optional[str]:
-    # open() rather than pathlib: pathlib is a measurable slice of the hook's
-    # cold start, and this is the only file access on the hot path.
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return handle.read()
-    except OSError:
-        return None
+_read = base.read_text
 
 
 def _event(kind: str, session_id: str, cwd: str, **fields: Any) -> dict[str, Any]:
-    event: dict[str, Any] = dict.fromkeys(EVENT_FIELDS)
-    event.update(kind=kind, agent=AGENT, session_id=session_id, cwd=cwd, **fields)
-    return event
+    return base.make_event(AGENT, kind, session_id, cwd, **fields)
 
 
 def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -136,32 +115,8 @@ def normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
     return None if event is None else NormalizedEvent(**event)
 
 
-# A block stops the edit; a warn lets it through, so they must not read alike.
-CALL_TO_ACTION = {
-    "block": "wait, or pick another file",
-    "warn": "check with them before you overlap",
-}
-
-
-def _ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]) -> str:
-    """Human sentence naming who is in this file and what to do about it.
-
-    The relay's reason is authoritative for the who-did-what clause because it
-    distinguishes a peer who actually edited the file from one who has only
-    declared intent — composing that here would misreport the second case.
-    """
-    others = ack.get("others") or []
-    path = ack.get("file_path") or fallback_path or "this file"
-    detail = ack.get("reason") or f"a teammate's agent is already working in {path}"
-    if len(others) > 1:
-        extra = len(others) - 1
-        detail += f" (and {extra} other{'s' if extra > 1 else ''})"
-
-    message = f"{detail} — {CALL_TO_ACTION[decision]}"
-    first = others[0] if others else None
-    if isinstance(first, dict) and first.get("prompt"):
-        message += f' (their task: "{first["prompt"]}")'
-    return message
+CALL_TO_ACTION = base.CALL_TO_ACTION
+_ack_message = base.ack_message
 
 
 def conflict_message(
@@ -232,3 +187,39 @@ def render_notice(event: dict[str, Any], message: str) -> str:
     if event.get("kind") not in NOTICE_EVENT_KINDS:
         return ""
     return hook_json.dumps({"systemMessage": message})
+
+
+# --- the adapter contract (synergo.adapters.base) ------------------------------
+
+
+class ClaudeCodeAdapter(base.JsonHooksAdapter):
+    id = AGENT
+    label = "Claude Code"
+    executables = ("claude",)
+    config_dirs = (".claude",)
+    capabilities = {"can_block": True, "has_intent": True, "has_post_edit": True}
+    config_subpath = (".claude", "settings.json")
+
+    def hook_settings(self) -> dict[str, list[dict[str, Any]]]:
+        return hook_settings(HOOK_COMMAND)
+
+    def normalize(self, payload: Any) -> list[dict[str, Any]]:
+        if not isinstance(payload, dict):
+            return []
+        try:
+            event = normalize_payload(payload)
+        except Exception:  # noqa: BLE001 - fail open on any malformed payload
+            return []
+        return [] if event is None else [event]
+
+    def render(self, event: dict[str, Any], ack: Any) -> base.HookOutput:
+        try:
+            return base.HookOutput(render_ack(event, ack))
+        except Exception:  # noqa: BLE001
+            return base.PROCEED
+
+    def render_notice(self, event: dict[str, Any], message: str) -> base.HookOutput:
+        return base.HookOutput(render_notice(event, message))
+
+
+ADAPTER = ClaudeCodeAdapter()

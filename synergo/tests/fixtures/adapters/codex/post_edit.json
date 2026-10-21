@@ -1,0 +1,4 @@
+{"payload": {"session_id": "c1", "turn_id": "t1", "cwd": "{tmp}", "hook_event_name": "PostToolUse", "tool_name": "apply_patch", "tool_use_id": "call_1",
+  "tool_input": {"command": "*** Begin Patch\n*** Update File: room.py\n@@\n-    pass\n+    return 1\n*** End Patch\n"},
+  "tool_response": {"output": "Success. Updated the following files:\nM room.py\n"}},
+ "expect": [{"kind": "post_edit", "file_path": "{tmp}/room.py", "tool": "apply_patch", "new_content": "def room():\n    pass\n"}]}
