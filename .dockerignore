@@ -6,7 +6,8 @@ frontend
 synergo
 scripts
 graphify-out
-demo_proj
+examples
+tests
 **/__pycache__
 **/*.pyc
 .env

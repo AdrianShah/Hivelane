@@ -1,0 +1,790 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synergo wire protocol",
+  "description": "Every WebSocket frame between a Synergo client and the relay. Generated from synergo/protocol.py by protocol/generate.py; do not edit by hand.",
+  "x-protocol-version": 1,
+  "x-min-supported-protocol": 1,
+  "x-client-to-relay": {
+    "join": "#/$defs/JoinMessage",
+    "activity": "#/$defs/ActivityMessage",
+    "intent": "#/$defs/IntentMessage",
+    "edit_check": "#/$defs/EditCheckRequest"
+  },
+  "x-relay-to-client": {
+    "edit_check_response": "#/$defs/EditCheckResponse",
+    "activity_update": "#/$defs/ActivityUpdate",
+    "intent_update": "#/$defs/IntentUpdate",
+    "edit_decision": "#/$defs/EditDecision",
+    "conflict_alert": "#/$defs/ConflictAlert",
+    "user_joined": "#/$defs/UserJoined",
+    "user_left": "#/$defs/UserLeft",
+    "name_rejected": "#/$defs/NameRejected",
+    "version_rejected": "#/$defs/VersionRejected",
+    "room_rejected": "#/$defs/RoomRejected",
+    "rate_limited": "#/$defs/RateLimited",
+    "synergo_feed": "#/$defs/SynergoFeed"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/JoinMessage"
+    },
+    {
+      "$ref": "#/$defs/ActivityMessage"
+    },
+    {
+      "$ref": "#/$defs/IntentMessage"
+    },
+    {
+      "$ref": "#/$defs/EditCheckRequest"
+    },
+    {
+      "$ref": "#/$defs/EditCheckResponse"
+    },
+    {
+      "$ref": "#/$defs/ActivityUpdate"
+    },
+    {
+      "$ref": "#/$defs/IntentUpdate"
+    },
+    {
+      "$ref": "#/$defs/EditDecision"
+    },
+    {
+      "$ref": "#/$defs/ConflictAlert"
+    },
+    {
+      "$ref": "#/$defs/UserJoined"
+    },
+    {
+      "$ref": "#/$defs/UserLeft"
+    },
+    {
+      "$ref": "#/$defs/NameRejected"
+    },
+    {
+      "$ref": "#/$defs/VersionRejected"
+    },
+    {
+      "$ref": "#/$defs/RoomRejected"
+    },
+    {
+      "$ref": "#/$defs/RateLimited"
+    },
+    {
+      "$ref": "#/$defs/SynergoFeed"
+    }
+  ],
+  "$defs": {
+    "ActivityMessage": {
+      "properties": {
+        "type": {
+          "const": "activity",
+          "default": "activity",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "changes"
+      ],
+      "title": "ActivityMessage",
+      "type": "object"
+    },
+    "ActivityUpdate": {
+      "properties": {
+        "type": {
+          "const": "activity_update",
+          "default": "activity_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/FileChange"
+          },
+          "title": "Changes",
+          "type": "array"
+        },
+        "caption": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Caption"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "timestamp",
+        "changes"
+      ],
+      "title": "ActivityUpdate",
+      "type": "object"
+    },
+    "ConflictAlert": {
+      "properties": {
+        "type": {
+          "const": "conflict_alert",
+          "default": "conflict_alert",
+          "title": "Type",
+          "type": "string"
+        },
+        "users": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Users",
+          "type": "array"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "overlapping",
+            "related",
+            "unrelated"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "users",
+        "file_path",
+        "verdict",
+        "explanation"
+      ],
+      "title": "ConflictAlert",
+      "type": "object"
+    },
+    "EditCheckRequest": {
+      "properties": {
+        "type": {
+          "const": "edit_check",
+          "default": "edit_check",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Symbol"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "file_path"
+      ],
+      "title": "EditCheckRequest",
+      "type": "object"
+    },
+    "EditCheckResponse": {
+      "properties": {
+        "type": {
+          "const": "edit_check_response",
+          "default": "edit_check_response",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "allow",
+            "warn",
+            "block"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "others": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PeerTouch"
+          },
+          "title": "Others",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "decision",
+        "file_path"
+      ],
+      "title": "EditCheckResponse",
+      "type": "object"
+    },
+    "EditDecision": {
+      "properties": {
+        "type": {
+          "const": "edit_decision",
+          "default": "edit_decision",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "warn",
+            "block"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "others": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Others",
+          "type": "array"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "file_path",
+        "decision"
+      ],
+      "title": "EditDecision",
+      "type": "object"
+    },
+    "FileChange": {
+      "properties": {
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "diff": {
+          "title": "Diff",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "diff"
+      ],
+      "title": "FileChange",
+      "type": "object"
+    },
+    "IntentMessage": {
+      "properties": {
+        "type": {
+          "const": "intent",
+          "default": "intent",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "prompt"
+      ],
+      "title": "IntentMessage",
+      "type": "object"
+    },
+    "IntentUpdate": {
+      "properties": {
+        "type": {
+          "const": "intent_update",
+          "default": "intent_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "prompt",
+        "timestamp"
+      ],
+      "title": "IntentUpdate",
+      "type": "object"
+    },
+    "JoinMessage": {
+      "properties": {
+        "type": {
+          "const": "join",
+          "default": "join",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "protocol_version": {
+          "default": 1,
+          "title": "Protocol Version",
+          "type": "integer"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        }
+      },
+      "title": "JoinMessage",
+      "type": "object"
+    },
+    "NameRejected": {
+      "properties": {
+        "type": {
+          "const": "name_rejected",
+          "default": "name_rejected",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "NameRejected",
+      "type": "object"
+    },
+    "PeerTouch": {
+      "properties": {
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "seconds_ago": {
+          "title": "Seconds Ago",
+          "type": "number"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        }
+      },
+      "required": [
+        "user_id",
+        "seconds_ago"
+      ],
+      "title": "PeerTouch",
+      "type": "object"
+    },
+    "RateLimited": {
+      "properties": {
+        "type": {
+          "const": "rate_limited",
+          "default": "rate_limited",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "retry_after": {
+          "title": "Retry After",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason",
+        "retry_after"
+      ],
+      "title": "RateLimited",
+      "type": "object"
+    },
+    "RoomRejected": {
+      "properties": {
+        "type": {
+          "const": "room_rejected",
+          "default": "room_rejected",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "RoomRejected",
+      "type": "object"
+    },
+    "SynergoFeed": {
+      "properties": {
+        "type": {
+          "const": "synergo_feed",
+          "default": "synergo_feed",
+          "title": "Type",
+          "type": "string"
+        },
+        "events": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Events",
+          "type": "array"
+        }
+      },
+      "required": [
+        "events"
+      ],
+      "title": "SynergoFeed",
+      "type": "object"
+    },
+    "UserJoined": {
+      "properties": {
+        "type": {
+          "const": "user_joined",
+          "default": "user_joined",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "title": "UserJoined",
+      "type": "object"
+    },
+    "UserLeft": {
+      "properties": {
+        "type": {
+          "const": "user_left",
+          "default": "user_left",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "title": "UserLeft",
+      "type": "object"
+    },
+    "VersionRejected": {
+      "properties": {
+        "type": {
+          "const": "version_rejected",
+          "default": "version_rejected",
+          "title": "Type",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "server_protocol": {
+          "default": 1,
+          "title": "Server Protocol",
+          "type": "integer"
+        },
+        "min_supported": {
+          "default": 1,
+          "title": "Min Supported",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "VersionRejected",
+      "type": "object"
+    }
+  }
+}

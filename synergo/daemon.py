@@ -5,13 +5,17 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import hashlib
 import json
+import re
+import subprocess
 import sys
 import time
 import uuid
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import uvicorn
 import websockets
@@ -42,6 +46,10 @@ SHUTDOWN_GRACE = 5.0
 OLD_CONTENT_CACHE_SIZE = 512
 REPO_ROOT_CACHE_SIZE = 64
 OUTBOX_LIMIT = 500
+# Hex characters of repo identity sent on the wire: 64 bits is ample to keep
+# the handful of repos in one room apart, and short enough to read in logs.
+REPO_ID_LENGTH = 16
+GIT_TIMEOUT = 3.0
 
 
 def unified_diff(file_path: str, old: str, new: str) -> str:
@@ -90,20 +98,137 @@ def repo_root(start: str) -> Optional[Path]:
     return root
 
 
-def repo_relative_path(file_path: str, cwd: str) -> str:
+def repo_relative_path(
+    file_path: str, cwd: str, root: Optional[Path] = None
+) -> str:
     """Path key shared by every agent in the room.
 
     Keyed on the repo root, not the agent's cwd: teammates run their agents from
     different directories, and a cwd-relative key makes the same file look like
-    two files, so no overlap is ever detected.
+    two files, so no overlap is ever detected. An explicit root (the daemon's
+    --root) replaces discovery, which is the only shared anchor outside git.
     """
-    root = repo_root(cwd)
+    if root is None:
+        root = repo_root(cwd)
     if root is not None:
         try:
             return Path(file_path).resolve().relative_to(root).as_posix()
         except (ValueError, OSError):
             pass
     return relative_path(file_path, cwd)
+
+
+# --- repo identity -------------------------------------------------------------
+
+# scp-like git address: [user@]host:path. The host must be longer than one
+# character so a Windows drive path (C:\repos\x) is not mistaken for one.
+_SCP_LIKE = re.compile(r"^(?:[^@/:]+@)?(?P<host>[^@/:\\]{2,}):(?P<path>[^\\].*)$")
+
+
+def normalize_remote_url(url: str) -> str:
+    """Reduce a git remote URL to host/path so every way of spelling one
+    repository compares equal.
+
+    Teammates clone the same repo over ssh and https, with and without
+    credentials or a trailing .git; all of those must yield one identity, or
+    the relay would treat one repo as two and never report their overlaps.
+    Scheme, credentials and port are dropped and the host is lowercased; the
+    path keeps its case, since some hosts treat it as significant.
+    """
+    url = url.strip()
+    if not url:
+        return ""
+    host = ""
+    path = url
+    if "://" in url:
+        parts = urlsplit(url)
+        # .hostname drops credentials and port, and lowercases.
+        host = parts.hostname or ""
+        path = parts.path
+    else:
+        match = _SCP_LIKE.match(url)
+        if match:
+            host = match["host"].lower()
+            path = match["path"]
+    path = path.replace("\\", "/").strip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")].rstrip("/")
+    return f"{host}/{path}" if host else path
+
+
+def _git(root: Path, *args: str) -> str:
+    """stdout of a git command run in root, or "" on any failure (git missing,
+    not a repo, no such remote, no commits yet)."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=GIT_TIMEOUT,
+            check=False,
+            # A daemon started without a console must not flash one per call.
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip()
+
+
+def compute_repo_id(root: Path) -> str:
+    """Identity of the repository at root, shared by every clone of it.
+
+    The normalized origin URL is hashed (the URL itself may name a private
+    project, and only equality matters to the relay). Without an origin, the
+    root commit is used: every clone of a history shares it. A repo with
+    neither, or a directory that is not a repo at all, yields "" — which the
+    relay compares equal only to other empty ids, the pre-repo_id behaviour.
+
+    Shells out to git, so callers go through repo_id_for's cache.
+    """
+    origin = normalize_remote_url(_git(root, "remote", "get-url", "origin"))
+    if origin:
+        return hashlib.sha256(origin.encode("utf-8")).hexdigest()[:REPO_ID_LENGTH]
+    roots = _git(root, "rev-list", "--max-parents=0", "HEAD").split()
+    if roots:
+        # A history can have several roots (merged unrelated histories); the
+        # smallest is a choice every clone makes identically.
+        return min(roots)[:REPO_ID_LENGTH]
+    return ""
+
+
+_repo_ids: dict[str, str] = {}
+
+
+def cached_repo_id(root: Optional[Path]) -> Optional[str]:
+    """The cached id for root, "" for no root, or None if not computed yet."""
+    if root is None:
+        return ""
+    return _repo_ids.get(str(root))
+
+
+def repo_id_for(root: Optional[Path]) -> str:
+    """compute_repo_id, at most once per root for the life of the process.
+
+    A repo's origin and root commit practically never change under a running
+    daemon, and the pre_edit hook path cannot afford a git subprocess per call.
+    """
+    if root is None:
+        return ""
+    cached = _repo_ids.get(str(root))
+    if cached is not None:
+        return cached
+    # Only a directory that is itself a repo root gets an identity. An explicit
+    # --root that is not one must not inherit an enclosing repo's (a dotfiles
+    # repo in $HOME, say): teammates would then get different ids for the same
+    # project and stop seeing each other's overlaps.
+    repo_id = compute_repo_id(root) if (root / ".git").exists() else ""
+    if len(_repo_ids) > REPO_ROOT_CACHE_SIZE:
+        _repo_ids.clear()
+    _repo_ids[str(root)] = repo_id
+    return repo_id
 
 
 class Daemon:
@@ -117,6 +242,7 @@ class Daemon:
         port: int = DEFAULT_PORT,
         batch_seconds: float = BATCH_SECONDS,
         edit_check_timeout: float = EDIT_CHECK_TIMEOUT,
+        root: Optional[str] = None,
     ) -> None:
         self.room = room
         self.name = name
@@ -125,11 +251,22 @@ class Daemon:
         self.port = port
         self.batch_seconds = batch_seconds
         self.edit_check_timeout = edit_check_timeout
+        # Explicit project root (--root). Replaces git discovery for path keys:
+        # outside a repo it is the only anchor teammates can share.
+        self.root: Optional[Path] = Path(root).expanduser().resolve() if root else None
 
         self.connected = False
         self.fatal: Optional[str] = None
         # Set from a relay rate_limited frame; overrides the next backoff.
         self.retry_after = 0.0
+        # Unix seconds of the last frame received from, or successfully sent
+        # to, the relay. `connected` alone cannot tell a live link from a
+        # half-open socket the OS has not noticed is dead yet.
+        self.last_relay_contact: Optional[float] = None
+        # Unix seconds the current relay connection was established, or None.
+        self.connected_since: Optional[float] = None
+        # Identity of the repo the daemon itself was started in, sent on join.
+        self.repo_id = ""
 
         self._shutdown = asyncio.Event()
         # edit_check sits on the agent's blocking hook and gives up after
@@ -144,7 +281,9 @@ class Daemon:
         self._peers: set[str] = set()
         self._old_content: OrderedDict[tuple[str, str], str] = OrderedDict()
 
-        self._batch: dict[str, FileChange] = {}
+        # (repo_id, path key) -> latest change. Keyed by repo as well so one
+        # flush can split into one activity message per repo.
+        self._batch: dict[tuple[str, str], FileChange] = {}
         self._batch_deadline = 0.0
         self._batch_task: Optional[asyncio.Task[None]] = None
         self._last_prompt: Optional[str] = None
@@ -184,28 +323,53 @@ class Daemon:
             "queued_events": (
                 self._outbox.qsize() + self._priority_outbox.qsize() + len(self._batch)
             ),
+            "last_relay_contact": self.last_relay_contact,
+            "connected_since": self.connected_since,
+            "root": str(self.root) if self.root is not None else None,
+            "repo_id": self.repo_id,
         }
 
     # --- event handling ------------------------------------------------------
 
-    async def handle_event(self, event: NormalizedEvent) -> EventAck:
-        if event.kind == "intent":
-            return self._handle_intent(event)
-        if event.kind == "pre_edit":
-            return await self._handle_pre_edit(event)
-        return self._handle_post_edit(event)
+    def _root_for(self, cwd: str) -> Optional[Path]:
+        return self.root if self.root is not None else repo_root(cwd)
 
-    def _handle_intent(self, event: NormalizedEvent) -> EventAck:
+    async def _repo_id_for(self, cwd: str) -> str:
+        """repo_id for an event's cwd, so a daemon serving agents in several
+        repos still labels each message with the right one.
+
+        Cached per root after the first lookup; that first lookup runs git in
+        a worker thread so it never stalls the event loop other hooks share.
+        """
+        root = self._root_for(cwd)
+        cached = cached_repo_id(root)
+        if cached is not None:
+            return cached
+        return await asyncio.to_thread(repo_id_for, root)
+
+    async def handle_event(self, event: NormalizedEvent) -> EventAck:
+        repo_id = await self._repo_id_for(event.cwd)
+        if event.kind == "intent":
+            return self._handle_intent(event, repo_id)
+        if event.kind == "pre_edit":
+            return await self._handle_pre_edit(event, repo_id)
+        return self._handle_post_edit(event, repo_id)
+
+    def _handle_intent(self, event: NormalizedEvent, repo_id: str = "") -> EventAck:
         if not event.prompt:
             return EventAck()
         self._last_prompt = event.prompt
-        self._send(IntentMessage(user_id=self.name, prompt=event.prompt))
+        self._send(
+            IntentMessage(user_id=self.name, prompt=event.prompt, repo_id=repo_id)
+        )
         return EventAck()
 
-    async def _handle_pre_edit(self, event: NormalizedEvent) -> EventAck:
+    async def _handle_pre_edit(
+        self, event: NormalizedEvent, repo_id: str = ""
+    ) -> EventAck:
         if not event.file_path:
             return EventAck()
-        rel = repo_relative_path(event.file_path, event.cwd)
+        rel = repo_relative_path(event.file_path, event.cwd, self.root)
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
 
@@ -215,7 +379,9 @@ class Daemon:
         request_id = uuid.uuid4().hex
         future: asyncio.Future[EditCheckResponse] = asyncio.get_running_loop().create_future()
         self._pending[request_id] = future
-        self._send(EditCheckRequest(request_id=request_id, file_path=rel))
+        self._send(
+            EditCheckRequest(request_id=request_id, file_path=rel, repo_id=repo_id)
+        )
         try:
             response = await asyncio.wait_for(future, timeout=self.edit_check_timeout)
         except asyncio.TimeoutError:
@@ -228,16 +394,16 @@ class Daemon:
             others=response.others,
         )
 
-    def _handle_post_edit(self, event: NormalizedEvent) -> EventAck:
+    def _handle_post_edit(self, event: NormalizedEvent, repo_id: str = "") -> EventAck:
         if not event.file_path:
             return EventAck()
-        rel = repo_relative_path(event.file_path, event.cwd)
+        rel = repo_relative_path(event.file_path, event.cwd, self.root)
         old = event.old_content
         if old is None:
             old = self._old_content.pop((event.session_id, rel), "")
         diff = unified_diff(rel, old, event.new_content or "")
         if diff:
-            self._batch[rel] = FileChange(file_path=rel, diff=diff)
+            self._batch[(repo_id, rel)] = FileChange(file_path=rel, diff=diff)
             self._schedule_flush()
         return EventAck(file_path=rel)
 
@@ -264,18 +430,24 @@ class Daemon:
         self.flush_batch()
 
     def flush_batch(self) -> None:
+        """Send the pending changes, one activity message per repo: repo_id is
+        per message, and a path only means something next to its repo."""
         if not self._batch:
             return
-        changes = list(self._batch.values())
+        by_repo: dict[str, list[FileChange]] = {}
+        for (repo_id, _), change in self._batch.items():
+            by_repo.setdefault(repo_id, []).append(change)
         self._batch.clear()
-        self._send(
-            ActivityMessage(
-                user_id=self.name,
-                prompt=self._last_prompt,
-                changes=changes,
-                agent=self.agent,
+        for repo_id, changes in by_repo.items():
+            self._send(
+                ActivityMessage(
+                    user_id=self.name,
+                    prompt=self._last_prompt,
+                    changes=changes,
+                    agent=self.agent,
+                    repo_id=repo_id,
+                )
             )
-        )
 
     # --- relay socket --------------------------------------------------------
 
@@ -295,9 +467,13 @@ class Daemon:
             try:
                 async with ws_connect(self.ws_url) as socket:
                     await socket.send(
-                        JoinMessage(name=self.name, agent=self.agent).model_dump_json()
+                        JoinMessage(
+                            name=self.name, agent=self.agent, repo_id=self.repo_id
+                        ).model_dump_json()
                     )
                     self.connected = True
+                    self.connected_since = time.time()
+                    self.last_relay_contact = self.connected_since
                     backoff = 1.0
                     print(f"synergo: connected to room {self.room} as {self.name}")
                     drain = asyncio.create_task(self._drain(socket))
@@ -314,6 +490,7 @@ class Daemon:
                     print(f"synergo: relay connection lost ({exc})", file=sys.stderr)
             finally:
                 self.connected = False
+                self.connected_since = None
 
             if self.fatal or self._shutdown.is_set():
                 return
@@ -350,6 +527,7 @@ class Daemon:
             self._inflight = payload
             await socket.send(payload)
             self._inflight = None
+            self.last_relay_contact = time.time()
 
     def _handle_frame(self, raw: str | bytes) -> None:
         """Dispatch one relay frame.
@@ -357,6 +535,8 @@ class Daemon:
         A bad frame must not kill the daemon: every hook would then fail open
         and the user would lose coordination with no signal that it happened.
         """
+        # Any frame, even one we cannot parse, proves the link is alive.
+        self.last_relay_contact = time.time()
         try:
             data = json.loads(raw)
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -432,7 +612,36 @@ class Daemon:
 
     # --- lifecycle -----------------------------------------------------------
 
+    def warn_if_unanchored(self) -> bool:
+        """Warn when path keys have nothing shared to be relative to.
+
+        Inside a git repo every agent's paths are keyed on the repo root, so
+        teammates in different subdirectories still agree on what a file is
+        called. Outside one, with no --root, each agent's own cwd is the
+        anchor, and the same file gets a different key per directory: overlaps
+        between those agents silently go undetected. Returns True if it warned.
+        """
+        if self.root is not None:
+            return False
+        cwd = Path.cwd()
+        if repo_root(str(cwd)) is not None:
+            return False
+        print(
+            f"synergo: warning: {cwd} is not inside a git repository, so file "
+            "paths fall back to each agent's working directory. Teammates whose "
+            "agents run from different directories will not see each other's "
+            "overlaps. Pass --root <project dir> (the same project directory "
+            "for everyone) to key paths on it instead.",
+            file=sys.stderr,
+        )
+        return True
+
     async def run(self) -> int:
+        self.warn_if_unanchored()
+        # Resolve the daemon's own repo before joining (sent with the join) and
+        # so the first hook from it finds the identity already cached.
+        self.repo_id = await self._repo_id_for(str(Path.cwd()))
+
         config = uvicorn.Config(
             self.app,
             host=LOOPBACK,

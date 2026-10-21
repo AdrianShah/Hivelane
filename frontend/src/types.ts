@@ -1,4 +1,8 @@
-/** Mirrors server/models.py message schema (shared contract). */
+/**
+ * Mirrors server/models.py message schema (shared contract; the language-neutral
+ * copy is protocol/schema.json). server/tests/test_protocol_contract.py fails if
+ * a relay frame the dashboard receives, or one of its fields, is missing here.
+ */
 
 export type Verdict = 'overlapping' | 'related' | 'unrelated';
 
@@ -17,7 +21,14 @@ export interface FileChange {
   diff: string;
 }
 
-/** Watcher → server activity payload. */
+/**
+ * Opaque repository identity from the daemon (hash of the normalized origin
+ * URL, else the root commit). Empty when unknown, or sent by an older client.
+ * The relay only compares touches within one repo_id.
+ */
+export type RepoId = string;
+
+/** Daemon → server activity payload. */
 export interface Activity {
   type: 'activity';
   user_id: string;
@@ -25,6 +36,7 @@ export interface Activity {
   prompt: string | null;
   changes: FileChange[];
   agent?: AgentKind;
+  repo_id?: RepoId;
 }
 
 /** Server → clients broadcast after an activity message. */
@@ -36,6 +48,7 @@ export interface ActivityUpdate {
   changes: FileChange[];
   caption: string | null;
   agent?: AgentKind;
+  repo_id?: RepoId;
 }
 
 /** What an agent is currently trying to do — latest per user wins. */
@@ -45,6 +58,7 @@ export interface IntentUpdate {
   prompt: string;
   timestamp: number;
   agent?: AgentKind;
+  repo_id?: RepoId;
 }
 
 /** A pre-edit check that came back non-allow; allow decisions aren't broadcast. */
@@ -57,6 +71,7 @@ export interface EditDecision {
   reason: string;
   timestamp: number;
   agent?: AgentKind;
+  repo_id?: RepoId;
 }
 
 /** One conflict alert per overlapping/related file pair (server → clients). */
@@ -115,13 +130,15 @@ export type FeedEvent =
 /**
  * First message after connect.
  * Spectator: name is null (frontend).
- * Named agent: name is a raw display string (watcher).
+ * Named agent: name is a raw display string (daemon).
  */
 export interface JoinMessage {
   type: 'join';
   name: string | null;
   role?: 'spectator';
   agent?: AgentKind;
+  protocol_version?: number;
+  repo_id?: RepoId;
 }
 
 export type ServerMessage =
