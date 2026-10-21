@@ -2,7 +2,7 @@
  * Room replay: the relay's opt-in history (server/history.py) folded back
  * into what the board looked like at any moment.
  *
- * A room whose .synergo.toml says `history_hours = 4` keeps up to that many
+ * A room whose .hivelane.toml says `history_hours = 4` keeps up to that many
  * hours of feed events on the relay (in memory only). The replay view sends
  * `history_request`, collects the `history_chunk` frames (decoded through the
  * same E2EDecoder as live frames, so an encrypted room replays readable for

@@ -31,29 +31,67 @@ Every warn/block decision carries a `scope` telling the user why it fired.
 ## Decision table
 
 Evaluated per recent peer touch of the same file in the same repo (warn
-window), first match wins. "Hard" means `block` if the touch is inside the
-block window, else `warn`.
+window), first match wins. "Hard" means `block` if the part of the touch that
+matched (the shared symbol, the nearby line range, or for file scope the
+latest batch) is inside the block window, else `warn`.
+
+A peer's touch of a file is the **union of its batches** inside the window,
+not just its latest one: each symbol and line range keeps the time it was last
+edited. So if alice edited `foo` 6 s ago and `bar` 1 s ago, an edit to `foo`
+is still blocked (judged by `foo`'s age), and symbols older than the warn
+window drop out. A batch with no symbols (or no ranges) resets that part to
+unknown, and the file is judged whole until symbols arrive again.
 
 | situation                                               | decision | scope    |
 |---------------------------------------------------------|----------|----------|
 | peer is on a different (known) branch                   | warn — "conflict at merge" | `branch` |
 | both sides have symbols and they intersect              | hard     | `symbol` |
 | symbols on both sides, disjoint, always-warn file       | hard     | `file`   |
+| symbols on both sides, disjoint, but line ranges literally overlap | hard | `lines` |
 | symbols on both sides, disjoint                          | warn — "different function" | `symbol` |
 | line ranges on both sides within 10 lines               | hard     | `lines`  |
 | line ranges on both sides, further apart                | warn     | `lines`  |
 | no symbols/ranges (legacy)                              | hard     | `file`   |
-| no peer touch, but a peer's active plan names the file/symbol | warn | `plan` |
+| no peer touch, but a peer's active plan names the file (or, for a plan naming no files, a requested symbol) | warn | `plan` |
 | no peer touch, but a peer's intent mentions the file    | warn     | `intent` |
 
 Always-warn files (`package.json`, `pyproject.toml`, `requirements*.txt`,
 `*.lock`, `go.mod`, `Cargo.toml`, `tsconfig*.json`, `.env*`, `Dockerfile`,
-`.github/**/*.yml`) and `<imports>` edits are never cleared by disjoint
-symbols: two agents adding different deps still collide.
+`.github/**/*.yml`) are never cleared by disjoint symbols. `<imports>` is
+a symbol like any other: two agents both editing the import block collide
+(`symbol`), but one agent's new import line does not block a teammate editing
+an unrelated function in the same file.
+
+Plans: a plan's symbols belong to its files. `main` in a plan for
+`api/server.py` says nothing about `cli/tool.py`, so plan symbols are matched
+only when the plan lists no files, and `<imports>` never matches across files
+in plan logic (edit checks or `plan_conflicts`).
 
 Note: symbols are checked before line ranges, so two edits in *different*
 functions whose ranges are within 10 lines get "different function" (warn),
 not "nearby lines" (block). See benchmark results below.
+
+## Symbol names
+
+Symbols are compared by exact string, so every daemon must name the same
+definition the same way. `hivelane/symbols.py` has two tiers for non-Python
+languages, tree-sitter (`hivelane[symbols]`) and a regex/brace heuristic, and
+both give one format:
+
+* qualified by containment with `.`: `Room.check_edit`, `Outer.Inner.run`;
+* Go methods by receiver type, pointer or not, named or not: `Server.Handle`,
+  `Stack.Push` for `func (s *Stack[T]) Push`;
+* generic arguments and paths dropped: `impl<T> Foo<T>` and
+  `impl From<T> for a::Foo<T>` are both `Foo`; `type Stack[T any]` is `Stack`;
+* JS/TS methods only directly inside a class or interface (a semicolon-free
+  bare call `doThing(x)` is not a definition), interface members included;
+* Ruby one-line (`def a; 1; end`) and endless (`def b = 2`) defs end on their
+  own line.
+
+`hivelane/tests/symbol_cases.py` holds the shared fixtures; the heuristic is
+checked against them in every test run and tree-sitter when it is installed.
+Lines are counted on `\n` only everywhere (pre_edit prediction, post_edit
+ranges, both tiers), and a UTF-8 BOM no longer pushes Python off `ast`.
 
 ## Dashboard
 
@@ -84,7 +122,7 @@ Pure, stdlib-only, no server imports.
   lightly stemmed; the score blends char-trigram cosine (0.5) with token
   Jaccard (0.5), mapped onto a 0..1 confidence scale where 0.8 corresponds to
   the calibrated lexical cutoff (0.32 raw).
-* `SYNERGO_EMBEDDINGS=fastembed` switches to sentence embeddings if the
+* `HIVELANE_EMBEDDINGS=fastembed` switches to sentence embeddings if the
   optional `fastembed` package is installed (lazy import; any failure falls
   back to lexical). It is not a dependency.
 * `files_mentioned(text, known_paths)` — fuzzy path/basename/stem/symbol
@@ -118,7 +156,7 @@ rule=alert (any warn or block)
   warn.
 * Block recall drops (13 → 10 TP): the two `nearby_lines_*` sessions (different
   symbols, ranges 3 lines apart) warn instead of block because symbols are
-  judged before line proximity; and `config_file_2` (`.synergo.toml`, ranges
-  far apart) warns because `.synergo.toml` is not in the always-warn list.
+  judged before line proximity; and `config_file_2` (`.hivelane.toml`, ranges
+  far apart) warns because `.hivelane.toml` is not in the always-warn list.
 
 Run with `-v` for per-check rows.

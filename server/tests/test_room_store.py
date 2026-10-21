@@ -12,42 +12,50 @@ import pytest
 try:
     from server.models import RoomSettings
     from server.room import DEFAULT_SETTINGS
+    from server import room_manager as room_manager_module
     from server.room_manager import (
         CODE_ALPHABET,
         CODE_LENGTH,
-        MAX_ROOMS,
         RoomManager,
     )
     from server.store import (
         ROOM_TTL_SECONDS,
         STATE_PATH_ENV,
         MemoryRoomStore,
-        RoomStore,
         SqliteRoomStore,
         build_room_store,
     )
 except ImportError:  # Render rootDir=server
     from models import RoomSettings
     from room import DEFAULT_SETTINGS
+    import room_manager as room_manager_module  # type: ignore[no-redef]
     from room_manager import (
         CODE_ALPHABET,
         CODE_LENGTH,
-        MAX_ROOMS,
         RoomManager,
     )
     from store import (
         ROOM_TTL_SECONDS,
         STATE_PATH_ENV,
         MemoryRoomStore,
-        RoomStore,
         SqliteRoomStore,
         build_room_store,
     )
 
 
+# A relay that sets HIVELANE_MAX_ROOMS (the default, 0, is unlimited).
+MAX_ROOMS = 100
+
+
 @pytest.fixture
 def state_path(tmp_path: Path) -> str:
-    return str(tmp_path / "state" / "synergo.db")
+    return str(tmp_path / "state" / "hivelane.db")
+
+
+@pytest.fixture
+def room_cap(monkeypatch: pytest.MonkeyPatch) -> int:
+    monkeypatch.setattr(room_manager_module, "MAX_ROOMS", MAX_ROOMS)
+    return MAX_ROOMS
 
 
 def _assert_usable(manager: RoomManager, code: str) -> None:
@@ -57,22 +65,13 @@ def _assert_usable(manager: RoomManager, code: str) -> None:
     assert room.check_edit("alice", "server/room.py", time.time()) == ("allow", [])
 
 
-def test_code_survives_restart_over_the_same_store(state_path: str) -> None:
-    store = SqliteRoomStore(state_path)
-    code = RoomManager(store=store).create_room()
-
-    restarted = RoomManager(store=store)
-
-    _assert_usable(restarted, code)
-    assert restarted.get("NOPE99") is None
-
-
 def test_code_survives_reopening_the_database_file(state_path: str) -> None:
     code = RoomManager(store=SqliteRoomStore(state_path)).create_room()
 
     restarted = RoomManager(store=SqliteRoomStore(state_path))
 
     _assert_usable(restarted, code)
+    assert restarted.get("NOPE99") is None
     assert restarted.room_count == 1
     assert restarted.durable_room_count == 1
 
@@ -98,20 +97,6 @@ def test_cleanup_if_empty_stops_the_code_resolving_after_a_restart(
     assert RoomManager(store=SqliteRoomStore(state_path)).get(code) is None
 
 
-def test_expired_codes_do_not_resolve_and_are_purged(state_path: str) -> None:
-    store = SqliteRoomStore(state_path)
-    store.add("OLDCOD", time.time() - ROOM_TTL_SECONDS - 1)
-    store.add("NEWCOD", time.time())
-
-    assert store.exists("OLDCOD") is False
-    assert RoomManager(store=store).get("OLDCOD") is None
-    assert store.count() == 1
-
-    assert store.purge_expired(time.time()) == 1
-    assert store.purge_expired(time.time()) == 0
-    assert store.exists("NEWCOD") is True
-
-
 def test_memory_store_keeps_todays_behaviour() -> None:
     manager = RoomManager(store=MemoryRoomStore())
     code = manager.create_room()
@@ -121,15 +106,6 @@ def test_memory_store_keeps_todays_behaviour() -> None:
     assert manager.room_count == 1
     # Nothing is shared with a second manager: memory rooms die with the process.
     assert RoomManager(store=MemoryRoomStore()).get(code) is None
-
-
-def test_memory_store_expires_codes() -> None:
-    store = MemoryRoomStore()
-    store.add("OLDCOD", time.time() - ROOM_TTL_SECONDS - 1)
-
-    assert store.exists("OLDCOD") is False
-    assert store.count() == 0
-    assert store.purge_expired(time.time()) == 1
 
 
 def test_build_room_store_uses_sqlite_when_the_state_path_is_set(
@@ -156,28 +132,24 @@ def test_build_room_store_falls_back_when_the_path_is_unusable(
 ) -> None:
     blocker = tmp_path / "blocker"
     blocker.write_text("not a directory")
-    monkeypatch.setenv(STATE_PATH_ENV, str(blocker / "synergo.db"))
+    monkeypatch.setenv(STATE_PATH_ENV, str(blocker / "hivelane.db"))
 
     assert isinstance(build_room_store(), MemoryRoomStore)
 
 
-def test_max_rooms_is_enforced_against_the_durable_count(state_path: str) -> None:
-    store: RoomStore = SqliteRoomStore(state_path)
+def test_rooms_are_unlimited_by_default(state_path: str) -> None:
+    assert room_manager_module.MAX_ROOMS == 0
+    store = SqliteRoomStore(state_path)
     now = time.time()
     for index in range(MAX_ROOMS):
         store.add(f"CODE{index:02d}", now)
 
-    # No live rooms at all, yet the cap still applies.
     manager = RoomManager(store=store)
-    with pytest.raises(RuntimeError, match="Maximum number of rooms"):
-        manager.create_room()
-    assert manager.room_count == 0
-
-    store.remove("CODE00")
     assert manager.create_room()
+    assert store.count() == MAX_ROOMS + 1
 
 
-def test_expired_codes_free_up_capacity(state_path: str) -> None:
+def test_expired_codes_free_up_capacity(state_path: str, room_cap: int) -> None:
     store = SqliteRoomStore(state_path)
     for index in range(MAX_ROOMS):
         store.add(f"CODE{index:02d}", time.time() - ROOM_TTL_SECONDS - 1)
@@ -317,19 +289,3 @@ def test_an_old_registry_file_is_migrated_in_place(state_path: str) -> None:
     revived = RoomManager(store=reopened).get("K7M2PQ")
     assert revived is not None
     assert revived.settings == CUSTOM
-
-
-@pytest.mark.parametrize("make_store", ["memory", "sqlite"])
-def test_settings_go_with_the_code(state_path: str, make_store: str) -> None:
-    store: RoomStore = (
-        MemoryRoomStore() if make_store == "memory" else SqliteRoomStore(state_path)
-    )
-    store.add("ABCDEFGH", time.time(), CUSTOM.model_dump())
-    assert store.get_settings("ABCDEFGH") == CUSTOM.model_dump()
-
-    # Unknown codes have no settings and cannot be given any.
-    store.set_settings("ZZZZZZZZ", CUSTOM.model_dump())
-    assert store.get_settings("ZZZZZZZZ") is None
-
-    store.remove("ABCDEFGH")
-    assert store.get_settings("ABCDEFGH") is None

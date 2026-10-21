@@ -1,0 +1,6 @@
+command: D:\Projects\Hivelane\Hivelane\.venv\Scripts\hivelane.exe hook claude-code
+floor (python -c pass)       n=15  p50=   73.7 ms  p95=   88.8 ms  min=   72.1 ms  mean=   76.5 ms
+no daemon (refused)          n=15  p50=  361.8 ms  p95=  377.7 ms  min=  356.1 ms  mean=  365.6 ms
+stub daemon (allow ack)      n=15  p50=  111.6 ms  p95=  129.2 ms  min=  107.7 ms  mean=  114.5 ms
+real daemon (token auth)     n=15  p50=  118.9 ms  p95=  126.3 ms  min=  109.3 ms  mean=  119.1 ms
+daemon + relay (edit_check)  n=15  p50=  113.6 ms  p95=  115.9 ms  min=  110.7 ms  mean=  113.7 ms

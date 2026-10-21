@@ -15,7 +15,7 @@ FIXTURE = Path(__file__).parent / "fixtures" / "intent_pairs.json"
 
 @pytest.fixture(autouse=True)
 def _lexical_only(monkeypatch):
-    monkeypatch.delenv("SYNERGO_EMBEDDINGS", raising=False)
+    monkeypatch.delenv("HIVELANE_EMBEDDINGS", raising=False)
     semantic._embedding_scorer.cache_clear()
     yield
     semantic._embedding_scorer.cache_clear()
@@ -63,7 +63,7 @@ def test_tokens_stem_and_split():
 
 
 def test_embedding_backend_falls_back_when_missing(monkeypatch):
-    monkeypatch.setenv("SYNERGO_EMBEDDINGS", "fastembed")
+    monkeypatch.setenv("HIVELANE_EMBEDDINGS", "fastembed")
     monkeypatch.setitem(__import__("sys").modules, "fastembed", None)
     semantic._embedding_scorer.cache_clear()
     score, embedded = semantic.similarity("fix room", "fix room")
@@ -77,7 +77,7 @@ PATHS = [
     "server/store.py",
     "frontend/src/components/Lane.tsx",
     "frontend/src/components/ConflictBanner.tsx",
-    "synergo/daemon.py",
+    "hivelane/daemon.py",
 ]
 
 
@@ -89,7 +89,7 @@ PATHS = [
         ("the Lane component shows wrong symbols", "frontend/src/components/Lane.tsx"),
         ("RoomManager evicts rooms too early", "server/room_manager.py"),
         ("make the conflict banner dismissible", "frontend/src/components/ConflictBanner.tsx"),
-        ("daemon reconnect backoff", "synergo/daemon.py"),
+        ("daemon reconnect backoff", "hivelane/daemon.py"),
         ("edit main.py startup", "server/main.py"),
     ],
 )

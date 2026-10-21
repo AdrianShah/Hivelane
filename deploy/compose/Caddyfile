@@ -1,4 +1,4 @@
-# Caddy in front of the Synergo relay. Caddy issues and renews a certificate
+# Caddy in front of the Hivelane relay. Caddy issues and renews a certificate
 # for RELAY_DOMAIN on its own (Let's Encrypt, falling back to ZeroSSL), so:
 #   - DNS for RELAY_DOMAIN must already point at this host, and
 #   - ports 80 and 443 must be reachable from the internet.

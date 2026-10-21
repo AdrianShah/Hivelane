@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # One image for the relay and the dashboard it serves. Host-agnostic: anything
 # that runs a container can run this, so the deploy target stays a choice
-# rather than a rewrite. Published as ghcr.io/adrianshah/synergo-relay
+# rather than a rewrite. Published as ghcr.io/adrianshah/hivelane-relay
 # (.github/workflows/image.yml); guide: docs/self-hosting.md.
 
 # --- dashboard ---------------------------------------------------------------
@@ -29,30 +29,43 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Dependencies first so code edits do not invalidate the install layer.
-# redis is optional for the relay, imported only when SYNERGO_REDIS_URL is set
-# (shared room codes, room leases and rate limits across instances; see
-# docs/self-hosting.md#scaling-out), but baked in so one image serves every
-# topology. It stays out of server/requirements.txt so a plain
-# single-instance install does not need it.
-COPY server/requirements.txt ./server/requirements.txt
-RUN pip install --no-cache-dir -r server/requirements.txt redis==8.1.0
+# requirements-image.txt is requirements.txt plus redis (optional for the
+# relay, baked in so one image serves every topology; see that file).
+COPY server/requirements.txt server/requirements-image.txt ./server/
+RUN pip install --no-cache-dir -r server/requirements-image.txt
 
 COPY server/ ./server/
 COPY --from=dashboard /frontend/dist/ ./static/
 
-# Rooms are only durable if SYNERGO_STATE_PATH points at a mounted volume;
+# Rooms are only durable if HIVELANE_STATE_PATH points at a mounted volume;
 # without one the container still runs, and logs a warning at startup.
-# SYNERGO_STATIC_DIR serves the dashboard at / (unset it to serve the API only).
-ENV SYNERGO_STATE_PATH=/data/synergo.db \
-    SYNERGO_STATIC_DIR=/app/static
-RUN mkdir -p /data && useradd --create-home --uid 10001 synergo \
-    && chown -R synergo:synergo /data /app
-USER synergo
+# HIVELANE_STATIC_DIR serves the dashboard at / (unset it to serve the API only).
+ENV HIVELANE_STATE_PATH=/data/hivelane.db \
+    HIVELANE_STATIC_DIR=/app/static
+RUN mkdir -p /data && useradd --create-home --uid 10001 hivelane \
+    && chown -R hivelane:hivelane /data /app
+COPY --chmod=755 deploy/docker-entrypoint.sh /usr/local/bin/hivelane-entrypoint
+
+# The commit this image was built from (image.yml passes it), for /readyz to
+# report so a post-deploy check can tell the new deploy from the old one.
+ARG HIVELANE_COMMIT=""
+ENV HIVELANE_COMMIT=$HIVELANE_COMMIT
+
+# No `USER hivelane` here on purpose: Fly volumes and Render disks mount
+# root-owned over /data, so the entrypoint starts as root only to chown the
+# state directory, then drops to uid 10001 before the relay starts. The relay
+# itself never runs as root. Hosts that start containers as a non-root user
+# (Helm sets runAsUser 10001 and fsGroup 10001) skip the chown; the entrypoint
+# then checks the directory is writable and, with HIVELANE_ENV=production,
+# refuses to start on a store it could not keep.
+ENTRYPOINT ["/usr/local/bin/hivelane-entrypoint"]
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'), timeout=4).status==200 else 1)"
+    CMD ["python", "-c", "import os,urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/health' % os.environ.get('PORT', '8000'), timeout=4).status==200 else 1)"]
 
-# $PORT is honoured because most hosts inject it; 8000 locally.
-CMD ["sh", "-c", "exec uvicorn server.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# No CMD: with no arguments the entrypoint runs uvicorn on ${PORT:-8000} with
+# WebSocket limits matching the relay's 512 KiB frame cap (--ws-max-size, from
+# HIVELANE_MAX_FRAME_BYTES) and a short per-connection queue (--ws-max-queue 8).
+# Any arguments given replace that command (still run as uid 10001).

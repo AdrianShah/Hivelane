@@ -8,19 +8,19 @@ The spark was simple: if AI agents are teammates now, they deserve the same situ
 
 ## What it does
 
-**Synergo** is a real-time multiplayer AI agent viewer.
+**Hivelane** is a real-time multiplayer AI agent viewer.
 
 - Create a **shared room** (a short code, Docs-style trust — no accounts).
 - Run a **watcher** on each laptop (or launch one from the optional local companion).
 - The **dashboard** shows per-agent lanes: last prompt, AI caption, expandable git-style diffs, and live connection status.
-- When two agents edit the **same file** within a short window, Synergo raises a **conflict alert** with Resolve / View Overlap actions.
+- When two agents edit the **same file** within a short window, Hivelane raises a **conflict alert** with Resolve / View Overlap actions.
 - Optional **Gemini** captions summarize what changed; conflict classification labels overlaps as overlapping / related / unrelated.
 
-In one sentence: *Synergo catches overlapping AI edits before they become merge conflicts.*
+In one sentence: *Hivelane catches overlapping AI edits before they become merge conflicts.*
 
 ## How we built it
 
-Synergo is four cooperating pieces:
+Hivelane is four cooperating pieces:
 
 1. **Relay (`server/`)** — FastAPI + WebSockets. In-memory rooms (`POST /rooms`, `WS /ws/{room_id}`), spectator joins, activity broadcast, best-effort Gemini captions and conflict evaluation.
 2. **Watcher (`watcher/`)** — Python CLI using `watchdog` + unified diffs, 1.5s debounce batching, Cursor prompt capture from local `state.vscdb` (best-effort), plus prompt-only polling so chat updates appear without waiting for a save.
@@ -47,7 +47,7 @@ Data flow (conceptually):
 ## Accomplishments that we're proud of
 
 - A **complete vertical slice**: room → watcher → live lanes → conflict banner, demoable end-to-end.
-- A **glanceable UI** that feels like a real developer product (Synergo branding, hierarchy, Resolve / View Overlap).
+- A **glanceable UI** that feels like a real developer product (Hivelane branding, hierarchy, Resolve / View Overlap).
 - **Agent-aware** labeling (`cursor`, `claude-code`, `codex`) without locking the protocol.
 - **Graceful degradation**: no Gemini key? Still works. Prompt capture miss? Diffs still show. Companion offline? Copy a CLI command.
 - A **shareable trust model** that matches how hackathon teams actually collaborate: one room code.
@@ -60,7 +60,7 @@ Data flow (conceptually):
 - Separating **relay** (public) from **companion** (private spawn) is the right security boundary.
 - Good conflict UX is half detection, half **navigation** (scroll to the lane, highlight the file, don’t make judges hunt).
 
-## What's next for Synergo
+## What's next for Hivelane
 
 - Stronger prompt capture across more agents (Claude Code, Codex) with explicit adapters.
 - Richer conflict UX: side-by-side overlap views, suggested owners, “claim this file” soft locks.
@@ -69,4 +69,4 @@ Data flow (conceptually):
 - Deeper IDE integrations (status bar badge when you’re about to collide).
 - Scaling the relay beyond in-memory rooms (Redis / durable room state) for longer workshops.
 
-Synergo started as “can we see the room?” — next is “can the room coordinate itself?”
+Hivelane started as “can we see the room?” — next is “can the room coordinate itself?”

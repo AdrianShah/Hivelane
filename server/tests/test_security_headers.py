@@ -35,7 +35,7 @@ except ImportError:  # Render rootDir=server
     from room_manager import RoomManager  # type: ignore[no-redef]
     from store import MemoryRoomStore  # type: ignore[no-redef]
 
-PRODUCTION = {"SYNERGO_ENV": "production", "CORS_ORIGINS": "https://app.example.com"}
+PRODUCTION = {"HIVELANE_ENV": "production", "CORS_ORIGINS": "https://app.example.com"}
 
 
 def _site(*, hsts: bool) -> TestClient:
@@ -86,8 +86,8 @@ def test_relay_sends_hsts_exactly_when_configured() -> None:
     "env,expected",
     [
         ({}, False),
-        ({"SYNERGO_ENV": "development"}, False),
-        ({"SYNERGO_ENV": "staging", "CORS_ORIGINS": "https://a.example"}, True),
+        ({"HIVELANE_ENV": "development"}, False),
+        ({"HIVELANE_ENV": "staging", "CORS_ORIGINS": "https://a.example"}, True),
         (PRODUCTION, True),
     ],
 )
@@ -129,7 +129,7 @@ def test_dashboard_csp_allows_what_the_dashboard_needs_and_little_else() -> None
     )
 
     assert directives["default-src"] == "'self'"
-    assert directives["connect-src"] == "'self' ws: wss:"
+    assert directives["connect-src"] == "'self' ws: wss: https:"
     assert directives["img-src"] == "'self' data:"
     assert directives["style-src"].startswith("'self' 'unsafe-inline'")
     assert directives["frame-ancestors"] == "'none'"
@@ -176,7 +176,7 @@ def test_production_accepts_a_regex_scoped_to_a_domain() -> None:
 
 def test_wildcards_are_tolerated_outside_production() -> None:
     assert config.load_settings({"CORS_ORIGIN_REGEX": ".*"}).cors_origin_regex == ".*"
-    staging = {"SYNERGO_ENV": "staging", "CORS_ORIGINS": "*"}
+    staging = {"HIVELANE_ENV": "staging", "CORS_ORIGINS": "*"}
     assert config.load_settings(staging).cors_origins == ("*",)
 
 
@@ -206,7 +206,7 @@ def _join(socket: Any, name: str) -> None:
 def _next_event(socket: Any, type_name: str) -> dict:
     for _ in range(20):
         frame = socket.receive_json()
-        events = frame["events"] if frame.get("type") == "synergo_feed" else [frame]
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
             if event.get("type") == type_name:
                 return event

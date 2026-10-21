@@ -20,8 +20,9 @@ for that (repo_id, file_path). The relay then works the line itself:
   has been allowed but its activity has not reached the relay yet, so
   without the claim the next in line would be released into the middle of
   the taker's edit. A claim ends when the taker's touch arrives (the touch
-  then blocks as any touch does), after the block window, or when the taker
-  leaves.
+  then blocks as any touch does), after CLAIM_MAX_SECONDS (or the block
+  window, if shorter), or when the taker leaves. Only a member that was in
+  the line takes a claim.
 * **Expiry.** An entry lasts the warn window from its latest request (a
   blocked retry or a file_request refreshes it, keeping its place), a
   released head lasts its grace, and an entry goes as soon as its member
@@ -44,17 +45,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Optional
 
-# One file's line: more than a room's worth of members (six) would be
-# pointless, and a bound keeps a misbehaving client from growing it.
-MAX_QUEUE_LENGTH = 8
-# Files with a line at once, per room.
-MAX_QUEUED_FILES = 256
+try:
+    from . import config
+except ImportError:  # Render rootDir=server
+    import config  # type: ignore[no-redef]
+
+# The bounds below come from server/config.py; 0 means no bound.
+#
+# One file's line (HIVELANE_FILE_QUEUE_MAX_LENGTH). A member is in a line at
+# most once, so the default of 0 bounds it by the room's membership.
+MAX_QUEUE_LENGTH = config.FILE_QUEUE_MAX_LENGTH
+# Files with a line at once, per room (HIVELANE_FILE_QUEUE_MAX_FILES).
+MAX_QUEUED_FILES = config.FILE_QUEUE_MAX_FILES
 # Paths longer than this are not queued (a relay-side memory bound; real repo
 # paths are far shorter, and an e2e hash is 34 characters).
-MAX_QUEUED_PATH_CHARS = 1024
+# HIVELANE_MAX_PATH_CHARS.
+MAX_QUEUED_PATH_CHARS = config.MAX_PATH_CHARS
 # How long the head of a line has to take a released file before the next
 # member in line is considered.
 RELEASE_GRACE_SECONDS = 10.0
+# A claim covers the gap between an allowed edit and its activity reaching
+# the relay (the daemon batches for 1.5 s), so it lapses well before the block
+# window: a taker whose edit produced no activity (a failed tool call, an
+# identical write) must not hold everyone off for the whole window.
+CLAIM_MAX_SECONDS = 5.0
 # The room's periodic sweep, while any line or claim exists. Lines are also
 # swept lazily on every member message.
 SWEEP_INTERVAL_SECONDS = 1.0
@@ -177,7 +191,7 @@ class FileQueues:
         """Join key's line, or refresh an existing place in it (same position,
         expiry restarted, latest request kept). Returns the 1-based position;
         0 when the line or the room's table of lines is full."""
-        if len(key[1]) > MAX_QUEUED_PATH_CHARS:
+        if MAX_QUEUED_PATH_CHARS > 0 and len(key[1]) > MAX_QUEUED_PATH_CHARS:
             return 0
         queue = self._queues.get(key)
         if queue is not None:
@@ -192,9 +206,9 @@ class FileQueues:
                         entry.line_ranges = [tuple(r) for r in line_ranges]
                     entry.branch = branch or entry.branch
                     return index + 1
-            if len(queue) >= self.max_length:
+            if self.max_length > 0 and len(queue) >= self.max_length:
                 return 0
-        elif len(self._queues) >= self.max_files:
+        elif self.max_files > 0 and len(self._queues) >= self.max_files:
             return 0
         else:
             queue = self._queues[key] = []
@@ -214,9 +228,15 @@ class FileQueues:
 
     def take(self, key: QueueKey, user_id: str, now: float) -> None:
         """user_id's edit of key was just allowed: out of the line, and a
-        claim on the file while anyone else still waits for it."""
+        claim on the file while anyone else still waits for it.
+
+        Only a member that was in the line takes a claim. Anyone else whose
+        edit passes (a different function, say) never queued for the file,
+        and must not block everyone behind a claim it never asked for."""
         queue = self._queues.get(key)
         if queue is None:
+            return
+        if not any(entry.user_id == user_id for entry in queue):
             return
         queue[:] = [entry for entry in queue if entry.user_id != user_id]
         if queue:
@@ -263,7 +283,7 @@ class FileQueues:
             for user_id, at in list(claims.items()):
                 if (
                     not is_active(user_id)
-                    or now - at > block_window
+                    or now - at > min(block_window, CLAIM_MAX_SECONDS)
                     or settled(key, user_id, at)
                 ):
                     del claims[user_id]

@@ -5,17 +5,36 @@
  */
 import type { AgentKind } from '../types';
 
-/** Mid-tone hues that read on both the dark and the light theme. */
+/**
+ * Mid-tone hues that read on both the dark and the light theme. Only cool
+ * hues: red, orange and amber mean block / conflict / warn on the same card,
+ * so a person must never wear them (raj in red looked "blocked").
+ */
 export const PERSON_PALETTE = [
   '#2dd4bf', // teal
   '#818cf8', // indigo
-  '#f59e0b', // amber
-  '#f43f5e', // rose
   '#38bdf8', // sky
-  '#84cc16', // lime
-  '#d946ef', // fuchsia
-  '#f97316', // orange
+  '#a78bfa', // violet
+  '#94a3b8', // slate
+  '#22d3ee', // cyan
+  '#c084fc', // purple
+  '#60a5fa', // blue
 ] as const;
+
+/** Hues a person colour must stay clear of (status colours). */
+export function isStatusHue(hexColor: string): boolean {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hexColor.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max - min < 0.15) return false; // grey: no hue to clash with
+  let h: number;
+  if (max === r) h = ((g - b) / (max - min)) % 6;
+  else if (max === g) h = (b - r) / (max - min) + 2;
+  else h = (r - g) / (max - min) + 4;
+  const deg = (h * 60 + 360) % 360;
+  // Red through amber and yellow (block, conflict, warn), plus pink/rose.
+  return deg < 65 || deg > 320;
+}
 
 export function hashString(value: string): number {
   let hash = 0;
@@ -71,13 +90,78 @@ export function clockTime(seconds: number): string {
 }
 
 /** Added / removed line counts of a unified diff (headers excluded). */
+export type DiffLineKind = 'meta' | 'hunk' | 'add' | 'del' | 'context' | 'note';
+
+export interface DiffLine {
+  kind: DiffLineKind;
+  text: string;
+  /** New-file line number for added and context lines; null otherwise. */
+  ln: number | null;
+}
+
+/**
+ * A unified diff, line by line. `---`/`+++` are file headers only outside a
+ * hunk: inside one, `--- x` is a removed `-- x` line and `+++x` an added
+ * `++x`. A hunk header's counts say where the hunk ends. A diff with no hunk
+ * header at all (agents send bare `-a` / `+b` snippets) is all body.
+ * `\ No newline at end of file` is a note and does not advance the numbers.
+ */
+export function parseDiff(diff: string): DiffLine[] {
+  const lines = diff.replace(/\r\n/g, '\n').split('\n');
+  const hasHunks = lines.some((l) => l.startsWith('@@'));
+  const out: DiffLine[] = [];
+  let inHunk = !hasHunks;
+  let oldLeft = Number.POSITIVE_INFINITY;
+  let newLeft = Number.POSITIVE_INFINITY;
+  let ln = 0;
+  for (const text of lines) {
+    if (text.startsWith('@@')) {
+      const m = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(text);
+      oldLeft = m ? (m[1] === undefined ? 1 : Number(m[1])) : Number.POSITIVE_INFINITY;
+      newLeft = m ? (m[3] === undefined ? 1 : Number(m[3])) : Number.POSITIVE_INFINITY;
+      ln = m ? Number(m[2]) - 1 : ln;
+      inHunk = true;
+      out.push({ kind: 'hunk', text, ln: null });
+      continue;
+    }
+    if (text.startsWith('\\')) {
+      out.push({ kind: 'note', text, ln: null });
+      continue;
+    }
+    // Counts used up: the hunk ends, but only at something that looks like a
+    // header (agents send hand-made hunks whose counts are wrong).
+    if (inHunk && hasHunks && oldLeft <= 0 && newLeft <= 0 && /^(diff |index |--- |\+\+\+ )/.test(text)) {
+      inHunk = false;
+    }
+    if (!inHunk) {
+      // Before the first hunk or between files: diff/index/---/+++ and git's
+      // extended headers.
+      out.push({ kind: 'meta', text, ln: null });
+      continue;
+    }
+    if (text.startsWith('+')) {
+      newLeft -= 1;
+      ln += 1;
+      out.push({ kind: 'add', text, ln });
+    } else if (text.startsWith('-')) {
+      oldLeft -= 1;
+      out.push({ kind: 'del', text, ln: null });
+    } else {
+      oldLeft -= 1;
+      newLeft -= 1;
+      ln += 1;
+      out.push({ kind: 'context', text, ln });
+    }
+  }
+  return out;
+}
+
 export function diffStat(diff: string): { added: number; removed: number } {
   let added = 0;
   let removed = 0;
-  for (const line of diff.split('\n')) {
-    if (line.startsWith('+++') || line.startsWith('---')) continue;
-    if (line.startsWith('+')) added += 1;
-    else if (line.startsWith('-')) removed += 1;
+  for (const line of parseDiff(diff)) {
+    if (line.kind === 'add') added += 1;
+    else if (line.kind === 'del') removed += 1;
   }
   return { added, removed };
 }

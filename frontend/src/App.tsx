@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Mark, Mascot } from './brand/BrandArt';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import AddTeammate from './components/AddTeammate';
 import ConflictBanner from './components/ConflictBanner';
@@ -27,7 +28,10 @@ import NotificationsSettings from './components/NotificationsSettings';
 import ReplayView from './components/ReplayView';
 import { notifyFeedEvent } from './notifications';
 import { publishHistoryChunk } from './replay';
+import { relativeTime } from './dashboard/people';
+import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import { copyText } from './clipboard';
+import { closeAction } from './closeCodes';
 import {
   E2EDecoder,
   forgetRoomKey,
@@ -83,6 +87,12 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 /** How long a departed agent's greyed-out lane stays up before it is dropped. */
 const OFFLINE_LANE_TTL_MS = 10 * 60 * 1000;
+/** How often derived "x ago" labels and lane statuses refresh with no traffic. */
+const CLOCK_TICK_MS = 5_000;
+/** Per-decision bookkeeping kept for this session (scopes, vote tallies). */
+const MAX_TRACKED_DECISIONS = 500;
+/** With no non-roster frame after it, the catch-up roster ends this long after room_settings. */
+const ROSTER_SETTLE_MS = 2_000;
 
 const BLANK_LANE: LaneState = {
   caption: null,
@@ -122,8 +132,25 @@ function isExpired(event: { timestamp: number }, nowSeconds: number): boolean {
   return nowSeconds - event.timestamp > CONFLICT_TTL_SECONDS;
 }
 
+/** One alert per file *and* pair: the relay judges each pair separately. */
+function conflictKey(alert: ConflictAlert): string {
+  return `${alert.file_path}\u0000${[...alert.users].sort().join('\u0000')}`;
+}
+
+/** The newest `max` keys of a record (insertion order), or `prev` when within bounds. */
+function capRecord<T>(prev: Record<string, T>, max: number): Record<string, T> {
+  const keys = Object.keys(prev);
+  if (keys.length <= max) return prev;
+  return Object.fromEntries(keys.slice(keys.length - max).map((k) => [k, prev[k]]));
+}
+
+/** A relay default that means "not known" ("" branch, "unknown" agent) reads as absent. */
+function known<T extends string>(value: T | null | undefined, unknown: string): T | undefined {
+  return value && value !== unknown ? value : undefined;
+}
+
 function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
-  const now = Date.now() / 1000;
+  const now = serverNowSeconds();
   const next = prev.filter((c) => !isExpired(c, now));
   return next.length === prev.length ? prev : next;
 }
@@ -131,7 +158,7 @@ function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
 function pruneLaneDecisions(
   prev: Record<string, LaneEntry>,
 ): Record<string, LaneEntry> {
-  const now = Date.now() / 1000;
+  const now = serverNowSeconds();
   let changed = false;
   const next: Record<string, LaneEntry> = {};
   for (const [id, lane] of Object.entries(prev)) {
@@ -171,19 +198,23 @@ function upsertConflict(
   prev: ConflictAlert[],
   next: ConflictAlert,
 ): ConflictAlert[] {
-  if (!isActionableConflict(next) || isExpired(next, Date.now() / 1000)) {
-    return prev.filter((c) => c.file_path !== next.file_path);
+  // Only this pair's earlier alert is replaced (or cleared by a non-actionable verdict).
+  const key = conflictKey(next);
+  const without = prev.filter((c) => conflictKey(c) !== key);
+  if (!isActionableConflict(next) || isExpired(next, serverNowSeconds())) {
+    return without.length === prev.length ? prev : without;
   }
-  const without = prev.filter((c) => c.file_path !== next.file_path);
   return [...without, next].sort((a, b) => b.timestamp - a.timestamp);
 }
 
-function relativeTime(ts: number): string {
-  const delta = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-  if (delta < 60) return `${delta}s ago`;
-  if (delta < 3600) return `${Math.floor(delta / 60)} mins ago`;
-  return `${Math.floor(delta / 3600)} hours ago`;
-}
+const STATUS_LABEL: Record<ConnStatus, string> = {
+  connecting: 'Connecting',
+  connected: 'Live',
+  disconnected: 'Offline',
+  room_missing: 'Room gone',
+  pending: 'Awaiting approval',
+  refused: 'Not admitted',
+};
 
 /** pending: held for an owner's approval; refused: an owner (or the clock) said no. */
 type ConnStatus =
@@ -230,12 +261,15 @@ export default function App() {
     null,
   );
   const [status, setStatus] = useState<ConnStatus>('connecting');
-  const [elapsed, setElapsed] = useState(0);
+  // Refreshes time-derived labels when no frames arrive. Deliberately coarse:
+  // a 1 s tick here re-rendered the whole dashboard every second.
+  const [, setClockMs] = useState(() => Date.now());
   // The open view also lives in ?view= so a filtered view is a shareable link.
   const [view, setView] = useState<AppView>(
     () => (viewFromParam(readViewParam(window.location.search)) ?? 'agents') as AppView,
   );
-  const [topNav, setTopNav] = useState<(typeof TOP_NAV)[number]>('Cluster');
+  // Derived, so views with no top-nav entry (replay, notifications) clear the underline.
+  const topNav = VIEW_TO_TOP_NAV[view] ?? null;
   const [highlightFile, setHighlightFile] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
@@ -250,7 +284,9 @@ export default function App() {
   const [myVotes, setMyVotes] = useState<Record<string, Vote>>({});
   // End-to-end encrypted rooms: the passphrase (from #k= or pasted; never
   // sent to the relay) and what the decoder could make of the room's frames.
-  const [e2eKey, setE2EKey] = useState<string | null>(null);
+  // Read during the first render (main.tsx remounts App per room), so the
+  // first connection already has it: no second connect, never the old room's key.
+  const [e2eKey, setE2EKey] = useState<string | null>(() => takeRoomKey(roomId));
   const [e2eState, setE2EState] = useState<E2EState>('off');
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
@@ -262,7 +298,7 @@ export default function App() {
   // Bumped by "Ask again" to reconnect after a refusal.
   const [joinAttempt, setJoinAttempt] = useState(0);
   // Session log, URL filters, prevented-collision stats, overlays, shortcuts.
-  const nowSeconds = Date.now() / 1000;
+  const nowSeconds = serverNowSeconds();
   const dash = useDashboardState({
     onNavigate: (next) => navigateTo(next),
     feedback,
@@ -291,11 +327,12 @@ export default function App() {
     sendAccessFrame({ type: 'room_policy', require_approval: value });
   };
 
-  const sendVote = (decisionId: string, vote: Vote) => {
+  const sendVoteNow = (decisionId: string, vote: Vote) => {
     if (myVotes[decisionId]) return;
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showToast('Not connected — vote not sent');
+    if (!ws || ws.readyState !== WebSocket.OPEN || status !== 'connected') {
+      // While a dashboard awaits approval the relay drops its frames: say so.
+      showToast(status === 'pending' ? 'Waiting for approval — vote not sent' : 'Not connected — vote not sent');
       return;
     }
     const frame: DecisionFeedback = {
@@ -304,19 +341,38 @@ export default function App() {
       useful: vote === 'useful',
     };
     ws.send(JSON.stringify(frame));
-    setMyVotes((prev) => ({ ...prev, [decisionId]: vote }));
+    setMyVotes((prev) => capRecord({ ...prev, [decisionId]: vote }, MAX_TRACKED_DECISIONS));
   };
+  // A stable identity for memoized lanes and timeline rows; calls the latest closure.
+  const sendVoteRef = useRef(sendVoteNow);
+  useEffect(() => {
+    sendVoteRef.current = sendVoteNow;
+  });
+  const sendVote = useCallback((decisionId: string, vote: Vote) => sendVoteRef.current(decisionId, vote), []);
 
-  const showToast = (message: string) => {
+  // One timer per purpose, cleared before it is re-armed (a second toast or
+  // highlight was cut short by the first one's timer).
+  const toastTimer = useRef<number | undefined>(undefined);
+  const copiedTimer = useRef<number | undefined>(undefined);
+  const highlightTimer = useRef<number | undefined>(undefined);
+  useEffect(
+    () => () => {
+      window.clearTimeout(toastTimer.current);
+      window.clearTimeout(copiedTimer.current);
+      window.clearTimeout(highlightTimer.current);
+    },
+    [],
+  );
+
+  const showToast = useCallback((message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast(null), 1800);
-  };
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 1800);
+  }, []);
 
   const navigateTo = (next: AppView) => {
     setView(next);
     dash.syncViewParam(next);
-    const mapped = VIEW_TO_TOP_NAV[next];
-    if (mapped) setTopNav(mapped);
   };
 
   useEffect(() => {
@@ -325,24 +381,15 @@ export default function App() {
     const fromUrl = viewFromParam(dash.viewParam) as AppView | null;
     if (!fromUrl) return;
     setView(fromUrl);
-    const mapped = VIEW_TO_TOP_NAV[fromUrl];
-    if (mapped) setTopNav(mapped);
   }, [dash.viewParam]);
 
   const displayUsers = users;
   const displayConflicts = conflicts;
-  const displayUserIds = Object.keys(displayUsers);
+  const displayUserIds = useMemo(() => Object.keys(displayUsers), [displayUsers]);
   // Offline lanes stay on the board but are not "agents" in any count.
   const onlineUserIds = displayUserIds.filter(
     (id) => displayUsers[id].offlineSince == null,
   );
-
-  useEffect(() => {
-    // Before the canonical-link redirect below, which would drop a #k=
-    // fragment: the key is read, stripped from the address bar, and kept
-    // for this room in this tab only.
-    setE2EKey(takeRoomKey(roomId));
-  }, [roomId]);
 
   useEffect(() => {
     // /r/abcd-2345 and friends settle on one canonical link, so the address
@@ -354,7 +401,7 @@ export default function App() {
   }, [rawCode, roomId, navigate]);
 
   useEffect(() => {
-    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    const id = setInterval(() => setClockMs(Date.now()), CLOCK_TICK_MS);
     return () => clearInterval(id);
   }, []);
 
@@ -378,6 +425,10 @@ export default function App() {
     setRequireApproval(null);
     setJoinRequests([]);
     setAccessNotice(null);
+    // Per-room detection bookkeeping (votes, scopes) must not leak across rooms.
+    setDecisionScopes({});
+    setFeedback({});
+    setMyVotes({});
 
     let cancelled = false;
     let roomMissing = false;
@@ -398,6 +449,36 @@ export default function App() {
     // budget forever and locks the dashboard out of its own room, so back off
     // and let the server's retry_after win when it sends one.
     let retryAfterMs = 0;
+    // Roster reconciliation: the catch-up re-announces every current member
+    // (user_joined) right after room_settings and room_policy_update. A lane
+    // still shown online but not re-announced left while this socket was
+    // down, and no user_left will ever come for it.
+    let rosterPhase: 'waiting' | 'collecting' | 'done' = 'waiting';
+    let announced = new Set<string>();
+    let rosterTimer: ReturnType<typeof setTimeout> | undefined;
+    const finishRoster = () => {
+      if (rosterPhase !== 'collecting') return;
+      rosterPhase = 'done';
+      if (rosterTimer) clearTimeout(rosterTimer);
+      const present = announced;
+      setUsers((prev) => {
+        let changed = false;
+        const next: Record<string, LaneEntry> = {};
+        for (const [id, lane] of Object.entries(prev)) {
+          if (lane.offlineSince == null && !present.has(id)) {
+            changed = true;
+            next[id] = { ...lane, offlineSince: Date.now() };
+          } else {
+            next[id] = lane;
+          }
+        }
+        return changed ? next : prev;
+      });
+      setConflicts((prev) => {
+        const kept = prev.filter((c) => c.users.every((u) => present.has(u)));
+        return kept.length === prev.length ? prev : kept;
+      });
+    };
 
     const nextDelay = () => {
       if (retryAfterMs > 0) {
@@ -416,6 +497,9 @@ export default function App() {
       setStatus('connecting');
       // Pending requests and the policy come back in the catch-up.
       setJoinRequests([]);
+      rosterPhase = 'waiting';
+      announced = new Set<string>();
+      if (rosterTimer) clearTimeout(rosterTimer);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       ws.onopen = () => {
@@ -423,9 +507,10 @@ export default function App() {
           ws.close();
           return;
         }
-        attempt = 0;
+        // Not "connected" yet: the relay accepts a socket before it may
+        // reject it (rate limit, approval). The backoff resets and the status
+        // turns live on the first catch-up frame (room_settings).
         awaitingApproval = false;
-        setStatus('connected');
         ws.send(JSON.stringify(spectatorJoin(roomId)));
       };
 
@@ -448,6 +533,17 @@ export default function App() {
         };
 
         const applyFeedEvent = (item: FeedEvent) => {
+          if (rosterPhase === 'collecting') {
+            if (item.type === 'user_joined') announced.add(item.user_id);
+            else if (item.type !== 'room_settings' && item.type !== 'room_policy_update') finishRoster();
+          } else if (rosterPhase === 'done' && 'timestamp' in item) {
+            // Live traffic, not stored catch-up: calibrates the relay clock.
+            observeServerTimestamp((item as { timestamp?: unknown }).timestamp);
+          }
+          if (item.type === 'room_settings' && rosterPhase === 'waiting') {
+            rosterPhase = 'collecting';
+            rosterTimer = setTimeout(finishRoster, ROSTER_SETTLE_MS);
+          }
           recordFeedEvent(item);
           notifyFeedEvent(roomId, item); // browser notifications (notifications.ts)
           switch (item.type) {
@@ -512,8 +608,10 @@ export default function App() {
                     changes,
                     prompt: item.prompt,
                     timestamp: item.timestamp,
-                    agent: item.agent ?? prior?.agent ?? 'unknown',
-                    branch: item.branch ?? prior?.branch ?? '',
+                    // The relay sends branch "" and agent "unknown" when it does
+                    // not know them: those must not wipe what the lane knows.
+                    agent: known(item.agent, 'unknown') ?? prior?.agent ?? 'unknown',
+                    branch: known(item.branch, '') ?? prior?.branch ?? '',
                   },
                 };
               });
@@ -527,7 +625,7 @@ export default function App() {
                   [item.user_id]: {
                     ...(prior ?? BLANK_ENTRY),
                     intent: item.prompt,
-                    agent: item.agent ?? prior?.agent ?? 'unknown',
+                    agent: known(item.agent, 'unknown') ?? prior?.agent ?? 'unknown',
                   },
                 };
               });
@@ -541,14 +639,14 @@ export default function App() {
                   [item.user_id]: {
                     ...prior,
                     plan: item,
-                    agent: item.agent ?? prior.agent,
+                    agent: known(item.agent, 'unknown') ?? prior.agent,
                   },
                 };
               });
               break;
 
             case 'decision_feedback_update':
-              setFeedback((prev) => applyFeedbackUpdate(prev, item));
+              setFeedback((prev) => capRecord(applyFeedbackUpdate(prev, item), MAX_TRACKED_DECISIONS));
               break;
 
             case 'edit_decision':
@@ -556,7 +654,7 @@ export default function App() {
                 const id = item.decision_id;
                 const scope = decisionScope(item);
                 setDecisionScopes((prev) =>
-                  prev[id] === scope ? prev : { ...prev, [id]: scope },
+                  prev[id] === scope ? prev : capRecord({ ...prev, [id]: scope }, MAX_TRACKED_DECISIONS),
                 );
               }
               setUsers((prev) => {
@@ -572,7 +670,7 @@ export default function App() {
                   [item.user_id]: {
                     ...prior,
                     decisions,
-                    agent: item.agent ?? prior.agent,
+                    agent: known(item.agent, 'unknown') ?? prior.agent,
                   },
                 };
               });
@@ -591,7 +689,7 @@ export default function App() {
               if (isActionableConflict(item)) {
                 setConflictHistory((prev) => {
                   const without = prev.filter(
-                    (c) => c.file_path !== item.file_path,
+                    (c) => conflictKey(c) !== conflictKey(item),
                   );
                   return [item, ...without].slice(0, 20);
                 });
@@ -616,7 +714,7 @@ export default function App() {
             ws.close();
             break;
 
-          case 'synergo_feed':
+          case 'hivelane_feed':
             for (const item of msg.events) {
               applyDecoded(item);
             }
@@ -628,6 +726,15 @@ export default function App() {
             break;
 
           case 'user_joined':
+          case 'room_settings':
+            // The first catch-up frame: the relay admitted this socket.
+            if (rosterPhase === 'waiting') {
+              attempt = 0;
+              if (!awaitingApproval) setStatus('connected');
+            }
+            applyDecoded(msg);
+            break;
+
           case 'user_left':
           case 'activity_update':
           case 'conflict_alert':
@@ -635,7 +742,6 @@ export default function App() {
           case 'edit_decision':
           case 'plan_update':
           case 'decision_feedback_update':
-          case 'room_settings':
           case 'room_policy_update':
             // Catch-up frames still arrive as individual messages via send().
             applyDecoded(msg);
@@ -676,13 +782,17 @@ export default function App() {
 
       ws.onclose = (event) => {
         if (cancelled) return;
+        if (rosterTimer) clearTimeout(rosterTimer);
         wsRef.current = null;
-        if (refused || event.code === 4403) {
+        // closeCodes.ts: 1013 (slow socket dropped) and 4408 (join timeout)
+        // are transient and fall through to a backed-off reconnect.
+        const action = closeAction(event.code);
+        if (refused || action === 'refused') {
           refused = true;
           setStatus('refused');
           return;
         }
-        if (roomMissing || event.code === 4404 || event.code === 4004) {
+        if (roomMissing || action === 'room_missing') {
           roomMissing = true;
           setStatus('room_missing');
           return;
@@ -703,10 +813,11 @@ export default function App() {
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
+      if (rosterTimer) clearTimeout(rosterTimer);
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent]);
+  }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent, showToast]);
 
   const copyShareUrl = async () => {
     if (!(await copyText(roomLink(roomId)))) {
@@ -715,7 +826,8 @@ export default function App() {
     }
     setCopied(true);
     showToast('Room link copied');
-    window.setTimeout(() => setCopied(false), 1500);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
   };
 
   const createNewRoom = async () => {
@@ -751,18 +863,7 @@ export default function App() {
 
   const hasLanes = displayUserIds.length > 0;
 
-  const serverLabel =
-    status === 'connected'
-      ? 'SERVER: CONNECTED'
-      : status === 'connecting'
-        ? 'SERVER: CONNECTING'
-        : status === 'room_missing'
-          ? 'SERVER: ROOM GONE'
-          : status === 'pending'
-            ? 'SERVER: AWAITING APPROVAL'
-            : status === 'refused'
-              ? 'SERVER: NOT ADMITTED'
-              : 'SERVER: OFFLINE';
+  const serverLabel = `Relay: ${STATUS_LABEL[status].toLowerCase()}`;
 
   const handleViewOverlap = (filePath: string) => {
     navigateTo('agents');
@@ -777,12 +878,14 @@ export default function App() {
         });
       }
     }, 50);
-    window.setTimeout(() => setHighlightFile(null), 8000);
+    window.clearTimeout(highlightTimer.current);
+    highlightTimer.current = window.setTimeout(() => setHighlightFile(null), 8000);
   };
 
-  const handleResolve = (filePath: string) => {
-    setConflicts((prev) => prev.filter((c) => c.file_path !== filePath));
-    showToast('Conflict resolved');
+  const handleDismiss = (alert: ConflictAlert) => {
+    const key = conflictKey(alert);
+    setConflicts((prev) => prev.filter((c) => conflictKey(c) !== key));
+    showToast('Alert hidden on this dashboard');
   };
 
   const historyRows = conflictHistory;
@@ -793,15 +896,25 @@ export default function App() {
 
   // Phase 5: per-lane status and history from the session log, then filters
   // (shared with the timeline and heat map, kept in the URL).
-  const laneDerived = Object.fromEntries(
-    displayUserIds.map((id) => [id, deriveLane(dash.log, id, displayUsers[id], nowSeconds)]),
+  // Recomputed when the log, the lanes or the coarse clock move, not on every
+  // unrelated render (toasts, copy state, dialogs). laneNow stands for "now".
+  const laneNow = Math.floor(nowSeconds / (CLOCK_TICK_MS / 1000)) * (CLOCK_TICK_MS / 1000);
+  const laneDerived = useMemo(
+    () =>
+      Object.fromEntries(
+        displayUserIds.map((id) => [id, deriveLane(dash.log, id, displayUsers[id], laneNow)]),
+      ),
+    [dash.log, displayUsers, displayUserIds, laneNow],
   );
-  const visibleLaneIds = displayUserIds.filter((id) =>
-    matchesLane(laneDerived[id].facts, dash.filters),
+  const visibleLaneIds = useMemo(
+    () => displayUserIds.filter((id) => matchesLane(laneDerived[id].facts, dash.filters)),
+    [displayUserIds, laneDerived, dash.filters],
   );
-  const laneFileFilter = dash.filters.file.trim()
-    ? (path: string) => fileMatches(dash.filters.file, path)
-    : undefined;
+  const fileFilterText = dash.filters.file;
+  const laneFileFilter = useMemo(
+    () => (fileFilterText.trim() ? (path: string) => fileMatches(fileFilterText, path) : undefined),
+    [fileFilterText],
+  );
   const filterBar = (
     <FilterBar
       filters={dash.filters}
@@ -827,24 +940,23 @@ export default function App() {
   return (
     <div className="app-shell overflow-hidden flex flex-col bg-background">
       <header className="glass-header shrink-0 z-50">
-        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-5 h-[56px]">
-          <div className="flex items-center gap-3.5 min-w-0">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-4 h-12">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
-              className="inline-flex items-center gap-2 font-extrabold text-[15px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
+              className="inline-flex items-center gap-2 font-medium text-[13px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
               onClick={() => navigate('/')}
-              title="Back to Synergo home"
+              title="Back to Hivelane home"
             >
-              <span className="w-6 h-6 rounded-md bg-primary/15 border border-primary/30 text-primary text-[11px] font-bold font-mono inline-flex items-center justify-center">
-                S
-              </span>
-              Synergo
+              <Mark size={20} />
+              Hivelane
             </button>
             <div
               className="inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1 min-h-[22px]"
               title={wsUrl}
             >
               <span
+                aria-hidden="true"
                 className={`w-1.5 h-1.5 rounded-full ${
                   status === 'connected'
                     ? 'bg-emerald shadow-live'
@@ -853,12 +965,13 @@ export default function App() {
                       : 'bg-error'
                 }`}
               />
-              <span className="sr-only sm:not-sr-only text-[10px] font-semibold uppercase tracking-[0.1em] text-on-muted">
+              <span className="sr-only sm:not-sr-only text-[12px] font-medium text-on-muted">
                 {serverLabel}
               </span>
               {roomSettings?.e2e ? (
                 <span
                   className="text-[11px]"
+                  role="img"
                   title="End-to-end encrypted room: the relay sees only hashes and ciphertext"
                   aria-label="End-to-end encrypted"
                 >
@@ -873,10 +986,8 @@ export default function App() {
               <button
                 key={item}
                 type="button"
-                onClick={() => {
-                  setTopNav(item);
-                  navigateTo(TOP_NAV_TO_VIEW[item]);
-                }}
+                onClick={() => navigateTo(TOP_NAV_TO_VIEW[item])}
+                aria-current={topNav === item ? 'page' : undefined}
                 className={`relative text-[12px] font-medium transition-colors px-3 py-1.5 rounded-md ${
                   topNav === item
                     ? 'text-on-surface'
@@ -885,7 +996,7 @@ export default function App() {
               >
                 {item}
                 {topNav === item ? (
-                  <span className="absolute left-3 right-3 -bottom-[11px] h-[2px] rounded-full bg-lavender" />
+                  <span className="absolute left-3 right-3 -bottom-[9px] h-px bg-on-surface" />
                 ) : null}
               </button>
             ))}
@@ -893,20 +1004,16 @@ export default function App() {
 
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
             <div className="hidden md:flex items-center gap-2">
-              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
-                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
-                  Agents
-                </span>
-                <span className="font-mono text-[12px] font-bold text-primary tabular-nums">
-                  {String(onlineUserIds.length).padStart(2, '0')}
+              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
+                <span className="text-[12px] text-on-dim">Agents</span>
+                <span className="font-mono text-[12px] text-on-surface tabular-nums">
+                  {onlineUserIds.length}
                 </span>
               </div>
-              <div className="stat-chip rounded-lg px-2.5 py-1.5 flex items-baseline gap-1.5">
-                <span className="text-[9px] uppercase tracking-[0.1em] text-on-dim font-semibold">
-                  Diffs
-                </span>
-                <span className="font-mono text-[12px] font-bold text-on-surface tabular-nums">
-                  {String(totalDiffs).padStart(2, '0')}
+              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
+                <span className="text-[12px] text-on-dim">Diffs</span>
+                <span className="font-mono text-[12px] text-on-surface tabular-nums">
+                  {totalDiffs}
                 </span>
               </div>
             </div>
@@ -935,17 +1042,22 @@ export default function App() {
                 onClick={() => void copyShareUrl()}
               >
                 <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  {copied ? 'check' : 'screen_share'}
+                  {copied ? 'check' : 'link'}
                 </span>
               </button>
               <button
                 type="button"
                 className="icon-btn p-1.5 relative"
-                title="Notifications"
+                title="Active conflicts"
+                aria-label={
+                  displayConflicts.length > 0
+                    ? `Active conflicts (${displayConflicts.length})`
+                    : 'Active conflicts'
+                }
                 onClick={() => navigateTo('conflicts')}
               >
-                <span className="material-symbols-outlined text-[20px]">
-                  notifications
+                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
+                  warning
                 </span>
                 {displayConflicts.length > 0 ? (
                   <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-surface" />
@@ -966,7 +1078,7 @@ export default function App() {
 
             <button
               type="button"
-              className="deploy-btn mobile-readonly rounded-full px-3.5 py-1.5 text-[11px] font-bold tracking-wide ml-1"
+              className="deploy-btn mobile-readonly px-3 py-1.5 text-[12px] font-medium ml-1"
               onClick={() => navigateTo('invite')}
             >
               Invite teammates
@@ -977,8 +1089,9 @@ export default function App() {
 
       <ConflictBanner
         conflicts={displayConflicts}
-        onResolve={handleResolve}
+        onDismiss={handleDismiss}
         onViewOverlap={handleViewOverlap}
+        onShowAll={() => navigateTo('conflicts')}
       />
 
       {roomSettings?.e2e || e2eState !== 'off' ? (
@@ -1033,9 +1146,9 @@ export default function App() {
           <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
             <p className="text-[13px] text-on-surface m-0">
               Room <span className="font-mono text-primary">{roomId}</span> is
-              gone on the relay (expired or redeployed). Create a new workspace,
+              gone on the relay (expired or redeployed). Create a new room,
               then run{' '}
-              <code className="font-mono">synergo up --room &lt;new code&gt;</code>{' '}
+              <code className="font-mono">hivelane up --room &lt;new code&gt;</code>{' '}
               in each repo.
             </p>
             <button
@@ -1044,7 +1157,7 @@ export default function App() {
               onClick={() => void createNewRoom()}
               disabled={creatingRoom}
             >
-              {creatingRoom ? 'Creating…' : 'New workspace'}
+              {creatingRoom ? 'Creating…' : 'New room'}
             </button>
           </div>
         </div>
@@ -1055,7 +1168,6 @@ export default function App() {
           view={view}
           onNavigate={navigateTo}
           conflictCount={displayConflicts.length}
-          elapsedSeconds={elapsed}
           roomId={roomId}
           onCopyRoom={() => void copyShareUrl()}
           copied={copied}
@@ -1066,16 +1178,16 @@ export default function App() {
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar relative workspace-canvas pb-20 md:pb-0">
           {view === 'dashboard' ? (
-            <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+            <div className="p-5 sm:p-8 lg:p-10 max-w-[1100px]">
+              <h1 className="text-[28px] font-medium tracking-[-0.03em] text-on-surface mb-1">
                 Dashboard
               </h1>
-              <p className="text-[13px] text-on-muted mb-6">
+              <p className="text-[14px] text-on-muted mb-8">
                 Room overview for{' '}
                 <span className="font-mono text-primary">{roomId}</span>
               </p>
               {preventedCounter}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px mb-8 bg-outline rounded-lg overflow-hidden border border-outline">
                 {[
                   {
                     label: 'Active agents',
@@ -1097,7 +1209,7 @@ export default function App() {
                   },
                   {
                     label: 'Relay',
-                    value: status === 'connected' ? 'Live' : status,
+                    value: STATUS_LABEL[status],
                     action: () => navigateTo('settings'),
                     cta: 'Settings',
                   },
@@ -1106,14 +1218,14 @@ export default function App() {
                     key={card.label}
                     type="button"
                     onClick={card.action}
-                    className="lane-shell rounded-2xl p-5 text-left hover:border-primary/30 transition-colors"
+                    className="bg-surface p-5 text-left hover:bg-surface-raised transition-colors"
                   >
                     <p className="section-label m-0">{card.label}</p>
-                    <p className="font-mono text-2xl font-bold text-on-surface mt-3 mb-1 capitalize">
+                    <p className="font-mono text-[28px] font-medium tracking-tight text-on-surface mt-3 mb-2 tabular-nums">
                       {card.value}
                     </p>
-                    <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">
-                      {card.cta} →
+                    <span className="text-[13px] text-primary">
+                      {card.cta}
                     </span>
                   </button>
                 ))}
@@ -1121,24 +1233,24 @@ export default function App() {
               <div className="flex flex-wrap gap-3">
                 <button
                   type="button"
-                  className="deploy-btn rounded-xl px-4 py-2.5 text-[12px] font-bold"
+                  className="deploy-btn px-3.5 py-2 text-[13px] font-medium"
                   onClick={() => navigateTo('invite')}
                 >
                   Invite teammates
                 </button>
                 <button
                   type="button"
-                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
                   onClick={() => void copyShareUrl()}
                 >
                   Copy room link
                 </button>
                 <button
                   type="button"
-                  className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface hover:border-lavender/40 transition-colors"
+                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
                   onClick={() => navigateTo('agents')}
                 >
-                  Open Synergo feed
+                  Open Hivelane feed
                 </button>
               </div>
             </div>
@@ -1149,7 +1261,7 @@ export default function App() {
               <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
                 <div>
                   <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
-                    Synergo feed
+                    Hivelane feed
                   </h1>
                   <p className="text-[13px] text-on-muted mt-1 mb-0">
                     One lane per person: status, current intent, plan checklist and
@@ -1191,7 +1303,7 @@ export default function App() {
                           recentEdits={laneDerived[id].recentEdits}
                           editedPlanFiles={laneDerived[id].editedPlanFiles}
                           lastActivity={laneDerived[id].lastActivity}
-                          nowSeconds={nowSeconds}
+                          nowSeconds={laneNow}
                           fileFilter={laneFileFilter}
                         />
                       ))}
@@ -1201,6 +1313,7 @@ export default function App() {
               ) : (
                 <div className="max-w-[46rem] space-y-4">
                   <div className="lane-shell rounded-2xl p-6">
+                    <Mascot pose="clear" size={72} className="mb-3" />
                     <p className="text-[14px] text-on-surface font-medium m-0">
                       No agents connected yet
                     </p>
@@ -1216,7 +1329,7 @@ export default function App() {
                       </button>
                     </p>
                   </div>
-                  <SharePanel roomId={roomId} settings={roomSettings} />
+                  <SharePanel roomId={roomId} settings={roomSettings} requireApproval={requireApproval} />
                 </div>
               )}
             </div>
@@ -1277,7 +1390,7 @@ export default function App() {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[12px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                 onClick={() => navigateTo('history')}
               >
                 Open conflict history
@@ -1289,7 +1402,7 @@ export default function App() {
             <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
               <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
               <p className="text-[13px] text-on-muted mb-6">
-                How to connect agents to Synergo.
+                How to connect agents to Hivelane.
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
                 <p className="m-0">
@@ -1299,11 +1412,11 @@ export default function App() {
                 </p>
                 <p className="m-0">
                   2. On each machine, install once with{' '}
-                  <code className="text-primary font-mono">pipx install synergo</code>
+                  <code className="text-primary font-mono">pipx install hivelane</code>
                   , then run{' '}
                   <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
                   in the repo the agent works in. It sets up the agent hooks and the
-                  Synergo daemon.
+                  Hivelane daemon.
                 </p>
                 <p className="m-0">
                   3. Let the agents work — activity and conflicts appear on this
@@ -1319,14 +1432,14 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
                     onClick={() => setDeployOpen(true)}
                   >
-                    Copy CLI
+                    Setup commands
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-on-surface transition-colors"
+                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
                     onClick={() =>
                       window.open(
                         `${relayHttpOrigin()}/docs`,
@@ -1343,7 +1456,7 @@ export default function App() {
           ) : null}
 
           {view === 'invite' ? (
-            <AddTeammate roomId={roomId} settings={roomSettings} />
+            <AddTeammate roomId={roomId} settings={roomSettings} requireApproval={requireApproval} />
           ) : null}
 
           {view === 'replay' ? (
@@ -1406,11 +1519,11 @@ export default function App() {
                         : historyRows
                       ).map((c) => (
                         <tr
-                          key={`${c.file_path}-${c.timestamp}`}
+                          key={`${conflictKey(c)}-${c.timestamp}`}
                           className="hover:bg-ink/[0.03] transition-colors"
                         >
                           <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
-                            {relativeTime(c.timestamp)}
+                            {relativeTime(c.timestamp, nowSeconds)}
                           </td>
                           <td className="px-5 py-4 text-[13px] font-medium text-on-surface">
                             {c.users.join(' · ')}
@@ -1541,21 +1654,21 @@ export default function App() {
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => void copyShareUrl()}
                   >
                     Copy room link
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => navigateTo('invite')}
                   >
                     Invite teammates
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => void createNewRoom()}
                     disabled={creatingRoom}
                   >
@@ -1563,7 +1676,7 @@ export default function App() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                     onClick={() => navigate('/')}
                   >
                     Leave room

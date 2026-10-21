@@ -52,3 +52,10 @@ brag-output/
 graphify-out/cache/
 # dated snapshots graphify writes on update; only the live graph is tracked
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+
+# Coverage output (pytest --cov, locally and in CI)
+.coverage
+.coverage.*
+coverage.xml
+# Pages build (scripts/build_pages.sh)
+_site/

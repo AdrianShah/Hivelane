@@ -94,8 +94,9 @@ class FakeRedis:
         raise AttributeError(name)
 
     def pipeline(self, transaction: bool = True) -> FakePipeline:
-        assert transaction, "room store writes must be atomic"
-        return FakePipeline(self)
+        # A non-transactional pipeline is fine for reads (store.get_record);
+        # writes must still be atomic, checked when it executes.
+        return FakePipeline(self, transaction)
 
     # --- plumbing ---
 
@@ -232,9 +233,16 @@ class FakeRedis:
         return sum(1 for key in keys if bucket.pop(key, None) is not None)
 
 
+# Commands that only read: allowed in a non-transactional pipeline.
+READ_COMMANDS = frozenset(
+    {"get", "hget", "hgetall", "exists", "zscore", "zcard", "zcount", "zrange", "ttl", "pttl"}
+)
+
+
 class FakePipeline:
-    def __init__(self, redis: FakeRedis) -> None:
+    def __init__(self, redis: FakeRedis, transaction: bool = True) -> None:
         self._redis = redis
+        self._transaction = transaction
         self._queued: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
 
     def __getattr__(self, name: str) -> Any:
@@ -248,6 +256,9 @@ class FakePipeline:
 
     def execute(self) -> list[Any]:
         # One round trip, applied all-or-nothing like MULTI/EXEC.
+        if not self._transaction:
+            writes = [name for name, _, _ in self._queued if name not in READ_COMMANDS]
+            assert not writes, f"room store writes must be atomic: {writes}"
         self._redis._round_trip()
         results = [getattr(self._redis, f"_{name}")(*args, **kwargs) for name, args, kwargs in self._queued]
         self._queued.clear()

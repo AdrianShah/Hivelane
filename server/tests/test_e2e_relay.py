@@ -58,7 +58,7 @@ def _join(socket: Any, name: str, settings: Optional[dict] = None) -> None:
 def _next_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        events = frame["events"] if frame.get("type") == "synergo_feed" else [frame]
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
             if event.get("type") == type_name:
                 return event
@@ -284,11 +284,21 @@ def test_e2e_flag_survives_a_restart() -> None:
 def test_e2e_rooms_never_call_gemini(
     relay: RoomManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def forbidden(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("an e2e room called Gemini")
+    # Recorded, not raised: the relay wraps both calls in `except Exception`,
+    # so a raising stub would only surface indirectly (a fallback caption, a
+    # logged warning instead of an alert).
+    calls: list[str] = []
 
-    monkeypatch.setattr(main, "generate_caption", forbidden)
-    monkeypatch.setattr(main, "classify_conflict", forbidden)
+    async def caption(*_args: Any, **_kwargs: Any) -> str:
+        calls.append("generate_caption")
+        return "a Gemini caption"
+
+    async def classify(*_args: Any, **_kwargs: Any) -> None:
+        calls.append("classify_conflict")
+        return None
+
+    monkeypatch.setattr(main, "generate_caption", caption)
+    monkeypatch.setattr(main, "classify_conflict", classify)
     client = TestClient(app)
     room_id = client.post("/rooms", json={"settings": {"e2e": True}}).json()["room_id"]
 
@@ -301,6 +311,7 @@ def test_e2e_rooms_never_call_gemini(
             priya.send_json(_activity(FILE, "BLOB-2"))
             alert = _next_event(sam, "conflict_alert")
 
+    assert calls == []
     assert update["caption"] == f"sam's agent is editing {FILE}"
     assert alert["verdict"] == "related"
     assert set(alert["users"]) == {"sam", "priya"}

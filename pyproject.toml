@@ -4,15 +4,15 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "synergo"
-# Single-sourced from synergo/__init__.py (see [tool.hatch.version]), so the
-# release workflow's tag check and `synergo --version` can never disagree.
+name = "hivelane"
+# Single-sourced from hivelane/__init__.py (see [tool.hatch.version]), so the
+# release workflow's tag check and `hivelane --version` can never disagree.
 dynamic = ["version"]
 description = "Live coordination for parallel AI coding agents: warns or blocks an edit when a teammate's agent is already in that file."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
-authors = [{ name = "Synergo contributors" }]
+authors = [{ name = "Hivelane contributors" }]
 keywords = [
     "ai-agents",
     "claude-code",
@@ -49,47 +49,47 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
-# `synergo relay`: run the relay (server/, shipped in the wheel) on your own
+# `hivelane relay`: run the relay (server/, shipped in the wheel) on your own
 # machine. fastapi, uvicorn, websockets and pydantic are already core
 # dependencies; this adds what server/requirements.txt has on top, minus the
 # heavy Gemini SDK (see `gemini`).
 relay = ["python-dotenv>=1.0.1,<2", "uvicorn[standard]>=0.34,<1"]
 # AI captions and conflict summaries on a relay you run, with GEMINI_API_KEY:
-# synergo[relay,gemini]. Without it the relay uses deterministic placeholders.
+# hivelane[relay,gemini]. Without it the relay uses deterministic placeholders.
 gemini = ["google-genai>=2.14,<3"]
 # Several relay instances sharing room codes, room leases and rate limits
-# through SYNERGO_REDIS_URL (docs/self-hosting.md#scaling-out).
+# through HIVELANE_REDIS_URL (docs/self-hosting.md#scaling-out).
 redis = ["redis>=5,<9"]
 # Exact symbol extraction for JS/TS/Go/Rust/Java/C#/Ruby (Python always uses
 # the stdlib ast); without it the daemon falls back to regex heuristics.
 symbols = ["tree-sitter>=0.25", "tree-sitter-language-pack>=1.0"]
-# End-to-end encrypted rooms (`e2e = true` in .synergo.toml): AES-256-GCM for
+# End-to-end encrypted rooms (`e2e = true` in .hivelane.toml): AES-256-GCM for
 # the daemon's message blobs (docs/security.md#end-to-end-encryption).
 e2e = ["cryptography>=42"]
 
 [project.urls]
-Homepage = "https://github.com/AdrianShah/Synergo"
-Documentation = "https://github.com/AdrianShah/Synergo/tree/main/docs"
-Repository = "https://github.com/AdrianShah/Synergo"
-Issues = "https://github.com/AdrianShah/Synergo/issues"
-Changelog = "https://github.com/AdrianShah/Synergo/releases"
+Homepage = "https://github.com/AdrianShah/Hivelane"
+Documentation = "https://github.com/AdrianShah/Hivelane/tree/main/docs"
+Repository = "https://github.com/AdrianShah/Hivelane"
+Issues = "https://github.com/AdrianShah/Hivelane/issues"
+Changelog = "https://github.com/AdrianShah/Hivelane/releases"
 
 [project.scripts]
-synergo = "synergo.cli:main"
+hivelane = "hivelane.cli:main"
 
 [tool.hatch.version]
-path = "synergo/__init__.py"
+path = "hivelane/__init__.py"
 
 [tool.hatch.build.targets.wheel]
-# server/ is the relay, for `synergo relay` (deps: the `relay` extra). Its
+# server/ is the relay, for `hivelane relay` (deps: the `relay` extra). Its
 # modules import each other relatively, so it works as an installed package;
 # the flat-module fallback they carry is for Render's rootDir=server only and
 # re-raises when imported as `server.*`.
-packages = ["synergo", "server"]
+packages = ["hivelane", "server"]
 # Tests run from the source tree; an installed CLI has no use for them, nor
 # for the relay's deploy-only pins.
 exclude = [
-    "synergo/tests",
+    "hivelane/tests",
     "server/tests",
     "server/requirements*.txt",
     "server/runtime.txt",
@@ -98,7 +98,72 @@ exclude = [
 [tool.hatch.build.targets.sdist]
 # Anchored with a leading slash: these are gitignore-style patterns, and a bare
 # "README.md" would sweep in every nested README in the repo.
-include = ["/synergo", "/server", "/pyproject.toml", "/README.md"]
+include = ["/hivelane", "/server", "/pyproject.toml", "/README.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["synergo/tests", "server/tests", "tests/e2e"]
+testpaths = ["hivelane/tests", "server/tests", "tests/e2e"]
+markers = [
+    "real_feed_debounce: keep the relay's production BROADCAST_FLUSH_SECONDS (server/tests/conftest.py shortens it for every other test)",
+]
+
+[tool.coverage.run]
+# CI runs `pytest --cov` (server/requirements-dev.txt has pytest-cov); this keeps
+# the report to product code, not the tests that exercise it.
+source = ["hivelane", "server"]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+show_missing = false
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "if __name__ == .__main__.:"]
+
+[tool.ruff]
+# Matches the code as written: 120-column lines (E501 is not enforced either; a
+# handful of long strings and URLs exceed it on purpose).
+target-version = "py312"
+line-length = 120
+extend-exclude = ["graphify-out", "brag-output", "frontend", "docs-site", "editors", "packaging"]
+
+[tool.ruff.lint]
+# Pyflakes + the pycodestyle error classes + bugbear: the rules that find bugs
+# rather than restyle code. Widen deliberately, one rule family per PR.
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+    "B905",  # zip() without strict=: every call site zips sequences built together
+    "E731",  # lambda assignment: used for small local callbacks
+    "E741",  # ambiguous names (l, I): readable in context
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest fixtures are imported into test modules and then shadowed by the
+# fixture argument of the same name; closures over loop variables in tests are
+# called inside the same iteration; `pytest.raises(Exception)` is intended where
+# any failure is the expected outcome.
+"**/tests/**" = ["F811", "B017", "B023"]
+"tests/**" = ["F811", "B017", "B023"]
+# One-off measurement scripts, not shipped.
+"scripts/**" = ["B007", "B009", "B023", "B904"]
+"benchmarks/**" = ["B007", "B009", "B904"]
+
+[tool.ruff.format]
+# `ruff format --check` runs in CI as information only until a one-off
+# reformatting PR lands (the tree predates the formatter); see ci.yml.
+quote-style = "double"
+
+[tool.mypy]
+# Pragmatic, not strict: catches wrong attribute names, bad call signatures and
+# None misuse in the shipped code. Tests are not type-checked.
+python_version = "3.12"
+files = ["hivelane", "server"]
+exclude = ['(^|[\/])tests[\/]']
+ignore_missing_imports = true
+follow_imports = "silent"
+check_untyped_defs = false
+warn_unused_configs = true
+# server/ modules carry a flat-import fallback (try: from .x import y / except
+# ImportError: from x import y) for Render's rootDir=server, which mypy reads
+# as redefinitions.
+disable_error_code = ["no-redef"]
+warn_redundant_casts = true
+show_error_codes = true
+pretty = false

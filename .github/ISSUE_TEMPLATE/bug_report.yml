@@ -6,10 +6,10 @@ body:
     attributes:
       value: |
         Thanks for taking the time to report this. **Security problems go through
-        [a private advisory](https://github.com/AdrianShah/Synergo/security/advisories/new),
+        [a private advisory](https://github.com/AdrianShah/Hivelane/security/advisories/new),
         not here.**
 
-        `synergo doctor` explains most setup problems. Please run it first and
+        `hivelane doctor` explains most setup problems. Please run it first and
         paste its output below.
   - type: dropdown
     id: component
@@ -17,10 +17,10 @@ body:
       label: Component
       description: Where do you see the problem? Pick the closest.
       options:
-        - CLI (synergo up / status / doctor / ...)
+        - CLI (hivelane up / status / doctor / ...)
         - Daemon (background coordination, reconnects)
         - Agent hook / adapter (Claude Code, Codex, Cursor, Gemini CLI)
-        - synergo run / watch / mcp / githook
+        - hivelane run / watch / mcp / githook
         - Relay (self-hosted or hosted)
         - Dashboard
         - VS Code / Cursor extension
@@ -44,13 +44,13 @@ body:
     id: reproduce
     attributes:
       label: Steps to reproduce
-      description: The smallest set of steps that shows the problem, starting from a fresh `synergo up` if you can.
+      description: The smallest set of steps that shows the problem, starting from a fresh `hivelane up` if you can.
     validations:
       required: false
   - type: textarea
     id: doctor
     attributes:
-      label: Output of `synergo --version` and `synergo doctor`
+      label: Output of `hivelane --version` and `hivelane doctor`
       description: Remove anything private (room codes, relay hostnames) before you paste.
       render: text
     validations:
@@ -60,7 +60,7 @@ body:
     attributes:
       label: Relevant logs
       description: |
-        The daemon log is `~/.synergo/logs/daemon.log` (under `SYNERGO_HOME` if you set it).
+        The daemon log is `~/.hivelane/logs/daemon.log` (under `HIVELANE_HOME` if you set it).
         For a self-hosted relay, its stdout. Remove prompts, diffs and room codes you do
         not want to share.
       render: text

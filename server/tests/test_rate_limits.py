@@ -25,7 +25,6 @@ try:
     from server.limits import (
         FixedWindowLimiter,
         RedisCounterStore,
-        RedisFixedWindowLimiter,
         build_limiter,
         client_ip,
     )
@@ -36,7 +35,6 @@ except ImportError:  # Render rootDir=server
     from limits import (
         FixedWindowLimiter,
         RedisCounterStore,
-        RedisFixedWindowLimiter,
         build_limiter,
         client_ip,
     )
@@ -338,7 +336,7 @@ def test_redis_counters_are_namespaced_and_expire() -> None:
     limiter = build_limiter(
         "ws_attempt", limit=5, window_seconds=60, max_keys=8, store=store
     )
-    key = "synergo:ratelimit:ws_attempt:10.0.0.7"
+    key = "hivelane:ratelimit:ws_attempt:10.0.0.7"
 
     limiter.check("10.0.0.7")
 
@@ -347,14 +345,14 @@ def test_redis_counters_are_namespaced_and_expire() -> None:
 
     # Redis drops idle counters itself, so the key set cannot grow unbounded.
     clock.now = 60.0
-    assert list(redis.scan_iter(match="synergo:*")) == []
+    assert list(redis.scan_iter(match="hivelane:*")) == []
 
 
 def test_redis_counter_left_without_expiry_is_repaired() -> None:
     """A key that somehow lost its TTL would otherwise throttle that IP forever."""
     clock = Clock()
     redis = FakeRedis(clock)
-    redis.set_without_expiry("synergo:ratelimit:t:ip", 99)
+    redis.set_without_expiry("hivelane:ratelimit:t:ip", 99)
     limiter = build_limiter(
         "t", limit=1, window_seconds=60, max_keys=8, store=RedisCounterStore(redis)
     )
@@ -394,8 +392,9 @@ def test_fallback_enforces_a_budget_changed_at_runtime() -> None:
     limiter = build_limiter(
         "t", limit=5, window_seconds=60, max_keys=8, store=RedisCounterStore(redis)
     )
-    limiter.limit = 0
+    limiter.limit = 1
 
+    assert limiter.check("ip", now=0.0).allowed
     assert not limiter.check("ip", now=0.0).allowed
 
 
@@ -436,7 +435,7 @@ def test_reset_survives_an_unreachable_redis() -> None:
 
 def test_relay_limiters_stay_in_process_without_a_redis_url() -> None:
     if config.REDIS_URL:
-        pytest.skip("SYNERGO_REDIS_URL is set in this environment")
+        pytest.skip("HIVELANE_REDIS_URL is set in this environment")
 
     assert limits.BACKEND == "memory"
     assert isinstance(limits.room_creation_limiter, FixedWindowLimiter)
@@ -491,12 +490,12 @@ def test_redis_client_cannot_stall_the_event_loop(
     assert seen["retry"].retries == 0
 
 
-# --- SYNERGO_REDIS_URL --------------------------------------------------------
+# --- HIVELANE_REDIS_URL --------------------------------------------------------
 
 
 def test_redis_url_is_off_by_default() -> None:
     assert config.load_settings({}).redis_url is None
-    assert config.load_settings({"SYNERGO_REDIS_URL": "  "}).redis_url is None
+    assert config.load_settings({"HIVELANE_REDIS_URL": "  "}).redis_url is None
 
 
 @pytest.mark.parametrize(
@@ -508,14 +507,14 @@ def test_redis_url_is_off_by_default() -> None:
     ],
 )
 def test_redis_url_is_read(url: str) -> None:
-    assert config.load_settings({"SYNERGO_REDIS_URL": url}).redis_url == url
+    assert config.load_settings({"HIVELANE_REDIS_URL": url}).redis_url == url
 
 
 def test_malformed_redis_url_fails_the_boot_without_echoing_it() -> None:
     with pytest.raises(config.ConfigError) as excinfo:
-        config.load_settings({"SYNERGO_REDIS_URL": "user:hunter2@cache:6379"})
+        config.load_settings({"HIVELANE_REDIS_URL": "user:hunter2@cache:6379"})
 
-    assert "SYNERGO_REDIS_URL" in str(excinfo.value)
+    assert "HIVELANE_REDIS_URL" in str(excinfo.value)
     assert "hunter2" not in str(excinfo.value)
 
 
@@ -649,7 +648,7 @@ def test_client_ip_source_describes_the_order(
     [
         ({}, (1, False, False)),
         (
-            {"TRUSTED_PROXY_HOPS": "2", "TRUST_CLOUDFLARE": "true", "FLY_APP_NAME": "synergo"},
+            {"TRUSTED_PROXY_HOPS": "2", "TRUST_CLOUDFLARE": "true", "FLY_APP_NAME": "hivelane"},
             (2, True, True),
         ),
     ],
@@ -779,7 +778,9 @@ def test_rate_limited_socket_is_refused_before_the_room_lookup(
 ) -> None:
     """An unknown room must not be distinguishable from a known one once the
     caller is throttled — otherwise the limiter leaks a brute-force oracle."""
-    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 0)
+    # 0 now means unlimited, so exhaust a budget of one instead.
+    monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 1)
+    limits.ws_attempt_limiter.check("testclient")
     client = TestClient(app)
 
     with client.websocket_connect("/ws/ZZZZZZ") as refused:

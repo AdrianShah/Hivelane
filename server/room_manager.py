@@ -6,16 +6,19 @@ multiplayer link — no accounts, no passwords, no sessions."""
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
+import os
 import re
 import secrets
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from pydantic import ValidationError
 
 try:
+    from . import config
     from .directory import RoomDirectory, RoomRoute, build_room_directory
     from .models import RoomSettings
     from .room import Room, hash_owner_token, settings_problem
@@ -23,6 +26,7 @@ try:
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
+    import config  # type: ignore[no-redef]
     from directory import RoomDirectory, RoomRoute, build_room_directory
     from models import RoomSettings
     from room import Room, hash_owner_token, settings_problem
@@ -46,16 +50,45 @@ MAX_CODE_LENGTH = CODE_LENGTH
 _CODE_SEPARATORS = re.compile(r"[\s\-]+")
 _PLAUSIBLE_CODE = re.compile(rf"[A-Z0-9]{{{MIN_CODE_LENGTH},{MAX_CODE_LENGTH}}}")
 
-# Hard cap on room size: enough for a small hackathon team, small enough to
-# stop accidental (or malicious) pile-on in one workspace.
-MAX_MEMBERS = 6
+# Named members per room (HIVELANE_MAX_MEMBERS) and valid room codes on this
+# relay (HIVELANE_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
+# both to bound memory and ghost-room flooding (docs/self-hosting.md).
+MAX_MEMBERS = config.MAX_MEMBERS
+MAX_ROOMS = config.MAX_ROOMS
 
-# Cap concurrent live rooms to bound memory and block ghost-room flooding.
-MAX_ROOMS = 100
+# A room created by POST /rooms that nobody joins within this long is evicted,
+# code and all: otherwise a script could hold HIVELANE_MAX_ROOMS (or grow an
+# unlimited relay) for the store's week-long TTL. Once anyone has joined, the
+# room follows the normal empty-room grace instead.
+# HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS; 0 disables the eviction.
+def _ttl_from_env(name: str, default: float) -> float:
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        value = float(raw) if raw else default
+    except ValueError:
+        return default
+    return value if value >= 0 else default
+
+
+UNCLAIMED_ROOM_TTL_SECONDS = _ttl_from_env("HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS", 10 * 60)
+# How long an empty room that was in use is kept (main.EMPTY_ROOM_GRACE_SECONDS
+# passes its own value; this is the default for revived rooms).
+DEFAULT_EMPTY_ROOM_GRACE_SECONDS = 30 * 60
+
+
+def redact_code(code: str) -> str:
+    """Room codes are the join credential: logs carry only a short prefix."""
+    return f"{code[:3]}…" if code else "?"
+
 
 # How long a room lease outlives the last socket in the room on this instance
 # (and covers a connection that has claimed it but not joined yet).
 RENEW_GRACE_SECONDS = 10.0
+
+
+def room_is_full(room: Room) -> bool:
+    """True when MAX_MEMBERS is set and the room already has that many."""
+    return MAX_MEMBERS > 0 and room.member_count >= MAX_MEMBERS
 
 
 def _generate_code() -> str:
@@ -118,6 +151,12 @@ class RoomManager:
         self._claimed: dict[str, float] = {}
         # Live rooms here that another instance owns, already warned about.
         self._split: set[str] = set()
+        # One cleanup timer per room code, re-armed on every departure, so
+        # the grace runs from the latest one (and no task piles up per socket).
+        self._cleanup_timers: dict[str, asyncio.TimerHandle] = {}
+        # Called with a room code when its live state is evicted (main.py
+        # registers the webhook cache's forget()). One that raises is logged.
+        self.evict_listeners: list[Callable[[str], None]] = []
 
     def create_room(self, settings: Optional[RoomSettings] = None) -> str:
         """Generate a fresh room code and register an empty Room under it.
@@ -131,8 +170,9 @@ class RoomManager:
         self._store.purge_expired(time.time())
         # The durable count is the one that matters: after a restart, live rooms
         # start at zero and would otherwise let the registry grow past the cap.
-        # The live count still bounds memory if the store is degraded.
-        if max(len(self._rooms), self._store.count()) >= MAX_ROOMS:
+        # The live count still bounds memory if the store is degraded. With no
+        # cap (the default) the store is not counted at all.
+        if MAX_ROOMS > 0 and max(len(self._rooms), self._store.count()) >= MAX_ROOMS:
             raise RuntimeError(f"Maximum number of rooms reached ({MAX_ROOMS})")
         for _ in range(10):  # collisions are astronomically unlikely; bound retries anyway
             room_id = _generate_code()
@@ -144,7 +184,11 @@ class RoomManager:
                     time.time(),
                     None if settings is None else settings.model_dump(),
                 )
-                log.info("Room %s created (%d room(s) live)", room_id, len(self._rooms))
+                log.info(
+                    "Room %s created (%d room(s) live)", redact_code(room_id), len(self._rooms)
+                )
+                if UNCLAIMED_ROOM_TTL_SECONDS > 0:
+                    self.schedule_cleanup(room_id, UNCLAIMED_ROOM_TTL_SECONDS)
                 return room_id
         raise RuntimeError("Failed to generate a unique room code")
 
@@ -153,29 +197,74 @@ class RoomManager:
 
         Still strict about unknown codes: a typo or an expired code returns None
         and the caller rejects the connection. Accepts both current 8-character
-        codes and legacy 6-character ones, with or without separators."""
+        codes and legacy 6-character ones, with or without separators.
+        Raises store.StoreReadError when the store cannot say whether the code
+        exists or what its access record is."""
         normalized = normalize_room_code(room_id)
         room = self._rooms.get(normalized)
         if room is not None:
             return room
-        if not is_plausible_code(normalized) or not self._store.exists(normalized):
+        if not is_plausible_code(normalized):
+            return None
+        # One read for the code, its settings and its access record. A store
+        # that cannot answer raises StoreReadError, which propagates: the
+        # caller must refuse the connection (fail closed) rather than revive
+        # the room without its owner and approval policy.
+        record = self._store.get_record(normalized)
+        if record is None:
             return None
         # Known code with no live Room: the relay restarted. An empty Room is
         # the right starting point — every touch older than the conflict window
         # is ignored anyway, so the room re-forms from live activity. Its
         # windows are not live activity, though, so they come back from the store.
-        room = Room(
-            settings=_settings_from_store(
-                normalized, self._store.get_settings(normalized)
-            )
-        )
+        room = Room(settings=_settings_from_store(normalized, record.get("settings")))
         # Who owns the room and whether joins need approval are not live
         # activity either.
-        room.load_access(self._store.get_access(normalized))
+        room.load_access(record.get("access"))
         room.code = normalized
         self._rooms[normalized] = room
-        log.info("Room %s revived after restart (%d room(s) live)", normalized, len(self._rooms))
+        log.info(
+            "Room %s revived after restart (%d room(s) live)",
+            redact_code(normalized),
+            len(self._rooms),
+        )
+        # A revived room whose connection never completes is evicted again
+        # (from memory only, see cleanup_if_empty) after the usual grace.
+        self.schedule_cleanup(normalized, DEFAULT_EMPTY_ROOM_GRACE_SECONDS)
         return room
+
+    def live(self, room_id: str) -> Room | None:
+        """The live Room for a code, without reviving one."""
+        return self._rooms.get(normalize_room_code(room_id))
+
+    def schedule_cleanup(self, room_id: str, delay: float) -> None:
+        """(Re)arm the room's single cleanup timer to fire `delay` from now.
+
+        When it fires, cleanup_if_empty decides: a room in use then is kept,
+        and its next departure arms the timer again. Without a running loop
+        (synchronous tests) nothing is scheduled."""
+        normalized = normalize_room_code(room_id)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        previous = self._cleanup_timers.pop(normalized, None)
+        if previous is not None:
+            previous.cancel()
+        self._cleanup_timers[normalized] = loop.call_later(
+            max(0.0, delay), self._cleanup_due, normalized
+        )
+
+    def _cleanup_due(self, code: str) -> None:
+        self._cleanup_timers.pop(code, None)
+        try:
+            self.cleanup_if_empty(code)
+        except Exception:
+            log.exception("Cleanup of room %s failed", redact_code(code))
+
+    @property
+    def cleanup_timer_count(self) -> int:
+        return len(self._cleanup_timers)
 
     def save_settings(self, room_id: str, settings: RoomSettings) -> None:
         """Persist a room's current windows so a revived room keeps them."""
@@ -217,6 +306,14 @@ class RoomManager:
         room = self._rooms.get(normalized)
         if room is not None and room.is_empty:
             del self._rooms[normalized]
+            timer = self._cleanup_timers.pop(normalized, None)
+            if timer is not None:
+                timer.cancel()
+            for listener in list(self.evict_listeners):
+                try:
+                    listener(normalized)
+                except Exception:
+                    log.exception("Room eviction listener failed")
             # Opt-in history (server/history.py) goes with the room's state.
             room.history.clear()
             if self._directory.shared:
@@ -226,12 +323,18 @@ class RoomManager:
                 if owner is not None and owner != self._directory.instance_id:
                     # The room's members are on another instance now (or this
                     # one only served a stray connection): the code stays valid.
-                    log.info("Room %s: dropped this instance's empty copy", normalized)
+                    log.info(
+                        "Room %s: dropped this instance's empty copy", redact_code(normalized)
+                    )
                     return
             # A finished room must stop being a valid code, or it would be
             # revived by the next connection that guesses or replays it.
             self._store.remove(normalized)
-            log.info("Room %s removed (empty, %d room(s) left)", normalized, len(self._rooms))
+            log.info(
+                "Room %s removed (empty, %d room(s) left)",
+                redact_code(normalized),
+                len(self._rooms),
+            )
 
     # --- which instance serves a room (see directory.py) ---------------------
 

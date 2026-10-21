@@ -1,12 +1,12 @@
-# Synergo demo project
+# Hivelane demo project
 
 A tiny tree for showing lanes and conflicts on the dashboard. Open it with two
 agents (two machines, or two checkouts with different `--name`s), each running
-the Synergo daemon:
+the Hivelane daemon:
 
 ```bash
-synergo hook install claude-code
-synergo join <ROOM> --name hossein --server wss://<your-relay>/ws
+hivelane hook install claude-code
+hivelane join <ROOM> --name hossein --server wss://<your-relay>/ws
 ```
 
 Then have both agents edit `src/hello.py` or `src/utils.py`: the second agent to

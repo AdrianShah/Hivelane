@@ -1,4 +1,4 @@
-import { Navigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useParams } from 'react-router-dom';
 import { roomPath } from '../relayUrl';
 
 /**
@@ -7,5 +7,8 @@ import { roomPath } from '../relayUrl';
  */
 export default function LegacyRoomRedirect() {
   const { code } = useParams<{ code: string }>();
-  return <Navigate to={code ? roomPath(code) : '/'} replace />;
+  // Keep ?view=/filters and the #k= e2e key: dropping the fragment here would
+  // lose the room key of an old encrypted-room link.
+  const { search, hash } = useLocation();
+  return <Navigate to={{ pathname: code ? roomPath(code) : '/', search, hash }} replace />;
 }

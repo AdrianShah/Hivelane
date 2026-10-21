@@ -1,25 +1,25 @@
 # Hooks for every coding agent
 
 *Draft. Publish on D+2 (see the launch checklist). Sources: `docs/adapters.md`
-and the docstrings in `synergo/adapters/`, each of which names the agent's
+and the docstrings in `hivelane/adapters/`, each of which names the agent's
 hook documentation and the date it was read.*
 
-Synergo prevents collisions by asking a question before every edit: is a
+Hivelane prevents collisions by asking a question before every edit: is a
 teammate's agent already working on this code? That only works if the agent
 asks. Four agents let us ask from their own hooks today: Claude Code, Codex
 CLI, Cursor and Gemini CLI. Each one does it differently. This post walks
-through how Synergo plugs into each, what it can and cannot see, and how to
+through how Hivelane plugs into each, what it can and cannot see, and how to
 add the next one.
 
 ## One command, one contract
 
-`synergo up` detects the agents installed on your machine and writes
-Synergo's hook entries into each agent's project config. Every entry runs the
-same command, `synergo hook <agent-id>`, which:
+`hivelane up` detects the agents installed on your machine and writes
+Hivelane's hook entries into each agent's project config. Every entry runs the
+same command, `hivelane hook <agent-id>`, which:
 
 1. reads the agent's JSON payload from stdin;
 2. hands it to that agent's adapter, whose `normalize()` turns it into
-   Synergo events: `intent` (a prompt), `pre_edit`, `post_edit` or `plan`;
+   Hivelane events: `intent` (a prompt), `pre_edit`, `post_edit` or `plan`;
 3. posts each event to the local daemon on `127.0.0.1:4600`, which asks the
    relay for a `pre_edit` and gets back allow, warn or block;
 4. takes the strictest answer when one call touched several files;
@@ -27,14 +27,14 @@ same command, `synergo hook <agent-id>`, which:
    agent understands as "go ahead", "show this message" or "deny".
 
 Two rules sit above everything else in the adapter contract
-(`synergo/adapters/base.py`):
+(`hivelane/adapters/base.py`):
 
 - **Fail open.** A payload the adapter does not understand produces no
   events; an answer it does not understand renders as allow; any exception
   means "do nothing". If the daemon cannot be reached, the agent shows a
   one-line notice at most every ten minutes and the edit proceeds.
 - **Stay on the fast path.** The hook is a new process on every edit, so an
-  adapter may import only cheap standard-library modules and Synergo's own
+  adapter may import only cheap standard-library modules and Hivelane's own
   JSON and base helpers. A test runs every adapter in a subprocess and fails
   if anything heavier appears in `sys.modules`. Measured with
   `scripts/bench_hook.py` against a local stub daemon, a Claude Code hook
@@ -59,7 +59,7 @@ only.
 
 ### Claude Code
 
-Claude Code's hooks live in `settings.json`, and Synergo writes the project
+Claude Code's hooks live in `settings.json`, and Hivelane writes the project
 copy, `.claude/settings.json`, so the whole team gets them with the repo.
 Three entries:
 
@@ -68,13 +68,13 @@ Three entries:
   "their task".
 - `PreToolUse`, matched to `Edit`, `Write`, `MultiEdit` and `NotebookEdit`,
   with a 5-second timeout. For `Edit` and `MultiEdit` the payload includes
-  the old and new strings, which Synergo passes on as edit hints so the
+  the old and new strings, which Hivelane passes on as edit hints so the
   daemon can predict which lines and functions the edit will touch before it
   happens. A block is a `deny` with a `permissionDecisionReason` that both you
   and the model read.
 - `PostToolUse`, matched to the edit tools plus `TodoWrite` and
   `ExitPlanMode`. Edits are shared with the room. Todo lists and plans become
-  a Synergo **plan**: its summary plus the files and symbols it names, so a
+  a Hivelane **plan**: its summary plus the files and symbols it names, so a
   teammate's agent is warned before it edits a file your plan claims.
 
 ### Codex CLI
@@ -90,17 +90,17 @@ touches `config.toml`. Two Codex-specific details:
   contested file is blocked as a whole.
 - Codex asks you to review and trust new or changed hooks (`/hooks`) before
   it runs them, and loads project hooks only once the project's `.codex/`
-  layer is trusted. `synergo up` prints a reminder.
+  layer is trusted. `hivelane up` prints a reminder.
 
 ### Cursor
 
 Cursor's `hooks.json` is a flat list of entries per event, not Claude Code's
 grouped shape, so this adapter has its own small merge with the same rules:
-entries found by their `synergo hook` command, everything else untouched.
+entries found by their `hivelane hook` command, everything else untouched.
 
 - `preToolUse` on the agent's `Write` and `Delete` tools is where a block
   happens. Cursor treats invalid or empty output from a permission hook as a
-  refusal, so Synergo always prints an explicit allow when it has nothing to
+  refusal, so Hivelane always prints an explicit allow when it has nothing to
   say.
 - `afterFileEdit` is observational. It reports the replaced strings, and the
   adapter rebuilds the pre-edit text by undoing them, so the daemon can work
@@ -113,7 +113,7 @@ entries found by their `synergo hook` command, everything else untouched.
 ### Gemini CLI
 
 Gemini CLI's hooks live in `settings.json` with the Claude Code shape, except
-that timeouts are in milliseconds (Synergo uses 5,000 for the pre-edit hook).
+that timeouts are in milliseconds (Hivelane uses 5,000 for the pre-edit hook).
 Edits go through `write_file` and `replace`; `replace` carries old and new
 strings, which become edit hints. A block is `{"decision": "deny"}` with a
 reason for the model and a `systemMessage` for the terminal.
@@ -122,7 +122,7 @@ reason for the model and a `systemMessage` for the terminal.
 
 Every adapter shares one blind spot: an edit made through a shell command
 (`sed -i`, a code generator, `git checkout -- file`) does not go through the
-agent's edit tool, so no pre-edit hook runs. Synergo does not try to guess at
+agent's edit tool, so no pre-edit hook runs. Hivelane does not try to guess at
 shell commands.
 
 ## Agents without hooks
@@ -132,14 +132,14 @@ labelled as observe-only:
 
 | Path | What it does | Can it stop an edit? |
 |------|--------------|----------------------|
-| `synergo run aider -m "fix login"` | Runs the agent with a file poller beside it (every second) and posts `-m` as its intent | No: edits are shared after they happen |
-| `synergo watch` | The same poller on its own, for any tool | No |
-| `synergo mcp` | An MCP server with `check_file`, `declare_intent`, `who_is_here` and `report_edit`; `--agents-md` prints instructions telling the agent to call `check_file` before edits | Only if the agent calls the tool |
-| `synergo githook install` | A pre-commit check against teammates' recent edits | Warns; fails the commit only with `--strict` |
+| `hivelane run aider -m "fix login"` | Runs the agent with a file poller beside it (every second) and posts `-m` as its intent | No: edits are shared after they happen |
+| `hivelane watch` | The same poller on its own, for any tool | No |
+| `hivelane mcp` | An MCP server with `check_file`, `declare_intent`, `who_is_here` and `report_edit`; `--agents-md` prints instructions telling the agent to call `check_file` before edits | Only if the agent calls the tool |
+| `hivelane githook install` | A pre-commit check against teammates' recent edits | Warns; fails the commit only with `--strict` |
 
 ## Adding the next agent
 
-An adapter is one module in `synergo/adapters/` plus a registry entry. The
+An adapter is one module in `hivelane/adapters/` plus a registry entry. The
 agent has to be able to run a command before a file edit, with the path in
 its input. The module implements `normalize()` and `render()` (both must
 never raise), names the agent's config file, and declares what it can do
@@ -157,11 +157,11 @@ that install is idempotent and uninstall restores the file exactly, and that
 the hook runs in a subprocess without importing anything slow.
 
 The walkthrough, with a complete example adapter, is
-[docs/adapters.md](https://github.com/AdrianShah/Synergo/blob/main/docs/adapters.md),
+[docs/adapters.md](https://github.com/AdrianShah/Hivelane/blob/main/docs/adapters.md),
 and issues labelled `good first adapter` collect agents people have asked
 for.
 
 ---
 
-Synergo is open source (Apache-2.0):
-[github.com/AdrianShah/Synergo](https://github.com/AdrianShah/Synergo).
+Hivelane is open source (Apache-2.0):
+[github.com/AdrianShah/Hivelane](https://github.com/AdrianShah/Hivelane).

@@ -1,7 +1,7 @@
 """Serve the built dashboard (frontend/dist) from the relay itself.
 
-Off unless SYNERGO_STATIC_DIR names a directory with an index.html: the Docker
-image sets it, `synergo relay` sets it when it finds a build, and a dev relay
+Off unless HIVELANE_STATIC_DIR names a directory with an index.html: the Docker
+image sets it, `hivelane relay` sets it when it finds a build, and a dev relay
 leaves it unset (the dashboard then runs on Vite's dev server).
 
 Served as the router's not-found handler, so it can never shadow an API route:
@@ -11,6 +11,11 @@ dashboard, so GET /rooms/whatever is still a JSON 404 rather than an HTML page.
 
 The dashboard is a single-page app, so any other GET that is not a file gets
 index.html and the client router takes it from there (/r/<code> and so on).
+
+HTML is served with a Content-Security-Policy that allows the page's inline
+scripts by their SHA-256 hash rather than 'unsafe-inline' (see headers.py):
+the hashes are read from the index.html on disk, and recomputed when the file
+changes, so a rebuilt dashboard keeps working without a relay restart.
 A dashboard served this way talks to the relay on its own origin, which is
 what frontend/src/relayUrl.ts falls back to when built without VITE_WS_URL;
 the browser then sends no cross-origin requests and CORS_ORIGINS does not need
@@ -21,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -28,9 +34,29 @@ from starlette.exceptions import HTTPException
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+try:
+    from .headers import build_dashboard_csp, csp_hash
+except ImportError:  # Render rootDir=server
+    if __package__:  # imported as server.*: a real missing dependency, not the flat tree
+        raise
+    from headers import build_dashboard_csp, csp_hash  # type: ignore[no-redef]
+
 log = logging.getLogger(__name__)
 
-STATIC_DIR_ENV = "SYNERGO_STATIC_DIR"
+# An inline <script> (no src attribute) and its body.
+_INLINE_SCRIPT = re.compile(
+    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(?P<body>.*?)</script\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def inline_script_hashes(html: str) -> list[str]:
+    """CSP hash sources for every inline script in `html`. Line endings are
+    normalised to LF first, as the browser's HTML parser does before hashing."""
+    text = html.replace("\r\n", "\n").replace("\r", "\n")
+    return [csp_hash(match.group("body")) for match in _INLINE_SCRIPT.finditer(text)]
+
+STATIC_DIR_ENV = "HIVELANE_STATIC_DIR"
 
 # Owned by the relay's API, never by the dashboard.
 API_PREFIXES = ("/ws", "/rooms", "/health", "/readyz", "/metrics", "/docs", "/redoc", "/openapi.json")
@@ -59,6 +85,22 @@ class DashboardApp:
         self.directory = directory
         self.static = StaticFiles(directory=str(directory), html=False)
         self.not_found = not_found
+        self._csp_key: Optional[tuple[float, int]] = None
+        self._csp = build_dashboard_csp()
+
+    def csp(self) -> str:
+        """The policy for index.html as it is on disk now."""
+        index = self.directory / "index.html"
+        try:
+            stat = index.stat()
+            key = (stat.st_mtime, stat.st_size)
+            if key != self._csp_key:
+                html = index.read_text(encoding="utf-8", errors="replace")
+                self._csp = build_dashboard_csp(inline_script_hashes(html))
+                self._csp_key = key
+        except OSError:
+            log.warning("Could not read %s to hash its inline scripts", index)
+        return self._csp
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         path = scope.get("path") or "/"
@@ -77,7 +119,11 @@ class DashboardApp:
         if path in ("/", "/index.html"):
             cache = INDEX_CACHE
         # Security headers (CSP, framing, nosniff) are added for every HTML
-        # response by headers.SecurityHeadersMiddleware.
+        # response by headers.SecurityHeadersMiddleware; the dashboard's own
+        # pages get the stricter, hash-based policy here (it wins: the
+        # middleware only sets headers that are missing).
+        if response.headers.get("content-type", "").lower().startswith("text/html"):
+            response.headers.setdefault("content-security-policy", self.csp())
         response.headers.setdefault("cache-control", cache)
         await response(scope, receive, send)
 
@@ -92,7 +138,7 @@ def static_dir_problem(directory: Optional[str]) -> Optional[str]:
 
 
 def install(app: Any, directory: Optional[str] = None) -> bool:
-    """Serve the dashboard from `directory` (default: $SYNERGO_STATIC_DIR) as
+    """Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as
     `app`'s fallback for unmatched requests. Returns whether it is served."""
     directory = os.environ.get(STATIC_DIR_ENV) if directory is None else directory
     if not directory:

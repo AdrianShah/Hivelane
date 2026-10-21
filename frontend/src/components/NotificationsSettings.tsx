@@ -69,7 +69,7 @@ function Switch({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className={`relative shrink-0 w-10 h-6 rounded-full border transition-colors disabled:opacity-50 ${
-        on ? 'bg-primary/30 border-primary/50' : 'bg-white/[0.04] border-outline-soft'
+        on ? 'bg-primary/30 border-primary/50' : 'bg-ink/[0.08] border-outline-soft'
       }`}
     >
       <span
@@ -158,7 +158,7 @@ function BrowserNotifications({ roomId }: { roomId: string }) {
         ))}
         {prefs.blocks === 'me' ? (
           <label className="block text-[12px] text-on-muted pl-6">
-            Your name in this room (as <code className="font-mono">synergo up</code> joined)
+            Your name in this room (as <code className="font-mono">hivelane up</code> joined)
             <input
               type="text"
               value={prefs.myName}
@@ -179,12 +179,12 @@ function BrowserNotifications({ roomId }: { roomId: string }) {
         </label>
         <button
           type="button"
-          className="rounded-lg border border-outline-soft px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
+          className="rounded-lg border border-outline-soft px-3 py-1.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors disabled:opacity-50"
           onClick={() =>
             showNotice({
-              title: 'Synergo notifications are on',
+              title: 'Hivelane notifications are on',
               body: `You will hear about room ${roomId} here.`,
-              tag: `synergo:${roomId}:test`,
+              tag: `hivelane:${roomId}:test`,
             })
           }
         >
@@ -315,7 +315,7 @@ function Webhooks({ roomId, e2e }: { roomId: string; e2e: boolean }) {
               </div>
               <button
                 type="button"
-                className="shrink-0 rounded-lg border border-outline-soft px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-error hover:border-error/40 transition-colors disabled:opacity-50"
+                className="shrink-0 rounded-lg border border-outline-soft px-2.5 py-1 text-[13px] font-semibold text-on-muted hover:text-error hover:border-error/40 transition-colors disabled:opacity-50"
                 disabled={busy}
                 onClick={() => void remove(hook)}
               >

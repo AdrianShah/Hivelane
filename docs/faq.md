@@ -1,11 +1,11 @@
 # FAQ
 
-## What problem does Synergo solve?
+## What problem does Hivelane solve?
 
 When several AI coding agents (yours, your teammates', or several of your
 own) work in one repository at the same time, they edit the same files
 without knowing about each other. You find out at merge time, or later.
-Synergo lets each agent ask "is anyone else in this file?" before every edit,
+Hivelane lets each agent ask "is anyone else in this file?" before every edit,
 and warns or blocks it when a teammate's agent already is. See
 [Conflict detection](conflict-detection.md) for how the answer is worked out.
 
@@ -13,26 +13,26 @@ and warns or blocks it when a teammate's agent already is. See
 
 | Agent | How | Can block an edit? |
 |-------|-----|--------------------|
-| Claude Code | Native hooks (`synergo hook claude-code`) | Yes |
-| Codex | Native hooks (`synergo hook codex`) | Yes |
-| Cursor | Native hooks (`synergo hook cursor`) | Yes, for agent edits |
-| Gemini CLI | Native hooks (`synergo hook gemini-cli`) | Yes |
-| Aider, or any other tool | `synergo run -- <command>`, `synergo watch` | No, observe-only |
-| Any MCP-capable agent | `synergo mcp` (check_file, declare_intent, ...) | Only if the agent calls the tool |
-| Humans in VS Code, Cursor or Windsurf | The [editor extension](https://github.com/AdrianShah/Synergo/tree/main/editors/vscode) | No, it warns |
+| Claude Code | Native hooks (`hivelane hook claude-code`) | Yes |
+| Codex | Native hooks (`hivelane hook codex`) | Yes |
+| Cursor | Native hooks (`hivelane hook cursor`) | Yes, for agent edits |
+| Gemini CLI | Native hooks (`hivelane hook gemini-cli`) | Yes |
+| Aider, or any other tool | `hivelane run -- <command>`, `hivelane watch` | No, observe-only |
+| Any MCP-capable agent | `hivelane mcp` (check_file, declare_intent, ...) | Only if the agent calls the tool |
+| Humans in VS Code, Cursor or Windsurf | The [editor extension](https://github.com/AdrianShah/Hivelane/tree/main/editors/vscode) | No, it warns |
 
-`synergo up` detects the agents installed on your machine and installs their
+`hivelane up` detects the agents installed on your machine and installs their
 hooks. Support for another agent is one adapter module; see
 [Writing an agent adapter](adapters.md).
 
 ## Do I need to run a server?
 
 You need a relay that everyone in the room can reach. It is one small
-FastAPI process. For a team on one network, or a hackathon, `synergo relay`
+FastAPI process. For a team on one network, or a hackathon, `hivelane relay`
 runs one in a terminal (it needs the `relay` extra:
-`pip install "synergo[relay]"`). For a team across the internet, deploy the
+`pip install "hivelane[relay]"`). For a team across the internet, deploy the
 Docker image; [Self-hosting the relay](self-hosting.md) covers the options.
-Each person also runs a background daemon, but `synergo up` starts and
+Each person also runs a background daemon, but `hivelane up` starts and
 manages that for you.
 
 ## Does it slow my agent down?
@@ -47,11 +47,11 @@ through.
 
 ## What happens when the relay or the daemon is down?
 
-The edit goes ahead. Synergo fails open: a hook that cannot reach the daemon,
-a daemon that cannot reach the relay, or any error in Synergo itself means
+The edit goes ahead. Hivelane fails open: a hook that cannot reach the daemon,
+a daemon that cannot reach the relay, or any error in Hivelane itself means
 "allow". So that coordination never stops silently, the agent shows a
-"Synergo offline" notice, at most once every ten minutes. If the repo has a
-`.synergo.toml`, the hook also starts the daemon in the background so the
+"Hivelane offline" notice, at most once every ten minutes. If the repo has a
+`.hivelane.toml`, the hook also starts the daemon in the background so the
 next edit is checked again.
 
 ## What leaves my machine?
@@ -60,11 +60,11 @@ For each edit: the file path (relative to the repo root), the diff, the
 names of the functions and classes it touches, line ranges, the branch, and an
 opaque repo id (a hash of the origin URL, or the id of the first commit). For each prompt: the prompt text,
 shared as the agent's intent. All of it goes to the relay your
-`.synergo.toml` names, and from there to the room's members and dashboards.
+`.hivelane.toml` names, and from there to the room's members and dashboards.
 
 You can narrow that:
 
-- `share_diffs = false` in `.synergo.toml` sends which files changed and
+- `share_diffs = false` in `.hivelane.toml` sends which files changed and
   keeps the diffs on your machine.
 - `ignore = [...]` keeps matching paths out of coordination entirely.
 - Secret redaction and the end-to-end encryption mode, in which the relay only
@@ -84,7 +84,7 @@ is created. A room can also require the owner to approve each new member. See
 
 ## Is the daemon reachable from the network?
 
-No. It listens on `127.0.0.1` only (port 4600, or `SYNERGO_PORT`), and its
+No. It listens on `127.0.0.1` only (port 4600, or `HIVELANE_PORT`), and its
 management endpoints refuse cross-origin requests from web pages. Do not
 tunnel or forward that port.
 
@@ -102,7 +102,7 @@ useful or noise.
 
 ## How do I change how strict it is?
 
-The conflict windows live in the committed `.synergo.toml`, so the whole team
+The conflict windows live in the committed `.hivelane.toml`, so the whole team
 shares them:
 
 ```toml
@@ -125,12 +125,12 @@ apart.
 ## Can one daemon serve several repositories?
 
 Yes. One background daemon per machine holds a relay connection for every
-repo you have run `synergo up` in, and routes each hook to the right room by
-the repo the agent is working in. `synergo status` lists them.
+repo you have run `hivelane up` in, and routes each hook to the right room by
+the repo the agent is working in. `hivelane status` lists them.
 
 ## Does it replace git, code review or merge tools?
 
-No. Synergo works before an edit lands, while git, review and merge tools work
+No. Hivelane works before an edit lands, while git, review and merge tools work
 after. It reduces the number of conflicts that reach a merge; it does not
 resolve the ones that do. See [Approaches compared](comparison.md).
 
@@ -141,20 +141,20 @@ Python 3.12 and 3.13.
 
 ## How do I remove it?
 
-`synergo leave` disconnects a repo from its room, `synergo down` stops the
-daemon, and `synergo hook uninstall <agent>` removes an agent's hooks.
-[Installing Synergo](install.md#uninstall) covers removing the CLI.
+`hivelane leave` disconnects a repo from its room, `hivelane down` stops the
+daemon, and `hivelane hook uninstall <agent>` removes an agent's hooks.
+[Installing Hivelane](install.md#uninstall) covers removing the CLI.
 
 ## Is it free? What is the license?
 
-Synergo is open source under the Apache License 2.0. You can self-host every
+Hivelane is open source under the Apache License 2.0. You can self-host every
 part of it.
 
 ## Where do I report a bug or a security problem?
 
 Bugs and feature requests go in
-[GitHub issues](https://github.com/AdrianShah/Synergo/issues/new/choose).
+[GitHub issues](https://github.com/AdrianShah/Hivelane/issues/new/choose).
 Security problems go through a private
-[security advisory](https://github.com/AdrianShah/Synergo/security/advisories/new),
+[security advisory](https://github.com/AdrianShah/Hivelane/security/advisories/new),
 never a public issue; see the
-[security policy](https://github.com/AdrianShah/Synergo/blob/main/SECURITY.md).
+[security policy](https://github.com/AdrianShah/Hivelane/blob/main/SECURITY.md).

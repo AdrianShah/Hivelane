@@ -16,8 +16,8 @@ const TEAL = '#5eead4';
 const LAVENDER = '#a5b4fc';
 const ROSE = '#fb7185';
 const AMBER = '#fbbf24';
-const SANS = '"Plus Jakarta Sans", system-ui, sans-serif';
-const MONO = '"JetBrains Mono", ui-monospace, monospace';
+const SANS = '"Geist", system-ui, sans-serif';
+const MONO = '"Geist Mono", ui-monospace, monospace';
 
 function roundRect(
   ctx: CanvasRenderingContext2D,
@@ -118,7 +118,7 @@ export function drawShareCard(
   ctx.textAlign = 'left';
   ctx.fillStyle = INK;
   ctx.font = `800 28px ${SANS}`;
-  ctx.fillText('Synergo', 124, 72);
+  ctx.fillText('Hivelane', 124, 72);
   ctx.fillStyle = MUTED;
   ctx.font = `500 16px ${SANS}`;
   ctx.fillText('Multiplayer radar for AI coding agents', 124, 96);
@@ -212,7 +212,7 @@ export function drawShareCard(
   ctx.fillText(kinds ? `Agents: ${kinds}` : 'Agents coordinating live', 64, 594);
   ctx.textAlign = 'right';
   ctx.fillStyle = DIM;
-  ctx.fillText('synergo · see every agent, live', CARD_WIDTH - 64, 594);
+  ctx.fillText('hivelane · see every agent, live', CARD_WIDTH - 64, 594);
   ctx.textAlign = 'left';
 }
 

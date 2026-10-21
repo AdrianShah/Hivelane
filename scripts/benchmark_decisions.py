@@ -250,7 +250,7 @@ def generate() -> None:
     files = [
         ("server/room.py", "Room.check_edit", (456, 492), "Room.broadcast", (520, 540)),
         ("server/main.py", "handle_edit_check", (496, 560), "handle_join", (300, 360)),
-        ("synergo/daemon.py", "Daemon.reconnect", (120, 170), "Daemon.send_activity", (400, 450)),
+        ("hivelane/daemon.py", "Daemon.reconnect", (120, 170), "Daemon.send_activity", (400, 450)),
         ("frontend/src/components/Lane.tsx", "Lane", (40, 200), "laneColor", (300, 320)),
         ("server/store.py", "Store.load", (20, 60), "Store.save", (90, 130)),
     ]
@@ -288,7 +288,7 @@ def generate() -> None:
         )
     for i, (f, s1, r1) in enumerate(
         [("server/room.py", "Room.check_edit", (456, 470)),
-         ("synergo/daemon.py", "Daemon.reconnect", (120, 130))]
+         ("hivelane/daemon.py", "Daemon.reconnect", (120, 130))]
     ):
         add(
             f"nearby_lines_{i}",
@@ -302,7 +302,7 @@ def generate() -> None:
     for i, (fa, fb) in enumerate(
         [("server/room.py", "server/main.py"),
          ("frontend/src/App.tsx", "frontend/src/types.ts"),
-         ("synergo/daemon.py", "synergo/protocol.py")]
+         ("hivelane/daemon.py", "hivelane/protocol.py")]
     ):
         add(
             f"different_files_{i}",
@@ -313,7 +313,7 @@ def generate() -> None:
                     branch="main", label="no_conflict"),
             ],
         )
-    for i, f in enumerate(["server/room.py", "synergo/daemon.py", "frontend/src/App.tsx"]):
+    for i, f in enumerate(["server/room.py", "hivelane/daemon.py", "frontend/src/App.tsx"]):
         add(
             f"import_block_{i}",
             "both agents add imports at the top of the file",
@@ -323,7 +323,7 @@ def generate() -> None:
                     branch="main", label="conflict"),
             ],
         )
-    for i, f in enumerate(["pyproject.toml", "frontend/package.json", ".synergo.toml"]):
+    for i, f in enumerate(["pyproject.toml", "frontend/package.json", ".hivelane.toml"]):
         add(
             f"config_file_{i}",
             "config file edited by both (always risky)",

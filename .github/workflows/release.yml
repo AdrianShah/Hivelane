@@ -1,7 +1,7 @@
 name: Release
 
-# Ships the `synergo` CLI: PyPI (what `pipx install synergo` / `uv tool install
-# synergo` pull), a GitHub release with checksums, and the Homebrew tap.
+# Ships the `hivelane` CLI: PyPI (what `pipx install hivelane` / `uv tool install
+# hivelane` pull), a GitHub release with checksums, and the Homebrew tap.
 #
 # Runs alongside deploy.yml, which also fires on v* tags and deploys the relay
 # and dashboard. The two never wait on each other and use different concurrency
@@ -25,34 +25,35 @@ jobs:
   build:
     name: build sdist + wheel
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install build tools
         run: python -m pip install --upgrade build twine
       - name: Read the version
         id: version
-        # synergo/__init__.py is the single source (pyproject reads it via
+        # hivelane/__init__.py is the single source (pyproject reads it via
         # hatch), and it imports nothing, so no dependencies are needed here.
         run: |
-          version=$(python -c "import synergo; print(synergo.__version__)")
+          version=$(python -c "import hivelane; print(hivelane.__version__)")
           prerelease=$(python -c "import sys; from packaging.version import Version; print(str(Version(sys.argv[1]).is_prerelease).lower())" "$version")
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "synergo $version (prerelease: $prerelease)"
-      - name: Tag matches synergo.__version__
+          echo "hivelane $version (prerelease: $prerelease)"
+      - name: Tag matches hivelane.__version__
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           TAG: ${{ github.ref_name }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ "${TAG#v}" != "$VERSION" ]; then
-            echo "::error title=Version mismatch::Tag $TAG does not match synergo.__version__ ($VERSION). Bump synergo/__init__.py and retag."
+            echo "::error title=Version mismatch::Tag $TAG does not match hivelane.__version__ ($VERSION). Bump hivelane/__init__.py and retag."
             exit 1
           fi
       - name: Build
@@ -65,23 +66,24 @@ jobs:
         run: |
           twine check --strict dist/*
           ls -l dist
-          test -f "dist/synergo-$VERSION-py3-none-any.whl"
-          test -f "dist/synergo-$VERSION.tar.gz"
-      - uses: actions/upload-artifact@v7
+          test -f "dist/hivelane-$VERSION-py3-none-any.whl"
+          test -f "dist/hivelane-$VERSION.tar.gz"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
           if-no-files-found: error
 
   test:
-    # Not `uses: ./.github/workflows/ci.yml`: deploy.yml already calls it for this
-    # same tag, and two callers on one ref share ci.yml's concurrency group and
-    # cancel each other. This is the cheap subset that guards the package itself.
+    # The cheap Linux subset that guards the package itself. ci.yml also runs
+    # its full matrix (macOS, Windows) for the same tag push, and deploy.yml
+    # deploys production only once that has passed; PyPI does not wait for it.
     name: tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -89,9 +91,9 @@ jobs:
             server/requirements*.txt
             pyproject.toml
       - name: Install
-        run: pip install -r server/requirements-dev.txt -e ".[dev]"
+        run: pip install -r server/requirements-dev.txt -e ".[dev,e2e]"
       - name: Test
-        run: pytest -q
+        run: pytest -q --timeout=120
         timeout-minutes: 10
 
   smoke:
@@ -101,15 +103,16 @@ jobs:
     name: smoke install (${{ matrix.os }})
     needs: build
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist
@@ -120,44 +123,46 @@ jobs:
         run: |
           python -m venv smoke-venv
           if [ -d smoke-venv/Scripts ]; then bin=smoke-venv/Scripts; else bin=smoke-venv/bin; fi
-          "$bin/python" -m pip install --quiet "dist/synergo-$VERSION-py3-none-any.whl"
-          out=$("$bin/synergo" --version)
+          "$bin/python" -m pip install --quiet "dist/hivelane-$VERSION-py3-none-any.whl"
+          out=$("$bin/hivelane" --version)
           echo "$out"
           case "$out" in
             *"$VERSION"*) ;;
-            *) echo "::error title=Wrong version::synergo --version printed '$out', expected $VERSION"; exit 1 ;;
+            *) echo "::error title=Wrong version::hivelane --version printed '$out', expected $VERSION"; exit 1 ;;
           esac
-          "$bin/synergo" --help >/dev/null
+          "$bin/hivelane" --help >/dev/null
 
   pypi:
     name: publish to PyPI
     needs: [build, test, smoke]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     # Trusted publishing: PyPI trusts this repo + workflow + environment, so
     # there is no API token to store or leak. Configure the publisher on PyPI
-    # (owner AdrianShah, repo Synergo, workflow release.yml, environment pypi).
+    # (owner AdrianShah, repo Hivelane, workflow release.yml, environment pypi).
     environment:
       name: pypi
-      url: https://pypi.org/project/synergo/${{ needs.build.outputs.version }}/
+      url: https://pypi.org/project/hivelane/${{ needs.build.outputs.version }}/
     permissions:
       id-token: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   github-release:
     name: GitHub release
     needs: [build, pypi]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: dist
           path: dist
@@ -181,24 +186,19 @@ jobs:
           if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
           gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Synergo $TAG" \
+            --title "Hivelane $TAG" \
             --generate-notes \
             --verify-tag \
             "${flags[@]}"
 
-  homebrew:
-    # Bumps Formula/synergo.rb in AdrianShah/homebrew-synergo to the sdist PyPI
-    # now serves. Stable releases only: a tap formula has no prerelease channel.
-    name: bump Homebrew tap
-    needs: [build, pypi]
+  homebrew-gate:
+    name: Homebrew tap enabled?
+    needs: build
     if: startsWith(github.ref, 'refs/tags/v') && needs.build.outputs.prerelease != 'true'
-    # macOS for a real `brew`: it regenerates the Python resources and proves the
-    # formula installs before anything is pushed to the tap.
-    runs-on: macos-latest
-    env:
-      VERSION: ${{ needs.build.outputs.version }}
-      HOMEBREW_NO_AUTO_UPDATE: "1"
-      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
     steps:
       - name: Check for the tap token
         id: gate
@@ -206,62 +206,81 @@ jobs:
           TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "::notice title=Homebrew bump skipped::No HOMEBREW_TAP_TOKEN secret. Add a token with contents:write on AdrianShah/homebrew-synergo to enable it."
+            echo "::notice title=Homebrew bump skipped::No HOMEBREW_TAP_TOKEN secret. Add a token with contents:write on AdrianShah/homebrew-hivelane to enable it."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v5
-        if: steps.gate.outputs.enabled == 'true'
+
+  homebrew:
+    # Bumps Formula/hivelane.rb in AdrianShah/homebrew-hivelane to the sdist PyPI
+    # now serves. Stable releases only: a tap formula has no prerelease channel.
+    name: bump Homebrew tap
+    needs: [build, pypi, homebrew-gate]
+    # Opt-in: only with the tap token, and only for stable releases. The token
+    # is checked on a cheap Linux runner first, so a missing secret never
+    # starts a macOS runner (billed 10x).
+    if: needs.homebrew-gate.outputs.enabled == 'true'
+    # macOS for a real `brew`: it regenerates the Python resources and proves the
+    # formula installs before anything is pushed to the tap.
+    runs-on: macos-latest
+    # brew install --build-from-source compiles pydantic-core (Rust).
+    timeout-minutes: 45
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Only for packaging/homebrew/synergo.rb, the template for a first bump.
-          path: synergo
-      - uses: actions/checkout@v5
-        if: steps.gate.outputs.enabled == 'true'
+          # Only for packaging/homebrew/hivelane.rb, the template for a first bump.
+          path: hivelane
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: AdrianShah/homebrew-synergo
+          repository: AdrianShah/homebrew-hivelane
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: tap
       - name: Wait for PyPI to serve the sdist
         id: pypi
-        if: steps.gate.outputs.enabled == 'true'
         # The JSON API lags the upload by a CDN refresh; poll rather than race it.
         run: |
           python3 - <<'PY'
           import json, os, time, urllib.error, urllib.request
 
           version = os.environ["VERSION"]
-          url = f"https://pypi.org/pypi/synergo/{version}/json"
+          url = f"https://pypi.org/pypi/hivelane/{version}/json"
           for attempt in range(30):
               try:
                   with urllib.request.urlopen(url, timeout=10) as response:
                       release = json.load(response)
                   break
-              except (urllib.error.URLError, TimeoutError):
+              except (urllib.error.URLError, TimeoutError, ValueError):
+                  # Not there yet, or a partial answer from the CDN.
                   time.sleep(10)
           else:
               raise SystemExit(f"::error title=PyPI not serving {version}::{url} did not answer after 5 minutes")
 
-          sdist = next(f for f in release["urls"] if f["packagetype"] == "sdist")
+          sdist = next((f for f in release.get("urls", []) if f.get("packagetype") == "sdist"), None)
+          if sdist is None:
+              raise SystemExit(f"::error title=No sdist on PyPI::{url} lists no sdist for {version}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
               out.write(f"url={sdist['url']}\n")
               out.write(f"sha256={sdist['digests']['sha256']}\n")
           print(sdist["url"], sdist["digests"]["sha256"])
           PY
       - name: Point the formula at the release
-        if: steps.gate.outputs.enabled == 'true'
         env:
           SDIST_URL: ${{ steps.pypi.outputs.url }}
           SDIST_SHA256: ${{ steps.pypi.outputs.sha256 }}
         run: |
           mkdir -p tap/Formula
-          if [ ! -f tap/Formula/synergo.rb ]; then
-            cp synergo/packaging/homebrew/synergo.rb tap/Formula/synergo.rb
+          if [ ! -f tap/Formula/hivelane.rb ]; then
+            cp hivelane/packaging/homebrew/hivelane.rb tap/Formula/hivelane.rb
           fi
           python3 - <<'PY'
           import os, pathlib, re
 
-          path = pathlib.Path("tap/Formula/synergo.rb")
+          path = pathlib.Path("tap/Formula/hivelane.rb")
           text = path.read_text(encoding="utf-8")
           # Only the formula's own url/sha256 sit at two-space indent; the
           # resource blocks below are indented further and left to brew.
@@ -272,26 +291,24 @@ jobs:
           path.write_text(text, encoding="utf-8")
           PY
       - name: Regenerate resources and test the formula
-        if: steps.gate.outputs.enabled == 'true'
         # Linking the checkout in as the tap (as Homebrew/actions/setup-homebrew
         # does) lets brew edit the formula in place and resolve it by name.
         run: |
           taps="$(brew --repository)/Library/Taps/adrianshah"
           mkdir -p "$taps"
-          ln -sfn "$GITHUB_WORKSPACE/tap" "$taps/homebrew-synergo"
-          brew update-python-resources adrianshah/synergo/synergo
-          brew install --build-from-source adrianshah/synergo/synergo
-          brew test adrianshah/synergo/synergo
+          ln -sfn "$GITHUB_WORKSPACE/tap" "$taps/homebrew-hivelane"
+          brew update-python-resources adrianshah/hivelane/hivelane
+          brew install --build-from-source adrianshah/hivelane/hivelane
+          brew test adrianshah/hivelane/hivelane
       - name: Push the bump
-        if: steps.gate.outputs.enabled == 'true'
         working-directory: tap
         run: |
-          git add Formula/synergo.rb
+          git add Formula/hivelane.rb
           if git diff --cached --quiet; then
-            echo "::notice title=Homebrew formula unchanged::Formula/synergo.rb already points at $VERSION"
+            echo "::notice title=Homebrew formula unchanged::Formula/hivelane.rb already points at $VERSION"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "synergo $VERSION"
+          git commit -m "hivelane $VERSION"
           git push

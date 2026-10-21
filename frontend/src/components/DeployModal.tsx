@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useRef } from 'react';
+import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { copyText } from '../clipboard';
 import { setupCommand } from '../relayUrl';
 
@@ -20,14 +21,9 @@ export default function DeployModal({
   onClose,
   onCopied,
 }: DeployModalProps) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useDialogFocus(open, onClose, panelRef, closeRef);
 
   if (!open) return null;
 
@@ -48,9 +44,10 @@ export default function DeployModal({
         type="button"
         className="absolute inset-0 overlay-backdrop"
         aria-label="Close dialog"
+        tabIndex={-1}
         onClick={onClose}
       />
-      <div className="relative w-full max-w-lg lane-shell rounded-2xl p-6 shadow-card animate-fade-up">
+      <div ref={panelRef} className="relative w-full max-w-lg dialog-panel rounded-2xl p-6 shadow-card animate-fade-up">
         <div className="flex items-start justify-between gap-3 mb-4">
           <div>
             <h2
@@ -60,16 +57,18 @@ export default function DeployModal({
               Connect a teammate&apos;s agent
             </h2>
             <p className="text-[13px] text-on-muted mt-1 mb-0">
-              One line installs Synergo and joins this room from their repo.
+              One line installs Hivelane and joins this room from their repo.
             </p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="icon-btn p-1.5 shrink-0"
             onClick={onClose}
             title="Close"
+            aria-label="Close"
           >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">close</span>
           </button>
         </div>
 
@@ -82,7 +81,7 @@ export default function DeployModal({
               </code>
               <button
                 type="button"
-                className="rounded-lg border border-outline-soft px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
+                className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
                 onClick={() => void copy(roomId, 'Room code')}
               >
                 Copy
@@ -107,11 +106,11 @@ export default function DeployModal({
           <ol className="m-0 pl-4 text-[12px] text-on-muted space-y-1.5 list-decimal">
             <li>Open a terminal in the repository the agent works in.</li>
             <li>
-              Paste the command: <code className="text-primary">pipx install synergo</code>{' '}
-              once, then <code className="text-primary">synergo up</code> joins this
+              Paste the command: <code className="text-primary">pipx install hivelane</code>{' '}
+              once, then <code className="text-primary">hivelane up</code> joins this
               room.
             </li>
-            <li>Keep working — the agent shows up as a lane in the Synergo feed.</li>
+            <li>Keep working — the agent shows up as a lane in the Hivelane feed.</li>
           </ol>
         </div>
       </div>

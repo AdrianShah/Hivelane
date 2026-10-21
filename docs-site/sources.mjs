@@ -18,13 +18,20 @@ export const SITE_ROOT = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(SITE_ROOT, '..');
 export const OUT_DIR = join(SITE_ROOT, 'src', 'content', 'docs');
 
-// Placeholder until the domain is live. Links between pages are built from
-// BASE, so changing these two is enough to move the site.
-export const SITE = 'https://synergo.dev';
-export const BASE = '/docs';
+// The site is published by .github/workflows/pages.yml to GitHub Pages, under
+// the dashboard: https://adrianshah.github.io/Hivelane/docs/. Links between
+// pages are built from BASE, so changing these two is enough to move the site
+// (DOCS_SITE / DOCS_BASE override them for a one-off build elsewhere).
+export const SITE = process.env.DOCS_SITE || 'https://adrianshah.github.io';
+export const BASE = process.env.DOCS_BASE || '/Hivelane/docs';
 
-export const REPO_URL = 'https://github.com/AdrianShah/Synergo';
+export const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
 export const BRANCH = 'main';
+
+// The repository is private for now, so "Edit page" and GitHub links on the
+// public Pages site would 404 for every visitor. Flip this (or set
+// DOCS_REPO_PUBLIC=1) when the repo goes public.
+export const REPO_PUBLIC = process.env.DOCS_REPO_PUBLIC === '1';
 
 /**
  * Each item becomes one page at <BASE>/<slug>/, built from one of:

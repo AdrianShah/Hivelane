@@ -5,14 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="dark light" />
-    <title>Synergo — Multiplayer AI Agent Viewer</title>
+    <title>Hivelane — Multiplayer AI Agent Viewer</title>
     <script>
       // Theme before first paint (no flash). Same logic as src/dashboard/theme.ts;
       // the key is THEME_STORAGE_KEY there. Storage may be blocked: then "system".
       (function () {
         var pref = 'system';
         try {
-          var stored = window.localStorage.getItem('synergo:theme');
+          var stored = window.localStorage.getItem('hivelane:theme');
           if (stored === 'light' || stored === 'dark' || stored === 'system') pref = stored;
         } catch (e) {}
         var dark = true;
@@ -27,9 +27,11 @@
         root.style.colorScheme = dark ? 'dark' : 'light';
       })();
     </script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <!-- Pinned (an unpinned CDN script could change under every visitor). Still
+         the runtime Play CDN: a build-time Tailwind is the planned next step. -->
+    <script src="https://cdn.tailwindcss.com/3.4.17?plugins=forms,container-queries"></script>
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
     <link
@@ -71,8 +73,8 @@
               scrim: token('scrim'),
             },
             fontFamily: {
-              sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
-              mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+              sans: ['"Geist"', 'system-ui', 'sans-serif'],
+              mono: ['"Geist Mono"', 'ui-monospace', 'monospace'],
             },
             boxShadow: {
               live: 'var(--shadow-live)',
@@ -100,7 +102,8 @@
       };
     </script>
   </head>
-  <body class="h-screen overflow-hidden bg-background text-on-surface font-sans antialiased">
+  <!-- No overflow-hidden here: the Home page scrolls; .app-shell (the dashboard) is viewport-tall itself. -->
+  <body class="bg-background text-on-surface font-sans antialiased">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

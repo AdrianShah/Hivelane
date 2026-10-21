@@ -10,12 +10,20 @@ export class EditGate {
     const last = this.lastCheck.get(key);
     if (last !== undefined && now - last < this.intervalMs) return false;
     this.lastCheck.set(key, now);
+    if (this.lastCheck.size > 256) {
+      for (const [k, t] of this.lastCheck) if (now - t >= this.intervalMs) this.lastCheck.delete(k);
+    }
     return true;
   }
 
   /** Cache the pre-change content the first time a file is dirtied. */
   rememberBaseline(key: string, content: string): void {
     if (!this.baseline.has(key)) this.baseline.set(key, content);
+  }
+
+  /** Overwrite a baseline that is still held (e.g. once an async read finishes). */
+  replaceBaseline(key: string, content: string): void {
+    if (this.baseline.has(key)) this.baseline.set(key, content);
   }
 
   hasBaseline(key: string): boolean {

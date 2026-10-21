@@ -71,7 +71,7 @@
     <rect x="590" y="58" width="90" height="28" rx="5" fill="#ffffff" stroke="#6b7280"/>
     <text x="635" y="76" text-anchor="middle">Agent B</text>
     <rect x="750" y="58" width="120" height="28" rx="5" fill="#ffffff" stroke="#6b7280"/>
-    <text x="810" y="76" text-anchor="middle">Synergo relay</text>
+    <text x="810" y="76" text-anchor="middle">Hivelane relay</text>
   </g>
   <g stroke="#9ca3af" stroke-dasharray="4 4">
     <line x1="520" y1="86" x2="520" y2="350"/>
@@ -106,5 +106,5 @@
   <text x="672" y="387" text-anchor="middle" font-size="13" font-weight="700" fill="#064e3b">Prevented</text>
   <text x="672" y="406" text-anchor="middle" font-size="12" fill="#064e3b">One version of greet(); nothing to merge.</text>
 
-  <text x="450" y="462" text-anchor="middle" font-size="11" fill="#4b5563">Simplified: in Synergo the agent's hook asks a local daemon, which asks the relay. Decisions are per function and line range.</text>
+  <text x="450" y="462" text-anchor="middle" font-size="11" fill="#4b5563">Simplified: in Hivelane the agent's hook asks a local daemon, which asks the relay. Decisions are per function and line range.</text>
 </svg>

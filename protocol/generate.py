@@ -3,11 +3,11 @@
     python protocol/generate.py           rewrite protocol/schema.json
     python protocol/generate.py --check   exit 1 if schema.json is stale
 
-The relay (server/models.py) and the daemon (synergo/protocol.py) each keep
+The relay (server/models.py) and the daemon (hivelane/protocol.py) each keep
 their own copy of the wire models, because the CLI package must not import the
 server package. schema.json is the third, language-neutral copy: what a client
 in another language, or a reviewer, reads to know the contract. It is
-generated from synergo/protocol.py, and server/tests/test_protocol_contract.py
+generated from hivelane/protocol.py, and server/tests/test_protocol_contract.py
 fails when it is stale or when the relay's models disagree with it.
 """
 
@@ -29,7 +29,7 @@ if str(REPO_ROOT) not in sys.path:
 from pydantic import BaseModel  # noqa: E402
 from pydantic.json_schema import models_json_schema  # noqa: E402
 
-from synergo import protocol  # noqa: E402
+from hivelane import protocol  # noqa: E402
 
 DEFS_REF = "#/$defs/{model}"
 
@@ -58,10 +58,10 @@ def build_schema() -> dict[str, Any]:
 
     return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Synergo wire protocol",
+        "title": "Hivelane wire protocol",
         "description": (
-            "Every WebSocket frame between a Synergo client and the relay. "
-            "Generated from synergo/protocol.py by protocol/generate.py; "
+            "Every WebSocket frame between a Hivelane client and the relay. "
+            "Generated from hivelane/protocol.py by protocol/generate.py; "
             "do not edit by hand."
         ),
         "x-protocol-version": protocol.PROTOCOL_VERSION,

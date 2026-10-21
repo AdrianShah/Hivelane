@@ -8,8 +8,8 @@ claims a lease on the room, renews it while the room is live, and releases it
 when the room is evicted or the instance shuts down.
 
 - MemoryRoomDirectory, the default: one instance, which owns every room.
-- RedisRoomDirectory, when SYNERGO_REDIS_URL is set: the lease is the Redis key
-  `synergo:room:<code>:owner`, holding the owner's instance id. It is set only
+- RedisRoomDirectory, when HIVELANE_REDIS_URL is set: the lease is the Redis key
+  `hivelane:room:<code>:owner`, holding the owner's instance id. It is set only
   if absent and expires after LEASE_TTL_SECONDS, so a crashed instance's rooms
   free themselves without anyone cleaning up.
 
@@ -21,6 +21,27 @@ warning and serves the room locally. Without Fly, keeping a room's members on
 one instance is the load balancer's job: hash on the `/ws/<code>` path (see
 docs/self-hosting.md).
 
+Fly's replay headers are not trusted as sent. Fly's docs (docs.fly.io,
+"Dynamic request routing") say what the proxy adds on a replay (fly-replay-src:
+instance, region, t, state) and on a fallback (fly-replay-failed: instance,
+app, region, replay_source, reason, elapsed_ms), but not that it strips those
+headers from client requests, so a client can send them itself. Hence:
+
+- every replay this instance issues carries `state=<t>.<mac>`, an HMAC over
+  the room code and time keyed by a secret every instance shares
+  (HIVELANE_REPLAY_SECRET, else one derived from HIVELANE_REDIS_URL, which every
+  instance sharing leases already has). fly-replay-src is honoured ("already
+  replayed once: serve it here") only with a valid, fresh state; otherwise
+  the request is routed as if the header were absent.
+- fly-replay-failed never moves a lease by itself: its replay_source must be
+  this instance, and the owner must fail a direct health probe over Fly's
+  private network (<owner>.vm.<app>.internal) before take_over runs. Take-overs
+  are also limited to one per room per TAKE_OVER_INTERVAL_SECONDS. A forged
+  header can at most get its own sender served here (splitting itself off).
+
+With a shared directory, routing calls Redis; the middleware runs those calls
+in a worker thread so a slow Redis never stalls the event loop.
+
 When Redis cannot be reached, every instance acts as the owner of the rooms it
 is asked for. Two teammates may then land on different halves of a room until
 Redis is back; refusing connections instead would turn a Redis outage into a
@@ -31,6 +52,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -42,10 +65,10 @@ from typing import Any, Optional, Protocol, TypeVar
 
 log = logging.getLogger(__name__)
 
-REDIS_URL_ENV = "SYNERGO_REDIS_URL"
-INSTANCE_ID_ENV = "SYNERGO_INSTANCE_ID"
+REDIS_URL_ENV = "HIVELANE_REDIS_URL"
+INSTANCE_ID_ENV = "HIVELANE_INSTANCE_ID"
 # Set by Fly.io on every machine. The machine id is also what fly-replay's
-# `instance=` field takes, which is why it wins over SYNERGO_INSTANCE_ID.
+# `instance=` field takes, which is why it wins over HIVELANE_INSTANCE_ID.
 FLY_MACHINE_ID_ENV = "FLY_MACHINE_ID"
 FLY_APP_NAME_ENV = "FLY_APP_NAME"
 
@@ -53,7 +76,7 @@ FLY_APP_NAME_ENV = "FLY_APP_NAME"
 # stalled event loop does not hand a live room to another instance.
 LEASE_TTL_SECONDS = 30.0
 RENEW_INTERVAL_SECONDS = 10.0
-OWNER_KEY_TEMPLATE = "synergo:room:{code}:owner"
+OWNER_KEY_TEMPLATE = "hivelane:room:{code}:owner"
 
 # Every call here runs on the event loop through a blocking client, so a slow
 # or vanished Redis must cost one short stall, not a hung relay. Same budget
@@ -72,12 +95,23 @@ FLY_REPLAY_STATUS = 101
 # /ws/<code>, as routed by main.websocket_endpoint.
 WS_ROOM_PATH = re.compile(r"/ws/(?P<code>[^/]+)/?")
 
+# Shared key for the `state` on replays (see the module docstring).
+REPLAY_SECRET_ENV = "HIVELANE_REPLAY_SECRET"
+# A replay's state is accepted for this long after it was issued.
+REPLAY_STATE_MAX_AGE_SECONDS = 30.0
+# At most one take-over per room per this long, however many fallbacks arrive.
+TAKE_OVER_INTERVAL_SECONDS = 30.0
+# How long the owner's health probe over Fly's private network may take.
+OWNER_PROBE_TIMEOUT_SECONDS = 1.0
+# Room codes with a recent take-over remembered (bounded; oldest dropped).
+_MAX_TAKE_OVERS = 4096
+
 T = TypeVar("T")
 
 
 def instance_id(env: Mapping[str, str] = os.environ) -> str:
     """This process's name in the directory: Fly's machine id, an explicit
-    SYNERGO_INSTANCE_ID, or hostname-pid (unique per process on one host)."""
+    HIVELANE_INSTANCE_ID, or hostname-pid (unique per process on one host)."""
     for name in (FLY_MACHINE_ID_ENV, INSTANCE_ID_ENV):
         value = (env.get(name) or "").strip()
         if value:
@@ -356,7 +390,7 @@ class RedisRoomDirectory:
 
 
 def build_room_directory(env: Mapping[str, str] = os.environ) -> RoomDirectory:
-    """Redis leases when SYNERGO_REDIS_URL is set (and usable), else memory."""
+    """Redis leases when HIVELANE_REDIS_URL is set (and usable), else memory."""
     me = instance_id(env)
     url = (env.get(REDIS_URL_ENV) or "").strip()
     if not url:
@@ -409,6 +443,77 @@ def fly_replay_enabled(env: Mapping[str, str] = os.environ) -> bool:
     return bool((env.get(FLY_APP_NAME_ENV) or "").strip())
 
 
+def replay_secret(env: Mapping[str, str] = os.environ) -> Optional[bytes]:
+    """The key replay states are signed with, shared by every instance:
+    HIVELANE_REPLAY_SECRET, or one derived from HIVELANE_REDIS_URL (the instances
+    that replay to each other all share it, and it carries Redis's password)."""
+    explicit = (env.get(REPLAY_SECRET_ENV) or "").strip()
+    if explicit:
+        return hashlib.sha256(b"hivelane-replay-secret\0" + explicit.encode()).digest()
+    url = (env.get(REDIS_URL_ENV) or "").strip()
+    if url:
+        return hashlib.sha256(b"hivelane-replay-redis\0" + url.encode()).digest()
+    return None
+
+
+def parse_fly_fields(value: Optional[str]) -> dict[str, str]:
+    """"a=1;b=2" (fly-replay-src, fly-replay-failed) as a dict; {} for
+    anything else."""
+    fields: dict[str, str] = {}
+    for part in (value or "").split(";"):
+        key, sep, val = part.strip().partition("=")
+        if sep and key:
+            fields[key.strip().lower()] = val.strip()
+    return fields
+
+
+def sign_replay_state(secret: bytes, code: str, now: float) -> str:
+    stamp = str(int(now))
+    mac = hmac.new(secret, f"{code}|{stamp}".encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{stamp}.{mac}"
+
+
+def replay_state_valid(secret: bytes, code: str, state: str, now: float) -> bool:
+    stamp, _, mac = state.partition(".")
+    if not stamp.isdigit() or not mac:
+        return False
+    if abs(now - int(stamp)) > REPLAY_STATE_MAX_AGE_SECONDS:
+        return False
+    expected = hmac.new(secret, f"{code}|{stamp}".encode(), hashlib.sha256).hexdigest()[:32]
+    return hmac.compare_digest(expected, mac)
+
+
+OwnerProbe = Callable[[str], Awaitable[bool]]
+
+
+def fly_owner_probe(env: Mapping[str, str] = os.environ) -> Optional[OwnerProbe]:
+    """On Fly: a check that machine `owner` answers /health over the private
+    network. None elsewhere (fly-replay-failed is then never acted on)."""
+    app = (env.get(FLY_APP_NAME_ENV) or "").strip()
+    if not app:
+        return None
+    port = (env.get("PORT") or "8000").strip() or "8000"
+
+    async def reachable(owner: str) -> bool:
+        if not re.fullmatch(r"[0-9a-zA-Z_-]{1,64}", owner):
+            return False
+        try:
+            import httpx
+        except ImportError:  # pragma: no cover - httpx ships with the relay
+            return False
+        url = f"http://{owner}.vm.{app}.internal:{port}/health"
+        try:
+            async with httpx.AsyncClient(
+                timeout=OWNER_PROBE_TIMEOUT_SECONDS, follow_redirects=False, trust_env=False
+            ) as client:
+                await client.get(url)
+            return True  # any HTTP answer: the machine is up
+        except Exception:
+            return False
+
+    return reachable
+
+
 class RoomAffinityMiddleware:
     """Sends each room's WebSocket upgrades to the instance that owns the room.
 
@@ -422,11 +527,20 @@ class RoomAffinityMiddleware:
         app: ASGIApp,
         router: Callable[[], RoomRouter],
         fly_replay: Optional[bool] = None,
+        *,
+        secret: Optional[bytes] = None,
+        owner_probe: Optional[OwnerProbe] = None,
+        clock: Callable[[], float] = time.time,
     ) -> None:
         self.app = app
         self._router = router
         self.fly_replay = fly_replay_enabled() if fly_replay is None else fly_replay
+        self.secret = replay_secret() if secret is None else secret
+        self.owner_probe = fly_owner_probe() if owner_probe is None else owner_probe
+        self._clock = clock
         self._warned: set[tuple[str, str]] = set()
+        # Room code -> when this instance last took it over.
+        self._took_over: dict[str, float] = {}
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") == "websocket":
@@ -439,27 +553,42 @@ class RoomAffinityMiddleware:
         """Answer with fly-replay when another instance should serve this
         connection. False means: serve it here."""
         router = self._router()
+        # A shared directory means Redis round trips: off the event loop.
+        offload = bool(getattr(router, "shares_rooms", False))
         try:
-            route = router.route(raw_code)
+            if offload:
+                route = await asyncio.to_thread(router.route, raw_code)
+            else:
+                route = router.route(raw_code)
         except Exception:
-            log.exception("Routing a connection for room %r failed; serving it here", raw_code)
+            log.exception("Routing a connection for room %r failed; serving it here", raw_code[:16])
             return False
         if route.local:
             return False
 
-        if _header(scope, b"fly-replay-failed") is not None:
-            # Fly sent the request back: the owner is gone or not answering.
-            # Serving the room here only helps if the next teammate comes here
-            # too, so the lease moves with it.
-            moved = router.take_over(route.code, route.owner)
+        failed = _header(scope, b"fly-replay-failed")
+        if failed is not None:
+            # Fly says it sent the request back: the owner is gone or not
+            # answering. Serving the room here only helps if the next teammate
+            # comes here too, so the lease moves with it, but only once the
+            # owner is confirmed unreachable: a client can send this header.
+            moved = False
+            if await self._may_take_over(route, failed, router):
+                if offload:
+                    moved = await asyncio.to_thread(router.take_over, route.code, route.owner)
+                else:
+                    moved = router.take_over(route.code, route.owner)
+                if moved:
+                    self._note_take_over(route.code)
             log.warning(
-                "Fly could not reach instance %s for room %s; serving it here%s",
+                "Replay to instance %s for room %s came back; serving it here%s",
                 route.owner,
                 route.code,
                 " and taking it over" if moved else "",
             )
             return False
-        if _header(scope, b"fly-replay-src") is not None:
+        src = _header(scope, b"fly-replay-src")
+        if src is not None and self._replayed_by_us(route.code, src):
             # Already replayed once (the lease moved in between). Replaying
             # again could bounce the request between machines.
             log.warning(
@@ -484,22 +613,69 @@ class RoomAffinityMiddleware:
         if message.get("type") != "websocket.connect":
             return True  # the client went away before the handshake
         log.info("Replaying room %s to instance %s", route.code, route.owner)
+        # prefer_self: if the owner cannot be reached, Fly sends the request
+        # back here with fly-replay-failed set. state: proves to the target
+        # that this replay came from an instance of ours (see _replayed_by_us).
+        value = f"instance={route.owner};fallback=prefer_self"
+        if self.secret is not None:
+            value += f";state={sign_replay_state(self.secret, route.code, self._clock())}"
         await send(
             {
                 "type": "websocket.http.response.start",
                 "status": FLY_REPLAY_STATUS,
-                "headers": [
-                    (
-                        b"fly-replay",
-                        # prefer_self: if the owner cannot be reached, Fly sends
-                        # the request back here with fly-replay-failed set.
-                        f"instance={route.owner};fallback=prefer_self".encode("latin-1"),
-                    ),
-                ],
+                "headers": [(b"fly-replay", value.encode("latin-1"))],
             }
         )
         await send({"type": "websocket.http.response.body", "body": b""})
         return True
+
+    def _replayed_by_us(self, code: str, header: str) -> bool:
+        """True when fly-replay-src carries a state one of our instances
+        signed for this room just now. Without a shared secret (no Redis,
+        no HIVELANE_REPLAY_SECRET) nothing can be checked, and the header is
+        taken as sent: such a deploy has a single instance and never replays."""
+        if self.secret is None:
+            return True
+        state = parse_fly_fields(header).get("state", "")
+        if replay_state_valid(self.secret, code, state, self._clock()):
+            return True
+        log.warning("Ignoring a fly-replay-src header for room %s with no valid state", code)
+        return False
+
+    async def _may_take_over(self, route: RoomRoute, header: str, router: RoomRouter) -> bool:
+        fields = parse_fly_fields(header)
+        me = getattr(router, "instance_id", None)
+        source = fields.get("replay_source")
+        if not source or (me is not None and source != me):
+            log.warning(
+                "Ignoring a fly-replay-failed header for room %s that this instance "
+                "did not cause",
+                route.code,
+            )
+            return False
+        last = self._took_over.get(route.code)
+        if last is not None and self._clock() - last < TAKE_OVER_INTERVAL_SECONDS:
+            return False
+        if self.owner_probe is None:
+            return False
+        try:
+            if await self.owner_probe(route.owner):
+                log.warning(
+                    "Room %s: replay came back, but instance %s answers its health "
+                    "check; keeping its lease",
+                    route.code,
+                    route.owner,
+                )
+                return False
+        except Exception:
+            log.exception("Probing instance %s failed", route.owner)
+            return False
+        return True
+
+    def _note_take_over(self, code: str) -> None:
+        self._took_over[code] = self._clock()
+        while len(self._took_over) > _MAX_TAKE_OVERS:
+            self._took_over.pop(next(iter(self._took_over)))
 
     def _warn_unrouted(self, route: RoomRoute) -> None:
         key = (route.code, route.owner)

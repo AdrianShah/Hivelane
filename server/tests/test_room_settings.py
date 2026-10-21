@@ -1,5 +1,5 @@
 """Per-room conflict windows: chosen at room creation or by a member's committed
-.synergo.toml, enforced by check_edit, announced as room_settings, and kept
+.hivelane.toml, enforced by check_edit, announced as room_settings, and kept
 across a relay restart."""
 
 from __future__ import annotations
@@ -220,7 +220,7 @@ def _next_frame(socket: Any, type_name: str) -> dict:
 def _next_feed_event(socket: Any, type_name: str) -> dict:
     for _ in range(MAX_FRAMES):
         frame = socket.receive_json()
-        if frame.get("type") != "synergo_feed":
+        if frame.get("type") != "hivelane_feed":
             continue
         for event in frame["events"]:
             if event.get("type") == type_name:
@@ -334,7 +334,7 @@ def test_join_with_settings_updates_the_room_and_broadcasts_them(
 def test_member_settings_are_persisted_for_a_revived_room(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    state_path = str(tmp_path / "synergo.db")
+    state_path = str(tmp_path / "hivelane.db")
     monkeypatch.setattr(
         main, "room_manager", RoomManager(store=SqliteRoomStore(state_path))
     )

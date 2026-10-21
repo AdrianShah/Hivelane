@@ -6,8 +6,8 @@ fact sheet in [README.md](README.md). Post on D0 (X, LinkedIn) and from D+1
 (Reddit, one community per day). Link the repo, not the HN thread: linking
 to a vote-ranked thread reads as a request for votes.
 
-Before posting, replace `pipx install synergo` with
-`pipx install git+https://github.com/AdrianShah/Synergo` if the PyPI release
+Before posting, replace `pipx install hivelane` with
+`pipx install git+https://github.com/AdrianShah/Hivelane` if the PyPI release
 (pending) is not out, and attach the 10-second GIF from
 [demo-script.md](demo-script.md) to the first post of each.
 
@@ -20,12 +20,12 @@ Each post is under 280 characters (links count as 23).
 > Running two AI coding agents in one repo? They will edit the same function
 > sooner or later, and you find out at merge.
 >
-> Synergo is an open-source add-on that makes each agent ask "is anyone else
+> Hivelane is an open-source add-on that makes each agent ask "is anyone else
 > in this file?" before every edit. (1/7)
 
 **2/7**
 
-> How: `synergo up` installs a pre-edit hook for Claude Code, Codex CLI,
+> How: `hivelane up` installs a pre-edit hook for Claude Code, Codex CLI,
 > Cursor or Gemini CLI. Before each write, the hook asks a small relay what
 > the rest of the team's agents are doing. The answer is allow, warn or
 > block, with a reason. (2/7)
@@ -34,7 +34,7 @@ Each post is under 280 characters (links count as 23).
 
 > A blocked agent reads something like:
 >
-> Synergo: alice's claude-code is editing greet in src/hello.py (14s ago) —
+> Hivelane: alice's claude-code is editing greet in src/hello.py (14s ago) —
 > wait, or pick another file
 >
 > It waits or picks other work. The other agent never notices. (3/7)
@@ -61,13 +61,13 @@ Each post is under 280 characters (links count as 23).
 
 **7/7**
 
-> Apache-2.0. Self-host the relay with `synergo relay` or the Docker image,
+> Apache-2.0. Self-host the relay with `hivelane relay` or the Docker image,
 > dashboard included.
 >
-> pipx install synergo
-> synergo up
+> pipx install hivelane
+> hivelane up
 >
-> github.com/AdrianShah/Synergo (7/7)
+> github.com/AdrianShah/Hivelane (7/7)
 
 The Docker image line needs P3 (public GHCR image); drop "or the Docker
 image" if it is still private.
@@ -79,8 +79,8 @@ image" if it is still private.
 > know about each other. Two of them rewrite the same function, and someone
 > finds out at merge time.
 >
-> We built Synergo to move that moment earlier. It is an open-source
-> (Apache-2.0) add-on, not a new editor: `synergo up` in a repository
+> We built Hivelane to move that moment earlier. It is an open-source
+> (Apache-2.0) add-on, not a new editor: `hivelane up` in a repository
 > installs a pre-edit hook into the agents you already use (Claude Code,
 > Codex CLI, Cursor and Gemini CLI). Before every edit, the agent's hook asks
 > a small shared relay whether a teammate's agent is working on the same
@@ -107,7 +107,7 @@ image" if it is still private.
 > If your team runs agents in parallel, I would like to hear how you
 > coordinate them today, and where this would or would not fit.
 >
-> https://github.com/AdrianShah/Synergo
+> https://github.com/AdrianShah/Hivelane
 
 ## Reddit
 
@@ -127,7 +127,7 @@ less than 50 karma are pointed to a showcase megathread instead. Source: a
 moderator comment on the subreddit's "Built with Claude" showcase megathread,
 read through a third-party mirror on 2026-10-06; verify against the sidebar.
 
-Synergo's commits are co-authored with Claude Code, so the flair is honest.
+Hivelane's commits are co-authored with Claude Code, so the flair is honest.
 The prompt below is a placeholder: use a real one from the project's history.
 
 **Title:** How I stopped parallel Claude Code sessions from editing the same
@@ -141,8 +141,8 @@ function (pre-edit hooks + a small relay)
 > edit after it is written: by the time it flags the overlap, both versions
 > exist.
 >
-> **What I built.** Synergo, an open-source (Apache-2.0) coordination layer
-> that uses Claude Code's own hooks. `synergo up` adds three entries to the
+> **What I built.** Hivelane, an open-source (Apache-2.0) coordination layer
+> that uses Claude Code's own hooks. `hivelane up` adds three entries to the
 > repo's `.claude/settings.json`:
 >
 > - `UserPromptSubmit`: your prompt is shared with the room as your current
@@ -151,7 +151,7 @@ function (pre-edit hooks + a small relay)
 >   hook asks a local daemon, which asks a shared relay, whether a
 >   teammate's agent is in the same function. On a block, the hook returns
 >   `permissionDecision: "deny"` with a reason Claude reads, for example:
->   `Synergo: alice's claude-code is editing greet in src/hello.py (14s ago) —
+>   `Hivelane: alice's claude-code is editing greet in src/hello.py (14s ago) —
 >   wait, or pick another file (their task: "Add a greeting parameter to
 >   greet()")`. On a warning it only adds context and a `systemMessage`; it
 >   never auto-approves, so your normal permission flow still applies.
@@ -176,9 +176,9 @@ function (pre-edit hooks + a small relay)
 > and are not checked against each other; edits made through Bash are not
 > checked; whoever runs the relay sees prompts and diffs unless you enable
 > end-to-end encryption (which hides content, not metadata). The relay is
-> self-hostable (`synergo relay`, or a Docker image).
+> self-hostable (`hivelane relay`, or a Docker image).
 >
-> Repo: https://github.com/AdrianShah/Synergo. I would really like to hear
+> Repo: https://github.com/AdrianShah/Hivelane. I would really like to hear
 > about blocks that felt wrong.
 
 ### r/cursor
@@ -198,11 +198,11 @@ function
 > help much: it reports the overlap after both edits are on disk.
 >
 > **How Cursor's hooks make prevention possible.** Cursor reads
-> `.cursor/hooks.json`. Synergo (open source, Apache-2.0) registers three
+> `.cursor/hooks.json`. Hivelane (open source, Apache-2.0) registers three
 > hooks there:
 >
 > - `beforeSubmitPrompt`: your prompt becomes your intent in a shared room.
->   Synergo always answers `{"continue": true}`; it never blocks a prompt.
+>   Hivelane always answers `{"continue": true}`; it never blocks a prompt.
 > - `preToolUse` on the agent's `Write` and `Delete` tools: before the edit,
 >   the hook asks a shared relay whether a teammate's agent is in the same
 >   function. On a block it answers `{"permission": "deny"}` with a message
@@ -219,11 +219,11 @@ function
 > shows which files teammates' agents are in and warns you the first time
 > you change one; it never blocks.
 >
-> Setup is `synergo up` in the repo (it detects Cursor and writes the hooks);
+> Setup is `hivelane up` in the repo (it detects Cursor and writes the hooks);
 > teammates pull and run the same command. Works alongside Claude Code,
 > Codex CLI and Gemini CLI users in the same room.
 >
-> Repo: https://github.com/AdrianShah/Synergo. Questions and "this blocked me
+> Repo: https://github.com/AdrianShah/Hivelane. Questions and "this blocked me
 > for no reason" reports are very welcome.
 
 The extension paragraph needs P4 (Open VSX listing, pending). Until then,

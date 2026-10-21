@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot local setup: install the synergo daemon and enable the repo git hooks.
+# One-shot local setup: install the hivelane daemon and enable the repo git hooks.
 # Usage: ./setup.sh
 set -euo pipefail
 
@@ -31,5 +31,5 @@ fi
 
 echo
 echo "Setup complete."
-echo "  Install agent hooks: .venv/bin/synergo hook install claude-code"
-echo "  Join a room:         .venv/bin/synergo join <ROOM> --name <your-name>"
+echo "  Install agent hooks: .venv/bin/hivelane hook install claude-code"
+echo "  Join a room:         .venv/bin/hivelane join <ROOM> --name <your-name>"

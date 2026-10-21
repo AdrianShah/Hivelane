@@ -6,7 +6,7 @@
    "t": 0,
    "user": "alice",
    "kind": "post_edit",
-   "file": ".synergo.toml",
+   "file": ".hivelane.toml",
    "symbols": [],
    "line_ranges": [
     [
@@ -20,7 +20,7 @@
    "t": 8,
    "user": "bob",
    "kind": "pre_edit",
-   "file": ".synergo.toml",
+   "file": ".hivelane.toml",
    "symbols": [],
    "line_ranges": [
     [

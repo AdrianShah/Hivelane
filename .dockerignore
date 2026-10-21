@@ -1,8 +1,9 @@
-# The image needs server/ and frontend/ only: allow-list them so nothing else
+# The image needs server/, frontend/ and its entrypoint only: allow-list them so nothing else
 # in the repo (the CLI, docs, local venvs, secrets) reaches the build context.
 *
 !server/
 !frontend/
+!deploy/docker-entrypoint.sh
 
 # Within those, leave out tests, local builds and anything secret.
 server/tests/
@@ -10,7 +11,7 @@ server/tests/
 **/*.pyc
 frontend/node_modules/
 frontend/dist/
-frontend/Synergo/
+frontend/Hivelane/
 frontend/.vercel/
 **/.env
 **/.env.*
