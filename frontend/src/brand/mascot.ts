@@ -184,9 +184,12 @@ function avatarFace(state: AvatarState, c: MascotPalette): string {
  * recognisable. `uid` keeps the clip-path id unique per instance.
  */
 export function avatarSvg(state: AvatarState, accent: string, uid: string, c: MascotPalette = THEME_PALETTE): string {
-  const id = `hl-av-${uid}`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 16 152 128" aria-hidden="true">${bee(state, accent, `hl-av-${uid}`, c)}</svg>`;
+}
+
+/** The bee drawing shared by the avatar and the logo mark (no <svg> wrapper). */
+function bee(state: AvatarState, accent: string, id: string, c: MascotPalette): string {
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 16 152 128" aria-hidden="true">` +
     `<defs><clipPath id="${id}"><path d="${HEX}"/></clipPath></defs>` +
     `<g class="bee__body">` +
     `<g class="bee__wing bee__wing--l"><ellipse cx="34" cy="68" rx="27" ry="12" transform="rotate(-32 34 68)" fill="${c.wing}" stroke="${c.ink}" stroke-width="5"/></g>` +
@@ -197,19 +200,41 @@ export function avatarSvg(state: AvatarState, accent: string, uid: string, c: Ma
     `<g clip-path="url(#${id})"><rect x="30" y="103" width="100" height="11" fill="${accent}"/><rect x="30" y="119" width="100" height="8" fill="${c.ink}"/></g>` +
     `<path d="${HEX}" fill="none" stroke="${c.ink}" stroke-width="6" stroke-linejoin="round"/>` +
     avatarFace(state, c) +
-    `</g></svg>`
+    `</g>`
   );
 }
 
-/** The 32 px logo mark: the hexagon with two stripes. */
+/**
+ * The logo mark: the happy guard bee, cropped square. Strokes are heavier
+ * than the avatar's so it still reads at favicon size (16 px).
+ */
 export function markSvg(c: MascotPalette = THEME_PALETTE, title = 'Hivelane'): string {
-  const hex = 'M16 3 27.26 9.5V22.5L16 29 4.74 22.5V9.5Z';
+  const drawing = bee('editing', c.accent, 'hl-mark', c).replace(
+    /stroke-width="([\d.]+)"/g,
+    (_, w: string) => `stroke-width="${+w * 1.7}"`,
+  );
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="${title}">` +
-    `<defs><clipPath id="hl-mark"><path d="${hex}"/></clipPath></defs>` +
-    `<path d="${hex}" fill="${c.body}"/>` +
-    `<g clip-path="url(#hl-mark)"><rect y="13" width="32" height="4" fill="${c.accent}"/><rect y="19.5" width="32" height="3" fill="${c.ink}"/></g>` +
-    `<path d="${hex}" fill="none" stroke="${c.ink}" stroke-width="2.6" stroke-linejoin="round"/>` +
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 2 160 160" role="img" aria-label="${title}">` +
+    drawing +
     `</svg>`
+  );
+}
+
+/** The favicon: the mark with colours that follow the system theme. */
+export function faviconSvg(): string {
+  const vars = (p: MascotPalette) =>
+    `--ink:${p.ink};--body:${p.body};--accent:${p.accent};--wing:${p.wing};`;
+  const css: MascotPalette = {
+    ink: 'var(--ink)',
+    body: 'var(--body)',
+    accent: 'var(--accent)',
+    wing: 'var(--wing)',
+    ok: '',
+    warn: '',
+    block: '',
+  };
+  return markSvg(css).replace(
+    'aria-label="Hivelane">',
+    `aria-label="Hivelane"><style>svg{${vars(LIGHT_PALETTE)}}@media (prefers-color-scheme: dark){svg{${vars(DARK_PALETTE)}}}</style>`,
   );
 }
