@@ -9,7 +9,7 @@
  * same object (nothing changed) or a new one sharing untouched parts. Frames
  * may arrive twice (catch-up after a reconnect, history replays) and out of
  * order, so inserts are de-duplicated and kept sorted by the relay's
- * timestamps (server time, authoritative — see server/main.py).
+ * timestamps (server time, authoritative, see server/main.py).
  */
 import type {
   AgentKind,

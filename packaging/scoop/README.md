@@ -11,7 +11,7 @@ scoop install hivelane/hivelane
 
 - `url` is the wheel on PyPI, so Scoop checks its sha256 before anything runs.
 - `installer.script` runs `uv tool install` on that wheel (`depends: uv` pulls uv
-  from the main bucket), falling back to `pipx install` if uv is missing — which
+  from the main bucket), falling back to `pipx install` if uv is missing, which
   only happens with `scoop install --independent`.
 - The tool environment and the `hivelane.exe` launcher are both placed under the
   app directory (`UV_TOOL_DIR`/`UV_TOOL_BIN_DIR`, or `PIPX_HOME`/`PIPX_BIN_DIR`),

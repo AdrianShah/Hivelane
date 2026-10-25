@@ -1,0 +1,20 @@
+---
+// Starlight's theme picker; a choice made here is also saved as the
+// dashboard's, so the docs and the dashboard always share one theme.
+import Default from '@astrojs/starlight/components/ThemeSelect.astro';
+---
+
+<Default />
+
+<script>
+  document.addEventListener('change', (event) => {
+    const select = event.target;
+    if (!(select instanceof HTMLSelectElement) || !select.closest('starlight-theme-select')) return;
+    const value = select.value === 'light' || select.value === 'dark' ? select.value : 'system';
+    try {
+      localStorage.setItem('hivelane:theme', value);
+    } catch {
+      /* storage blocked: the picker still works for this page */
+    }
+  });
+</script>

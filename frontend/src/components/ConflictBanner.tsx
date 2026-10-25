@@ -44,7 +44,7 @@ export default function ConflictBanner({
 
   return (
     <div className="conflict-banner px-3 sm:px-5 py-2.5 z-40 animate-fade-up">
-      <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-[min(100%,18rem)] flex-1">
           <span
             className="material-symbols-outlined conflict-banner__icon text-[18px] shrink-0"

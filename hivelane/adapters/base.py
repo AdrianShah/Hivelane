@@ -254,7 +254,7 @@ CALL_TO_ACTION = {
 }
 # What a block says when its own message could not be built: a block is never
 # rendered as an allow, even from a malformed ack.
-GENERIC_BLOCK = "a teammate's agent is already working in this file — " + CALL_TO_ACTION["block"]
+GENERIC_BLOCK = "a teammate's agent is already working in this file, " + CALL_TO_ACTION["block"]
 
 
 def _queue_position(ack: dict[str, Any]) -> int:
@@ -316,7 +316,7 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
 
     The relay's reason is authoritative for the who-did-what clause because it
     distinguishes a peer who actually edited the file from one who has only
-    declared intent — composing that here would misreport the second case.
+    declared intent, composing that here would misreport the second case.
     A block then says where the agent stands in the file's wait queue, what
     the relay suggests doing meanwhile (or the generic advice), and how to
     wait for its turn from a shell; a warn adds the relay's suggestion.
@@ -347,7 +347,7 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
         steps = [CALL_TO_ACTION.get(decision, CALL_TO_ACTION["warn"])]
         if suggestion:
             steps.append(suggestion)
-    message = f"{detail} — {'; '.join(steps)}"
+    message = f"{detail}, {'; '.join(steps)}"
     first = others[0] if others else None
     if isinstance(first, dict) and first.get("prompt"):
         prompt = clean_text(first["prompt"], MAX_PROMPT_CHARS)
@@ -440,7 +440,7 @@ def read_settings(path: Path) -> tuple[dict[str, Any], SettingsFormat]:
             return {}, fmt
         raw = path.read_bytes()
     except OSError as exc:
-        raise SettingsError(f"cannot read {path} ({exc.strerror or exc}) — fix it first") from None
+        raise SettingsError(f"cannot read {path} ({exc.strerror or exc}), fix it first") from None
     for bom, encoding in _BOMS:
         if raw.startswith(bom):
             fmt.bom, fmt.encoding = bom, encoding
@@ -450,7 +450,7 @@ def read_settings(path: Path) -> tuple[dict[str, Any], SettingsFormat]:
         text = raw.decode(fmt.encoding)
     except UnicodeDecodeError:
         raise SettingsError(
-            f"{path} is not UTF-8 or UTF-16 text — re-save it as UTF-8 first (hivelane never rewrites a file it cannot read)"
+            f"{path} is not UTF-8 or UTF-16 text, re-save it as UTF-8 first (hivelane never rewrites a file it cannot read)"
         ) from None
     if "\r\n" in text:
         fmt.newline = "\r\n"
@@ -461,14 +461,14 @@ def read_settings(path: Path) -> tuple[dict[str, Any], SettingsFormat]:
     except json.JSONDecodeError as exc:
         stripped = strip_json_comments(text)
         if stripped == text:
-            raise SettingsError(f"{path} is not valid JSON ({exc}) — fix it first") from None
+            raise SettingsError(f"{path} is not valid JSON ({exc}), fix it first") from None
         try:
             data = json.loads(stripped)
         except json.JSONDecodeError as exc2:
-            raise SettingsError(f"{path} is not valid JSON ({exc2}) — fix it first") from None
+            raise SettingsError(f"{path} is not valid JSON ({exc2}), fix it first") from None
         fmt.commented = True
     if not isinstance(data, dict):
-        raise SettingsError(f"{path} does not contain a JSON object — refusing to overwrite")
+        raise SettingsError(f"{path} does not contain a JSON object, refusing to overwrite")
     return data, fmt
 
 
@@ -485,7 +485,7 @@ def save_settings(path: Path, settings: dict[str, Any], fmt: Optional[SettingsFo
 
     fmt = fmt or SettingsFormat()
     if fmt.commented:
-        raise SettingsError(f"{path} has comments, which rewriting it would drop — refusing to overwrite")
+        raise SettingsError(f"{path} has comments, which rewriting it would drop, refusing to overwrite")
     text = json.dumps(settings, indent=2, ensure_ascii=False) + "\n"
     if fmt.newline != "\n":
         text = text.replace("\n", fmt.newline)
@@ -656,12 +656,12 @@ def merge_hooks(settings: dict[str, Any], desired: dict[str, list[dict[str, Any]
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         if hooks is not None:
-            raise SettingsError("the existing `hooks` entry is not an object — refusing to overwrite")
+            raise SettingsError("the existing `hooks` entry is not an object, refusing to overwrite")
         hooks = settings["hooks"] = {}
     for event in desired:
         # Checked up front, so a refusal leaves `settings` untouched.
         if hooks.get(event) is not None and not isinstance(hooks[event], list):
-            raise SettingsError(f"hooks.{event} is not a list — refusing to overwrite")
+            raise SettingsError(f"hooks.{event} is not a list, refusing to overwrite")
     changes: list[str] = []
     for event, groups in desired.items():
         existing = hooks.get(event)
@@ -726,7 +726,7 @@ def remove_hooks(settings: dict[str, Any]) -> list[str]:
 def _refuse_commented(path: Path, desired: Optional[dict[str, Any]] = None) -> None:
     import json
 
-    message = f"{path} has comments, which rewriting it would drop — refusing to overwrite."
+    message = f"{path} has comments, which rewriting it would drop, refusing to overwrite."
     if desired is not None:
         message += f" Add hivelane's entries by hand under \"hooks\":\n{json.dumps(desired, indent=2)}"
     raise SettingsError(message)

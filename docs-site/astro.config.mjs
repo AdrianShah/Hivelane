@@ -28,7 +28,14 @@ export default defineConfig({
         },
       ],
       customCss: ['./src/styles/theme.css'],
+      // Keep the theme in step with the dashboard (same origin, shared storage).
+      components: {
+        ThemeProvider: './src/components/ThemeProvider.astro',
+        ThemeSelect: './src/components/ThemeSelect.astro',
+      },
       expressiveCode: {
+        // Plain frames: no empty terminal title bar over shell snippets.
+        defaultProps: { frame: 'code' },
         themes: ['github-dark-default', 'github-light-default'],
         styleOverrides: {
           borderRadius: '12px',

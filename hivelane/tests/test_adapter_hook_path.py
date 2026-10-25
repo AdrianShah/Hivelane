@@ -193,7 +193,7 @@ def test_codex_block_survives_a_later_unreachable_daemon(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """finding 01 #2 / T8: a.py blocks, then the daemon stops answering on
-    b.py — the block must still be rendered, never the offline notice."""
+    b.py, the block must still be rendered, never the offline notice."""
     payload = _codex_patch_payload(tmp_path, ["a.py", "b.py"])
     answers: list[Any] = [ACKS["warn"], hook_fast.DaemonUnreachable(hook_fast.OFFLINE_NOT_RESPONDING)]
 

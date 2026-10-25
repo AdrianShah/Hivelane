@@ -123,7 +123,7 @@ def test_non_numeric_limit_is_rejected() -> None:
 def test_import_fails_fast_when_production_has_no_cors_origins(
     tmp_path: Path,
 ) -> None:
-    """Importing the module — not just calling load_settings — must abort, so a
+    """Importing the module, not just calling load_settings, must abort, so a
     misconfigured deploy never starts serving. Runs outside the repo so no local
     .env can supply CORS_ORIGINS."""
     result = subprocess.run(

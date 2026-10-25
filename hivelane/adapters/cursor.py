@@ -6,7 +6,7 @@ the docs say, and what this module relies on:
 - Hooks live in `<repo>/.cursor/hooks.json` (project; commands run from the
   project root) or `~/.cursor/hooks.json` (user). The file is
   `{"version": 1, "hooks": {eventName: [{"command", "type"?, "timeout"?,
-  "matcher"?, "failClosed"?}]}}` — a flat list of entries per event, NOT
+  "matcher"?, "failClosed"?}]}}`, a flat list of entries per event, NOT
   Claude Code's `[{matcher, hooks: [...]}]` groups, so install uses its own
   small merge here (same ownership / never-overwrite rules as base).
 - Every payload carries `conversation_id`, `generation_id`, `hook_event_name`,
@@ -34,8 +34,8 @@ the docs say, and what this module relies on:
   output" counts as a hook failure, so an empty stdout is not a safe answer.
 
 The decision hivelane makes in Cursor: it only ever *denies* (a block). Every
-other preToolUse answer — an allow ack, a warn, the daemon offline, an
-internal error — is `{"permission": "ask"}` (with messages for a warn or a
+other preToolUse answer, an allow ack, a warn, the daemon offline, an
+internal error, is `{"permission": "ask"}` (with messages for a warn or a
 notice), never `"allow"`. There is no documented "no decision" form, and an
 explicit `allow` could skip Cursor's own approval (file-deletion protection
 included), which a coordination tool must never do. `ask` is schema-valid (so
@@ -217,7 +217,7 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
     message = base.ack_message(ack, decision, event.get("file_path"))
     if decision == "block":
         return _deny(message)
-    # warn: "ask", never "allow" — a warn must not approve anything.
+    # warn: "ask", never "allow", a warn must not approve anything.
     return hook_json.dumps(
         {
             "permission": NO_DECISION,
@@ -235,13 +235,13 @@ def install_hooks(path: Path, desired: dict[str, list[dict[str, Any]]]) -> list[
     hooks = settings.get("hooks")
     if not isinstance(hooks, dict):
         if hooks is not None:
-            raise base.SettingsError(f"{path}: `hooks` is not an object — refusing to overwrite")
+            raise base.SettingsError(f"{path}: `hooks` is not an object, refusing to overwrite")
         hooks = {}
     changes: list[str] = []
     for event, entries in desired.items():
         existing = hooks.get(event)
         if existing is not None and not isinstance(existing, list):
-            raise base.SettingsError(f"{path}: hooks.{event} is not a list — refusing to overwrite")
+            raise base.SettingsError(f"{path}: hooks.{event} is not a list, refusing to overwrite")
         existing = existing or []
         current = base._existing_command(existing)
         if current is not None:

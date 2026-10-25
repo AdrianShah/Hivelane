@@ -5,8 +5,8 @@
 #
 #   fly deploy --config deploy/fly/fly.toml
 #
-# Non-secret settings live in [env] below. CORS_ORIGINS — the dashboard
-# origin(s) allowed to call the relay — is set with `fly secrets set`, so a new
+# Non-secret settings live in [env] below. CORS_ORIGINS, the dashboard
+# origin(s) allowed to call the relay, is set with `fly secrets set`, so a new
 # dashboard domain needs no commit. The relay refuses to boot in production
 # without it, so a forgotten secret fails the deploy instead of serving open.
 

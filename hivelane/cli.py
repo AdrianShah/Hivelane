@@ -78,7 +78,7 @@ MARKS = {"ok": "✔", "fail": "✖", "skip": "-", "info": "•", "warn": "!"}
 ASCII_MARKS = {"ok": "[ok]", "fail": "[x]", "skip": "[-]", "info": "*", "warn": "[!]"}
 # Applied only when the console cannot encode the original.
 ASCII_FALLBACKS = {
-    "—": "-",
+    "\u2014": "-",
     "–": "-",
     "…": "...",
     "→": "->",
@@ -618,7 +618,7 @@ def run_hook(port_arg: Optional[int], agent: str = "claude-code") -> int:
     try:
         port = resolve_port(port_arg)
     except ConfigError as exc:
-        print(f"hivelane: {exc} — proceeding without coordination", file=sys.stderr)
+        print(f"hivelane: {exc}, proceeding without coordination", file=sys.stderr)
         return 0
     return hook_fast.run_agent(agent, port)
 
@@ -658,7 +658,7 @@ def run_hook_fast_path(argv: Sequence[str], agent: str = "claude-code") -> int:
     try:
         port_arg = parse_hook_args(argv)
     except ValueError as exc:
-        print(f"hivelane: {exc} — proceeding without coordination", file=sys.stderr)
+        print(f"hivelane: {exc}, proceeding without coordination", file=sys.stderr)
         return 0
     return run_hook(port_arg, agent)
 
@@ -671,8 +671,8 @@ def route_hook(rest: Sequence[str]) -> Optional[int]:
 
     An agent invocation (`hook <id> ...`) goes down the fast path. Anything
     else that is not `install`/`uninstall` or a help request is an agent hook
-    hivelane does not understand — an id from a newer (or older) hivelane, a
-    typo, a missing id — and exits 0 with a note on stderr: argparse would
+    hivelane does not understand, an id from a newer (or older) hivelane, a
+    typo, a missing id, and exits 0 with a note on stderr: argparse would
     exit 2, which every supported agent reads as "block this edit", stalling
     every edit until someone removes the hook. None means "let argparse
     handle it" (install, uninstall, --help).
@@ -689,7 +689,7 @@ def route_hook(rest: Sequence[str]) -> Optional[int]:
         known = ", ".join(REGISTRY)
         what = f"unknown agent {rest[0]!r}" if rest else "no agent given"
         print(
-            f"hivelane: hook: {what} (this hivelane knows: {known}) — proceeding without coordination",
+            f"hivelane: hook: {what} (this hivelane knows: {known}), proceeding without coordination",
             file=sys.stderr,
         )
     except Exception:  # noqa: BLE001 - a broken stderr must not change the exit code
@@ -705,7 +705,7 @@ def route_hook(rest: Sequence[str]) -> Optional[int]:
 
 def hook_scope(global_scope: bool) -> tuple[str, Optional[Path]]:
     """(scope, root) for `hivelane hook install/uninstall`: the user's config,
-    or the project's — the git repo around the cwd (where the agent reads its
+    or the project's, the git repo around the cwd (where the agent reads its
     project config), else the cwd itself."""
     from pathlib import Path
 
@@ -787,7 +787,7 @@ def cmd_hook_install(args: argparse.Namespace) -> int:
     except base.SettingsError as exc:
         raise ConfigError(str(exc)) from None
     if not changes:
-        print(f"hivelane: hooks already installed in {path} — nothing to do")
+        print(f"hivelane: hooks already installed in {path}, nothing to do")
         return 0
     command = adapter.hook_command
     print(f"hivelane: added hooks to {path}")
@@ -858,7 +858,7 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             if spec.id == detect.PRIMARY_AGENT:
                 primary_error = error
             else:
-                say(f"  {mark('fail')} {spec.label} ({evidence}): hooks not installed — {error}")
+                say(f"  {mark('fail')} {spec.label} ({evidence}): hooks not installed, {error}")
             continue
         where = display_path(result.path, root)
         if result.changed:
@@ -1972,7 +1972,7 @@ def cmd_wait(args: argparse.Namespace) -> int:
             elif state in ("uncoordinated", "ignored"):
                 say(f"hivelane: {path} is not coordinated by hivelane; go ahead")
             else:
-                say(f"hivelane: {path} is free — go ahead")
+                say(f"hivelane: {path} is free, go ahead")
             return 0
         if not announced:
             position = reply.get("queue_position") or 0

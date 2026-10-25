@@ -1,6 +1,6 @@
 """The claim the product rests on, end to end: an agent is denied an edit to a
-file a teammate just touched — even when the two run from different directories
-of the repo — and the answer comes back fast enough to sit on a blocking hook.
+file a teammate just touched, even when the two run from different directories
+of the repo, and the answer comes back fast enough to sit on a blocking hook.
 
 Real relay, real daemons, real sockets; only the agents are simulated, by
 posting the events their hooks would post. scripts/smoke.sh covers the same

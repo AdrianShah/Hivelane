@@ -1,8 +1,8 @@
 /**
  * Notifications from the dashboard.
  *
- * 1. Browser notifications (the Notification API) for edit blocks — anyone's,
- *    or only those involving one name — and conflict alerts, per room, with
+ * 1. Browser notifications (the Notification API) for edit blocks, anyone's,
+ *    or only those involving one name, and conflict alerts, per room, with
  *    the preference in localStorage. Permission is only ever requested from a
  *    click (browsers ignore or punish prompts that are not), and every
  *    storage access is wrapped: blocked storage just means defaults.
@@ -136,7 +136,7 @@ export function noticeFor(
     const holders = (event.others ?? []).join(', ');
     return {
       title: mine ? 'Your agent was blocked' : `${event.user_id}'s agent was blocked`,
-      body: `${event.file_path}${holders ? ` — held by ${holders}` : ''}${
+      body: `${event.file_path}${holders ? `, held by ${holders}` : ''}${
         event.reason ? `\n${event.reason}` : ''
       }`,
       tag: `hivelane:${room}:${event.decision_id || `${event.user_id}:${event.file_path}`}`,
@@ -147,7 +147,7 @@ export function noticeFor(
     if (event.verdict !== 'overlapping' && event.verdict !== 'related') return null;
     return {
       title: `Conflict: ${event.file_path}`,
-      body: `${event.users.join(' and ')} — ${event.verdict}${
+      body: `${event.users.join(' and ')}, ${event.verdict}${
         event.explanation ? `\n${event.explanation}` : ''
       }`,
       tag: `hivelane:${room}:conflict:${event.file_path}`,

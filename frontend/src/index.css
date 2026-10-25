@@ -881,7 +881,6 @@ kbd,
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
   gap: 1.25rem;
-  max-width: 1400px;
   width: 100%;
 }
 
@@ -918,7 +917,6 @@ kbd,
 /* Connect-an-agent panel (replaces the old companion control panel). Mirrors
    .prompt-panel / .diff-shell so it reads as part of the same surface set. */
 .connect-panel {
-  max-width: 46rem;
   padding: 1.5rem;
   border-radius: 0.75rem;
   background: var(--panel-bg);
@@ -1019,7 +1017,6 @@ kbd,
 /* Share-this-room panel: same surface as .connect-panel, with the room code
    set large enough to read across a table. Copy rows reuse .connect-command. */
 .share-panel {
-  max-width: 46rem;
   padding: 1.5rem;
   border-radius: 0.75rem;
   background: var(--panel-bg);
@@ -1687,5 +1684,63 @@ p {
 @media (prefers-reduced-motion: reduce) {
   button:not(:disabled):active {
     transform: none !important;
+  }
+}
+
+/* ==========================================================================
+   Dashboard views: one page frame, full width, same title scale everywhere
+   ========================================================================== */
+
+.view-page {
+  width: 100%;
+  padding: 1.25rem 1rem 2rem;
+}
+
+@media (min-width: 640px) {
+  .view-page {
+    padding: 1.75rem 1.75rem 2.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .view-page {
+    padding: 2.25rem 2.5rem 3rem;
+  }
+}
+
+.view-title {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: rgb(var(--c-on-surface));
+}
+
+.view-sub {
+  margin: 0.25rem 0 1.5rem;
+  max-width: 60rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: rgb(var(--c-on-muted));
+}
+
+/* Settings: label | value rows across the full width. */
+.settings-list > div:not(.h-px):not(.settings-actions) {
+  display: grid;
+  gap: 0.25rem 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .settings-list > div:not(.h-px):not(.settings-actions) {
+    grid-template-columns: 14rem minmax(0, 1fr);
+    align-items: baseline;
+  }
+  .settings-list > div:not(.h-px):not(.settings-actions) > :not(:first-child) {
+    grid-column: 2;
+  }
+  .settings-list > div:not(.h-px):not(.settings-actions) > p,
+  .settings-list > div:not(.h-px):not(.settings-actions) > div {
+    margin-top: 0;
   }
 }

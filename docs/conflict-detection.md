@@ -44,11 +44,11 @@ unknown, and the file is judged whole until symbols arrive again.
 
 | situation                                               | decision | scope    |
 |---------------------------------------------------------|----------|----------|
-| peer is on a different (known) branch                   | warn — "conflict at merge" | `branch` |
+| peer is on a different (known) branch                   | warn, "conflict at merge" | `branch` |
 | both sides have symbols and they intersect              | hard     | `symbol` |
 | symbols on both sides, disjoint, always-warn file       | hard     | `file`   |
 | symbols on both sides, disjoint, but line ranges literally overlap | hard | `lines` |
-| symbols on both sides, disjoint                          | warn — "different function" | `symbol` |
+| symbols on both sides, disjoint                          | warn, "different function" | `symbol` |
 | line ranges on both sides within 10 lines               | hard     | `lines`  |
 | line ranges on both sides, further apart                | warn     | `lines`  |
 | no symbols/ranges (legacy)                              | hard     | `file`   |
@@ -116,7 +116,7 @@ benchmark sessions.
 
 Pure, stdlib-only, no server imports.
 
-* `similar_intents(text, others, threshold=0.8)` — returns `(user_id, score)`
+* `similar_intents(text, others, threshold=0.8)`, returns `(user_id, score)`
   for peer intents describing the same task. Text is normalized (camelCase /
   snake_case split, lowercase), stopwords and generic coding verbs dropped,
   lightly stemmed; the score blends char-trigram cosine (0.5) with token
@@ -125,7 +125,7 @@ Pure, stdlib-only, no server imports.
 * `HIVELANE_EMBEDDINGS=fastembed` switches to sentence embeddings if the
   optional `fastembed` package is installed (lazy import; any failure falls
   back to lexical). It is not a dependency.
-* `files_mentioned(text, known_paths)` — fuzzy path/basename/stem/symbol
+* `files_mentioned(text, known_paths)`, fuzzy path/basename/stem/symbol
   matching: "fix the room broadcast" → `server/room.py`.
 
 Calibration on `server/tests/fixtures/intent_pairs.json` (40 labelled pairs):

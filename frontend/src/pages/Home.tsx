@@ -10,9 +10,9 @@ import { createRoom } from '../roomAccess';
 import { BeeAvatar, Mark, Mascot } from '../brand/BrandArt';
 import { personColor } from '../dashboard/people';
 import ThemeToggle from '../components/ThemeToggle';
+import { DOCS_URL } from '../links';
 import './Home.css';
 
-const DOCS_URL = 'https://adrianshah.github.io/Hivelane/docs/';
 const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
 
 export default function Home() {

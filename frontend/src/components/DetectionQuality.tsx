@@ -10,7 +10,7 @@ export default function DetectionQuality({ rows }: { rows: ScopeQuality[] }) {
       </h2>
       <p className="text-[12px] text-on-muted mt-1 mb-4">
         Useful vs noise votes on warn/block decisions this session, by scope.
-        {totalVotes === 0 ? ' No votes yet — rate decisions in the agent lanes.' : ''}
+        {totalVotes === 0 ? ' No votes yet, rate decisions in the agent lanes.' : ''}
       </p>
       <table className="w-full text-left border-collapse text-[12.5px]">
         <thead>
@@ -40,7 +40,7 @@ export default function DetectionQuality({ rows }: { rows: ScopeQuality[] }) {
                 </td>
                 <td className="py-2 pl-4">
                   {pct == null ? (
-                    <span className="text-on-dim">—</span>
+                    <span className="text-on-dim">-</span>
                   ) : (
                     <span className="flex items-center gap-2">
                       <span

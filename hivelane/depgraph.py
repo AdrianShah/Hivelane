@@ -10,7 +10,7 @@ Deliberately simple and local (no relay change):
   parameters.
 * On pre_edit, the target file's current content is checked for each recent
   change: it must import the changed file's module (an import line naming its
-  stem) — or be the changed module's sibling importing the name — and call
+  stem), or be the changed module's sibling importing the name, and call
   `foo(`. Matches become a warn-level note on the ack.
 
 No whole-repo graph is built: the importer test runs on the one file being

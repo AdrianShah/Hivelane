@@ -400,7 +400,7 @@ export function forgetRoomKey(room: string): void {
  */
 export type E2EState = 'off' | 'locked' | 'ok' | 'bad-key' | 'unsupported';
 
-export const LOCKED_TEXT = '🔒 encrypted — paste the room key to view';
+export const LOCKED_TEXT = '🔒 encrypted, paste the room key to view';
 export const UNREADABLE_TEXT = "can't decrypt (wrong room key?)";
 
 type Frame = Record<string, unknown> & { type?: string };
