@@ -31,6 +31,7 @@ import { publishHistoryChunk } from './replay';
 import { relativeTime } from './dashboard/people';
 import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import { copyText } from './clipboard';
+import { API_REFERENCE_URL, DOCS_URL } from './links';
 import { closeAction } from './closeCodes';
 import {
   E2EDecoder,
@@ -48,7 +49,6 @@ import {
 } from './detection';
 import {
   normalizeRoomCode,
-  relayHttpOrigin,
   roomLink,
   roomPath,
   roomWsUrl,
@@ -105,7 +105,7 @@ const BLANK_LANE: LaneState = {
 };
 
 /**
- * A lane plus when its agent left the room (ms epoch, local clock — user_left
+ * A lane plus when its agent left the room (ms epoch, local clock, user_left
  * carries no timestamp), or null while connected. Kept here rather than in
  * LaneState because it is dashboard bookkeeping, not part of the wire format.
  */
@@ -310,7 +310,7 @@ export default function App() {
   const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      showToast('Not connected — try again');
+      showToast('Not connected, try again');
       return false;
     }
     ws.send(JSON.stringify(frame));
@@ -332,7 +332,7 @@ export default function App() {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN || status !== 'connected') {
       // While a dashboard awaits approval the relay drops its frames: say so.
-      showToast(status === 'pending' ? 'Waiting for approval — vote not sent' : 'Not connected — vote not sent');
+      showToast(status === 'pending' ? 'Waiting for approval, vote not sent' : 'Not connected, vote not sent');
       return;
     }
     const frame: DecisionFeedback = {
@@ -594,7 +594,7 @@ export default function App() {
             case 'activity_update':
               setUsers((prev) => {
                 const prior = prev[item.user_id];
-                // Prompt-only updates send changes: [] — keep the last diffs so
+                // Prompt-only updates send changes: [], keep the last diffs so
                 // the lane doesn't blank out when a new Cursor prompt arrives.
                 const changes =
                   item.changes.length > 0
@@ -1119,7 +1119,7 @@ export default function App() {
           role="status"
           aria-live="polite"
         >
-          <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] text-on-surface m-0">
               {status === 'pending'
                 ? (accessNotice ??
@@ -1143,7 +1143,7 @@ export default function App() {
 
       {status === 'room_missing' ? (
         <div className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40">
-          <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-[13px] text-on-surface m-0">
               Room <span className="font-mono text-primary">{roomId}</span> is
               gone on the relay (expired or redeployed). Create a new room,
@@ -1178,11 +1178,11 @@ export default function App() {
 
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar relative workspace-canvas pb-20 md:pb-0">
           {view === 'dashboard' ? (
-            <div className="p-5 sm:p-8 lg:p-10 max-w-[1100px]">
-              <h1 className="text-[28px] font-medium tracking-[-0.03em] text-on-surface mb-1">
+            <div className="view-page">
+              <h1 className="view-title">
                 Dashboard
               </h1>
-              <p className="text-[14px] text-on-muted mb-8">
+              <p className="view-sub">
                 Room overview for{' '}
                 <span className="font-mono text-primary">{roomId}</span>
               </p>
@@ -1257,13 +1257,13 @@ export default function App() {
           ) : null}
 
           {showAgentGrid ? (
-            <div className="p-4 sm:p-6 lg:p-8">
-              <div className="flex items-end justify-between gap-4 mb-5 max-w-[1400px]">
+            <div className="view-page">
+              <div className="flex items-end justify-between gap-4 mb-5">
                 <div>
-                  <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">
+                  <h1 className="view-title m-0">
                     Hivelane feed
                   </h1>
-                  <p className="text-[13px] text-on-muted mt-1 mb-0">
+                  <p className="view-sub mb-0">
                     One lane per person: status, current intent, plan checklist and
                     latest diffs (live, batched every 500 ms).
                   </p>
@@ -1273,7 +1273,7 @@ export default function App() {
                 <>
                   {filterBar}
                   {visibleLaneIds.length === 0 ? (
-                    <div className="lane-shell rounded-2xl p-6 max-w-[46rem]">
+                    <div className="lane-shell rounded-2xl p-6">
                       <p className="text-[14px] text-on-surface font-medium m-0">
                         No lanes match these filters
                       </p>
@@ -1360,9 +1360,9 @@ export default function App() {
           ) : null}
 
           {view === 'analytics' ? (
-            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight mb-1">Analytics</h1>
-              <p className="text-[13px] text-on-muted mb-6">
+            <div className="view-page animate-fade-up">
+              <h1 className="view-title">Analytics</h1>
+              <p className="view-sub">
                 Session metrics for this room.
               </p>
               <DetectionQuality
@@ -1399,9 +1399,9 @@ export default function App() {
           ) : null}
 
           {view === 'docs' ? (
-            <div className="p-6 lg:p-8 max-w-2xl animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight mb-1">Docs</h1>
-              <p className="text-[13px] text-on-muted mb-6">
+            <div className="view-page animate-fade-up">
+              <h1 className="view-title">Docs</h1>
+              <p className="view-sub">
                 How to connect agents to Hivelane.
               </p>
               <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
@@ -1411,15 +1411,17 @@ export default function App() {
                   teammates.
                 </p>
                 <p className="m-0">
-                  2. On each machine, install once with{' '}
-                  <code className="text-primary font-mono">pipx install git+https://github.com/AdrianShah/Hivelane</code>
-                  , then run{' '}
+                  2. On each machine, install the CLI once (see the{' '}
+                  <a className="text-primary underline underline-offset-2" href={`${DOCS_URL}quick-start/`} target="_blank" rel="noopener noreferrer">
+                    setup guide
+                  </a>
+                  ), then run{' '}
                   <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
                   in the repo the agent works in. It sets up the agent hooks and the
                   Hivelane daemon.
                 </p>
                 <p className="m-0">
-                  3. Let the agents work — activity and conflicts appear on this
+                  3. Let the agents work, activity and conflicts appear on this
                   board. {describeWindows(roomSettings ?? DEFAULT_ROOM_SETTINGS)}.
                 </p>
                 <div className="flex flex-wrap gap-2 pt-2">
@@ -1437,19 +1439,22 @@ export default function App() {
                   >
                     Setup commands
                   </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
-                    onClick={() =>
-                      window.open(
-                        `${relayHttpOrigin()}/docs`,
-                        '_blank',
-                        'noopener,noreferrer',
-                      )
-                    }
+                  <a
+                    href={DOCS_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className=""
+                  >
+                    Full documentation
+                  </a>
+                  <a
+                    href={API_REFERENCE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className=""
                   >
                     API reference
-                  </button>
+                  </a>
                 </div>
               </div>
             </div>
@@ -1474,11 +1479,11 @@ export default function App() {
           ) : null}
 
           {view === 'conflicts' || view === 'history' ? (
-            <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+            <div className="view-page animate-fade-up">
+              <h1 className="view-title">
                 {view === 'conflicts' ? 'Active Conflicts' : 'Conflict History'}
               </h1>
-              <p className="text-[13px] text-on-muted mb-6">
+              <p className="view-sub">
                 Overlaps across the agent cluster for this session.
               </p>
               <div className="lane-shell rounded-2xl overflow-x-auto custom-scrollbar">
@@ -1557,16 +1562,16 @@ export default function App() {
           ) : null}
 
           {view === 'settings' ? (
-            <div className="p-6 lg:p-8 max-w-xl animate-fade-up">
-              <h1 className="text-xl font-bold tracking-tight mb-1">Settings</h1>
-              <p className="text-[13px] text-on-muted mb-6">
+            <div className="view-page animate-fade-up">
+              <h1 className="view-title">Settings</h1>
+              <p className="view-sub">
                 Spectator relay connection for this dashboard.
               </p>
-              <div className="lane-shell rounded-2xl p-5 space-y-4">
+              <div className="lane-shell settings-list rounded-2xl p-5 lg:p-6 space-y-4">
                 <div>
                   <label className="section-label">Room</label>
                   <p className="font-mono text-[13px] text-primary mt-2 mb-0">
-                    {roomId || '—'}
+                    {roomId || '-'}
                   </p>
                 </div>
                 <div className="h-px bg-outline-soft" />
@@ -1651,7 +1656,7 @@ export default function App() {
                   onDecide={decideJoin}
                 />
                 <div className="h-px bg-outline-soft" />
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="settings-actions flex flex-wrap gap-2 pt-1">
                   <button
                     type="button"
                     className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"

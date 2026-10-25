@@ -25,7 +25,7 @@ export function decisionScope(decision: EditDecision): DecisionScope {
 }
 
 /**
- * Disjoint symbols/lines still warn, but with scope "symbol"/"lines" — the
+ * Disjoint symbols/lines still warn, but with scope "symbol"/"lines", the
  * label then reads as "different function" rather than "same function".
  */
 export function scopeLabel(decision: EditDecision): string {

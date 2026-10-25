@@ -19,12 +19,12 @@ Verdict = Literal["overlapping", "related", "unrelated"]
 
 # Wire-protocol version, bumped when the message contract changes in a way older
 # clients cannot satisfy. A daemon that predates edit_check would connect happily
-# and simply never ask permission, so conflict prevention would be silently off —
+# and simply never ask permission, so conflict prevention would be silently off;
 # the handshake rejects it instead.
 PROTOCOL_VERSION = 1
 MIN_SUPPORTED_PROTOCOL = 1
 
-# Answer to "may I edit this file right now?" — an agent's PreToolUse hook maps
+# Answer to "may I edit this file right now?", an agent's PreToolUse hook maps
 # "block" to a denied tool call.
 Decision = Literal["allow", "warn", "block"]
 
@@ -223,7 +223,7 @@ class ActivityUpdate(BaseModel):
 
 class EditCheckResponse(BaseModel):
     """Point-to-point answer to an EditCheckRequest. Sent immediately (never
-    through the debounced feed) — an agent is blocked waiting on it."""
+    through the debounced feed), an agent is blocked waiting on it."""
 
     type: Literal["edit_check_response"] = "edit_check_response"
     request_id: str
@@ -252,7 +252,7 @@ class IntentUpdate(BaseModel):
 
 class EditDecision(BaseModel):
     """Feed record of a non-allow edit check. Allow decisions are not broadcast
-    so a busy agent's file probes don't drown the dashboard — the narrowed
+    so a busy agent's file probes don't drown the dashboard, the narrowed
     decision type keeps the dashboard's union honest."""
 
     type: Literal["edit_decision"] = "edit_decision"

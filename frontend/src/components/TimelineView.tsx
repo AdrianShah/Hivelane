@@ -290,10 +290,10 @@ export default function TimelineView({
   const filtering = isFiltering(filters);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 animate-fade-up">
-      <div className="max-w-[1400px]">
-        <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">Collision timeline</h1>
-        <p className="text-[13px] text-on-muted mt-1 mb-5">
+    <div className="view-page animate-fade-up">
+      <div>
+        <h1 className="view-title m-0">Collision timeline</h1>
+        <p className="view-sub">
           Every warning, block and overlap this session, newest first. Expand one to compare both
           sides.
         </p>
@@ -307,7 +307,7 @@ export default function TimelineView({
           {log.timeline.length >= MAX_TIMELINE ? ` · keeping the latest ${MAX_TIMELINE}` : ''}
         </p>
         {shown.length === 0 ? (
-          <div className="lane-shell rounded-2xl p-6 max-w-[46rem]">
+          <div className="lane-shell rounded-2xl p-6">
             <p className="text-[14px] text-on-surface font-medium m-0">
               {filtering ? 'Nothing matches these filters' : 'No collisions yet'}
             </p>

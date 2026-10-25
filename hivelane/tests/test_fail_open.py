@@ -2,7 +2,7 @@
 
 It is not silent, though: coordination stopping without anyone noticing is its
 own failure, so an unreachable daemon gets one systemMessage per
-OFFLINE_NOTICE_INTERVAL — and nothing else.
+OFFLINE_NOTICE_INTERVAL, and nothing else.
 """
 
 from __future__ import annotations

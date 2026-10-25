@@ -4,7 +4,7 @@ Claude Code spawns the hook as a fresh process before and after every edit, so
 its cold start is paid on every file write the agent makes. This runs the hook
 N times as a subprocess with a representative PreToolUse payload against
 
-  (a) no daemon listening (connection refused — the fail-open path), and
+  (a) no daemon listening (connection refused, the fail-open path), and
   (b) a stub HTTP server that answers every event with an allow ack,
   (c) the real daemon (token auth, no room), and with --relay
   (d) the real daemon connected to a real relay (edit_check round trip),

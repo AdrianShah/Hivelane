@@ -53,16 +53,16 @@ export default function AddTeammate({ roomId, settings, requireApproval = null }
   };
 
   return (
-    <div className="p-6 lg:p-8 animate-fade-up">
-      <h1 className="text-xl font-bold tracking-tight text-on-surface mb-1">
+    <div className="view-page animate-fade-up">
+      <h1 className="view-title">
         Invite teammates
       </h1>
-      <p className="text-[13px] text-on-muted mb-6">
+      <p className="view-sub">
         Each teammate joins once from their repo; their agent then shows up here as
         a lane.
       </p>
 
-      <div className="space-y-5">
+      <div className="grid gap-5 xl:grid-cols-2 items-start">
         <SharePanel roomId={roomId} settings={settings} requireApproval={requireApproval} />
 
         <section className="connect-panel">

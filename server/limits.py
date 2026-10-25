@@ -190,8 +190,8 @@ class RedisCounterStore:
 
         Returns (attempts in the current window, ms until it ends), or None
         while Redis is unavailable. The window opens on the first hit and gets
-        its expiry in the same transaction, so Redis's clock — not each
-        instance's — decides when it ends, and no crash between commands can
+        its expiry in the same transaction, so Redis's clock, not each
+        instance's, decides when it ends, and no crash between commands can
         leave a counter that never expires.
         """
         if self._down_until is not None and self._clock() < self._down_until:
@@ -209,7 +209,7 @@ class RedisCounterStore:
                 self.client.pexpire(name, window_ms)
                 ttl_ms = window_ms
         # The client is imported lazily, so its exception types cannot be named
-        # here — and no limiter failure may turn into a 500 on the relay.
+        # here, and no limiter failure may turn into a 500 on the relay.
         except Exception as exc:
             self._mark_down(exc)
             return None

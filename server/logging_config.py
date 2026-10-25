@@ -1,7 +1,7 @@
 """Log formatting. Human-readable locally, JSON everywhere else.
 
 No log shipper is wired up yet, but hosts capture stdout and every aggregator
-can parse JSON lines — emitting structured records now means nothing has to be
+can parse JSON lines, emitting structured records now means nothing has to be
 re-instrumented when one is added.
 
 Two filters guard what reaches stdout, whatever a call site logs:

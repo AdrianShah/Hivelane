@@ -6,7 +6,7 @@ person (display name, a private relay) and the secrets that must never be
 committed: e2e room keys (`room_keys`) and room owner tokens (`owner_tokens`),
 both tables keyed by room code, the file kept owner-only (0600). Precedence,
 highest first: explicit overrides (CLI flags) > environment > personal file >
-project file > defaults — except `room`, the windows, `e2e` and
+project file > defaults, except `room`, the windows, `e2e` and
 `history_hours`, which the project file owns so one person's personal config
 cannot silently split them from the team.
 
@@ -444,7 +444,7 @@ def _toml_value(value: Any) -> str:
 
 _KEY_LINE = re.compile(r"^\s*([A-Za-z0-9_-]+)\s*=")
 _TABLE_LINE = re.compile(r"^\s*\[")
-_HEADER = "# Hivelane project settings — commit this file so teammates join the same room."
+_HEADER = "# Hivelane project settings, commit this file so teammates join the same room."
 _PERSONAL_HEADER = "# Personal Hivelane settings for this machine (never committed)."
 
 

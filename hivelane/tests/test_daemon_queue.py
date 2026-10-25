@@ -95,7 +95,7 @@ def test_a_block_names_the_place_in_line_the_suggestion_and_hivelane_wait(tmp_pa
 
     rendered = json.loads(claude_code.render_ack(event("pre_edit", repo, repo / REL).model_dump(), ack.model_dump()))
     assert rendered["hookSpecificOutput"]["permissionDecisionReason"] == (
-        "Hivelane: sam's cursor edited src/room.py 8s ago — you're #1 in line; "
+        "Hivelane: sam's cursor edited src/room.py 8s ago, you're #1 in line; "
         f"{SUGGESTION}; run `hivelane wait src/room.py` to wait your turn"
     )
 
@@ -123,9 +123,9 @@ def test_file_released_is_logged_and_becomes_your_turn_for_the_waiting_session(
     assert blocked.decision == "block"
     assert other.decision == "allow"  # not the session that waited
     assert mine.decision == "warn"  # allowed, with a note
-    assert mine.reason == f"{REL} was released to you — it's your turn"
+    assert mine.reason == f"{REL} was released to you, it's your turn"
     assert again.decision == "allow"  # used up
-    assert f"{REL} is free — your turn (you were #1 in line)" in capsys.readouterr().out
+    assert f"{REL} is free, your turn (you were #1 in line)" in capsys.readouterr().out
 
 
 def test_file_requested_reaches_the_agent_holding_the_file(
@@ -154,7 +154,7 @@ def test_file_requested_reaches_the_agent_holding_the_file(
     bystander, holder = asyncio.run(scenario())
     assert bystander.decision == "allow"
     assert holder.decision == "warn"
-    assert holder.reason == f"priya's agent is waiting for {REL} — finish up or hand it off"
+    assert holder.reason == f"priya's agent is waiting for {REL}, finish up or hand it off"
     assert f"priya (codex) is waiting for {REL}" in capsys.readouterr().out
 
 
@@ -251,7 +251,7 @@ def test_hashed_queue_frames_are_read_back_as_real_paths(capsys: pytest.CaptureF
         "by": "priya", "agent": "codex", "timestamp": 1.0, "e2e": blob,
     })
     assert conn._take_session_notes("anyone", "id") == (
-        f"priya's agent is waiting for {REL} — finish up or hand it off"
+        f"priya's agent is waiting for {REL}, finish up or hand it off"
     )
     # Our own release: the hash is one we sent ourselves.
     conn._dispatch_frame({"type": "file_released", "file_path": hashed, "repo_id": "id", "timestamp": 1.0})
@@ -265,7 +265,7 @@ def test_the_wait_hint_is_left_out_without_a_path() -> None:
 
     message = base.ack_message({"decision": "block", "others": []}, "block", None)
     assert message == (
-        "a teammate's agent is already working in this file — wait, or pick another file"
+        "a teammate's agent is already working in this file, wait, or pick another file"
     )
     # A malformed queue position is ignored rather than trusted.
     message = base.ack_message(

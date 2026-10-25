@@ -628,7 +628,7 @@ those files with no symbols and no line ranges: the relay then has nothing
 finer than the file to judge by and reaches the same file-level decision.
 
 **Dashboard.** With the key, the dashboard shows real paths, diffs, prompts,
-plans and decisions, and a lock in the header. Without it: "Encrypted room —
+plans and decisions, and a lock in the header. Without it: "Encrypted room,
 paste the room key to view", with hashes shown as short `🔒 3f9a1c`
 placeholders. With a wrong key: "Can't decrypt this room with that key" and
 `can't decrypt·3f9a1c` placeholders, never ciphertext. Browsers only expose

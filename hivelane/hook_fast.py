@@ -450,7 +450,7 @@ def spawn_daemon(port: int) -> Any:
 
     Detached means: no console, its own process group/session (a Ctrl+C or a
     hook runner reaping the hook's group must not take it down), stdin from
-    the null device and output to a file — never the hook's own stdout pipe,
+    the null device and output to a file, never the hook's own stdout pipe,
     which Claude Code reads to EOF and would then wait on for the daemon's
     whole life. Its cwd is HIVELANE_HOME so it never pins a repo directory
     (Windows cannot delete a directory a process is running in).
@@ -530,7 +530,7 @@ def run_agent(agent_id: str, port: int) -> int:
     One native call may yield several events (a Codex patch touching several
     files): each is posted, and the strictest ack decides. Returns the
     adapter's exit code, which is 0 for everything but an explicit block in
-    an agent that blocks by exit status; any failure here means exit 0 —
+    an agent that blocks by exit status; any failure here means exit 0:
     several agents read exit 2 as "block", so a broken hook must never stall
     the agent.
     """
@@ -566,7 +566,7 @@ def run_agent(agent_id: str, port: int) -> int:
         if failure is not None and (chosen is None or base.ack_decision(chosen[1]) == "allow"):
             # Nothing stricter than allow was learnt before the daemon went
             # away: this is the offline case. A block or warn already in hand
-            # still decides, below — it must never be lost to a later failure.
+            # still decides, below, it must never be lost to a later failure.
             event, exc = failure
             if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
                 return 0

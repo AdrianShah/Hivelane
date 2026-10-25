@@ -1,5 +1,5 @@
 """Version negotiation. An old daemon connects happily and simply never sends
-edit_check, so conflict prevention would be silently off — the handshake has to
+edit_check, so conflict prevention would be silently off, the handshake has to
 turn that into a visible error."""
 
 from __future__ import annotations

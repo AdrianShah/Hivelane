@@ -1,7 +1,7 @@
 /**
  * Shared helpers for turning the relay's WebSocket base URL into the things
- * pages need — an HTTP origin for POST /rooms, a room-scoped WS URL, the
- * dashboard link for a room, and the CLI line that joins it — plus room-code
+ * pages need, an HTTP origin for POST /rooms, a room-scoped WS URL, the
+ * dashboard link for a room, and the CLI line that joins it, plus room-code
  * normalization. Single source of truth so Home, App and the invite panels
  * can't drift.
  */
@@ -155,7 +155,7 @@ export function relayHttpOrigin(): string {
   return withoutWsPath.replace(/^ws/, 'http');
 }
 
-/** Base WS URL without a room code — what `hivelane up --relay` takes. */
+/** Base WS URL without a room code, what `hivelane up --relay` takes. */
 export function relayWsBase(): string {
   return current().base.replace(/\/$/, '');
 }
@@ -173,7 +173,7 @@ export function roomWsUrl(roomId: string): string {
 /**
  * Canonical room code from whatever was typed or pasted: case-folded, with
  * spaces and dashes dropped ("abcd-2345" -> "ABCD2345"). A pasted room link
- * works too — its last path segment is the code.
+ * works too, its last path segment is the code.
  */
 export function normalizeRoomCode(raw: string): string {
   const trimmed = raw.trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
@@ -184,7 +184,7 @@ export function normalizeRoomCode(raw: string): string {
 /**
  * New codes are 8 characters; rooms created before the switch have 6-character
  * codes that stay valid until they expire. The relay is the authority on
- * whether a code exists — this only catches typos before a round trip.
+ * whether a code exists, this only catches typos before a round trip.
  */
 export function isValidRoomCode(code: string): boolean {
   return /^(?:[A-Z0-9]{6}|[A-Z0-9]{8})$/.test(code);

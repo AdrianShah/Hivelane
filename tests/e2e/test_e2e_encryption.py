@@ -1,7 +1,7 @@
 """End-to-end encrypted rooms through the real relay: two daemons holding the
 same room key still keep each other out of the same file, the agents read real
 names in the answer, and nothing the relay broadcasts (here: what a dashboard
-spectator receives) carries a path, a diff or a prompt in cleartext — only
+spectator receives) carries a path, a diff or a prompt in cleartext, only
 hashes and blobs the key opens."""
 
 from __future__ import annotations

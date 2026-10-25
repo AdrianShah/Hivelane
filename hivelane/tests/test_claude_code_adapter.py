@@ -88,7 +88,7 @@ def test_block_emits_deny_with_named_peer(monkeypatch: pytest.MonkeyPatch, tmp_p
     assert specific["hookEventName"] == "PreToolUse"
     assert specific["permissionDecision"] == "deny"
     assert specific["permissionDecisionReason"] == (
-        "Hivelane: Sam's cursor edited server/room.py 8s ago — wait, or pick another file; "
+        "Hivelane: Sam's cursor edited server/room.py 8s ago, wait, or pick another file; "
         "run `hivelane wait server/room.py` to wait your turn"
     )
     assert "permissionDecision" not in payload

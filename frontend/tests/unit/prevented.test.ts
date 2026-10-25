@@ -86,7 +86,7 @@ test('different people or files are separate episodes; conflicts are not decisio
   assert.equal(s.prevented, 3);
 });
 
-test('room stats carry counts and agent kinds only — no names, files or prompts', () => {
+test('room stats carry counts and agent kinds only, no names, files or prompts', () => {
   const l = log([
     activity('sam', 100, ['secret/path.ts'], { prompt: 'secret prompt', agent: 'cursor' }),
     decision('sam', 110, 'secret/path.ts', 'block', { agent: 'cursor' }),

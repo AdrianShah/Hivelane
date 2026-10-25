@@ -287,7 +287,7 @@ def test_doctor_on_a_cp1252_console_uses_ascii_marks(
 def test_say_never_crashes_on_unencodable_text(monkeypatch: pytest.MonkeyPatch) -> None:
     raw = io.BytesIO()
     monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="ascii", errors="strict"))
-    cli.say("done ✔ — 李 → next")
+    cli.say("done ✔ \u2014 李 → next")
     sys.stdout.flush()
     assert raw.getvalue().decode("ascii") .splitlines() == ["done [ok] - ? -> next"]
 

@@ -184,7 +184,7 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
         )
 
     # warn: no permissionDecision, so Claude Code's normal permission flow still
-    # applies — emitting "allow" here would silently auto-approve the edit.
+    # applies, emitting "allow" here would silently auto-approve the edit.
     return hook_json.dumps(
         {
             "hookSpecificOutput": {

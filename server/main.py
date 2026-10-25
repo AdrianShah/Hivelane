@@ -509,8 +509,8 @@ class CreateRoomRequest(BaseModel):
 async def create_room(
     request: Request, body: Optional[CreateRoomRequest] = None
 ) -> dict[str, object]:
-    """Generate a fresh room code. The room code is the shared secret —
-    whoever has it can join, same trust model as a Google Docs share link —
+    """Generate a fresh room code. The room code is the shared secret:
+    whoever has it can join, same trust model as a Google Docs share link,
     unless an owner turns on join approval.
 
     The body is optional: no body creates a room on the default windows,
@@ -606,8 +606,8 @@ def _parse_join(raw: object) -> Optional[JoinMessage]:
     """Validate a join frame, dropping settings that do not validate.
 
     Settings come from a teammate's committed .hivelane.toml. An out-of-range
-    value there must not surface as "Invalid name" — the daemon treats a name
-    rejection as fatal — so the join is retried without them and the room keeps
+    value there must not surface as "Invalid name", the daemon treats a name
+    rejection as fatal, so the join is retried without them and the room keeps
     the windows it has. Returns None when the join is invalid regardless.
     """
     try:
@@ -873,7 +873,7 @@ async def evaluate_and_broadcast_conflicts(
 ) -> None:
     """Classify each overlapping file and broadcast conflict_alert when warranted.
 
-    Fully isolated from the activity_update path — any failure here is logged
+    Fully isolated from the activity_update path, any failure here is logged
     and swallowed so the main broadcast loop keeps working. In an e2e room
     nothing is sent to Gemini: the deterministic same-file alert is used, as
     it is whenever MAX_GEMINI_IN_FLIGHT calls are already running.
@@ -1030,7 +1030,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     # The connection owns its identity; never trust a client-supplied user_id.
     # agent is labeling-only and is taken from the client (validated by Pydantic).
     message.user_id = user_id
-    # Server time is authoritative — ignore client-supplied timestamps.
+    # Server time is authoritative, ignore client-supplied timestamps.
     message.timestamp = time.time()
     metrics.activity_messages_total.inc()
 
@@ -1040,7 +1040,7 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     overlaps = room.find_overlaps(message)
     room.record_activity(message)
 
-    # Conflict Gemini calls can take several seconds each — run them in the
+    # Conflict Gemini calls can take several seconds each, run them in the
     # background so this socket's receive loop stays free.
     if overlaps:
         task = asyncio.create_task(
@@ -1202,21 +1202,21 @@ def _edit_check_reason(
     if scope == "branch":
         return (
             f"{peer.user_id} edited {file_path} on branch {peer.branch} "
-            f"{seconds}s ago — this will conflict at merge"
+            f"{seconds}s ago, this will conflict at merge"
         )
     if scope == "symbol":
         names = ", ".join(peer.symbols[:3])
         if decision == "block":
             return f"{who} is editing {names} in {file_path} ({seconds}s ago)"
         return (
-            f"{who} is editing {names} in {file_path} ({seconds}s ago) — "
+            f"{who} is editing {names} in {file_path} ({seconds}s ago), "
             "different function, safe to proceed"
         )
     if scope == "lines":
         if decision == "block":
             return f"{who} is editing the same lines of {file_path} ({seconds}s ago)"
         return (
-            f"{who} edited a different part of {file_path} {seconds}s ago — "
+            f"{who} edited a different part of {file_path} {seconds}s ago, "
             "safe to proceed"
         )
     if decision == "block":
@@ -1230,7 +1230,7 @@ async def handle_edit_check(
     """Answer "may I edit this file?" on the agent's blocking hook.
 
     Deliberately not rate-limited (an agent may probe many files at once) and
-    deliberately free of Gemini calls — the reply must go out immediately.
+    deliberately free of Gemini calls, the reply must go out immediately.
     """
     started = time.perf_counter()
     try:
@@ -1531,7 +1531,7 @@ async def _reject_unknown_room(socket: WebSocket) -> None:
             RoomRejected(
                 reason=(
                     "Room not found. It may have expired after the relay "
-                    "restarted — create a new workspace on the dashboard."
+                    "restarted, create a new workspace on the dashboard."
                 )
             ).model_dump()
         )
