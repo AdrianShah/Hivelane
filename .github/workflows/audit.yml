@@ -121,6 +121,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          # The newest 22.x, not the runner's cached one: tools (Astro) raise
+          # their minimum patch release without notice.
+          check-latest: true
       - name: Audit
         # High and critical with a fix available fail; moderate and low, and
         # high ones nobody can fix yet, are printed but pass.
