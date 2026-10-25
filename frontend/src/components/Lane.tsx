@@ -139,7 +139,11 @@ function Lane({
       aria-describedby={`${baseId}-seen`}
     >
       <header className="lane-header flex items-start gap-3 px-4 sm:px-5 py-3.5">
-        <PersonAvatar userId={userId} dotClass={dotClass} />
+        <PersonAvatar
+          userId={userId}
+          dotClass={dotClass}
+          state={offline ? 'offline' : status === 'blocked' ? 'blocked' : inConflict ? 'conflict' : status}
+        />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <h2
