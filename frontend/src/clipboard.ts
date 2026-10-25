@@ -1,6 +1,6 @@
 /**
  * Copy text to the clipboard. Falls back to a hidden textarea where the async
- * clipboard API is unavailable — a dashboard opened over plain http on a LAN
+ * clipboard API is unavailable, a dashboard opened over plain http on a LAN
  * address is not a secure context, and that is exactly where people share
  * room codes from.
  */

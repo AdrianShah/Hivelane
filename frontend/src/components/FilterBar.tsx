@@ -27,7 +27,7 @@ interface FilterBarProps {
   agentKinds: string[];
   /** Focused by the "/" shortcut. */
   searchRef: RefObject<HTMLInputElement | null>;
-  /** e.g. "3 of 5 lanes" — announced politely to screen readers. */
+  /** e.g. "3 of 5 lanes", announced politely to screen readers. */
   resultLabel?: string;
 }
 
@@ -136,7 +136,7 @@ export default function FilterBar({
   const agentOptions = [...new Set([...agentKinds, ...filters.agents])];
 
   return (
-    <section className="filter-bar rounded-2xl p-3 mb-5 max-w-[1400px]" aria-label="Filters and search">
+    <section className="filter-bar rounded-2xl p-3 mb-5" aria-label="Filters and search">
       <div className="flex flex-wrap items-center gap-2">
         <label className="filter-input flex-1 min-w-[min(100%,14rem)]">
           <span className="material-symbols-outlined text-[18px] text-on-dim" aria-hidden="true">

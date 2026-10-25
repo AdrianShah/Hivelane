@@ -77,7 +77,7 @@ def test_teammate_prompt_is_capped_flattened_and_quoted() -> None:
     quoted = message.split('own words: "', 1)[1]
     assert len(quoted) <= base.MAX_PROMPT_CHARS + 2
     assert quoted.endswith('\u2026")')
-    assert message.startswith("r r — ")
+    assert message.startswith("r r, ")
 
 
 def test_wait_hint_quotes_or_drops_unsafe_paths() -> None:

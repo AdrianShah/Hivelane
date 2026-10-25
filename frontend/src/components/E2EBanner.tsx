@@ -16,7 +16,7 @@ interface E2EBannerProps {
 
 const MESSAGES: Record<E2EState, string> = {
   off: 'End-to-end encrypted room.',
-  locked: 'Encrypted room — paste the room key to view files, diffs and prompts.',
+  locked: 'Encrypted room, paste the room key to view files, diffs and prompts.',
   ok: 'End-to-end encrypted: decrypted in this browser; the relay only sees hashes.',
   'bad-key': "Can't decrypt this room with that key. Check it with your team and paste it again.",
   unsupported:
@@ -31,7 +31,7 @@ export default function E2EBanner({ state, hasKey, onKey, onForget }: E2EBannerP
 
   return (
     <div className={`px-5 py-2.5 border-b z-40 ${tone}`} role="status" aria-live="polite">
-      <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-on-surface m-0">
           <span aria-hidden="true">🔒 </span>
           {MESSAGES[shownState]}

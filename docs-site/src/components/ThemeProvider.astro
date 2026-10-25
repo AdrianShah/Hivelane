@@ -1,0 +1,16 @@
+---
+// Starlight's ThemeProvider, preceded by a sync from the dashboard's theme
+// choice. Both sites share an origin (GitHub Pages), so one localStorage:
+// "hivelane:theme" is the dashboard's (light | dark | system, see
+// frontend/src/dashboard/theme.ts) and wins over Starlight's own key.
+import Default from '@astrojs/starlight/components/ThemeProvider.astro';
+---
+
+<script is:inline>
+  try {
+    var pref = localStorage.getItem('hivelane:theme');
+    if (pref === 'light' || pref === 'dark') localStorage.setItem('starlight-theme', pref);
+    else if (pref === 'system') localStorage.setItem('starlight-theme', '');
+  } catch (e) {}
+</script>
+<Default />

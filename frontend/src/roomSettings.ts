@@ -15,7 +15,7 @@ function formatSeconds(seconds: number): string {
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} s`;
 }
 
-/** "Blocks within 20 s, warns within 60 s" — a zero window turns that tier off. */
+/** "Blocks within 20 s, warns within 60 s", a zero window turns that tier off. */
 export function describeWindows(settings: RoomSettings): string {
   const block = settings.block_window_seconds;
   const warn = settings.warn_window_seconds;

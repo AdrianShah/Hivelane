@@ -3,9 +3,9 @@
 Two entry points, both side-effect free so Room (or anything else) can call
 them without importing the relay:
 
-* ``similar_intents(text, others, threshold)`` — which peers' declared intents
+* ``similar_intents(text, others, threshold)``, which peers' declared intents
   describe roughly the same task as ``text``.
-* ``files_mentioned(text, known_paths)`` — which known repo paths a prompt is
+* ``files_mentioned(text, known_paths)``, which known repo paths a prompt is
   talking about ("fix the room broadcast" -> server/room.py).
 
 The default scorer blends character-trigram cosine (robust to inflection and

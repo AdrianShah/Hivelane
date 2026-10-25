@@ -316,7 +316,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
             )
 
     # Opt-in wildcard for preview deploys (e.g. r"https://.*\.example\.com").
-    # Empty by default: a regex that silently matches nothing — or too much —
+    # Empty by default: a regex that silently matches nothing, or too much,
     # is worse than an explicit origin list.
     regex = (env.get("CORS_ORIGIN_REGEX") or "").strip() or None
     if regex is not None:

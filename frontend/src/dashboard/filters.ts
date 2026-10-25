@@ -6,8 +6,8 @@
  *
  * One filter set applies to lanes, the collision timeline and the heat map;
  * each view applies the facets that make sense for it (see the match*
- * functions). Parsing is forgiving — unknown values are dropped, text is
- * trimmed and capped — because links are hand-edited and old.
+ * functions). Parsing is forgiving, unknown values are dropped, text is
+ * trimmed and capped, because links are hand-edited and old.
  */
 import { decisionScope } from '../detection.ts';
 import type { AgentKind, DecisionScope } from '../types';

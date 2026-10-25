@@ -30,8 +30,8 @@ for that (repo_id, file_path). The relay then works the line itself:
   is the number of files with a line (MAX_QUEUED_FILES).
 
 Nothing here can deadlock: every state that makes anyone wait ends on a
-clock — a touch after the block window, a claim after the block window, a
-release after the grace, an entry after the warn window — and when a grace
+clock, a touch after the block window, a claim after the block window, a
+release after the grace, an entry after the warn window, and when a grace
 lapses the next in line is considered in the same pass. Two agents each
 holding the file the other wants stop editing (both are blocked), so both
 touches lapse and both lines move.

@@ -777,7 +777,7 @@ def test_rate_limited_socket_is_refused_before_the_room_lookup(
     monkeypatch: pytest.MonkeyPatch, relay_backend: str
 ) -> None:
     """An unknown room must not be distinguishable from a known one once the
-    caller is throttled — otherwise the limiter leaks a brute-force oracle."""
+    caller is throttled, otherwise the limiter leaks a brute-force oracle."""
     # 0 now means unlimited, so exhaust a budget of one instead.
     monkeypatch.setattr(limits.ws_attempt_limiter, "limit", 1)
     limits.ws_attempt_limiter.check("testclient")

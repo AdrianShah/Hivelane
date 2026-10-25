@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { relayHttpOrigin } from '../relayUrl';
+import { API_REFERENCE_URL, DOCS_URL } from '../links';
 import { Mark } from '../brand/BrandArt';
 
 export type AppView =
@@ -158,27 +158,23 @@ export default function Sidebar({
           </button>
         ) : null}
         <div className="flex items-center justify-between px-1.5">
-          <button
-            type="button"
+          <a
+            href={DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
             className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
-            onClick={() => onNavigate('docs')}
           >
             Docs
-          </button>
-          <button
-            type="button"
-            className="text-[12px] font-medium text-on-dim hover:text-on-muted transition-colors"
-            onClick={() =>
-              window.open(
-                `${relayHttpOrigin()}/docs`,
-                '_blank',
-                'noopener,noreferrer',
-              )
-            }
-            title="Open the relay's API reference"
+          </a>
+          <a
+            href={API_REFERENCE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className=""
+            title="HTTP and WebSocket API reference"
           >
             API reference
-          </button>
+          </a>
         </div>
       </div>
     </aside>

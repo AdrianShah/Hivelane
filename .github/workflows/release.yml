@@ -97,8 +97,8 @@ jobs:
         timeout-minutes: 10
 
   smoke:
-    # Install the built wheel the way a user would — into a fresh venv, from
-    # outside the source tree — and run it. Catches a missing module, a broken
+    # Install the built wheel the way a user would, into a fresh venv, from
+    # outside the source tree, and run it. Catches a missing module, a broken
     # entry point or an unpinned dependency that the editable install hides.
     name: smoke install (${{ matrix.os }})
     needs: build

@@ -275,7 +275,7 @@ function Lane({
                   <span className={`scope-tag scope-${decisionScope(decision)}`} title={`Scope: ${decisionScope(decision)}`}>
                     {scopeLabel(decision)}
                   </span>
-                  {others ? <span className="text-on-dim">— {others}</span> : null}
+                  {others ? <span className="text-on-dim">· {others}</span> : null}
                   {decision.decision_id && onVote ? (
                     <DecisionFeedbackButtons
                       decisionId={decision.decision_id}

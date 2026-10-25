@@ -2,7 +2,7 @@
 
 The room code is the only access control: whoever has the code can join.
 Same trust model as a Google Docs share link, a Kahoot PIN, or a Figma
-multiplayer link — no accounts, no passwords, no sessions."""
+multiplayer link, no accounts, no passwords, no sessions."""
 
 from __future__ import annotations
 
@@ -214,7 +214,7 @@ class RoomManager:
         if record is None:
             return None
         # Known code with no live Room: the relay restarted. An empty Room is
-        # the right starting point — every touch older than the conflict window
+        # the right starting point, every touch older than the conflict window
         # is ignored anyway, so the room re-forms from live activity. Its
         # windows are not live activity, though, so they come back from the store.
         room = Room(settings=_settings_from_store(normalized, record.get("settings")))

@@ -21,7 +21,7 @@ export default function JoinRequestsBanner({ requests, onDecide }: JoinRequestsB
       aria-label="Requests to join"
       aria-live="polite"
     >
-      <div className="max-w-[1600px]">
+      <div>
         <p className="section-label m-0">
           Requests to join ({requests.length})
         </p>

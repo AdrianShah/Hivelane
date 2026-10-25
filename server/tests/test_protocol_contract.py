@@ -1,6 +1,6 @@
-"""The wire contract is written down three times — server/models.py (relay),
+"""The wire contract is written down three times, server/models.py (relay),
 hivelane/protocol.py (daemon, which must not import the relay package) and
-frontend/src/types.ts (dashboard) — plus the generated protocol/schema.json.
+frontend/src/types.ts (dashboard), plus the generated protocol/schema.json.
 
 Hand-mirrored copies drift silently: a field added on one side is dropped or
 rejected on the other, and nothing fails until two agents collide in a real

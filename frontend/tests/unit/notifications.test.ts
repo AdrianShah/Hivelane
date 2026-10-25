@@ -49,7 +49,7 @@ test("anyone's blocks notify; warnings never do", () => {
   const notice = noticeFor(block('ada', ['sam']), ON, 'k7q2-xmab');
   assert.ok(notice);
   assert.equal(notice.title, "ada's agent was blocked");
-  assert.match(notice.body, /server\/room\.py — held by sam/);
+  assert.match(notice.body, /server\/room\.py, held by sam/);
   assert.equal(notice.tag, 'hivelane:K7Q2XMAB:d1');
   assert.equal(noticeFor(block('ada', ['sam'], 'warn'), ON, 'K7Q2XMAB'), null);
 });

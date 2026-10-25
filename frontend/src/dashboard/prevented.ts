@@ -1,5 +1,5 @@
 /**
- * "Hivelane prevented N collisions this session" — the heuristic.
+ * "Hivelane prevented N collisions this session", the heuristic.
  *
  * The relay never learns whether a warning changed anything; the dashboard
  * infers it from what the warned agent did next, using only frames it already
@@ -13,7 +13,7 @@
  * 2. Outcome. Look at that person's first edit after the episode's last
  *    decision:
  *    - "prevented": it came within PREVENTION_WINDOW_SECONDS (2 min) and was
- *      to a different file — the agent steered away from the collision.
+ *      to a different file, the agent steered away from the collision.
  *    - "edited-anyway": it came within the window and touched the same file
  *      (a warn lets the edit through, or the agent pushed on after a block).
  *      An update that touches several files, the contested one among them,

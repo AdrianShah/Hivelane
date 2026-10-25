@@ -203,7 +203,7 @@ def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
             steps.append(f"run `hivelane wait {named}` to wait your turn")
     else:
         steps = [claude_code.CALL_TO_ACTION["warn"]] + ([ack.suggestion] if ack.suggestion else [])
-    message = f"{detail} — {'; '.join(steps)}"
+    message = f"{detail}, {'; '.join(steps)}"
     if ack.others and ack.others[0].prompt:
         prompt = ack.others[0].prompt.replace('"', "'")  # these ACKS carry no control characters
         message += f" (their task, in the teammate's own words: \"{prompt}\")"
@@ -241,7 +241,7 @@ def payload_matrix(tmp: Path) -> dict[str, dict[str, Any]]:
 
     edit_input = {"file_path": str(src), "old_string": "a", "new_string": "b"}
     return {
-        "prompt": {**base, "hook_event_name": "UserPromptSubmit", "prompt": "refactor rooms — ünïcode"},
+        "prompt": {**base, "hook_event_name": "UserPromptSubmit", "prompt": "refactor rooms, ünïcode"},
         "prompt-legacy-key": {**base, "hook_event_name": "UserPromptSubmit", "user_prompt": "fix it"},
         "prompt-blank": {**base, "hook_event_name": "UserPromptSubmit", "prompt": "   "},
         "pre-edit": tool("PreToolUse", "Edit", edit_input),
@@ -357,12 +357,12 @@ def test_plural_and_fallback_wording_is_pinned(tmp_path: Path) -> None:
     warn = json.loads(claude_code.render_response(event, ACKS["warn-many-no-reason"]))
     assert warn["hookSpecificOutput"]["additionalContext"] == (
         f"Hivelane warning: a teammate's agent is already working in {target} (and 2 others)"
-        " — check with them before you overlap (their task, in the teammate's own words: \"split the relay\")"
+        ", check with them before you overlap (their task, in the teammate's own words: \"split the relay\")"
     )
     block = json.loads(claude_code.render_response(event, ACKS["block-two-missing-reason"]))
     assert block["hookSpecificOutput"]["permissionDecisionReason"] == (
         "Hivelane: a teammate's agent is already working in server/room.py (and 1 other)"
-        " — wait, or pick another file; run `hivelane wait server/room.py` to wait your turn"
+        ", wait, or pick another file; run `hivelane wait server/room.py` to wait your turn"
     )
 
 
@@ -643,7 +643,7 @@ JSON_VALUES: list[Any] = [
     {},
     [1, "two", [3.0, None], {"k": False}],
     {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny"}},
-    {"systemMessage": "Hivelane: Sam — wait"},
+    {"systemMessage": "Hivelane: Sam, wait"},
     {1: "int key", 2.5: "float key", None: "none key"},
     {True: "bool key", False: "other bool key"},
     (1, 2),

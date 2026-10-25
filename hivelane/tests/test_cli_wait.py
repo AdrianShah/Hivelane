@@ -47,7 +47,7 @@ def test_wait_polls_until_the_file_is_free(machine: Machine, capsys: pytest.Capt
     assert cli.main(["wait", "room.py", "--timeout", "30"]) == 0
     out = capsys.readouterr().out
     assert out.count("waiting for server/room.py (#2 in line)") == 1  # announced once
-    assert "server/room.py is free — go ahead" in out
+    assert "server/room.py is free, go ahead" in out
     assert len(sent) == 3
     assert all(body["file_path"] == "room.py" and body["cwd"] for body in sent)
     assert all(0 < body["timeout"] <= cli.WAIT_SLICE for body in sent)

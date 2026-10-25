@@ -468,7 +468,7 @@ def compute_repo_id(root: Path) -> str:
     The normalized origin URL is hashed (the URL itself may name a private
     project, and only equality matters to the relay). Without an origin, the
     root commit is used: every clone of a history shares it. A repo with
-    neither, or a directory that is not a repo at all, yields "" — which the
+    neither, or a directory that is not a repo at all, yields "", which the
     relay compares equal only to other empty ids, the pre-repo_id behaviour.
 
     Shells out to git, so callers go through repo_id_for's cache.
@@ -1325,7 +1325,7 @@ class RoomConnection:
         self._released.pop(key, None)
         if ack.decision == "block" or time.time() - released["at"] > RELEASE_NOTE_TTL:
             return None
-        return f"{rel} was released to you — it's your turn"
+        return f"{rel} was released to you, it's your turn"
 
     def _resolve_file_waiters(self, key: tuple[str, str], how: str) -> None:
         for future in self._file_waiters.pop(key, []):
@@ -1353,7 +1353,7 @@ class RoomConnection:
         self._remember_bounded(self._released, key, {"at": time.time(), "sessions": sessions})
         self._resolve_file_waiters(key, "released")
         place = f" (you were #{queued['position']} in line)" if queued and queued.get("position") else ""
-        print(f"hivelane: room {self.room}: {rel} is free — your turn{place}")
+        print(f"hivelane: room {self.room}: {rel} is free, your turn{place}")
 
     def _on_file_requested(self, data: dict[str, Any]) -> None:
         rel = self._frame_path(data)
@@ -1365,7 +1365,7 @@ class RoomConnection:
         session = self._last_editor.get((repo_id, rel))
         self._add_session_note(
             session or f"*:{repo_id}",
-            f"{by}'s agent is waiting for {rel} — finish up or hand it off",
+            f"{by}'s agent is waiting for {rel}, finish up or hand it off",
         )
         print(f"hivelane: room {self.room}: {by} ({agent}) is waiting for {rel}")
 
