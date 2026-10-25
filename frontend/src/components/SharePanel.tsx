@@ -68,7 +68,7 @@ export default function SharePanel({ roomId, settings, requireApproval = null }:
       <div className="share-code">
         <div className="min-w-0">
           <span className="section-label">Room code</span>
-          <code className="share-code__value">{roomId || '—'}</code>
+          <code className="share-code__value">{roomId || '-'}</code>
         </div>
         <button
           type="button"

@@ -35,7 +35,7 @@ the PyPI upload succeeds, the `homebrew` job on a macOS runner:
 2. copies `packaging/homebrew/hivelane.rb` into the tap if `Formula/hivelane.rb`
    does not exist yet, then rewrites the formula's top-level `url`/`sha256`;
 3. runs `brew update-python-resources` to regenerate every `resource` block;
-4. runs `brew install --build-from-source` and `brew test` — a formula that does
+4. runs `brew install --build-from-source` and `brew test`, a formula that does
    not install is never pushed;
 5. commits `hivelane X.Y.Z` to the tap and pushes.
 

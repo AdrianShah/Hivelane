@@ -309,7 +309,7 @@ function Webhooks({ roomId, e2e }: { roomId: string; e2e: boolean }) {
                   <code className="font-mono text-[12px] text-on-muted break-all">{hook.url}</code>
                 </p>
                 <p className="text-[12px] text-on-muted mt-0.5 mb-0">
-                  {hook.events.map((e) => EVENT_LABELS[e] ?? e).join(' · ')} —{' '}
+                  {hook.events.map((e) => EVENT_LABELS[e] ?? e).join(' · ')}:{' '}
                   <span className={hook.status === 'ok' ? '' : 'text-amber'}>{statusText(hook)}</span>
                 </p>
               </div>
@@ -412,10 +412,10 @@ function Webhooks({ roomId, e2e }: { roomId: string; e2e: boolean }) {
 
 export default function NotificationsSettings({ roomId, e2e = false }: NotificationsSettingsProps) {
   return (
-    <div className="p-6 lg:p-8 max-w-2xl animate-fade-up space-y-4">
+    <div className="view-page animate-fade-up space-y-4">
       <div>
-        <h1 className="text-xl font-bold tracking-tight mb-1">Notifications</h1>
-        <p className="text-[13px] text-on-muted m-0">
+        <h1 className="view-title">Notifications</h1>
+        <p className="view-sub mb-0">
           Hear about blocked edits and conflicts without watching the board.
         </p>
       </div>

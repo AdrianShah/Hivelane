@@ -24,7 +24,7 @@ interface PreventedCounterProps {
 export function PreventedCounter({ prevention, stats, onShare }: PreventedCounterProps) {
   const n = prevention.prevented;
   return (
-    <section className="prevented-card rounded-2xl p-4 sm:p-5 mb-5 max-w-[1400px]" aria-labelledby="prevented-title">
+    <section className="prevented-card rounded-2xl p-4 sm:p-5 mb-5" aria-labelledby="prevented-title">
       <div className="flex flex-wrap items-center gap-4 sm:gap-6">
         <p className="prevented-number m-0 text-[44px] sm:text-[56px]" aria-hidden="true">
           {n}
@@ -127,7 +127,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
     setBusy(true);
     const ok = await copyCanvasImage(canvasRef.current);
     setBusy(false);
-    onNotice(ok ? 'Card copied as an image' : 'Copying images is not supported here — download it instead');
+    onNotice(ok ? 'Card copied as an image' : 'Copying images is not supported here, download it instead');
   };
 
   return (
@@ -140,7 +140,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
               Share this session
             </h2>
             <p className="text-[12.5px] text-on-muted mt-1 mb-0">
-              Counts only — no file names, prompts, names or room code. Rendered in your browser.
+              Counts only, no file names, prompts, names or room code. Rendered in your browser.
             </p>
           </div>
           <button ref={closeRef} type="button" className="icon-btn p-1.5 shrink-0" onClick={onClose} aria-label="Close">

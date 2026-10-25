@@ -64,7 +64,7 @@ export interface ActivityUpdate {
   e2e?: string;
 }
 
-/** What an agent is currently trying to do — latest per user wins. */
+/** What an agent is currently trying to do, latest per user wins. */
 export interface IntentUpdate {
   type: 'intent_update';
   user_id: string;
@@ -301,7 +301,7 @@ export interface HistoryChunk {
   done: boolean;
 }
 
-/** Debounced room broadcast — one frame every ~500ms with queued events. */
+/** Debounced room broadcast, one frame every ~500ms with queued events. */
 export interface HivelaneFeed {
   type: 'hivelane_feed';
   events: FeedEvent[];

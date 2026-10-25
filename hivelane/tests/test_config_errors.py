@@ -1,4 +1,4 @@
-"""Bad local config is reported, never guessed around — settings.json is the
+"""Bad local config is reported, never guessed around, settings.json is the
 user's file and hivelane writes it back."""
 
 from __future__ import annotations

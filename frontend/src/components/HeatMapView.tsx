@@ -238,10 +238,10 @@ export default function HeatMapView({ log, filters, nowSeconds, filterBar, onOpe
   };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 animate-fade-up">
-      <div className="max-w-[1400px]">
-        <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">File heat map</h1>
-        <p className="text-[13px] text-on-muted mt-1 mb-5">
+    <div className="view-page animate-fade-up">
+      <div>
+        <h1 className="view-title m-0">File heat map</h1>
+        <p className="view-sub">
           Every file this session touched, coloured by who edited it last and brighter the more
           recent. Select a file to see its collisions.
         </p>

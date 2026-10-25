@@ -276,22 +276,10 @@
   color: rgb(var(--c-on-dim));
 }
 
-.home__avatar {
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
-  font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--accent-fg);
-  background: var(--accent-gradient);
-}
-
-.home__avatar--alt {
-  background: transparent;
-  color: rgb(var(--c-on-surface));
-  border: 1px solid var(--lane-border);
+.bee-avatar.home__avatar {
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
 }
 
 .home__live {

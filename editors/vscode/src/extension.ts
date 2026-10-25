@@ -131,7 +131,7 @@ export function activate(context: vscode.ExtensionContext): void {
         ? `Hivelane: ${repo.fatal}`
         : status
           ? `Hivelane daemon v${status.version} on port ${status.port}`
-          : "Hivelane daemon not reachable — click to start it";
+          : "Hivelane daemon not reachable, click to start it";
     bar.tooltip = note ? `${base}\n${note}` : base;
   };
 
@@ -254,7 +254,7 @@ export function activate(context: vscode.ExtensionContext): void {
         tool: "vscode",
       });
       const warned = await showAck(ack, repo, rel);
-      if (!warned && explicit) void vscode.window.showInformationMessage(`Hivelane: ${rel} is clear — nobody else is on it.`);
+      if (!warned && explicit) void vscode.window.showInformationMessage(`Hivelane: ${rel} is clear, nobody else is on it.`);
     } catch (e) {
       if (explicit) void vscode.window.showErrorMessage(`Hivelane: daemon unreachable (${(e as Error).message}).`);
     }
@@ -345,7 +345,7 @@ export function activate(context: vscode.ExtensionContext): void {
           detail: entry?.tracker.intentOf(n),
         })),
     ];
-    const pick = await vscode.window.showQuickPick(items, { title: `Hivelane room ${repo.room} — ${items.length} online`, placeHolder: "Pick to open the dashboard" });
+    const pick = await vscode.window.showQuickPick(items, { title: `Hivelane room ${repo.room}, ${items.length} online`, placeHolder: "Pick to open the dashboard" });
     if (pick) void vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(repo)));
   };
 

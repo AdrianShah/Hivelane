@@ -16,7 +16,7 @@ import type { FeedEvent, HistoryRequest } from '../types';
 
 /**
  * Replay: scrub through the room's kept history (server/history.py) and see
- * the board as it was at any moment — lanes, decisions, conflicts — or play
+ * the board as it was at any moment, lanes, decisions, conflicts, or play
  * it back at 1×, 10× or 60×. History chunks arrive on App's spectator socket
  * and are decoded there like live frames (replay.ts publishHistoryChunk), so
  * an encrypted room replays readable with the room key.
@@ -103,7 +103,7 @@ function LaneCard({ lane }: { lane: ReplayLane }) {
 
 function HistoryOff({ settingsKnown }: { settingsKnown: boolean }) {
   return (
-    <div className="lane-shell rounded-2xl p-6 max-w-[46rem] space-y-3">
+    <div className="lane-shell rounded-2xl p-6 space-y-3">
       <p className="text-[14px] text-on-surface font-medium m-0">
         {settingsKnown ? 'This room keeps no history' : 'Waiting for the relay…'}
       </p>
@@ -117,7 +117,7 @@ function HistoryOff({ settingsKnown }: { settingsKnown: boolean }) {
       <p className="text-[12px] text-on-muted m-0">
         The next teammate to run <code className="font-mono">hivelane up</code> (or reconnect)
         applies it to the room. The relay keeps up to 24 hours, at most 5,000 events, in memory
-        only — never on disk — and forgets it when the room empties or the relay restarts. In an
+        only, never on disk, and forgets it when the room empties or the relay restarts. In an
         end-to-end encrypted room it keeps only what it relays: hashes and ciphertext.
       </p>
     </div>
@@ -251,11 +251,11 @@ export default function ReplayView({
   const lanes = state ? Object.values(state.lanes) : [];
 
   return (
-    <div className="p-6 lg:p-8 max-w-[1400px] animate-fade-up">
+    <div className="view-page animate-fade-up">
       <div className="flex flex-wrap items-end justify-between gap-4 mb-5">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-on-surface m-0">Replay</h1>
-          <p className="text-[13px] text-on-muted mt-1 mb-0">
+          <h1 className="view-title m-0">Replay</h1>
+          <p className="view-sub mb-0">
             The board for room <span className="font-mono text-primary">{roomId}</span> at any
             moment of the last {enabled ? spanLabel(historyHours * 3600) : 'few hours'}.
           </p>
@@ -283,7 +283,7 @@ export default function ReplayView({
         </p>
       ) : null}
       {enabled && load === 'loaded' && !bounds ? (
-        <div className="lane-shell rounded-2xl p-6 max-w-[46rem]">
+        <div className="lane-shell rounded-2xl p-6">
           <p className="text-[14px] text-on-surface m-0">Nothing kept yet.</p>
           <p className="text-[13px] text-on-muted mt-2 mb-0">
             History starts when it is switched on (or since the relay last restarted). Come back
@@ -373,7 +373,7 @@ export default function ReplayView({
                   <span className="font-bold text-error uppercase text-[11px] tracking-wider">
                     {c.verdict}
                   </span>{' '}
-                  <code className="font-mono">{c.file_path}</code> — {c.users.join(' · ')}
+                  <code className="font-mono">{c.file_path}</code>, {c.users.join(' · ')}
                 </p>
               ))}
             </div>
@@ -401,7 +401,7 @@ export default function ReplayView({
                     </span>{' '}
                     <span className="text-on-surface">{d.user_id}</span>{' '}
                     <code className="font-mono text-on-muted break-all">{d.file_path}</code>
-                    {d.reason ? <span className="text-on-muted"> — {d.reason}</span> : null}
+                    {d.reason ? <span className="text-on-muted">, {d.reason}</span> : null}
                   </li>
                 ))}
               </ul>

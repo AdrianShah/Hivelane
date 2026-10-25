@@ -8,29 +8,29 @@
   --sl-font: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --sl-font-mono: 'Google Sans Code', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 
-  /* Dark (Starlight's default scheme). */
-  --sl-color-black: #0c0d10;
-  --sl-color-gray-7: #111317;
-  --sl-color-gray-6: #16181d;
-  --sl-color-gray-5: #262930;
-  --sl-color-gray-4: #4b505a;
-  --sl-color-gray-3: #8c919c;
-  --sl-color-gray-2: #c3c6cd;
-  --sl-color-gray-1: #e4e6ea;
-  --sl-color-white: #f7f8fa;
-  --sl-color-accent-low: #1f2228;
-  --sl-color-accent: #f7f8fa;
+  /* Dark: the dashboard's dark tokens (frontend/src/index.css). */
+  --sl-color-black: #09090b;
+  --sl-color-gray-7: #0e0e10;
+  --sl-color-gray-6: #141416;
+  --sl-color-gray-5: #262628;
+  --sl-color-gray-4: #48484c;
+  --sl-color-gray-3: #8e8e93;
+  --sl-color-gray-2: #c7c7cc;
+  --sl-color-gray-1: #e5e5ea;
+  --sl-color-white: #f5f5f7;
+  --sl-color-accent-low: #1c1c1f;
+  --sl-color-accent: #f5f5f7;
   --sl-color-accent-high: #ffffff;
-  --sl-color-text-accent: #f7f8fa;
-  --sl-color-hairline: #22252b;
-  --sl-color-hairline-light: #1a1c21;
-  --sl-color-hairline-shade: #08090b;
-  --sl-color-bg-nav: rgb(12 13 16 / 0.78);
+  --sl-color-text-accent: #f5f5f7;
+  --sl-color-hairline: #262628;
+  --sl-color-hairline-light: #1c1c1f;
+  --sl-color-hairline-shade: #050506;
+  --sl-color-bg-nav: rgb(9 9 11 / 0.8);
   --sl-color-bg-sidebar: var(--sl-color-black);
-  --sl-color-bg-inline-code: #1a1c21;
-  --hl-body: #a3a8b2;
-  --hl-pill-bg: #f7f8fa;
-  --hl-pill-fg: #0e0f12;
+  --sl-color-bg-inline-code: #1c1c1f;
+  --hl-body: #a1a1a6;
+  --hl-pill-bg: #f5f5f7;
+  --hl-pill-fg: #09090b;
 
   --sl-text-base: 1rem;
   --sl-text-body: 1rem;
@@ -44,26 +44,27 @@
 }
 
 :root[data-theme='light'] {
-  --sl-color-black: #f7f8fa;
-  --sl-color-gray-7: #f1f2f5;
-  --sl-color-gray-6: #eceef1;
-  --sl-color-gray-5: #e1e3e8;
-  --sl-color-gray-4: #b4b8c0;
-  --sl-color-gray-3: #80858f;
-  --sl-color-gray-2: #3c3f46;
-  --sl-color-gray-1: #24262b;
-  --sl-color-white: #0e0f12;
-  --sl-color-accent-low: #e8eaee;
-  --sl-color-accent: #0e0f12;
-  --sl-color-accent-high: #0e0f12;
-  --sl-color-text-accent: #0e0f12;
-  --sl-color-hairline: #e3e5e9;
-  --sl-color-hairline-light: #eceef1;
-  --sl-color-hairline-shade: #d6d9de;
-  --sl-color-bg-nav: rgb(247 248 250 / 0.8);
-  --sl-color-bg-inline-code: #eceef1;
-  --hl-body: #686d78;
-  --hl-pill-bg: #0e0f12;
+  /* Light: the dashboard's light tokens. */
+  --sl-color-black: #f5f5f7;
+  --sl-color-gray-7: #ffffff;
+  --sl-color-gray-6: #ededf0;
+  --sl-color-gray-5: #e5e5ea;
+  --sl-color-gray-4: #b0b0b6;
+  --sl-color-gray-3: #7c7c82;
+  --sl-color-gray-2: #3a3a3f;
+  --sl-color-gray-1: #26262a;
+  --sl-color-white: #1d1d1f;
+  --sl-color-accent-low: #e8e8ed;
+  --sl-color-accent: #1d1d1f;
+  --sl-color-accent-high: #1d1d1f;
+  --sl-color-text-accent: #1d1d1f;
+  --sl-color-hairline: #e5e5ea;
+  --sl-color-hairline-light: #ededf0;
+  --sl-color-hairline-shade: #d1d1d6;
+  --sl-color-bg-nav: rgb(245 245 247 / 0.8);
+  --sl-color-bg-inline-code: #ededf0;
+  --hl-body: #56565c;
+  --hl-pill-bg: #1d1d1f;
   --hl-pill-fg: #ffffff;
 }
 
@@ -432,4 +433,55 @@ starlight-toc a[aria-current='true'] {
 
 .hl-section-title .tone {
   color: var(--sl-color-gray-3);
+}
+
+/* --- layout ------------------------------------------------------------- */
+
+/* Header: title | search (centred) | right items. Starlight lines the
+   search up with the content column, which reads as off-centre. */
+@media (min-width: 50rem) {
+  div.header {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 34rem) minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  div.header > :nth-child(2) {
+    justify-content: center;
+  }
+
+  div.header > :first-child {
+    justify-self: start;
+  }
+
+  div.header > :last-child {
+    justify-self: end;
+  }
+
+  site-search,
+  site-search button[data-open-modal] {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+/* One continuous page: no rule between the title and the body. */
+.content-panel + .content-panel {
+  border-top: 0;
+}
+
+.content-panel:first-child {
+  padding-top: 2.5rem;
+}
+
+.content-panel + .content-panel {
+  padding-top: 0;
+}
+
+/* Right-hand "On this page" column: a hairline, aligned with the content. */
+.right-sidebar {
+  border-inline-start-color: var(--sl-color-hairline);
+}
+
+.right-sidebar-panel {
+  padding-top: 2.5rem;
 }

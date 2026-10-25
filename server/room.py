@@ -1,5 +1,5 @@
 """In-memory state for one workspace ("room"). A process may hold many Room
-instances at once (see room_manager.RoomManager) — each is fully isolated.
+instances at once (see room_manager.RoomManager), each is fully isolated.
 Ephemeral by design: the room *code* is durable (store.RoomStore), but nothing
 in a Room survives a relay restart; it re-forms from live activity, and every
 touch older than the conflict window would be ignored anyway."""
@@ -493,7 +493,7 @@ class Room:
         self._members: dict[str, WebSocket] = {}
         self._member_agents: dict[str, AgentKind] = {}
         self._spectators: set[WebSocket] = set()
-        # file_path -> {(repo_id, user_id): FileTouch} — latest edit per user
+        # file_path -> {(repo_id, user_id): FileTouch}, latest edit per user
         # per file per repo. Together the two keys make a touch's identity
         # (repo_id, file_path): the same relative path in two different repos
         # is two different files. The path stays the outer key so a lookup by
@@ -584,7 +584,7 @@ class Room:
         """True if user_id is still connected. Intentionally the same check as
         is_taken: a disconnected peer's last touch is excluded from conflict
         comparisons (recent_other_touches(active_only=True)) even if it
-        happened moments ago — there's no point flagging a conflict with
+        happened moments ago, there's no point flagging a conflict with
         someone who already left. Not a bug; do not "fix" by tracking a grace
         period unless product behavior changes."""
         return user_id in self._members
@@ -604,7 +604,7 @@ class Room:
     @property
     def is_empty(self) -> bool:
         """True once no members, spectators, connections still joining or
-        joiners waiting for approval remain — safe to evict from the
+        joiners waiting for approval remain, safe to evict from the
         RoomManager."""
         return (
             not self._members
@@ -1164,7 +1164,7 @@ class Room:
         """Return per-file overlaps with the most recent active peer (if any).
 
         Call this BEFORE record_activity so the current batch is compared only
-        against peers — not against a just-written self entry.
+        against peers, not against a just-written self entry.
         """
         overlaps: list[FileOverlap] = []
         for change in message.changes:

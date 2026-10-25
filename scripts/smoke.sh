@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # End-to-end check of the one claim the product rests on: a second agent is
-# denied an edit to a file a teammate just touched — even when the two agents run
+# denied an edit to a file a teammate just touched, even when the two agents run
 # from different directories in the repo, which is the case unit tests on either
 # side alone cannot cover.
 #
@@ -64,7 +64,7 @@ local_ports=("$PORT_A" "$PORT_B")
 for port in "${local_ports[@]}"; do
   if curl -fsS --max-time 1 "http://127.0.0.1:$port/status" >/dev/null 2>&1 \
      || curl -fsS --max-time 1 "http://127.0.0.1:$port/health" >/dev/null 2>&1; then
-    fail "port $port is already serving — stop it first (a stale daemon can fake a pass)"
+    fail "port $port is already serving, stop it first (a stale daemon can fake a pass)"
   fi
 done
 

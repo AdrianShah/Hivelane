@@ -1,7 +1,7 @@
 /**
  * The shareable "prevented collisions" card, drawn on a canvas in the
- * browser (no server, no dependency). Input is RoomStats only — counts and
- * agent kinds — so the image can never carry file names, prompts, people's
+ * browser (no server, no dependency). Input is RoomStats only, counts and
+ * agent kinds, so the image can never carry file names, prompts, people's
  * names or the room code.
  */
 import { formatDuration, type RoomStats } from './stats.ts';
@@ -172,7 +172,7 @@ export function drawShareCard(
     tw,
     th,
     'Rated useful',
-    votes ? `${Math.round((stats.usefulVotes / votes) * 100)}%` : '—',
+    votes ? `${Math.round((stats.usefulVotes / votes) * 100)}%` : '-',
     TEAL,
   );
 

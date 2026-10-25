@@ -1,4 +1,4 @@
-"""Hivelane demo project — edit these files to light up agent lanes."""
+"""Hivelane demo project, edit these files to light up agent lanes."""
 
 from __future__ import annotations
 
@@ -12,11 +12,11 @@ PROJECT = "hivelane"
 
 def greet(name: str = "hacker") -> str:
     stamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
-    return f"[{PROJECT}] hey {name} — live @ {stamp}Z"
+    return f"[{PROJECT}] hey {name}, live @ {stamp}Z"
 
 
 def lane_status(agent: str = "hossein", files: int = 1) -> dict[str, Any]:
-    """Conflict radar sketch — agents × overlapping files."""
+    """Conflict radar sketch, agents × overlapping files."""
     score = abs(len(agent)) * max(1, files) * 7
     return {
         "project": PROJECT,

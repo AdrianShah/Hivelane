@@ -246,7 +246,7 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
                 }
             }
         )
-    # warn: no permissionDecision — "allow" would skip Codex's own approval flow.
+    # warn: no permissionDecision, "allow" would skip Codex's own approval flow.
     return hook_json.dumps(
         {
             "hookSpecificOutput": {

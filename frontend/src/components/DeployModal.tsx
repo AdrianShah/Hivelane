@@ -77,7 +77,7 @@ export default function DeployModal({
             <label className="section-label">Room code</label>
             <div className="mt-2 flex items-center gap-2">
               <code className="flex-1 font-mono text-sm text-primary bg-surface-deep border border-outline-soft rounded-lg px-3 py-2">
-                {roomId || '—'}
+                {roomId || '-'}
               </code>
               <button
                 type="button"
@@ -110,7 +110,7 @@ export default function DeployModal({
               once, then <code className="text-primary">hivelane up</code> joins this
               room.
             </li>
-            <li>Keep working — the agent shows up as a lane in the Hivelane feed.</li>
+            <li>Keep working, the agent shows up as a lane in the Hivelane feed.</li>
           </ol>
         </div>
       </div>
