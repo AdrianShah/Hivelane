@@ -1,4 +1,4 @@
-# Alpha testing (Adrian and Hossein)
+# Alpha testing
 
 Hivelane is not on PyPI yet, so each tester installs it straight from GitHub.
 Everything runs against the hosted relay on Render and the dashboard on GitHub

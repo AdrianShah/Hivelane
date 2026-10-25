@@ -185,17 +185,22 @@ function buildPage(item, bySource) {
   const text = readFileSync(join(REPO_ROOT, ...source.split('/')), 'utf8').replace(/^﻿/, '');
   let title;
   let lines;
+  let heading;
   if (item.section) {
-    lines = extractSection(text, item.section.heading);
-    if (!lines) throw new Error(`${source} has no "## ${item.section.heading}" section (needed for ${item.slug})`);
-    title = item.title ?? item.section.heading;
+    // `heading` may list alternatives (a README section being renamed): the
+    // first one present wins.
+    const headings = [item.section.heading].flat();
+    heading = headings.find((candidate) => extractSection(text, candidate));
+    if (!heading) throw new Error(`${source} has no ${headings.map((h) => `"## ${h}"`).join(' or ')} section (needed for ${item.slug})`);
+    lines = extractSection(text, heading);
+    title = item.title ?? heading;
   } else {
     ({ title, lines } = splitFile(text));
     title = item.title ?? title ?? item.slug;
   }
   const context = { source, section: Boolean(item.section), bySource };
   const body = lines.map(({ line, code }) => (code ? line : rewriteLine(line, context))).join('\n');
-  const where = item.section ? `the "${item.section.heading}" section of ${source}` : source;
+  const where = item.section ? `the "${heading}" section of ${source}` : source;
   return (
     frontmatter({
       title,

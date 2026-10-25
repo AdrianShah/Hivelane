@@ -1,0 +1,435 @@
+/*
+ * Hivelane docs theme over Starlight's defaults: Google Sans, a neutral
+ * near-black/off-white palette, light-weight headings with tight tracking,
+ * soft grey body copy and pill buttons.
+ */
+
+:root {
+  --sl-font: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --sl-font-mono: 'Google Sans Code', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+
+  /* Dark (Starlight's default scheme). */
+  --sl-color-black: #0c0d10;
+  --sl-color-gray-7: #111317;
+  --sl-color-gray-6: #16181d;
+  --sl-color-gray-5: #262930;
+  --sl-color-gray-4: #4b505a;
+  --sl-color-gray-3: #8c919c;
+  --sl-color-gray-2: #c3c6cd;
+  --sl-color-gray-1: #e4e6ea;
+  --sl-color-white: #f7f8fa;
+  --sl-color-accent-low: #1f2228;
+  --sl-color-accent: #f7f8fa;
+  --sl-color-accent-high: #ffffff;
+  --sl-color-text-accent: #f7f8fa;
+  --sl-color-hairline: #22252b;
+  --sl-color-hairline-light: #1a1c21;
+  --sl-color-hairline-shade: #08090b;
+  --sl-color-bg-nav: rgb(12 13 16 / 0.78);
+  --sl-color-bg-sidebar: var(--sl-color-black);
+  --sl-color-bg-inline-code: #1a1c21;
+  --hl-body: #a3a8b2;
+  --hl-pill-bg: #f7f8fa;
+  --hl-pill-fg: #0e0f12;
+
+  --sl-text-base: 1rem;
+  --sl-text-body: 1rem;
+  --sl-line-height: 1.7;
+  --sl-text-h1: 2.75rem;
+  --sl-text-h2: 1.75rem;
+  --sl-text-h3: 1.3rem;
+  --sl-text-h4: 1.1rem;
+  --sl-content-width: 46rem;
+  --sl-nav-height: 4rem;
+}
+
+:root[data-theme='light'] {
+  --sl-color-black: #f7f8fa;
+  --sl-color-gray-7: #f1f2f5;
+  --sl-color-gray-6: #eceef1;
+  --sl-color-gray-5: #e1e3e8;
+  --sl-color-gray-4: #b4b8c0;
+  --sl-color-gray-3: #80858f;
+  --sl-color-gray-2: #3c3f46;
+  --sl-color-gray-1: #24262b;
+  --sl-color-white: #0e0f12;
+  --sl-color-accent-low: #e8eaee;
+  --sl-color-accent: #0e0f12;
+  --sl-color-accent-high: #0e0f12;
+  --sl-color-text-accent: #0e0f12;
+  --sl-color-hairline: #e3e5e9;
+  --sl-color-hairline-light: #eceef1;
+  --sl-color-hairline-shade: #d6d9de;
+  --sl-color-bg-nav: rgb(247 248 250 / 0.8);
+  --sl-color-bg-inline-code: #eceef1;
+  --hl-body: #686d78;
+  --hl-pill-bg: #0e0f12;
+  --hl-pill-fg: #ffffff;
+}
+
+body {
+  font-feature-settings: 'ss01', 'cv11';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* --- chrome ------------------------------------------------------------- */
+
+header.header {
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  border-bottom-color: var(--sl-color-hairline);
+}
+
+.site-title {
+  gap: 0.55rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--sl-color-white);
+}
+
+.site-title img {
+  height: 1.5rem;
+  width: auto;
+}
+
+/* Search: a quiet pill. */
+site-search button[data-open-modal] {
+  border-radius: 999px;
+  border-color: var(--sl-color-hairline);
+  background: var(--sl-color-gray-7);
+  font-size: 0.875rem;
+}
+
+/* Sidebar: small, calm, current page as a soft pill. */
+.sidebar-pane {
+  border-inline-end-color: var(--sl-color-hairline);
+}
+
+.sidebar-content {
+  font-size: 0.9rem;
+}
+
+.sidebar-content .group-label .large {
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-transform: none;
+  color: var(--sl-color-gray-3);
+}
+
+.sidebar-content a {
+  border-radius: 999px;
+  padding-inline: 0.7rem;
+  color: var(--sl-color-gray-2);
+}
+
+.sidebar-content a:hover {
+  color: var(--sl-color-white);
+}
+
+.sidebar-content a[aria-current='page'],
+.sidebar-content a[aria-current='page']:hover {
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-white);
+  font-weight: 500;
+}
+
+/* --- page content --------------------------------------------------------- */
+
+.sl-markdown-content,
+.content-panel {
+  color: var(--hl-body);
+}
+
+h1,
+h2,
+h3,
+h4,
+.sl-markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  font-family: var(--sl-font);
+  color: var(--sl-color-white);
+  font-weight: 500;
+}
+
+h1#_top {
+  font-weight: 400;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+}
+
+.sl-markdown-content h2 {
+  margin-top: 2.75rem;
+  letter-spacing: -0.028em;
+  line-height: 1.15;
+}
+
+.sl-markdown-content h3 {
+  margin-top: 2rem;
+  letter-spacing: -0.02em;
+}
+
+.sl-markdown-content :is(strong, b) {
+  color: var(--sl-color-gray-1);
+  font-weight: 500;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--sl-color-white);
+  text-decoration-color: var(--sl-color-gray-4);
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 1px;
+  transition: text-decoration-color 0.15s ease;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: currentColor;
+}
+
+.sl-markdown-content code:not(:where(.not-content *, pre *)) {
+  font-size: 0.86em;
+  padding: 0.12em 0.4em;
+  border-radius: 6px;
+  color: var(--sl-color-gray-1);
+}
+
+.sl-markdown-content :is(table) {
+  font-size: 0.92rem;
+}
+
+.sl-markdown-content :is(th) {
+  font-weight: 500;
+  color: var(--sl-color-white);
+}
+
+.sl-markdown-content blockquote {
+  border-inline-start-color: var(--sl-color-gray-5);
+}
+
+/* Asides: neutral cards, not coloured boxes. */
+.starlight-aside {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 14px;
+  background: var(--sl-color-gray-7);
+}
+
+/* Right-hand table of contents. */
+starlight-toc nav h2,
+mobile-starlight-toc nav h2 {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--sl-color-gray-3);
+}
+
+starlight-toc a {
+  font-size: 0.85rem;
+  color: var(--sl-color-gray-3);
+}
+
+starlight-toc a[aria-current='true'] {
+  color: var(--sl-color-white);
+}
+
+/* Prev / next and edit links. */
+.pagination-links a {
+  border-radius: 14px;
+  border-color: var(--sl-color-hairline);
+  box-shadow: none;
+}
+
+.pagination-links a:hover {
+  border-color: var(--sl-color-gray-4);
+}
+
+.pagination-links .link-title {
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+/* --- home (splash) -------------------------------------------------------- */
+
+[data-has-hero] .hero {
+  grid-template-columns: 1fr;
+  justify-items: center;
+  text-align: center;
+  padding-block: clamp(3.5rem, 10vw, 7rem) clamp(2rem, 6vw, 4rem);
+}
+
+[data-has-hero] .hero > .stack {
+  align-items: center;
+  text-align: center;
+  gap: 1.5rem;
+}
+
+[data-has-hero] .hero h1 {
+  text-align: center;
+  font-size: clamp(2.6rem, 6.5vw, 4.25rem);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+[data-has-hero] .hero h1 .tone {
+  color: var(--sl-color-gray-3);
+}
+
+[data-has-hero] .hero .tagline {
+  max-width: 34rem;
+  margin-inline: auto;
+  font-size: 1.1rem;
+  line-height: 1.65;
+  color: var(--hl-body);
+}
+
+[data-has-hero] .hero .actions {
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+/* Pill buttons everywhere Starlight renders a LinkButton. */
+.sl-link-button {
+  border-radius: 999px;
+  padding: 0.7rem 1.35rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.sl-link-button.primary {
+  background: var(--hl-pill-bg);
+  color: var(--hl-pill-fg);
+  border-color: var(--hl-pill-bg);
+}
+
+.sl-link-button.secondary,
+.sl-link-button.minimal {
+  background: transparent;
+  color: var(--sl-color-white);
+  border-color: var(--sl-color-gray-5);
+}
+
+.sl-link-button:hover {
+  opacity: 0.85;
+}
+
+/* Cards: hairline, generous radius, monochrome icons. */
+.card {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 16px;
+  background: var(--sl-color-gray-7);
+  padding: 1.4rem;
+}
+
+.card .title {
+  font-size: 1.05rem;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.card .icon {
+  border: 0;
+  background: var(--sl-color-accent-low);
+  color: var(--sl-color-white);
+  border-radius: 10px;
+  padding: 0.35rem;
+}
+
+.card .body {
+  color: var(--hl-body);
+  font-size: 0.95rem;
+}
+
+.sl-link-card {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 16px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sl-link-card:hover {
+  border-color: var(--sl-color-gray-4);
+  background: var(--sl-color-gray-7);
+}
+
+.sl-link-card .title {
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.sl-link-card .description {
+  color: var(--hl-body);
+}
+
+/* Numbered steps on the home page. */
+.hl-steps {
+  list-style: none;
+  padding: 0;
+  margin: 0 auto;
+  display: grid;
+  gap: 0;
+  counter-reset: step;
+  max-width: 40rem;
+}
+
+.hl-steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 0.25rem 1rem;
+  padding: 1.25rem 0;
+  border-top: 1px solid var(--sl-color-hairline);
+}
+
+.hl-steps li:last-child {
+  border-bottom: 1px solid var(--sl-color-hairline);
+}
+
+.hl-steps li::before {
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--sl-font-mono);
+  font-size: 0.8rem;
+  color: var(--sl-color-gray-3);
+  padding-top: 0.2rem;
+}
+
+.hl-steps strong {
+  display: block;
+  color: var(--sl-color-white);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.015em;
+}
+
+.hl-steps a {
+  color: var(--sl-color-white);
+  text-decoration-color: var(--sl-color-gray-4);
+  text-underline-offset: 0.2em;
+}
+
+.hl-steps code {
+  font-family: var(--sl-font-mono);
+  font-size: 0.9em;
+}
+
+.hl-steps p {
+  grid-column: 2;
+  margin: 0;
+}
+
+.hl-section-title {
+  text-align: center;
+  font-size: clamp(1.75rem, 4vw, 2.5rem) !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.035em !important;
+  line-height: 1.1 !important;
+  margin: 4.5rem 0 2rem !important;
+}
+
+.hl-section-title .tone {
+  color: var(--sl-color-gray-3);
+}

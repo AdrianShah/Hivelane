@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  INSTALL_COMMAND,
   isValidRoomCode,
   normalizeRoomCode,
   relayWsBase,
@@ -9,7 +8,6 @@ import {
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
 import { Mark, Mascot } from '../brand/BrandArt';
-import RelayStatus from '../components/RelayStatus';
 import ThemeToggle from '../components/ThemeToggle';
 import './Home.css';
 
@@ -21,8 +19,6 @@ export default function Home() {
   const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Bumped when the relay changes, so an old relay's error does not linger.
-  const [, setRelayVersion] = useState(0);
 
   const createWorkspace = async () => {
     setCreating(true);
@@ -33,7 +29,7 @@ export default function Home() {
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(
-        `Could not create a room on ${relayWsBase()} (${detail}). Check that the relay is up, or pick another relay from the status button at the top.`,
+        `Could not create a room on ${relayWsBase()} (${detail}). The relay may be waking up: try again in a moment.`,
       );
       setCreating(false);
     }
@@ -62,12 +58,6 @@ export default function Home() {
           Hivelane
         </div>
         <nav className="home__nav-end" aria-label="Site">
-          <RelayStatus
-            onChange={() => {
-              setError(null);
-              setRelayVersion((n) => n + 1);
-            }}
-          />
           <a className="home__nav-link" href={DOCS_URL}>
             Docs
           </a>
@@ -135,8 +125,7 @@ export default function Home() {
           ) : null}
 
           <p className="home__steps">
-            New here? Install with <code>{INSTALL_COMMAND}</code>, then follow the{' '}
-            <a href={DOCS_URL}>two-minute setup</a>.
+            New here? Follow the <a href={`${DOCS_URL}quick-start/`}>two-minute setup</a>.
           </p>
         </div>
 
