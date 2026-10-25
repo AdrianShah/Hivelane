@@ -1,132 +1,20 @@
-import { useId, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  forgetRelay,
-  isStaticHost,
+  INSTALL_COMMAND,
   isValidRoomCode,
   normalizeRoomCode,
-  relaySource,
   relayWsBase,
-  rememberRelay,
   roomPath,
-  type RelaySource,
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
 import { Mark, Mascot } from '../brand/BrandArt';
+import RelayStatus from '../components/RelayStatus';
+import ThemeToggle from '../components/ThemeToggle';
 import './Home.css';
 
-const SOURCE_LABEL: Record<RelaySource, string> = {
-  chosen: 'chosen in this tab',
-  build: 'set for this site',
-  default: 'default: a relay on this computer',
-  origin: 'this site',
-};
-
-/**
- * Which relay rooms are created on and joined through, and a field to pick
- * another. The GitHub Pages copy of the dashboard has no relay behind it, so
- * there the field is open from the start.
- */
-function RelayPicker({ onChange }: { onChange: () => void }) {
-  const fieldId = useId();
-  const [relay, setRelay] = useState(() => relayWsBase());
-  const [source, setSource] = useState<RelaySource>(() => relaySource());
-  const needsOne = isStaticHost() && source === 'default';
-  const [editing, setEditing] = useState(needsOne);
-  const [draft, setDraft] = useState(needsOne ? '' : relay);
-  const [problem, setProblem] = useState<string | null>(null);
-
-  const refresh = () => {
-    setRelay(relayWsBase());
-    setSource(relaySource());
-    onChange();
-  };
-
-  const apply = (event: React.FormEvent) => {
-    event.preventDefault();
-    const chosen = rememberRelay(draft);
-    if (!chosen) {
-      setProblem('That is not a relay URL. Use wss://relay.example.com (or https://, or ws:// for a local relay).');
-      return;
-    }
-    setProblem(null);
-    setDraft(chosen);
-    setEditing(false);
-    refresh();
-  };
-
-  const reset = () => {
-    forgetRelay();
-    setProblem(null);
-    setDraft(relayWsBase());
-    setEditing(false);
-    refresh();
-  };
-
-  return (
-    <div className="home__relay">
-      {editing ? (
-        <form className="home__relay-form" onSubmit={apply}>
-          <label htmlFor={fieldId} className="home__relay-label">
-            Relay URL
-          </label>
-          <div className="home__relay-row">
-            <input
-              id={fieldId}
-              className="home__relay-input"
-              value={draft}
-              onChange={(event) => {
-                setDraft(event.target.value);
-                if (problem) setProblem(null);
-              }}
-              placeholder="wss://relay.example.com"
-              autoComplete="off"
-              spellCheck={false}
-              inputMode="url"
-              aria-describedby={`${fieldId}-hint`}
-              aria-invalid={problem ? true : undefined}
-            />
-            <button type="submit" className="home__relay-button" disabled={!draft.trim()}>
-              Use relay
-            </button>
-            {!needsOne ? (
-              <button type="button" className="home__relay-link" onClick={() => setEditing(false)}>
-                Cancel
-              </button>
-            ) : null}
-          </div>
-          <p id={`${fieldId}-hint`} className="home__relay-hint">
-            {problem ??
-              (needsOne
-                ? 'This copy of the dashboard has no relay of its own. Paste the URL of your team\'s relay (from hivelane relay or your host).'
-                : 'Rooms are created on, and joined through, this relay. Kept for this tab only.')}
-          </p>
-        </form>
-      ) : (
-        <p className="home__relay-current">
-          <span className="home__relay-label">Relay</span>{' '}
-          <code title={relay}>{relay}</code>{' '}
-          <span className="home__relay-source">({SOURCE_LABEL[source]})</span>{' '}
-          <button
-            type="button"
-            className="home__relay-link"
-            onClick={() => {
-              setDraft(relay);
-              setEditing(true);
-            }}
-          >
-            Change
-          </button>
-          {source === 'chosen' ? (
-            <button type="button" className="home__relay-link" onClick={reset}>
-              Reset
-            </button>
-          ) : null}
-        </p>
-      )}
-    </div>
-  );
-}
+const DOCS_URL = 'https://adrianshah.github.io/Hivelane/docs/';
+const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
 
 export default function Home() {
   const navigate = useNavigate();
@@ -145,7 +33,7 @@ export default function Home() {
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(
-        `Could not create a room on ${relayWsBase()} (${detail}). Check that the relay is up, or pick another relay below.`,
+        `Could not create a room on ${relayWsBase()} (${detail}). Check that the relay is up, or pick another relay from the status button at the top.`,
       );
       setCreating(false);
     }
@@ -173,16 +61,26 @@ export default function Home() {
           <Mark size={22} className="home__brand-mark" />
           Hivelane
         </div>
-        <span className="home__nav-note">Live collaboration radar</span>
+        <nav className="home__nav-end" aria-label="Site">
+          <RelayStatus
+            onChange={() => {
+              setError(null);
+              setRelayVersion((n) => n + 1);
+            }}
+          />
+          <a className="home__nav-link" href={DOCS_URL}>
+            Docs
+          </a>
+          <a className="home__nav-link" href={REPO_URL}>
+            GitHub
+          </a>
+          <ThemeToggle />
+        </nav>
       </header>
 
       <main className="home__hero">
         <div className="home__content">
           <Mascot pose="clear" size={88} className="home__mascot" />
-          <p className="home__eyebrow">
-            <span className="home__eyebrow-dot" aria-hidden="true" />
-            Multiplayer AI agent viewer
-          </p>
           <h1 className="home__headline">
             See every agent, <em>live.</em>
           </h1>
@@ -236,12 +134,10 @@ export default function Home() {
             </p>
           ) : null}
 
-          <RelayPicker
-            onChange={() => {
-              setError(null);
-              setRelayVersion((n) => n + 1);
-            }}
-          />
+          <p className="home__steps">
+            New here? Install with <code>{INSTALL_COMMAND}</code>, then follow the{' '}
+            <a href={DOCS_URL}>two-minute setup</a>.
+          </p>
         </div>
 
         {/* Illustrative preview of the dashboard: two lanes colliding on one file. */}
@@ -286,11 +182,6 @@ export default function Home() {
           </figcaption>
         </figure>
       </main>
-
-      <footer className="home__footer">
-        <span>Hivelane</span>
-        <span>Live collaboration radar for AI agents</span>
-      </footer>
     </div>
   );
 }
