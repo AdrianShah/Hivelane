@@ -32,6 +32,11 @@ updates:
     groups:
       relay:
         update-types: [minor, patch]
+    ignore:
+      # google-genai requires websockets<17; a 17.x bump cannot install until
+      # it lifts that cap.
+      - dependency-name: websockets
+        versions: [">=17"]
 
   - package-ecosystem: npm
     directory: "/frontend"
@@ -40,6 +45,10 @@ updates:
       day: monday
     open-pull-requests-limit: 3
     groups:
+      # Vite and its plugins share peer ranges, so a major bump to one alone
+      # fails `npm ci` (ERESOLVE). They move together, majors included.
+      vite:
+        patterns: ["vite", "@vitejs/*", "vitest", "@vitest/*"]
       dashboard:
         update-types: [minor, patch]
 

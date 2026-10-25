@@ -65,6 +65,17 @@ def _next_event(socket: Any, type_name: str) -> dict:
     raise AssertionError(f"never received {type_name}")
 
 
+def _next_events(socket: Any, type_names: set[str]) -> None:
+    missing = set(type_names)
+    for _ in range(MAX_FRAMES):
+        frame = socket.receive_json()
+        events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
+        missing -= {event.get("type") for event in events}
+        if not missing:
+            return
+    raise AssertionError(f"never received {sorted(missing)}")
+
+
 def _activity(file_path: str, blob: str) -> dict:
     return {
         "type": "activity",
@@ -156,8 +167,8 @@ def test_catch_up_replays_the_blobs(relay: RoomManager) -> None:
         sam.send_json(_activity(FILE, "BLOB-a"))
         sam.send_json({"type": "intent", "user_id": "sam", "prompt": "", "e2e": "BLOB-i"})
         sam.send_json({"type": "plan", "user_id": "sam", "files": [FILE], "e2e": "BLOB-p"})
-        _next_event(sam, "plan_conflicts")
-        _next_event(sam, "activity_update")
+        # Either can arrive first (activity is batched), so wait for both at once.
+        _next_events(sam, {"plan_conflicts", "activity_update"})
 
         with client.websocket_connect(f"/ws/{room_id}") as dashboard:
             dashboard.send_json({"type": "join", "name": None})
