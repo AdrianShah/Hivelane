@@ -7,7 +7,8 @@ import {
   roomPath,
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
-import { Mark, Mascot } from '../brand/BrandArt';
+import { BeeAvatar, Mark, Mascot } from '../brand/BrandArt';
+import { personColor } from '../dashboard/people';
 import ThemeToggle from '../components/ThemeToggle';
 import './Home.css';
 
@@ -133,7 +134,7 @@ export default function Home() {
         <figure className="home__preview" aria-label="Example: two agents editing the same file">
           <div className="home__lane">
             <div className="home__lane-head">
-              <span className="home__avatar">MR</span>
+              <BeeAvatar className="home__avatar" state="editing" accent={personColor('Maya R.')} />
               <div>
                 <strong>Maya R.</strong>
                 <span>Claude Code · feat/billing</span>
@@ -152,7 +153,7 @@ export default function Home() {
           </div>
           <div className="home__lane home__lane--offset">
             <div className="home__lane-head">
-              <span className="home__avatar home__avatar--alt">TO</span>
+              <BeeAvatar className="home__avatar" state="conflict" accent={personColor('Tomás O.')} />
               <div>
                 <strong>Tomás O.</strong>
                 <span>Codex · fix/rounding</span>

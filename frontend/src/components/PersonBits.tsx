@@ -1,5 +1,7 @@
 import { STATUS_HINT, STATUS_LABEL, type LaneStatus } from '../dashboard/laneStatus';
-import { agentLabel, initials, personColor } from '../dashboard/people';
+import { agentLabel, personColor } from '../dashboard/people';
+import { BeeAvatar } from '../brand/BrandArt';
+import type { AvatarState } from '../brand/mascot';
 
 /**
  * Small person/agent primitives shared by lanes, the timeline and the heat
@@ -21,24 +23,28 @@ const AGENT_MARK: Record<string, string> = {
 export function PersonAvatar({
   userId,
   size = 'md',
+  state = 'idle',
   dotClass,
   dotLabel,
 }: {
   userId: string;
   size?: 'sm' | 'md';
+  /** Drives the bee's face and animation. */
+  state?: AvatarState;
   /** Presence dot colour class; omitted for no dot. */
   dotClass?: string;
   dotLabel?: string;
 }) {
   // Inline, not utilities: .lane-avatar's own size would win over w-6/h-6.
-  const dimension = size === 'sm' ? { width: '1.5rem', height: '1.5rem', fontSize: '9px' } : {};
+  const dimension = size === 'sm' ? { width: '1.5rem', height: '1.5rem' } : {};
   return (
     <span
       className="lane-avatar shrink-0"
-      style={{ background: personColor(userId), ...dimension }}
+      style={dimension}
+      title={userId}
       aria-hidden={dotLabel ? undefined : true}
     >
-      {initials(userId)}
+      <BeeAvatar state={state} accent={personColor(userId)} />
       {dotClass ? (
         <span className={`lane-avatar__dot ${dotClass}`} title={dotLabel}>
           {dotLabel ? <span className="sr-only">{dotLabel}</span> : null}

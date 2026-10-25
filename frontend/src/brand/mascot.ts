@@ -149,6 +149,58 @@ export function mascotSvg(pose: MascotPose = 'clear', c: MascotPalette = THEME_P
   );
 }
 
+/**
+ * Avatar states, one per lane state. The face carries the state; the
+ * animation lives in CSS (.bee-avatar.is-<state> in index.css).
+ *   editing  - happy, wings buzzing, bobbing (working)
+ *   idle     - sleepy eyes, slow hover
+ *   conflict - wide eyes, wobbling (overlapping edits)
+ *   blocked  - cross brows, shaking
+ *   offline  - eyes shut, grounded and greyed
+ */
+export type AvatarState = 'editing' | 'idle' | 'conflict' | 'blocked' | 'offline';
+
+function avatarFace(state: AvatarState, c: MascotPalette): string {
+  const line = (d: string, w = 5) =>
+    `<path d="${d}" fill="none" stroke="${c.ink}" stroke-width="${w}" stroke-linecap="round"/>`;
+  switch (state) {
+    case 'editing':
+      return eyes('clear', c) + mouth('clear', c);
+    case 'idle':
+      // Half-closed, drooping lids.
+      return line('M59 84q7 5 14 0M87 84q7 5 14 0') + line('M75 95q5 2 10 0', 4);
+    case 'conflict':
+      return eyes('warn', c) + mouth('warn', c);
+    case 'blocked':
+      return eyes('blocked', c) + mouth('blocked', c);
+    case 'offline':
+      return line('M59 84h14M87 84h14') + line('M75 95h10', 4);
+  }
+}
+
+/**
+ * The bee as a lane avatar (viewBox cropped to the bee, no props). `accent`
+ * is the person's colour, painted on the stripe, so each person stays
+ * recognisable. `uid` keeps the clip-path id unique per instance.
+ */
+export function avatarSvg(state: AvatarState, accent: string, uid: string, c: MascotPalette = THEME_PALETTE): string {
+  const id = `hl-av-${uid}`;
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="4 16 152 128" aria-hidden="true">` +
+    `<defs><clipPath id="${id}"><path d="${HEX}"/></clipPath></defs>` +
+    `<g class="bee__body">` +
+    `<g class="bee__wing bee__wing--l"><ellipse cx="34" cy="68" rx="27" ry="12" transform="rotate(-32 34 68)" fill="${c.wing}" stroke="${c.ink}" stroke-width="5"/></g>` +
+    `<g class="bee__wing bee__wing--r"><ellipse cx="126" cy="68" rx="27" ry="12" transform="rotate(32 126 68)" fill="${c.wing}" stroke="${c.ink}" stroke-width="5"/></g>` +
+    `<g class="bee__antennae"><path d="M72 57C69 44 62 37 56 30M88 57C91 44 98 37 104 30" fill="none" stroke="${c.ink}" stroke-width="5" stroke-linecap="round"/>` +
+    `<circle cx="55" cy="28" r="6" fill="${c.ink}"/><circle cx="105" cy="28" r="6" fill="${c.ink}"/></g>` +
+    `<path d="${HEX}" fill="${c.body}"/>` +
+    `<g clip-path="url(#${id})"><rect x="30" y="103" width="100" height="11" fill="${accent}"/><rect x="30" y="119" width="100" height="8" fill="${c.ink}"/></g>` +
+    `<path d="${HEX}" fill="none" stroke="${c.ink}" stroke-width="6" stroke-linejoin="round"/>` +
+    avatarFace(state, c) +
+    `</g></svg>`
+  );
+}
+
 /** The 32 px logo mark: the hexagon with two stripes. */
 export function markSvg(c: MascotPalette = THEME_PALETTE, title = 'Hivelane'): string {
   const hex = 'M16 3 27.26 9.5V22.5L16 29 4.74 22.5V9.5Z';
