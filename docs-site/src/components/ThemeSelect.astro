@@ -1,20 +1,141 @@
 ---
-// Starlight's theme picker; a choice made here is also saved as the
-// dashboard's, so the docs and the dashboard always share one theme.
-import Default from '@astrojs/starlight/components/ThemeSelect.astro';
+// The dashboard's light / dark / system toggle (frontend/src/components/
+// ThemeToggle.tsx), in place of Starlight's select. A choice is saved under
+// both keys, so the docs and the dashboard always share one theme.
+const OPTIONS = [
+  {
+    value: 'light',
+    label: 'Light',
+    // Sun, moon and half-filled circle, like the dashboard's icons.
+    icon: '<circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  },
+  {
+    value: 'dark',
+    label: 'Dark',
+    icon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>',
+  },
+  {
+    value: 'system',
+    label: 'System',
+    icon: '<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18Z" fill="currentColor"/>',
+  },
+];
 ---
 
-<Default />
+<hivelane-theme-toggle>
+  <div class="hl-theme-toggle" role="radiogroup" aria-label="Colour theme">
+    {
+      OPTIONS.map((o) => (
+        <button
+          type="button"
+          role="radio"
+          aria-checked="false"
+          tabindex="-1"
+          data-pref={o.value}
+          title={`${o.label} theme`}
+          aria-label={`${o.label} theme`}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <Fragment set:html={o.icon} />
+          </svg>
+        </button>
+      ))
+    }
+  </div>
+</hivelane-theme-toggle>
+
+<style>
+  hivelane-theme-toggle {
+    display: inline-flex;
+  }
+  .hl-theme-toggle {
+    display: inline-flex;
+    padding: 2px;
+    border-radius: 999px;
+    border: 1px solid var(--sl-color-hairline-shade);
+    background: var(--sl-color-bg-nav);
+  }
+  .hl-theme-toggle button {
+    display: inline-grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.5rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sl-color-gray-3);
+    cursor: pointer;
+  }
+  .hl-theme-toggle button:hover {
+    color: var(--sl-color-white);
+  }
+  .hl-theme-toggle button[aria-checked='true'] {
+    color: var(--sl-color-white);
+    background: var(--sl-color-gray-5);
+  }
+  .hl-theme-toggle button:focus-visible {
+    outline: 2px solid var(--sl-color-text-accent);
+    outline-offset: 1px;
+  }
+</style>
 
 <script>
-  document.addEventListener('change', (event) => {
-    const select = event.target;
-    if (!(select instanceof HTMLSelectElement) || !select.closest('starlight-theme-select')) return;
-    const value = select.value === 'light' || select.value === 'dark' ? select.value : 'system';
+  type Pref = 'light' | 'dark' | 'system';
+  const PREFS: Pref[] = ['light', 'dark', 'system'];
+  const media = window.matchMedia('(prefers-color-scheme: light)');
+
+  function read(): Pref {
     try {
-      localStorage.setItem('hivelane:theme', value);
+      const v = localStorage.getItem('hivelane:theme');
+      if (v === 'light' || v === 'dark' || v === 'system') return v;
+      const s = localStorage.getItem('starlight-theme');
+      if (s === 'light' || s === 'dark') return s;
     } catch {
-      /* storage blocked: the picker still works for this page */
+      /* storage blocked */
     }
+    return 'system';
+  }
+
+  function apply(pref: Pref) {
+    const resolved = pref === 'system' ? (media.matches ? 'light' : 'dark') : pref;
+    document.documentElement.dataset.theme = resolved;
+    try {
+      localStorage.setItem('hivelane:theme', pref);
+      localStorage.setItem('starlight-theme', pref === 'system' ? '' : pref);
+    } catch {
+      /* storage blocked: the choice lasts for this page only */
+    }
+    document.querySelectorAll<HTMLButtonElement>('hivelane-theme-toggle button').forEach((b) => {
+      const on = b.dataset.pref === pref;
+      b.setAttribute('aria-checked', String(on));
+      b.tabIndex = on ? 0 : -1;
+    });
+  }
+
+  class HivelaneThemeToggle extends HTMLElement {
+    connectedCallback() {
+      apply(read());
+      this.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+        button.addEventListener('click', () => apply(button.dataset.pref as Pref));
+        button.addEventListener('keydown', (event) => {
+          const step =
+            event.key === 'ArrowRight' || event.key === 'ArrowDown'
+              ? 1
+              : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                ? -1
+                : 0;
+          if (!step) return;
+          event.preventDefault();
+          const next = PREFS[(PREFS.indexOf(read()) + step + PREFS.length) % PREFS.length];
+          apply(next);
+          this.querySelector<HTMLButtonElement>(`[data-pref="${next}"]`)?.focus();
+        });
+      });
+    }
+  }
+  customElements.define('hivelane-theme-toggle', HivelaneThemeToggle);
+  media.addEventListener('change', () => {
+    if (read() === 'system') apply('system');
   });
 </script>
