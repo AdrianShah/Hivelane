@@ -14,9 +14,32 @@ export default defineConfig({
     starlight({
       title: 'Hivelane',
       description: 'Live coordination for parallel AI coding agents.',
-      logo: { src: './src/assets/logo.svg', alt: 'Hivelane' },
+      logo: { light: './src/assets/logo-light.svg', dark: './src/assets/logo-dark.svg', alt: 'Hivelane' },
       favicon: '/favicon.svg',
-      // No GitHub links while the repo is private: they 404 for visitors.
+      head: [
+        { tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' } },
+        { tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true } },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'stylesheet',
+            href: 'https://fonts.googleapis.com/css2?family=Google+Sans:wght@400..700&family=Google+Sans+Code:wght@400..600&display=swap',
+          },
+        },
+      ],
+      customCss: ['./src/styles/theme.css'],
+      expressiveCode: {
+        themes: ['github-dark-default', 'github-light-default'],
+        styleOverrides: {
+          borderRadius: '12px',
+          borderColor: 'var(--sl-color-hairline)',
+          codeFontFamily: 'var(--sl-font-mono)',
+          codeFontSize: '0.84rem',
+          codeLineHeight: '1.7',
+          uiFontFamily: 'var(--sl-font)',
+          frames: { shadowColor: 'transparent', frameBoxShadowCssValue: 'none' },
+        },
+      },
       social: REPO_PUBLIC ? [{ icon: 'github', label: 'GitHub', href: REPO_URL }] : [],
       // Synced pages carry their own editUrl (the real source under docs/);
       // this default only applies to pages written in docs-site/ itself.
