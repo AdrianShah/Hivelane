@@ -76,7 +76,7 @@ same-origin, so CORS does not apply to them. The exceptions are `npm run dev`
 and `vite preview`, which use `ws://localhost:8000/ws`.
 
 - **Serve the API only:** set `HIVELANE_STATIC_DIR=` (empty).
-- **Host the dashboard elsewhere** (Vercel config: `frontend/vercel.json`):
+- **Host the dashboard elsewhere** (any static host; GitHub Pages: `.github/workflows/pages.yml`):
   build it with `VITE_WS_URL=wss://relay.example.com/ws` and add its origin to
   the relay's `CORS_ORIGINS`.
 - **Bake a different relay into the image's dashboard:**

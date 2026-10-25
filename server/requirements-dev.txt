@@ -4,5 +4,8 @@ httpx==0.28.1
 # CI (ci.yml): coverage, per-test timeouts, lint and type checks.
 pytest-cov==7.1.0
 pytest-timeout==2.4.0
+# One retry for timing-sensitive daemon tests on slow (mostly Windows) runners;
+# a test that fails twice is still red.
+pytest-rerunfailures==16.6.1
 ruff==0.17.1
 mypy==2.4.0
