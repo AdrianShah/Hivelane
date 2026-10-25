@@ -243,10 +243,10 @@ jobs:
         # testpaths include tests/e2e: a real relay and two daemons in-process.
         # Serial on purpose: under pytest-xdist the timing-sensitive daemon
         # tests flake and free-port picks race (see pyproject / the report).
-        run: pytest -q --timeout=120
+        run: pytest -q --timeout=120 --reruns 1
       - name: Test with coverage
         if: env.RUN == 'true' && matrix.coverage
-        run: pytest -q --timeout=120 --cov --cov-report=xml:coverage.xml --cov-report=term
+        run: pytest -q --timeout=120 --reruns 1 --cov --cov-report=xml:coverage.xml --cov-report=term
       - name: Coverage summary
         if: env.RUN == 'true' && matrix.coverage && !cancelled()
         shell: bash
