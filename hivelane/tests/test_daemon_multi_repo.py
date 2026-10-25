@@ -152,7 +152,7 @@ def test_events_route_to_their_own_repos_room(tmp_path: Path) -> None:
     async def scenario() -> None:
         async with StubRelay() as relay:
             relay.decision["ROOMA"] = "block"
-            daemon = Daemon(batch_seconds=0.05)
+            daemon = Daemon(batch_seconds=0.05, edit_check_timeout=10.0)
             await daemon.start()
             await daemon.register(one, "ROOMA", relay=relay.url, name="ada")
             await daemon.register(two, "ROOMB", relay=relay.url, name="ada")
@@ -207,7 +207,7 @@ def test_repos_in_one_room_share_one_connection(tmp_path: Path) -> None:
 
     async def scenario() -> None:
         async with StubRelay() as relay:
-            daemon = Daemon(batch_seconds=0.05)
+            daemon = Daemon(batch_seconds=0.05, edit_check_timeout=10.0)
             await daemon.start()
             await daemon.register(one, "TEAM", relay=relay.url, name="ada")
             await daemon.register(two, "TEAM", relay=relay.url, name="ada")
@@ -279,7 +279,9 @@ def test_repo_is_adopted_from_its_project_config(tmp_path: Path) -> None:
                 "block_window_seconds = 5\nwarn_window_seconds = 30\n"
                 'ignore = ["*.lock", "generated/**"]\nshare_diffs = false\n',
             )
-            daemon = Daemon(batch_seconds=0.05)
+            # A slow runner can outlast the 1.5 s default, and a timed-out
+            # edit_check fails open to "allow".
+            daemon = Daemon(batch_seconds=0.05, edit_check_timeout=10.0)
             await daemon.start()
 
             # The first event registers the repo; queued until the socket is up.

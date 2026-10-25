@@ -198,8 +198,8 @@ and which cannot carry Subresource Integrity): drop
 `style-src`, move the theme snippet into a bundled file, and narrow
 `connect-src` to `'self'` plus the configured relay origin. Until then a
 compromise of that CDN runs script on the dashboard's origin, where owner
-tokens sit in `localStorage`. A dashboard hosted elsewhere (e.g. Vercel) gets its headers from that
-host (`frontend/vercel.json`), not from the relay.
+tokens sit in `localStorage`. A dashboard hosted elsewhere (GitHub Pages, a static host) gets its headers from that
+host, not from the relay.
 
 CORS: `CORS_ORIGINS` is required outside development. In production the relay
 refuses to start when `CORS_ORIGINS` contains `*` or `CORS_ORIGIN_REGEX` is a
