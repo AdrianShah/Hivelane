@@ -88,7 +88,7 @@ export default function Sidebar({
           aria-label="Back to Hivelane home"
           onClick={() => navigate('/')}
         >
-          <Mark size={26} />
+          <Mark size={34} />
         </button>
         <div className="min-w-0">
           <button

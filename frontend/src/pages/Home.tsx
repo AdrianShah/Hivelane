@@ -55,7 +55,7 @@ export default function Home() {
     <div className="home">
       <header className="home__nav">
         <div className="home__brand" aria-label="Hivelane">
-          <Mark size={22} className="home__brand-mark" />
+          <Mark size={28} className="home__brand-mark" />
           Hivelane
         </div>
         <nav className="home__nav-end" aria-label="Site">

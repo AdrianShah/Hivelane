@@ -1,6 +1,6 @@
 # Hivelane brand assets
 
-The mascot is the **guard bee**. Real hives post guard bees at the entrance to check every bee coming in; Hivelane checks every edit before it lands. Its hexagon body with two stripes is also the logo mark.
+The mascot is the **guard bee**. Real hives post guard bees at the entrance to check every bee coming in; Hivelane checks every edit before it lands. The bee itself is the logo mark, the favicon and every avatar.
 
 | Pose | When it is used |
 |---|---|
@@ -14,7 +14,7 @@ The body is ink and paper with a single brand-blue stripe. Amber and red stay re
 ## Files
 
 - `mascot-<pose>.svg` and `mascot-<pose>-dark.svg`: the 160 × 160 mascot for light and dark backgrounds.
-- `mark.svg` and `mark-dark.svg`: the 32 × 32 logo mark. The favicon lives in `frontend/public/favicon.svg` and switches with the system theme.
+- `mark.svg` and `mark-dark.svg`: the logo mark (the happy bee). `node frontend/scripts/build-brand.mjs` also writes both favicons (`frontend/public`, `docs-site/public`, switching with the system theme) and the docs-site logos.
 
 All of these are generated. Edit the drawing in `frontend/src/brand/mascot.ts`, then run:
 

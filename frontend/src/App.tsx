@@ -948,7 +948,7 @@ export default function App() {
               onClick={() => navigate('/')}
               title="Back to Hivelane home"
             >
-              <Mark size={20} />
+              <Mark size={26} />
               Hivelane
             </button>
             <div
