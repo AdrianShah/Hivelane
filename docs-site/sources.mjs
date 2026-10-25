@@ -28,15 +28,15 @@ export const BASE = process.env.DOCS_BASE || '/Hivelane/docs';
 export const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
 export const BRANCH = 'main';
 
-// The repository is private for now, so "Edit page" and GitHub links on the
-// public Pages site would 404 for every visitor. Flip this (or set
-// DOCS_REPO_PUBLIC=1) when the repo goes public.
-export const REPO_PUBLIC = process.env.DOCS_REPO_PUBLIC === '1';
+// GitHub and edit links. On since the repo went public; DOCS_REPO_PUBLIC=0
+// turns them off for a private fork.
+export const REPO_PUBLIC = process.env.DOCS_REPO_PUBLIC !== '0';
 
 /**
  * Each item becomes one page at <BASE>/<slug>/, built from one of:
  *   file:     a whole Markdown file; its first `# heading` becomes the title
  *   section:  one `## heading` section of a file, up to the next `## ` heading
+ *             (`heading` may be a list of names; the first one present wins)
  * `label` overrides the sidebar text (the page title is used otherwise), and
  * `title` the page title (needed for sections, which have no `# heading`).
  * A missing file is skipped, but a missing section fails the build, so a
@@ -46,7 +46,7 @@ export const SIDEBAR = [
   {
     label: 'Getting started',
     items: [
-      { slug: 'quick-start', section: { file: 'README.md', heading: 'Quick start' }, title: 'Quick start' },
+      { slug: 'quick-start', section: { file: 'README.md', heading: ['Getting started', 'Quick start'] }, title: 'Quick start' },
       { slug: 'install', file: 'docs/install.md', label: 'Install' },
     ],
   },
@@ -55,7 +55,7 @@ export const SIDEBAR = [
     items: [
       {
         slug: 'architecture',
-        section: { file: 'README.md', heading: 'Architecture' },
+        section: { file: 'README.md', heading: ['How it works', 'Architecture'] },
         title: 'Architecture',
         description: 'How the agent hooks, the per-machine daemon, the relay and the dashboard fit together.',
       },
@@ -76,13 +76,17 @@ export const SIDEBAR = [
     // Every deploy/<target>/README.md is appended as self-hosting/<target>, so
     // a new deployment target needs no edit here.
     deployGuides: true,
-    items: [{ slug: 'self-hosting', file: 'docs/self-hosting.md', label: 'Self-hosting the relay' }],
+    items: [
+      { slug: 'self-hosting', file: 'docs/self-hosting.md', label: 'Self-hosting the relay' },
+      { slug: 'releasing', file: 'docs/releasing.md', label: 'Deploying and releasing' },
+    ],
   },
   {
     label: 'Reference',
     items: [
       { slug: 'protocol', file: 'docs/protocol.md', label: 'Wire protocol' },
       { slug: 'cli', file: 'docs/cli.md', label: 'CLI' },
+      { slug: 'configuration', file: 'docs/configuration.md', label: 'Configuration' },
       { slug: 'faq', file: 'docs/faq.md', label: 'FAQ' },
       { slug: 'comparison', file: 'docs/comparison.md', label: 'Approaches compared' },
     ],
