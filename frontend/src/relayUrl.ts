@@ -258,7 +258,10 @@ function needsInsecure(wsBase: string): boolean {
   return !loopback;
 }
 
+/** Installs the CLI (from GitHub until it is on PyPI). */
+export const INSTALL_COMMAND = 'pipx install git+https://github.com/AdrianShah/Hivelane';
+
 /** The one line a teammate pastes to install Hivelane and join a room. */
 export function setupCommand(roomId: string): string {
-  return `pipx install git+https://github.com/AdrianShah/Hivelane && ${upCommand(roomId)}`;
+  return `${INSTALL_COMMAND} && ${upCommand(roomId)}`;
 }
