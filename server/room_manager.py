@@ -54,6 +54,7 @@ _PLAUSIBLE_CODE = re.compile(rf"[A-Z0-9]{{{MIN_CODE_LENGTH},{MAX_CODE_LENGTH}}}"
 # relay (HIVELANE_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
 # both to bound memory and ghost-room flooding (docs/self-hosting.md).
 MAX_MEMBERS = config.MAX_MEMBERS
+MAX_SPECTATORS = config.MAX_SPECTATORS
 MAX_ROOMS = config.MAX_ROOMS
 
 # A room created by POST /rooms that nobody joins within this long is evicted,
@@ -89,6 +90,11 @@ RENEW_GRACE_SECONDS = 10.0
 def room_is_full(room: Room) -> bool:
     """True when MAX_MEMBERS is set and the room already has that many."""
     return MAX_MEMBERS > 0 and room.member_count >= MAX_MEMBERS
+
+
+def spectators_full(room: Room) -> bool:
+    """True when MAX_SPECTATORS is set and the room already has that many dashboards."""
+    return MAX_SPECTATORS > 0 and room.spectator_count >= MAX_SPECTATORS
 
 
 def _generate_code() -> str:
