@@ -263,12 +263,16 @@ def clean_output(text: object, limit: int) -> str:
 _caption_cache: "OrderedDict[str, tuple[float, str]]" = OrderedDict()
 
 
-def _caption_key(message: ActivityMessage) -> str:
+def _caption_key(message: ActivityMessage, room: str = "") -> str:
+    # The cache is process-wide: the room and each diff are part of the key,
+    # so one room never gets a caption written from another room's changes.
     digest = hashlib.sha256()
+    digest.update(room.encode() + b"\0")
     digest.update(str(message.user_id).encode())
     digest.update(b"\0" + str(message.prompt or "").encode())
     for change in message.changes:
         digest.update(b"\0" + str(change.file_path).encode())
+        digest.update(b"\0" + hashlib.sha256(str(change.diff).encode()).digest())
     return digest.hexdigest()
 
 
@@ -291,14 +295,16 @@ def _remember_caption(key: str, text: str) -> None:
         _caption_cache.popitem(last=False)
 
 
-async def generate_caption(message: ActivityMessage) -> str:
-    """One short third-person sentence describing the batch. Falls back on any error."""
+async def generate_caption(message: ActivityMessage, room: str = "") -> str:
+    """One short third-person sentence describing the batch. Falls back on any error.
+
+    `room` is the room code; it scopes the caption cache to that room."""
     fallback = placeholder_caption(message)
     client = _get_client()
     if client is None:
         log.debug("GEMINI_API_KEY missing; using placeholder caption")
         return fallback
-    key = _caption_key(message)
+    key = _caption_key(message, room)
     cached = _cached_caption(key)
     if cached is not None:
         return cached

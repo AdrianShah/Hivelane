@@ -351,6 +351,25 @@ def test_captions_are_cleaned_cached_and_budgeted(fake_gemini: Any, monkeypatch:
     assert asyncio.run(gemini.generate_caption(third)) == gemini.placeholder_caption(third)
 
 
+def test_caption_cache_is_scoped_to_room_and_diff(fake_gemini: Any) -> None:
+    models = fake_gemini("Sam is editing a.py")
+    gemini._caption_cache.clear()
+    message = ActivityMessage.model_validate(
+        {"type": "activity", "user_id": "sam", "changes": [{"file_path": "a.py", "diff": "+secret"}]}
+    )
+    asyncio.run(gemini.generate_caption(message, "ROOMAAAA"))
+    # Same sender, prompt and path in another room: not served from room A's cache.
+    asyncio.run(gemini.generate_caption(message, "ROOMBBBB"))
+    assert len(models.contents) == 2
+    # Same room, same path, different diff: a fresh caption, not a stale one.
+    changed = message.model_copy(
+        update={"changes": [message.changes[0].model_copy(update={"diff": "+other"})]}
+    )
+    asyncio.run(gemini.generate_caption(changed, "ROOMAAAA"))
+    assert len(models.contents) == 3
+    assert asyncio.run(gemini.generate_caption(message, "ROOMAAAA")) and len(models.contents) == 3
+
+
 def test_call_budget_caps_concurrency_and_rate() -> None:
     now = [0.0]
     budget = gemini.CallBudget(concurrency=2, per_minute=3, per_day=0, clock=lambda: now[0])

@@ -230,7 +230,7 @@ def test_rate_limit_is_per_repo_and_monotonic() -> None:
 
 
 def test_gemini_captions_do_not_block_the_receive_loop(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def slow_caption(message: ActivityMessage) -> str:
+    async def slow_caption(message: ActivityMessage, room: str = "") -> str:
         await asyncio.sleep(0.3)
         return "a real caption"
 
