@@ -44,6 +44,7 @@ def test_hook_never_imports_the_daemon_stack(
     home.mkdir()
     # Reading the token file is on the hot path too: it must stay import-free.
     (home / "token").write_text("t" * 43, encoding="ascii")
+    state["proof_token"] = "t" * 43
 
     env = dict(os.environ, HIVELANE_PORT=str(port), HIVELANE_HOME=str(home))
     result = subprocess.run(
@@ -115,7 +116,11 @@ def test_codex_multi_file_patch_posts_each_file_and_strictest_wins(
         return original_post(event, p, timeout)
 
     monkeypatch.setattr(hook_fast, "post_event", post)
-    code, stdout = _run("codex", payload, port, monkeypatch, tmp_path / "home")
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / "token").write_text("t" * 43, encoding="ascii")  # the daemon proves itself with it
+    state["proof_token"] = "t" * 43
+    code, stdout = _run("codex", payload, port, monkeypatch, home)
 
     assert code == 0
     # Posting stops at the first block (finding 01 #33): the fourth file is

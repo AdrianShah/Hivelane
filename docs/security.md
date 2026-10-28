@@ -417,11 +417,23 @@ bare `GET /health` requires a per-install secret:
   `{"ok": true, "service": "hivelane-daemon"}`, so tools can tell "no daemon"
   from "a daemon that refuses my token".
 
+**The daemon proves itself first.** The token also has to protect clients from
+the port: on a shared machine, another user's program could bind `4600` while
+your daemon is stopped and wait for the token, prompts and file contents. So
+before sending anything, every client (the hooks, `hivelane mcp`, the CLI and
+the VS Code extension) asks `GET /health?nonce=<32 hex>` without its token, and
+only a listener that answers with `HMAC-SHA256(token, "hivelane-daemon-proof:"
++ nonce)` gets the real request. Anything else is treated as offline: the hook
+fails open with a notice that nothing was sent, and nothing about you reaches
+that process. A daemon under another `HIVELANE_HOME` cannot answer either, so
+it gets the same notice; `hivelane down` then `hivelane up` replaces a daemon
+from before this check.
+
 **Token lifecycle.** Clients read the file on every call (the hook with a plain
 `open()`, nothing cached across processes), so nothing needs restarting when it
 changes. If the file is deleted and recreated while the daemon runs, the
 daemon re-reads the file it started from on the first mismatch and adopts the
-new token. A daemon and a client using different `HIVELANE_HOME`s get `401`:
+new token (for the proof too). A daemon and a client using different `HIVELANE_HOME`s fail the proof:
 `hivelane status` and `hivelane doctor` ("Daemon token readable", "Daemon
 accepts this token") say so, and the VS Code extension takes a
 `hivelane.tokenPath` setting for that case.
