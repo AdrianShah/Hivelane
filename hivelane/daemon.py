@@ -53,6 +53,7 @@ from hivelane.config import (
     load_config,
     room_key_env_name,
     transport_problem,
+    unconfirmed_project_optouts,
 )
 from hivelane.events import EventAck, NormalizedEvent
 from hivelane.protocol import (
@@ -589,6 +590,17 @@ def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
         print(f"hivelane: not coordinating {cwd}: {exc}", file=sys.stderr)
         return None
     if not config.room or config.root is None:
+        return None
+    # A repo the daemon finds on its own may be a fresh clone: its committed
+    # file must not be able to turn off transport security or redaction for
+    # data leaving this machine. `hivelane up` in the repo is the opt-in.
+    optouts = unconfirmed_project_optouts(config)
+    if optouts:
+        print(
+            f"hivelane: not coordinating {config.root}: its .hivelane.toml sets "
+            f"{' and '.join(optouts)}; run `hivelane up` there to accept that",
+            file=sys.stderr,
+        )
         return None
     name = config.name or default_name(config.root)
     if not name:
@@ -2239,7 +2251,9 @@ def plan_conflict_note(conflicts: PlanConflicts) -> str:
         verb = "is editing" if conflict.kind == "edited" else "plans to edit"
         ago = int(conflict.seconds_ago)
         when = f"{ago // 60} min ago" if ago >= 60 else f"{ago}s ago"
-        task = f' for "{conflict.summary[:80]}"' if conflict.summary else ""
+        # A teammate's summary is quoted as theirs: it cannot close our quotes.
+        summary = conflict.summary[:80].replace('"', "'") if conflict.summary else ""
+        task = f' for "{summary}"' if summary else ""
         parts.append(f"{conflict.user_id} {verb} {conflict.file_path}{task} ({when})")
     if not parts:
         return ""

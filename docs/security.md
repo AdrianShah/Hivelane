@@ -507,9 +507,11 @@ hostile input.
 machine (`localhost`, `127.0.0.0/8`, `::1`, `*.localhost`): every path, diff,
 prompt and the room code would cross the network unencrypted. Use `wss://`, or
 opt in on a network you trust with `hivelane up --insecure` (or
-`insecure = true` in `.hivelane.toml`, which the daemon also honours for repos
-it adopts on its own). `hivelane doctor` fails a plaintext remote relay and
-warns about one you opted into.
+`insecure = true` in `.hivelane.toml`). A repo the daemon adopts on its own,
+such as a fresh clone, is refused when its committed file sets `insecure = true`
+or `redact = false`: run `hivelane up` in it to accept the team's choice, or
+set the same key in your personal config. `hivelane doctor` fails a plaintext
+remote relay and warns about one you opted into.
 
 **Room ownership.** `hivelane up` keeps the owner token `POST /rooms` returns
 when it creates a room in the personal config (`owner_tokens`, file mode
