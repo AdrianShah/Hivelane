@@ -78,6 +78,18 @@ def stub_daemon() -> Iterator[tuple[int, dict[str, Any]]]:
     state: dict[str, Any] = {"ack": {"decision": "allow"}, "events": [], "tokens": []}
 
     class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:  # noqa: N802
+            # The daemon's proof (auth.daemon_proof) under the install token.
+            nonce = self.path.partition("nonce=")[2]
+            # A test whose hook runs under another HIVELANE_HOME names its token.
+            token = state.get("proof_token") or hook_fast.read_token() or ""
+            reply = json.dumps({"ok": True, "proof": hook_fast.daemon_proof(token, nonce)}).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(reply)))
+            self.end_headers()
+            self.wfile.write(reply)
+
         def do_POST(self) -> None:  # noqa: N802
             body = self.rfile.read(int(self.headers.get("content-length") or 0))
             state["events"].append(json.loads(body))
@@ -524,12 +536,13 @@ def test_hook_with_a_refused_token_says_so_once(
     monkeypatch.setenv("HIVELANE_HOME", str(other))
     with pytest.raises(hook_fast.DaemonUnreachable) as caught:
         hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}, port)
-    assert str(caught.value) == hook_fast.OFFLINE_UNAUTHORIZED
+    # Another token is indistinguishable from another process: nothing is sent.
+    assert str(caught.value) == hook_fast.OFFLINE_UNVERIFIED
 
     target = tmp_path / "a.py"
     target.write_text("x\n", encoding="utf-8")
     monkeypatch.setenv("HIVELANE_PORT", str(port))
-    for expected in ({"systemMessage": hook_fast.OFFLINE_UNAUTHORIZED}, None):
+    for expected in ({"systemMessage": hook_fast.OFFLINE_UNVERIFIED}, None):
         monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(pre_edit_payload(target))))
         assert cli.main(["hook", "claude-code"]) == 0
         out = capsys.readouterr().out
@@ -679,3 +692,44 @@ def test_hook_json_dumps_rejects_non_json_types() -> None:
         hook_json.dumps({"a": object()})
     with pytest.raises(TypeError):
         hook_json.dumps({("tuple", "key"): 1})
+
+
+# --- the daemon proves itself before anything is sent (port squatting) ----------
+
+
+def test_proof_matches_the_daemon() -> None:
+    from hivelane import auth
+
+    assert hook_fast.PROOF_LABEL == auth.PROOF_LABEL
+    assert hook_fast.daemon_proof("t" * 43, "ab" * 16) == auth.daemon_proof("t" * 43, "ab" * 16)
+
+
+def test_a_squatter_on_the_port_gets_nothing(
+    stub_daemon: tuple[int, dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Another process holds the port and answers /health without the proof:
+    # neither the token nor the event (prompt, file contents) may reach it.
+    from hivelane import auth
+
+    auth.ensure_token()
+    port, state = stub_daemon
+    state["proof_token"] = "x" * 43  # not this install's token
+    with pytest.raises(hook_fast.DaemonUnreachable) as caught:
+        hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "secret"}, port)
+    assert str(caught.value) == hook_fast.OFFLINE_UNVERIFIED
+    assert state["events"] == [] and state["tokens"] == []
+
+
+def test_the_real_daemon_proves_itself(live_daemon: tuple[Any, int]) -> None:
+    import urllib.request
+
+    from hivelane import auth, mcp_server
+
+    _daemon, port = live_daemon
+    assert auth.verify_daemon(mcp_server._OPENER, f"http://127.0.0.1:{port}", 2.0) is True
+    # A wrong token never verifies, and the proof is per nonce.
+    assert auth.verify_daemon(mcp_server._OPENER, f"http://127.0.0.1:{port}", 2.0, token="w" * 43) is False
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/health?nonce=" + "00" * 16) as resp:
+        first = json.loads(resp.read())["proof"]
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}/health?nonce=" + "11" * 16) as resp:
+        assert json.loads(resp.read())["proof"] != first

@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 
-from hivelane import githook, mcp_server, watch
+from hivelane import auth, githook, mcp_server, watch
 from hivelane.cli import main
 
 
@@ -39,6 +39,11 @@ class StubDaemon:
                 self.wfile.write(body)
 
             def do_GET(self) -> None:
+                if self.path.startswith("/health?nonce="):
+                    # The daemon's proof under the install token (auth.daemon_proof).
+                    nonce = self.path.partition("nonce=")[2]
+                    self._send({"ok": True, "proof": auth.daemon_proof(auth.read_token() or "", nonce)})
+                    return
                 self._send(stub.status)
 
             def do_POST(self) -> None:
@@ -60,6 +65,7 @@ class StubDaemon:
 
 @pytest.fixture
 def stub():
+    auth.ensure_token()  # the stub proves itself with the install token
     s = StubDaemon()
     yield s
     s.close()
@@ -247,6 +253,7 @@ def test_githook_run_warns(tmp_path: Path) -> None:
     root = git_repo(tmp_path)
     (root / "a.py").write_text("x", newline="")
     subprocess.run(["git", "add", "a.py"], cwd=root, check=True)
+    auth.ensure_token()  # the stub proves itself with the install token
     stub = StubDaemon(
         ack={"decision": "warn", "reason": "bob edited a.py", "others": [{"user_id": "bob", "agent": "cursor"}]},
         status={"repos": [{"root": str(root), "peers": ["bob"], "connected": True}]},

@@ -1,10 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "fs";
 import * as http from "http";
+import * as os from "os";
+import * as path from "path";
 import { AddressInfo } from "net";
 import { WebSocketServer } from "ws";
 import { ActivityTracker, initials, tooltip } from "../activity";
-import { DaemonClient, describeAck, pathsOverlap, relativeTo, repoForPath, statusText, DaemonStatus } from "../daemonClient";
+import { DaemonClient, daemonProof, describeAck, pathsOverlap, relativeTo, repoForPath, statusText, DaemonStatus } from "../daemonClient";
 import { EditGate } from "../editGate";
 import { RelayFeed, roomUrl } from "../relayFeed";
 
@@ -19,8 +22,20 @@ const STATUS: DaemonStatus = {
   ],
 };
 
+// DaemonClient reads $HIVELANE_HOME/token by default: a throwaway one here.
+const TEST_TOKEN = "c".repeat(43);
+const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "hivelane-core-"));
+fs.writeFileSync(path.join(TEST_HOME, "token"), TEST_TOKEN, "ascii");
+process.env.HIVELANE_HOME = TEST_HOME;
+
 function mockDaemon(handler: (req: http.IncomingMessage, body: string) => [number, unknown]) {
   const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname === "/health" && url.searchParams.has("nonce")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, proof: daemonProof(TEST_TOKEN, url.searchParams.get("nonce") ?? "") }));
+      return;
+    }
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
