@@ -110,6 +110,14 @@ OFFLINE_REJECTED = (
     "Hivelane offline: the local daemon rejected this hook's request (HTTP {status}), so edits "
     "aren't being coordinated. Restart it with `hivelane up` (an older daemon may still be running)."
 )
+OFFLINE_UNVERIFIED = (
+    "Hivelane offline: the process on the daemon port did not prove it is your Hivelane daemon "
+    "(a daemon under another HIVELANE_HOME, an older daemon, or another program), so nothing "
+    "was sent to it and edits aren't being coordinated. Run `hivelane doctor`, or restart it "
+    "with `hivelane down` then `hivelane up`."
+)
+# Must match hivelane.auth.PROOF_LABEL (asserted in the tests).
+PROOF_LABEL = b"hivelane-daemon-proof:"
 OFFLINE_UNAUTHORIZED = (
     "Hivelane offline: the local daemon refused this hook's token, so edits aren't being "
     "coordinated. Run `hivelane doctor` (the hook and the daemon must share HIVELANE_HOME)."
@@ -208,33 +216,8 @@ def _expected_length(raw: Any) -> int:
     return MAX_RESPONSE_BYTES + 1
 
 
-def post_event(
-    event: dict[str, Any],
-    port: int,
-    timeout: float = HOOK_POST_TIMEOUT,
-    token: Optional[str] = None,
-) -> Any:
-    """POST one NormalizedEvent-shaped dict to the daemon; returns the parsed ack.
-
-    `token` defaults to the token file's contents, read now and never cached.
-    Raises DaemonUnreachable when nothing answers or the daemon refuses the
-    token (the offline notice cases) and BadResponse / ValueError / OSError
-    for anything else, all of which the caller swallows.
-    """
-    if token is None:
-        token = read_token()
-    auth = f"{TOKEN_HEADER}: {token}\r\n" if token else ""
-    body = hook_json.dumps(event).encode("utf-8")
-    request = (
-        f"POST /events HTTP/1.1\r\n"
-        f"Host: {LOOPBACK}:{port}\r\n"
-        f"Content-Type: application/json\r\n"
-        f"Content-Length: {len(body)}\r\n"
-        f"{auth}"
-        f"Connection: close\r\n\r\n"
-    ).encode("ascii") + body
-
-    deadline = time.monotonic() + timeout
+def _exchange(port: int, request: bytes, deadline: float, timeout: float) -> bytes:
+    """One request on a fresh loopback connection; the raw response bytes."""
     sock = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
     try:
         try:
@@ -271,7 +254,73 @@ def post_event(
             raise DaemonUnreachable(OFFLINE_NOT_RESPONDING) from exc
     finally:
         sock.close()
-    return _parse_response(bytes(buffer))
+    return bytes(buffer)
+
+
+def daemon_proof(token: str, nonce: str) -> str:
+    """Same as hivelane.auth.daemon_proof (kept here for import cost)."""
+    import hashlib
+    import hmac
+
+    return hmac.new(token.encode("ascii"), PROOF_LABEL + nonce.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def prove_daemon(port: int, token: Optional[str], deadline: float, timeout: float) -> None:
+    """Make the process on `port` prove it holds this install's token before
+    anything secret is sent to it (see hivelane.auth.PROOF_LABEL).
+
+    A listener that cannot (another user's process squatting the port, or a
+    daemon from before the proof existed) gets nothing: the hook fails open
+    with OFFLINE_UNVERIFIED instead of sending the token, prompt and file."""
+    nonce = os.urandom(16).hex()
+    request = (
+        f"GET /health?nonce={nonce} HTTP/1.1\r\n"
+        f"Host: {LOOPBACK}:{port}\r\n"
+        f"Connection: close\r\n\r\n"
+    ).encode("ascii")
+    try:
+        reply = _parse_response(_exchange(port, request, deadline, timeout))
+    except BadResponse as exc:
+        raise DaemonUnreachable(OFFLINE_UNVERIFIED) from exc
+    if not token:
+        # Nothing to check the proof against; the daemon would refuse us anyway.
+        raise DaemonUnreachable(OFFLINE_UNAUTHORIZED)
+    import hmac
+
+    proof = reply.get("proof") if isinstance(reply, dict) else None
+    if not isinstance(proof, str) or not hmac.compare_digest(proof, daemon_proof(token, nonce)):
+        raise DaemonUnreachable(OFFLINE_UNVERIFIED)
+
+
+def post_event(
+    event: dict[str, Any],
+    port: int,
+    timeout: float = HOOK_POST_TIMEOUT,
+    token: Optional[str] = None,
+) -> Any:
+    """POST one NormalizedEvent-shaped dict to the daemon; returns the parsed ack.
+
+    `token` defaults to the token file's contents, read now and never cached.
+    The daemon first proves it holds that token (prove_daemon); only then do
+    the token and the event go out. Raises DaemonUnreachable when nothing
+    answers, the listener cannot prove itself, or the daemon refuses the
+    token (the offline notice cases) and BadResponse / ValueError / OSError
+    for anything else, all of which the caller swallows.
+    """
+    if token is None:
+        token = read_token()
+    deadline = time.monotonic() + timeout
+    prove_daemon(port, token, deadline, timeout)
+    body = hook_json.dumps(event).encode("utf-8")
+    request = (
+        f"POST /events HTTP/1.1\r\n"
+        f"Host: {LOOPBACK}:{port}\r\n"
+        f"Content-Type: application/json\r\n"
+        f"Content-Length: {len(body)}\r\n"
+        f"{TOKEN_HEADER}: {token}\r\n"
+        f"Connection: close\r\n\r\n"
+    ).encode("ascii") + body
+    return _parse_response(_exchange(port, request, deadline, timeout))
 
 
 # --- offline notice -----------------------------------------------------------

@@ -72,6 +72,19 @@ class DaemonClient:
         return headers
 
     def _request(self, path: str, body: Optional[dict[str, Any]] = None) -> Any:
+        from hivelane import auth
+
+        # File contents and the token go only to a daemon that proves it holds
+        # the token, never to another process that took the port.
+        try:
+            proven = auth.verify_daemon(_OPENER, self.base, self.timeout, self.token)
+        except OSError as exc:
+            raise DaemonDown(f"hivelane daemon not reachable at {self.base} ({exc})") from None
+        if not proven:
+            raise DaemonDown(
+                f"the process at {self.base} did not prove it is your hivelane daemon; "
+                "nothing was sent. Restart it with `hivelane up` or run `hivelane doctor`"
+            )
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(
             self.base + path,

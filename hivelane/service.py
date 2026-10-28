@@ -149,6 +149,15 @@ def _request(
     data = None if body is None else json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     if authenticate:
+        # The token (and any room key or owner token in the body) goes only
+        # to a daemon that proves it holds the token: never to another
+        # process that took the port first.
+        if not auth.verify_daemon(_OPENER, f"http://{LOOPBACK}:{port}", timeout):
+            raise DaemonAuthError(
+                f"the process on 127.0.0.1:{port} did not prove it is your hivelane daemon, "
+                "so nothing was sent to it. If an older daemon is running, stop it "
+                "(`hivelane down`) and run `hivelane up`; otherwise check what holds the port."
+            )
         headers.update(auth.auth_headers())
     request = urllib.request.Request(
         f"http://{LOOPBACK}:{port}{path}",

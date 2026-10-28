@@ -2560,6 +2560,19 @@ class Daemon:
             self.token = auth.ensure_token(self._token_path)
         return self.token
 
+    def current_token(self) -> str:
+        """The token to prove: the one on disk, so a token regenerated while
+        the daemon runs heals here too (as in token_matches)."""
+        token = self.ensure_token()
+        if self._token_pinned:
+            return token
+        fresh = auth.read_token(self._token_path)
+        if fresh and fresh != token:
+            print("hivelane: the token file changed on disk; using the new token")
+            self.token = fresh
+            return fresh
+        return token
+
     def token_matches(self, presented: bytes) -> bool:
         """Constant-time check of a request's X-Hivelane-Token."""
         expected = self.ensure_token().encode("ascii")
@@ -2581,11 +2594,16 @@ class Daemon:
         app.add_middleware(LocalGuard, daemon=self)
 
         @app.get("/health")
-        async def health() -> dict[str, Any]:
+        async def health(nonce: Optional[str] = None) -> dict[str, Any]:
             # Unauthenticated, so it says nothing beyond "a hivelane daemon is
             # here": enough for `is_running` and for a client to tell a token
-            # problem from a dead port.
-            return {"ok": True, "service": "hivelane-daemon"}
+            # problem from a dead port. With a nonce it also proves this is the
+            # install's daemon (auth.daemon_proof), so clients never hand their
+            # token or content to another process on this port.
+            body: dict[str, Any] = {"ok": True, "service": "hivelane-daemon"}
+            if nonce is not None and auth.NONCE_RE.fullmatch(nonce):
+                body["proof"] = auth.daemon_proof(self.current_token(), nonce)
+            return body
 
         @app.get("/status")
         async def status() -> dict[str, Any]:
