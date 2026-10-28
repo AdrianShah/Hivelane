@@ -35,6 +35,7 @@ Full precedence and every command: [docs/cli.md](cli.md).
 | `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | Bound on tracked IPs so the limiter cannot leak memory. `0` = unbounded. |
 | `HIVELANE_MAX_ROOMS` | `0` (unlimited) | Valid room codes this relay holds at once; `POST /rooms` answers 503 at the cap. |
 | `HIVELANE_MAX_MEMBERS` | `0` (unlimited) | Named members (agent connections) per room; the next joiner gets `Room full`. |
+| `HIVELANE_MAX_SPECTATORS` | `64` | Dashboards (spectator connections) per room; the next one gets `Room full`. The room's owner always gets in. `0` turns the cap off. |
 | `HIVELANE_MAX_FRAME_BYTES`, `HIVELANE_MAX_DIFF_BYTES`, `HIVELANE_MAX_TEXT_BYTES`, `HIVELANE_MAX_FILES_PER_MESSAGE`, `HIVELANE_MAX_SYMBOLS_PER_MESSAGE`, `HIVELANE_MAX_LINE_RANGES_PER_MESSAGE`, `HIVELANE_MAX_PATH_CHARS` | 512 KiB, 64 KiB, 4 KiB, 50, 64, 256, 1024 | Per-message safety caps. Keep the defaults on a public relay. |
 | `HIVELANE_MAX_PENDING_JOINS`, `HIVELANE_MAX_TRACKED_DECISIONS`, `HIVELANE_MAX_KNOWN_PATHS`, `HIVELANE_FILE_QUEUE_MAX_LENGTH`, `HIVELANE_FILE_QUEUE_MAX_FILES` | 10, 1000, 512, 0, 256 | Per-room bookkeeping bounds. |
 | `HIVELANE_HISTORY_MAX_EVENTS`, `HIVELANE_HISTORY_MAX_BYTES`, `HIVELANE_HISTORY_TOTAL_MAX_BYTES` | 5000, 8 MiB, 128 MiB | Replay history bounds (per room, process-wide). |

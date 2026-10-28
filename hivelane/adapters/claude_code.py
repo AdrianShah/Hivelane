@@ -200,8 +200,10 @@ def render_plan_ack(ack: Any) -> str:
     """A plan's overlaps as context for the agent; never a permission decision."""
     if not isinstance(ack, dict) or ack_decision(ack) == "allow":
         return ""
-    reason = ack.get("reason")
-    if not isinstance(reason, str) or not reason.strip():
+    # The reason carries teammates' names, paths and plan summaries: room text,
+    # so it is flattened and capped like every other ack (base.clean_text).
+    reason = base.clean_text(ack.get("reason"), base.MAX_REASON_CHARS)
+    if not reason:
         return ""
     return hook_json.dumps(
         {

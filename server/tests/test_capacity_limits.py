@@ -178,6 +178,50 @@ def test_a_configured_member_cap_turns_the_next_joiner_away(
         assert relay.get(room_id).member_count == 2
 
 
+# --- dashboards per room ---------------------------------------------------------------
+
+
+def test_spectators_are_capped_by_default() -> None:
+    assert config.load_settings({}).max_spectators == config.DEFAULT_MAX_SPECTATORS > 0
+    assert room_manager_module.MAX_SPECTATORS == config.MAX_SPECTATORS
+
+
+def _spectate(socket: Any, owner_token: str | None = None) -> None:
+    join: dict[str, Any] = {"type": "join", "name": None, "role": "spectator"}
+    if owner_token:
+        join["owner_token"] = owner_token
+    socket.send_json(join)
+
+
+def test_a_full_room_turns_the_next_dashboard_away_but_not_its_owner(
+    relay: RoomManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(room_manager_module, "MAX_SPECTATORS", 2)
+    client = TestClient(main.app)
+    created = client.post("/rooms").json()
+    room_id, owner_token = created["room_id"], created["owner_token"]
+    with contextlib.ExitStack() as stack:
+        for index in range(2):
+            socket = stack.enter_context(client.websocket_connect(f"/ws/{room_id}"))
+            _spectate(socket)
+            _wait_for(lambda: relay.get(room_id).spectator_count == index + 1)
+        third = stack.enter_context(client.websocket_connect(f"/ws/{room_id}"))
+        _spectate(third)
+        for _ in range(MAX_FRAMES):
+            frame = third.receive_json()
+            if frame.get("type") == "name_rejected":
+                assert frame["reason"] == "Room full"
+                break
+        else:
+            raise AssertionError("never received name_rejected")
+        assert relay.get(room_id).spectator_count == 2
+
+        # The owner's dashboard still gets in, so a full room stays manageable.
+        owner = stack.enter_context(client.websocket_connect(f"/ws/{room_id}"))
+        _spectate(owner, owner_token)
+        _wait_for(lambda: relay.get(room_id).spectator_count == 3)
+
+
 # --- rooms -----------------------------------------------------------------------------
 
 
