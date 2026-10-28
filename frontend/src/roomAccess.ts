@@ -8,12 +8,21 @@
  * access is wrapped so the dashboard then simply works as a non-owner.
  */
 
-import { normalizeRoomCode, relayHttpOrigin } from './relayUrl';
+import { normalizeRoomCode, relayHttpOrigin, relaySource, relayWsBase } from './relayUrl';
 import type { JoinMessage } from './types';
 
 const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
 
+/**
+ * A token is kept per relay and room. It is only ever sent to the relay that
+ * issued it, so a link with ?relay= naming another server cannot collect it.
+ */
 function storageKey(roomId: string): string {
+  return `${OWNER_TOKEN_PREFIX}${relayWsBase()}|${normalizeRoomCode(roomId)}`;
+}
+
+/** Key used before tokens were bound to a relay (room code only). */
+function legacyKey(roomId: string): string {
   return `${OWNER_TOKEN_PREFIX}${normalizeRoomCode(roomId)}`;
 }
 
@@ -27,7 +36,15 @@ export function rememberOwnerToken(roomId: string, token: string): void {
 
 export function ownerToken(roomId: string): string | null {
   try {
-    return window.localStorage.getItem(storageKey(roomId));
+    const token = window.localStorage.getItem(storageKey(roomId));
+    if (token != null) return token;
+    // A token saved before relay binding moves to the relay this dashboard
+    // uses on its own, never to one a ?relay= link picked.
+    const legacy = window.localStorage.getItem(legacyKey(roomId));
+    if (legacy == null || relaySource() === 'chosen') return null;
+    window.localStorage.setItem(storageKey(roomId), legacy);
+    window.localStorage.removeItem(legacyKey(roomId));
+    return legacy;
   } catch {
     return null;
   }
@@ -36,6 +53,7 @@ export function ownerToken(roomId: string): string | null {
 export function forgetOwnerToken(roomId: string): void {
   try {
     window.localStorage.removeItem(storageKey(roomId));
+    window.localStorage.removeItem(legacyKey(roomId));
   } catch {
     // Nothing stored, or nothing to clear.
   }
