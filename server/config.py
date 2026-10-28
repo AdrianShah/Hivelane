@@ -42,6 +42,10 @@ DEFAULT_TRUSTED_PROXY_HOPS = 1
 # relay sets both (and keeps ROOM_CREATE_LIMIT) to bound memory.
 DEFAULT_MAX_ROOMS = 0
 DEFAULT_MAX_MEMBERS = 0
+# Dashboards (spectator sockets) per room. Bounded by default, unlike
+# members: each one receives every broadcast, so an unbounded count lets one
+# code holder hold enough sockets to starve every room on the relay.
+DEFAULT_MAX_SPECTATORS = 64
 # Per-room bookkeeping, each bounded so one room cannot grow without limit.
 DEFAULT_MAX_PENDING_JOINS = 10  # joiners waiting for an owner's approval
 DEFAULT_MAX_TRACKED_DECISIONS = 1000  # warn/block decisions kept for votes (LRU)
@@ -113,6 +117,7 @@ class Settings:
     # Capacity limits; 0 = unlimited (see the DEFAULT_* constants above).
     max_rooms: int = DEFAULT_MAX_ROOMS
     max_members: int = DEFAULT_MAX_MEMBERS
+    max_spectators: int = DEFAULT_MAX_SPECTATORS
     max_pending_joins: int = DEFAULT_MAX_PENDING_JOINS
     max_tracked_decisions: int = DEFAULT_MAX_TRACKED_DECISIONS
     max_known_paths: int = DEFAULT_MAX_KNOWN_PATHS
@@ -195,6 +200,7 @@ def _limit(env: Mapping[str, str], name: str, default: int) -> int:
 LIMITS: tuple[tuple[str, str, int], ...] = (
     ("max_rooms", "HIVELANE_MAX_ROOMS", DEFAULT_MAX_ROOMS),
     ("max_members", "HIVELANE_MAX_MEMBERS", DEFAULT_MAX_MEMBERS),
+    ("max_spectators", "HIVELANE_MAX_SPECTATORS", DEFAULT_MAX_SPECTATORS),
     ("max_pending_joins", "HIVELANE_MAX_PENDING_JOINS", DEFAULT_MAX_PENDING_JOINS),
     ("max_tracked_decisions", "HIVELANE_MAX_TRACKED_DECISIONS", DEFAULT_MAX_TRACKED_DECISIONS),
     ("max_known_paths", "HIVELANE_MAX_KNOWN_PATHS", DEFAULT_MAX_KNOWN_PATHS),
@@ -416,6 +422,7 @@ HSTS_ENABLED: bool = SETTINGS.hsts_enabled
 # into a constant of its own at import, so a test can patch that constant.
 MAX_ROOMS: int = SETTINGS.max_rooms
 MAX_MEMBERS: int = SETTINGS.max_members
+MAX_SPECTATORS: int = SETTINGS.max_spectators
 MAX_PENDING_JOINS: int = SETTINGS.max_pending_joins
 MAX_TRACKED_DECISIONS: int = SETTINGS.max_tracked_decisions
 MAX_KNOWN_PATHS: int = SETTINGS.max_known_paths

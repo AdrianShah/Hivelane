@@ -76,7 +76,7 @@ try:
         new_owner_token,
         settings_problem,
     )
-    from .room_manager import RoomManager, room_is_full
+    from .room_manager import RoomManager, room_is_full, spectators_full
     from .store import StoreReadError, store_kind
     from .sanitize import (
         MAX_FRAME_BYTES,
@@ -146,7 +146,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         new_owner_token,
         settings_problem,
     )
-    from room_manager import RoomManager, room_is_full  # type: ignore[no-redef]
+    from room_manager import RoomManager, room_is_full, spectators_full  # type: ignore[no-redef]
     from store import StoreReadError, store_kind  # type: ignore[no-redef]
     from sanitize import (  # type: ignore[no-redef]
         MAX_FRAME_BYTES,
@@ -769,6 +769,10 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
         is_owner = room.verify_owner_token(join.owner_token)
 
         if join.is_spectator:
+            # An owner always gets in, so a full room can still be managed.
+            if not is_owner and spectators_full(room):
+                await reject("Room full")
+                continue
             if room.require_approval and not is_owner and approved is None:
                 approved = await await_approval(
                     socket, room, SPECTATOR_DISPLAY_NAME, join.agent, ip=ip
