@@ -399,6 +399,32 @@ def load_config(
     return HivelaneConfig(root=root, sources=tuple(sources), **values)
 
 
+
+def unconfirmed_project_optouts(config: HivelaneConfig) -> list[str]:
+    """Protections the committed project file turns off on its own.
+
+    `insecure = true` and `redact = false` in a project file are the team's
+    choice, honoured when the developer runs `hivelane up` in that repo. The
+    daemon also adopts repos on its own, though, and a cloned repo's file is
+    untrusted: these opt-outs would let it send plaintext, unredacted diffs to
+    a relay it names. Returns the ones the personal config does not also set,
+    so auto-adoption can refuse them.
+    """
+    if config.root is None:
+        return []
+    project = config.root / PROJECT_FILE
+    if project not in config.sources:
+        return []
+    project_data = _read_toml(project)
+    personal = personal_config_path()
+    personal_data = _read_toml(personal) if personal in config.sources else {}
+    found = []
+    if project_data.get("insecure") is True and personal_data.get("insecure") is not True:
+        found.append("insecure = true")
+    if project_data.get("redact") is False and personal_data.get("redact") is not False:
+        found.append("redact = false")
+    return found
+
 _BASIC_ESCAPES = {
     "\\": "\\\\",
     '"': '\\"',
