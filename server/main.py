@@ -941,7 +941,7 @@ async def _captioned_publish(
     caption: Optional[str] = None
     if _take_gemini_slot(room):
         try:
-            caption = await generate_caption(message)
+            caption = await generate_caption(message, room.code)
         except Exception as exc:
             log.warning("Caption path crashed; using placeholder: %s", exc)
         finally:
@@ -981,7 +981,7 @@ async def _publish_activity(room: Room, message: ActivityMessage) -> None:
         return
     else:
         try:
-            caption = await generate_caption(message)
+            caption = await generate_caption(message, room.code)
         except Exception as exc:
             log.warning("Caption path crashed; using empty caption: %s", exc)
             caption = None
