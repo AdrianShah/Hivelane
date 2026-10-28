@@ -15,11 +15,14 @@ hivelane.hook_fast.read_token) so it pays no import for it.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
+import re
 import secrets
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from hivelane.config import hivelane_home
 
@@ -40,6 +43,54 @@ RACE_WAIT_SECONDS = 1.0
 # Windows opens os.open() files in text mode (\n written as \r\n) by default.
 _BINARY = getattr(os, "O_BINARY", 0)
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
+
+
+# The daemon proves it holds the token before a client sends anything: the
+# client sends a random nonce to the unauthenticated GET /health, and only a
+# process that can read the token file can answer with this HMAC. Without it,
+# another local user who bound the daemon port first would receive the token,
+# prompts and file contents (port squatting). hivelane.hook_fast keeps its own
+# copy (it cannot afford this module's imports); the tests assert they agree.
+PROOF_LABEL = b"hivelane-daemon-proof:"
+NONCE_RE = re.compile(r"[0-9a-f]{32}")
+
+
+def daemon_proof(token: str, nonce: str) -> str:
+    """HMAC-SHA256 of the client's nonce under the install token, as hex."""
+    return hmac.new(token.encode("ascii"), PROOF_LABEL + nonce.encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def proof_matches(token: Optional[str], nonce: str, proof: object) -> bool:
+    """Whether `proof` is the daemon's answer to `nonce` for this token."""
+    if not token or not isinstance(proof, str):
+        return False
+    return hmac.compare_digest(proof, daemon_proof(token, nonce))
+
+
+def verify_daemon(opener: Any, base: str, timeout: float, token: Optional[str] = None) -> bool:
+    """Whether the listener at `base` (http://127.0.0.1:PORT) proves it holds
+    this install's token. Sends only a fresh nonce, never the token.
+
+    False for a listener that answers without a valid proof, or when there is
+    no token to check against. A connection that fails (nothing listening)
+    raises OSError as the real request would, so callers keep telling "no
+    daemon" from "not our daemon"."""
+    import json
+    import urllib.error
+    import urllib.request
+
+    token = token if token is not None else read_token()
+    nonce = secrets.token_hex(16)
+    try:
+        with opener.open(urllib.request.Request(f"{base}/health?nonce={nonce}"), timeout=timeout) as resp:
+            reply = json.loads(resp.read(4096).decode() or "null")
+    except urllib.error.HTTPError:
+        return False  # something answered, just not with a proof
+    except ValueError:
+        return False
+    if not token:
+        return False
+    return isinstance(reply, dict) and proof_matches(token, nonce, reply.get("proof"))
 
 
 def token_path() -> Path:

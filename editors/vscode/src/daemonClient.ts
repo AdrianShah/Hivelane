@@ -1,3 +1,4 @@
+import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
@@ -25,6 +26,22 @@ export function readToken(file: string): string | undefined {
 /** Mirrors hivelane/auth.py _valid: printable ASCII, no spaces, at least 32 characters. */
 export function isValidToken(text: string): boolean {
   return /^[\x21-\x7e]{32,4096}$/.test(text);
+}
+
+/** Same as hivelane/auth.py PROOF_LABEL / daemon_proof. */
+const PROOF_LABEL = "hivelane-daemon-proof:";
+
+/** HMAC-SHA256 of a nonce under the install token: the daemon's proof that it holds the token. */
+export function daemonProof(token: string, nonce: string): string {
+  return crypto.createHmac("sha256", token).update(PROOF_LABEL + nonce).digest("hex");
+}
+
+/** The process on the daemon port could not prove it holds the token, so nothing was sent to it. */
+export class DaemonUnverifiedError extends Error {
+  constructor(port: number, tokenFile: string) {
+    super(`the process on 127.0.0.1:${port} did not prove it holds this editor's token (${tokenFile}), so nothing was sent to it: a daemon under another HIVELANE_HOME (set hivelane.tokenPath), an older daemon (\`hivelane down\` then \`hivelane up\`), or another program on the port.`);
+    this.name = "DaemonUnverifiedError";
+  }
 }
 
 export class DaemonAuthError extends Error {
@@ -115,7 +132,7 @@ export class DaemonClient {
     try {
       return await this.once<T>(method, path, body);
     } catch (e) {
-      if (!(e instanceof DaemonAuthError)) throw e;
+      if (!(e instanceof DaemonAuthError) && !(e instanceof DaemonUnverifiedError)) throw e;
       // The daemon may have regenerated its token since we read it.
       const fresh = readToken(this.tokenFile);
       if (!fresh || fresh === this.token) throw e;
@@ -124,13 +141,42 @@ export class DaemonClient {
     }
   }
 
-  private once<T>(method: string, path: string, body?: unknown): Promise<T> {
+  /**
+   * Make the listener prove it holds the token (GET /health?nonce=, no token
+   * sent) before the token or any file content goes to it: another local
+   * user's process may have taken the port.
+   */
+  private async prove(): Promise<void> {
+    const token = this.token;
+    if (!token) throw new DaemonAuthError(this.tokenFile);
+    const nonce = crypto.randomBytes(16).toString("hex");
+    let reply: { proof?: unknown } | undefined;
+    try {
+      reply = await this.send<{ proof?: unknown }>("GET", `/health?nonce=${nonce}`, undefined, false);
+    } catch (e) {
+      if (e instanceof DaemonAuthError) throw new DaemonUnverifiedError(this.port, this.tokenFile);
+      throw e;
+    }
+    const proof = reply?.proof;
+    const expected = Buffer.from(daemonProof(token, nonce));
+    const got = Buffer.from(typeof proof === "string" ? proof : "");
+    if (got.length !== expected.length || !crypto.timingSafeEqual(got, expected)) {
+      throw new DaemonUnverifiedError(this.port, this.tokenFile);
+    }
+  }
+
+  private async once<T>(method: string, path: string, body?: unknown): Promise<T> {
+    await this.prove();
+    return this.send<T>(method, path, body, true);
+  }
+
+  private send<T>(method: string, path: string, body: unknown, withToken: boolean): Promise<T> {
     return new Promise((resolve, reject) => {
       const data = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
       const headers: Record<string, string | number> = data
         ? { "content-type": "application/json", "content-length": data.length }
         : {};
-      if (this.token) headers[TOKEN_HEADER] = this.token;
+      if (withToken && this.token) headers[TOKEN_HEADER] = this.token;
       const req = http.request(
         {
           host: this.host,

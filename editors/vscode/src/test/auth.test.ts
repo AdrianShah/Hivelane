@@ -5,7 +5,7 @@ import * as http from "http";
 import * as os from "os";
 import * as path from "path";
 import { AddressInfo } from "net";
-import { DaemonAuthError, DaemonClient, TOKEN_HEADER, defaultTokenPath, readToken } from "../daemonClient";
+import { DaemonClient, DaemonUnverifiedError, TOKEN_HEADER, daemonProof, defaultTokenPath, readToken } from "../daemonClient";
 
 const GOOD = "g".repeat(43);
 
@@ -20,6 +20,13 @@ function tmpToken(value: string): string {
 function guardedDaemon(accepted: () => string) {
   const seen: (string | undefined)[] = [];
   const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://x");
+    if (url.pathname === "/health") {
+      // The daemon's proof: only a holder of accepted()'s token can give it.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true, proof: daemonProof(accepted(), url.searchParams.get("nonce") ?? "") }));
+      return;
+    }
     const token = req.headers[TOKEN_HEADER] as string | undefined;
     seen.push(token);
     const ok = token === accepted();
@@ -49,16 +56,40 @@ test("the token is sent, and re-read once when the daemon refuses it", async () 
     assert.equal((await client.status()).version, "1");
     assert.deepEqual(seen, [GOOD]);
 
-    // The daemon's token was regenerated on disk: one retry picks it up.
+    // The daemon's token was regenerated on disk: one retry picks it up, and
+    // the stale token is never sent (the proof fails first).
     current = "n".repeat(43);
     fs.writeFileSync(file, current, "ascii");
     assert.equal((await client.status()).version, "1");
-    assert.deepEqual(seen.slice(1), [GOOD, current]);
+    assert.deepEqual(seen.slice(1), [current]);
 
-    // A token the daemon will never accept: a clear error, no retry storm.
+    // A daemon that cannot prove our token (another HIVELANE_HOME, or another
+    // program on the port): a clear error, no retry storm, and nothing sent.
     current = "z".repeat(43);
-    await assert.rejects(client.status(), (e: unknown) => e instanceof DaemonAuthError && /tokenPath/.test((e as Error).message));
-    assert.equal(seen.length, 4);
+    await assert.rejects(client.status(), (e: unknown) => e instanceof DaemonUnverifiedError && /tokenPath/.test((e as Error).message));
+    assert.equal(seen.length, 2);
+  } finally {
+    server.close();
+  }
+});
+
+test("a squatter on the daemon port gets neither the token nor the event", async () => {
+  const file = tmpToken(GOOD);
+  const requests: string[] = [];
+  // Another program on the port: answers everything, can prove nothing.
+  const server = http.createServer((req, res) => {
+    requests.push(`${req.method} ${req.url} ${req.headers[TOKEN_HEADER] ?? ""}`);
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok: true, decision: "allow", reason: "", others: [] }));
+  });
+  const port = await new Promise<number>((r) => server.listen(0, "127.0.0.1", () => r((server.address() as AddressInfo).port)));
+  try {
+    const client = new DaemonClient(port, "127.0.0.1", 2000, file);
+    await assert.rejects(
+      client.postEvent({ kind: "post_edit", agent: "unknown", session_id: "s", cwd: "/", file_path: "/a", new_content: "secret" }),
+      (e: unknown) => e instanceof DaemonUnverifiedError
+    );
+    assert.ok(requests.length > 0 && requests.every((r) => r.startsWith("GET /health?nonce=") && !r.includes(GOOD)));
   } finally {
     server.close();
   }

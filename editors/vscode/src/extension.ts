@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { ActivityTracker, initials, tooltip } from "./activity";
 import {
   DaemonAuthError,
+  DaemonUnverifiedError,
   DaemonClient,
   DaemonStatus,
   EventAck,
@@ -199,7 +200,7 @@ export function activate(context: vscode.ExtensionContext): void {
       authProblem = undefined;
     } catch (e) {
       status = undefined;
-      authProblem = e instanceof DaemonAuthError ? e.message : undefined;
+      authProblem = e instanceof DaemonAuthError || e instanceof DaemonUnverifiedError ? e.message : undefined;
     }
     syncFeeds();
     render();
