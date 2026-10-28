@@ -2239,7 +2239,9 @@ def plan_conflict_note(conflicts: PlanConflicts) -> str:
         verb = "is editing" if conflict.kind == "edited" else "plans to edit"
         ago = int(conflict.seconds_ago)
         when = f"{ago // 60} min ago" if ago >= 60 else f"{ago}s ago"
-        task = f' for "{conflict.summary[:80]}"' if conflict.summary else ""
+        # A teammate's summary is quoted as theirs: it cannot close our quotes.
+        summary = conflict.summary[:80].replace('"', "'") if conflict.summary else ""
+        task = f' for "{summary}"' if summary else ""
         parts.append(f"{conflict.user_id} {verb} {conflict.file_path}{task} ({when})")
     if not parts:
         return ""
