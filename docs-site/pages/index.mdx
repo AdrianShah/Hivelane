@@ -1,71 +1,59 @@
 ---
-title: Hivelane
-description: Live coordination for parallel AI coding agents. Hivelane warns or blocks an edit when a teammate's agent is already in that file.
+title: Hivelane docs
+description: Install Hivelane, connect your coding agents and share a room with your team.
 template: splash
 editUrl: https://github.com/AdrianShah/Hivelane/edit/main/docs-site/pages/index.mdx
 hero:
-  title: Parallel agents,<br /><span class="tone">zero collisions.</span>
-  tagline: Before any agent writes a file, Hivelane checks whether a teammate's agent is already in it, and warns or blocks the edit so you never meet the conflict at merge time.
+  title: Hivelane docs
+  tagline: Install the CLI, connect your agents, share a room with your team. Everything else is reference.
   actions:
-    - text: Get started
+    - text: Quick start
       link: '{{BASE}}/quick-start/'
       variant: primary
-    - text: How it decides
-      link: '{{BASE}}/conflict-detection/'
-      variant: secondary
+    - text: Back to hivelane
+      link: '{{SITE_HOME}}'
+      variant: minimal
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { LinkCard, CardGrid } from '@astrojs/starlight/components';
 
-<h2 class="hl-section-title">
-  Two minutes to set up.<br />
-  <span class="tone">Nothing to learn after that.</span>
-</h2>
+<CardGrid>
+  <LinkCard title="Getting started" href="{{BASE}}/quick-start/" description="Install the CLI, run hivelane up, invite your team, join the alpha." />
+  <LinkCard title="Core concepts" href="{{BASE}}/architecture/" description="Rooms, lanes, the daemon and the relay, and how conflicts are decided." />
+  <LinkCard title="Working with agents" href="{{BASE}}/adapters/" description="Claude Code, Codex, Cursor, Gemini CLI, the VS Code extension and notifications." />
+  <LinkCard title="Admin and security" href="{{BASE}}/security/" description="Threat model, redaction, end-to-end encryption, configuration and capacity." />
+  <LinkCard title="Self-hosting" href="{{BASE}}/self-hosting/" description="Run the relay on Docker, Compose with Caddy, Fly.io, Render or Helm." />
+  <LinkCard title="Help and reference" href="{{BASE}}/faq/" description="FAQ, every CLI command and the wire protocol." />
+</CardGrid>
+
+<h2 class="hl-section-title">Quick start</h2>
 
 <ol class="hl-steps not-content">
   <li>
     <strong>Install the CLI</strong>
-    <p>Once per machine. See <a href="{{BASE}}/install/">Install</a> for every option.</p>
+    <p>Once per machine, with pipx or uv. See <a href="{{BASE}}/install/">Install</a> for every option.</p>
   </li>
   <li>
     <strong>Run <code>hivelane up</code> in your repo</strong>
     <p>Installs the agent hooks, creates a room and starts a small background daemon.</p>
   </li>
   <li>
-    <strong>Share the room with your team</strong>
-    <p>Each teammate runs the same command. Their agents now check with each other before every edit.</p>
+    <strong>Commit <code>.hivelane.toml</code></strong>
+    <p>It records the room and relay, so teammates join automatically.</p>
+  </li>
+  <li>
+    <strong>Teammates run the same command</strong>
+    <p>Their agents now check with each other before every edit.</p>
+  </li>
+  <li>
+    <strong>Open the dashboard</strong>
+    <p>Watch every lane live at <a href="{{SITE_HOME}}start">the dashboard</a>.</p>
   </li>
 </ol>
 
-<h2 class="hl-section-title">
-  Built for how teams<br />
-  <span class="tone">actually use agents.</span>
-</h2>
+<h2 class="hl-section-title">Need a hand?</h2>
 
 <CardGrid>
-  <Card title="Checks before every write" icon="approve-check">
-    Agent hooks ask before each edit. The answer is allow, warn or block, down
-    to the function or line range a teammate is in.
-  </Card>
-  <Card title="Every agent in one room" icon="puzzle">
-    Claude Code, Codex, Cursor and Gemini CLI through native hooks, anything
-    else through `hivelane run`, and people through the VS Code extension.
-  </Card>
-  <Card title="A live dashboard" icon="laptop">
-    One lane per agent with its intent, plan and latest diffs, and every warn
-    or block with the reason behind it.
-  </Card>
-  <Card title="Yours to host" icon="seti:docker">
-    The relay is one small process in a container. Run it on your own
-    infrastructure and nothing leaves your network.
-  </Card>
-</CardGrid>
-
-<h2 class="hl-section-title">Go deeper</h2>
-
-<CardGrid>
-  <LinkCard title="Architecture" href="{{BASE}}/architecture/" description="How hooks, the daemon, the relay and the dashboard fit together." />
-  <LinkCard title="Write an adapter" href="{{BASE}}/adapters/" description="Teach Hivelane a new coding agent's hooks." />
-  <LinkCard title="Wire protocol" href="{{BASE}}/protocol/" description="Build a client in another language." />
-  <LinkCard title="Self-host the relay" href="{{BASE}}/self-hosting/" description="Docker, Compose with Caddy, Fly.io or Render." />
+  <LinkCard title="Open an issue" href="https://github.com/AdrianShah/Hivelane/issues" description="Bugs, questions and ideas. Every one gets read." />
+  <LinkCard title="What's new" href="{{SITE_HOME}}updates" description="Release notes and posts in one feed." />
 </CardGrid>
