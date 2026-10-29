@@ -200,6 +200,7 @@
 }
 
 .site-btn--sm {
+  white-space: nowrap;
   padding: 0.45rem 0.85rem;
   font-size: 0.85rem;
 }
@@ -635,12 +636,10 @@
 
 @media (max-width: 900px) {
   .lp-hero,
-  .lp-split {
-    grid-template-columns: 1fr;
-  }
+  .lp-split,
   .lp-pillars,
   .lp-steps {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .lp-flow {
     flex-direction: column;
@@ -686,5 +685,8 @@
   }
   .site__bar {
     gap: 1rem;
+  }
+  .site__end .theme-toggle {
+    display: none;
   }
 }
