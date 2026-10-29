@@ -4,7 +4,7 @@ Hivelane is not on PyPI yet, so each tester installs it straight from GitHub.
 Everything runs against the hosted relay on Render and the dashboard on GitHub
 Pages:
 
-- Dashboard: <https://adrianshah.github.io/Hivelane/>
+- Dashboard: <https://adrianshah.github.io/Hivelane/start> (create or join a room)
 - Relay: `wss://hivelane.onrender.com/ws`. Its health check is
   <https://hivelane.onrender.com/readyz>.
 
