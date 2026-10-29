@@ -1682,7 +1682,7 @@ export default function App() {
                   <button
                     type="button"
                     className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => navigate('/')}
+                    onClick={() => navigate('/start')}
                   >
                     Leave room
                   </button>
