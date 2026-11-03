@@ -17,6 +17,32 @@ export interface Update {
 
 export const UPDATES: Update[] = [
   {
+    slug: 'first-room-tour',
+    date: '2026-11-02',
+    kind: 'changelog',
+    title: 'A guided first room',
+    summary:
+      'New rooms open with a four-step walkthrough: what a room is, the command that connects your agent, the link to share with your team, and what the board will show. It runs once per browser, from Create room or from New room inside the dashboard, and an empty room offers it again as Take the tour.',
+    items: [
+      'The architecture page in the docs uses the same diagram as the landing page.',
+      'The docs home title is centered properly.',
+    ],
+  },
+  {
+    slug: 'site-polish',
+    date: '2026-11-02',
+    kind: 'changelog',
+    title: 'Calmer site, softer light mode',
+    summary: 'A round of polish on the public site and the dashboard theme.',
+    items: [
+      'The landing hero is centered, and a new diagram shows how a check travels from hook to daemon to relay to dashboard.',
+      'Open dashboard is now just create or join a room, with nothing competing for attention.',
+      'Light mode uses off-white surfaces and a dimmer page, in the dashboard and the docs.',
+      'Dependency updates: FastAPI 0.162, Astro 7.4.4, Starlight 0.42.8, react-router 7.18.5 and more.',
+    ],
+    prs: [60, 64, 65, 66, 67, 68, 70],
+  },
+  {
     slug: 'new-site',
     date: '2026-10-29',
     kind: 'changelog',
