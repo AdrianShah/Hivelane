@@ -43,9 +43,10 @@ except ImportError:  # Render rootDir=server
 
 log = logging.getLogger(__name__)
 
-# An inline <script> (no src attribute) and its body.
+# An inline <script> (no src attribute) and its body. Browsers also end a
+# script at `</script foo>`, so the end tag allows anything up to `>`.
 _INLINE_SCRIPT = re.compile(
-    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(?P<body>.*?)</script\s*>",
+    r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(?P<body>.*?)</script\b[^>]*>",
     re.IGNORECASE | re.DOTALL,
 )
 
