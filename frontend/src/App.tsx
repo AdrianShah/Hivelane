@@ -847,7 +847,7 @@ export default function App() {
     }
     setCreatingRoom(true);
     try {
-      navigate(roomPath(await createRoom()));
+      navigate(roomPath(await createRoom()), { state: { welcome: true } });
     } catch {
       showToast('Could not create room');
       setCreatingRoom(false);
