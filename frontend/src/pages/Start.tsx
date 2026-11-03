@@ -7,15 +7,14 @@ import {
   roomPath,
 } from '../relayUrl';
 import { createRoom } from '../roomAccess';
-import { BeeAvatar, Mark, Mascot } from '../brand/BrandArt';
-import { personColor } from '../dashboard/people';
-import ThemeToggle from '../components/ThemeToggle';
+import { Mascot } from '../brand/BrandArt';
 import { DOCS_URL } from '../links';
+import SiteLayout from '../site/SiteLayout';
+import LanePreview from '../site/LanePreview';
 import './Home.css';
 
-const REPO_URL = 'https://github.com/AdrianShah/Hivelane';
-
-export default function Home() {
+/** Create or join a room. The landing page links here as "Open dashboard". */
+export default function Start() {
   const navigate = useNavigate();
   const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
@@ -52,24 +51,8 @@ export default function Home() {
   };
 
   return (
-    <div className="home">
-      <header className="home__nav">
-        <div className="home__brand" aria-label="Hivelane">
-          <Mark size={28} className="home__brand-mark" />
-          Hivelane
-        </div>
-        <nav className="home__nav-end" aria-label="Site">
-          <a className="home__nav-link" href={DOCS_URL}>
-            Docs
-          </a>
-          <a className="home__nav-link" href={REPO_URL}>
-            GitHub
-          </a>
-          <ThemeToggle />
-        </nav>
-      </header>
-
-      <main className="home__hero">
+    <SiteLayout title="Open the dashboard">
+      <section className="home__hero">
         <div className="home__content">
           <Mascot pose="clear" size={88} className="home__mascot" />
           <h1 className="home__headline">
@@ -130,48 +113,8 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Illustrative preview of the dashboard: two lanes colliding on one file. */}
-        <figure className="home__preview" aria-label="Example: two agents editing the same file">
-          <div className="home__lane">
-            <div className="home__lane-head">
-              <BeeAvatar className="home__avatar" state="editing" accent={personColor('Maya R.')} />
-              <div>
-                <strong>Maya R.</strong>
-                <span>Claude Code · feat/billing</span>
-              </div>
-              <span className="home__live">live</span>
-            </div>
-            <p className="home__intent">Moving invoice totals into a shared helper</p>
-            <ul className="home__files">
-              <li>
-                src/billing/totals.ts <b>+42 −8</b>
-              </li>
-              <li className="is-hot">
-                src/api/invoice.ts <b>+6 −3</b>
-              </li>
-            </ul>
-          </div>
-          <div className="home__lane home__lane--offset">
-            <div className="home__lane-head">
-              <BeeAvatar className="home__avatar" state="conflict" accent={personColor('Tomás O.')} />
-              <div>
-                <strong>Tomás O.</strong>
-                <span>Codex · fix/rounding</span>
-              </div>
-              <span className="home__live">live</span>
-            </div>
-            <p className="home__intent">Rounding tax per line instead of per invoice</p>
-            <ul className="home__files">
-              <li className="is-hot">
-                src/api/invoice.ts <b>+11 −4</b>
-              </li>
-            </ul>
-          </div>
-          <figcaption className="home__alert">
-            Both agents are editing <code>src/api/invoice.ts</code>
-          </figcaption>
-        </figure>
-      </main>
-    </div>
+        <LanePreview />
+      </section>
+    </SiteLayout>
   );
 }

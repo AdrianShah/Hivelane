@@ -48,10 +48,11 @@ export const SIDEBAR = [
     items: [
       { slug: 'quick-start', section: { file: 'README.md', heading: ['Getting started', 'Quick start'] }, title: 'Quick start' },
       { slug: 'install', file: 'docs/install.md', label: 'Install' },
+      { slug: 'alpha-testing', file: 'docs/alpha-testing.md', label: 'Joining the alpha' },
     ],
   },
   {
-    label: 'Concepts',
+    label: 'Core concepts',
     items: [
       {
         slug: 'architecture',
@@ -60,15 +61,23 @@ export const SIDEBAR = [
         description: 'How the agent hooks, the per-machine daemon, the relay and the dashboard fit together.',
       },
       { slug: 'conflict-detection', file: 'docs/conflict-detection.md', label: 'Conflict detection' },
-      { slug: 'security', file: 'docs/security.md', label: 'Security' },
+      { slug: 'comparison', file: 'docs/comparison.md', label: 'Approaches compared' },
     ],
   },
   {
-    label: 'Integrations',
+    label: 'Working with agents',
     items: [
       { slug: 'adapters', file: 'docs/adapters.md', label: 'Agent adapters' },
       { slug: 'vscode', file: 'editors/vscode/README.md', label: 'VS Code / Cursor extension' },
       { slug: 'notifications', file: 'docs/notifications.md', label: 'Notifications and replay' },
+    ],
+  },
+  {
+    label: 'Admin and security',
+    items: [
+      { slug: 'security', file: 'docs/security.md', label: 'Security model' },
+      { slug: 'configuration', file: 'docs/configuration.md', label: 'Configuration' },
+      { slug: 'performance', file: 'docs/performance.md', label: 'Performance' },
     ],
   },
   {
@@ -82,19 +91,17 @@ export const SIDEBAR = [
     ],
   },
   {
-    label: 'Reference',
+    label: 'Help and reference',
     items: [
-      { slug: 'protocol', file: 'docs/protocol.md', label: 'Wire protocol' },
-      { slug: 'cli', file: 'docs/cli.md', label: 'CLI' },
-      { slug: 'configuration', file: 'docs/configuration.md', label: 'Configuration' },
       { slug: 'faq', file: 'docs/faq.md', label: 'FAQ' },
-      { slug: 'comparison', file: 'docs/comparison.md', label: 'Approaches compared' },
+      { slug: 'cli', file: 'docs/cli.md', label: 'CLI' },
+      { slug: 'protocol', file: 'docs/protocol.md', label: 'Wire protocol' },
     ],
   },
 ];
 
-// Pages that exist only on the site, under docs-site/pages/. `{{BASE}}` in
-// them is replaced with BASE at sync time.
+// Pages that exist only on the site, under docs-site/pages/. In them, `{{BASE}}`
+// becomes the docs root and `{{SITE_HOME}}` the public site root at sync time.
 export const SITE_PAGES = [
   { slug: 'index', page: 'pages/index.mdx' },
   { slug: '404', page: 'pages/404.md' },

@@ -1,17 +1,3 @@
-.home {
-  min-height: 100vh;
-  min-height: 100dvh;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  /* Clip sideways only: the page must scroll on short and phone screens. */
-  overflow-x: clip;
-  /* Theme tokens from index.css, so the landing page follows light/dark. */
-  background-color: var(--page-bg);
-  background-image: var(--page-bg-image);
-}
-
-.home__nav,
 .home__hero {
   width: 100%;
   max-width: 1240px;
@@ -20,51 +6,9 @@
   padding-right: 1.75rem;
 }
 
-.home__nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 1.5rem;
-  padding-bottom: 1.5rem;
-  position: relative;
-  z-index: 2;
-}
-
-.home__brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.6rem;
-  font-weight: 600;
-  font-size: 1.05rem;
-  letter-spacing: -0.02em;
-  color: rgb(var(--c-on-surface));
-}
-
-.home__brand-mark {
-  flex: none;
-}
-
 .home__mascot {
   display: block;
   margin: 0 0 0.75rem -0.4rem;
-}
-
-.home__nav-end {
-  display: flex;
-  align-items: center;
-  gap: 1.1rem;
-}
-
-.home__nav-link {
-  font-size: 0.88rem;
-  font-weight: 500;
-  color: rgb(var(--c-on-muted));
-  text-decoration: none;
-  transition: color 0.15s ease;
-}
-
-.home__nav-link:hover {
-  color: rgb(var(--c-on-surface));
 }
 
 .home__hero {
@@ -354,23 +298,6 @@
   font-size: 0.95em;
 }
 
-/* Grain texture: the Home page only, beneath its content, never over the
-   live dashboard (it sat above the header there and softened data text). */
-.home::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-:root[data-theme='light'] .home::before {
-  opacity: 0.05;
-  mix-blend-mode: multiply;
-}
-
 @keyframes home-rise {
   from {
     opacity: 0;
@@ -395,14 +322,7 @@
   }
 }
 
-@media (max-width: 640px) {
-  .home__nav-link {
-    display: none;
-  }
-}
-
 @media (max-width: 480px) {
-  .home__nav,
   .home__hero {
     padding-left: 1rem;
     padding-right: 1rem;
