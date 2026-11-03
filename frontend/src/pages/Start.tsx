@@ -10,7 +10,6 @@ import { createRoom } from '../roomAccess';
 import { Mascot } from '../brand/BrandArt';
 import { DOCS_URL } from '../links';
 import SiteLayout from '../site/SiteLayout';
-import LanePreview from '../site/LanePreview';
 import './Home.css';
 
 /** Create or join a room. The landing page links here as "Open dashboard". */
@@ -25,7 +24,7 @@ export default function Start() {
     setError(null);
     try {
       // Keeps the room's owner token in this browser (see roomAccess.ts).
-      navigate(roomPath(await createRoom()));
+      navigate(roomPath(await createRoom()), { state: { welcome: true } });
     } catch (err) {
       const detail = err instanceof Error ? err.message : 'unknown error';
       setError(
@@ -51,12 +50,14 @@ export default function Start() {
   };
 
   return (
-    <SiteLayout title="Open the dashboard">
-      <section className="home__hero">
+    <SiteLayout title="Open the dashboard" minimal>
+      <section className="home__hero home__hero--solo">
         <div className="home__content">
           <Mascot pose="clear" size={88} className="home__mascot" />
           <h1 className="home__headline">
-            See every agent, <em>live.</em>
+            Create a room,
+            <br />
+            <em>invite your team.</em>
           </h1>
           <p className="home__sub">
             Create a room, run <code>hivelane up</code> in each teammate&apos;s
@@ -113,7 +114,6 @@ export default function Start() {
           </p>
         </div>
 
-        <LanePreview />
       </section>
     </SiteLayout>
   );

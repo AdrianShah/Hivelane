@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Mascot } from '../brand/BrandArt';
 import { copyText } from '../clipboard';
 import { DOCS_URL, REPO_URL } from '../links';
+import ArchitectureDiagram from './ArchitectureDiagram';
 import LanePreview from './LanePreview';
 import SiteLayout from './SiteLayout';
 
@@ -76,7 +77,6 @@ export default function Landing() {
     <SiteLayout>
       <section className="lp-hero site__wrap">
         <div className="lp-hero__copy">
-          <span className="site-pill">Open source · Free during alpha</span>
           <h1 className="site-h1">
             Parallel agents,
             <br />
@@ -86,7 +86,7 @@ export default function Landing() {
             Hivelane lets a team run AI coding agents side by side in one repository. Before any agent writes a
             file, it checks whether a teammate&apos;s agent is already in it.
           </p>
-          <div className="site-actions">
+          <div className="site-actions site-actions--center">
             <Link to="/start" className="site-btn site-btn--primary">
               Open the dashboard <span aria-hidden="true">→</span>
             </Link>
@@ -154,58 +154,10 @@ export default function Landing() {
             </li>
           ))}
         </ol>
-        <div className="lp-flow" aria-label="How a check travels">
-          <div>
-            <strong>Agent hook</strong>
-            <span>before each edit</span>
-          </div>
-          <i aria-hidden="true" />
-          <div>
-            <strong>Daemon</strong>
-            <span>one per laptop</span>
-          </div>
-          <i aria-hidden="true" />
-          <div>
-            <strong>Relay</strong>
-            <span>allow · warn · block</span>
-          </div>
-          <i aria-hidden="true" />
-          <div>
-            <strong>Dashboard</strong>
-            <span>live lanes</span>
-          </div>
-        </div>
+        <ArchitectureDiagram />
         <p className="lp-flow__more">
           <a href={`${DOCS_URL}architecture/`}>Read the architecture →</a>
         </p>
-      </section>
-
-      <section className="site__wrap lp-section">
-        <div className="lp-split site-card">
-          <div>
-            <span className="site-kicker">Yours to run</span>
-            <h2 className="site-h2 site-h2--sm">Host the relay yourself, or don&apos;t.</h2>
-            <p className="site-lead site-lead--sm">
-              The relay is one small process in a container, with ready-made Docker Compose, Fly.io, Render and
-              Helm setups. Run it inside your network and nothing about your code leaves it.
-            </p>
-            <div className="site-actions">
-              <a href={`${DOCS_URL}self-hosting/`} className="site-btn">
-                Self-hosting guide
-              </a>
-              <a href={`${DOCS_URL}security/`} className="site-btn site-btn--ghost">
-                Security model →
-              </a>
-            </div>
-          </div>
-          <ul className="lp-checks">
-            <li>No sign-up, no accounts</li>
-            <li>Optional end-to-end encryption per room</li>
-            <li>Secrets and ignored files redacted on your machine</li>
-            <li>Room data removed after seven days</li>
-            <li>Apache-2.0, every line on GitHub</li>
-          </ul>
-        </div>
       </section>
 
       <section className="site__wrap lp-cta">

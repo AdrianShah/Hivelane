@@ -1,6 +1,6 @@
 import { Mark, Mascot } from './brand/BrandArt';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import AddTeammate from './components/AddTeammate';
 import ConflictBanner from './components/ConflictBanner';
 import DeployModal from './components/DeployModal';
@@ -25,6 +25,7 @@ import { useDashboardState, viewFromParam } from './dashboard/useDashboardState'
 import { readViewParam } from './dashboard/useUrlState';
 // Phase 5 notifications and replay (notifications.ts, replay.ts).
 import NotificationsSettings from './components/NotificationsSettings';
+import Onboarding, { shouldOnboard } from './components/Onboarding';
 import ReplayView from './components/ReplayView';
 import { notifyFeedEvent } from './notifications';
 import { publishHistoryChunk } from './replay';
@@ -291,6 +292,12 @@ export default function App() {
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
   const [isOwner, setIsOwner] = useState(false);
+  // First-room walkthrough: /start sets `welcome` on the navigation that
+  // follows creating a room; shown once per browser.
+  const location = useLocation();
+  const [touring, setTouring] = useState(
+    () => (location.state as { welcome?: boolean } | null)?.welcome === true && shouldOnboard(),
+  );
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   // The relay's words while waiting for approval, or after being refused.
@@ -1326,6 +1333,13 @@ export default function App() {
                         onClick={() => navigateTo('invite')}
                       >
                         Step-by-step setup →
+                      </button>{' '}
+                      <button
+                        type="button"
+                        className="text-primary font-semibold hover:text-primary/80 transition-colors"
+                        onClick={() => setTouring(true)}
+                      >
+                        Take the tour
                       </button>
                     </p>
                   </div>
@@ -1714,6 +1728,7 @@ export default function App() {
       />
       <ShortcutHelp open={dash.helpOpen} onClose={() => dash.setHelpOpen(false)} />
 
+      <Onboarding open={touring} roomId={roomId} onClose={() => setTouring(false)} />
       <DeployModal
         open={deployOpen}
         roomId={roomId}
