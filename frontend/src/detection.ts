@@ -1,3 +1,4 @@
+import { isSafeKey } from './safeKey.ts';
 import type { DecisionFeedbackUpdate, DecisionScope, EditDecision } from './types';
 
 /** Short, human label for the granularity a decision was made at. */
@@ -48,6 +49,7 @@ export function applyFeedbackUpdate(
   prev: FeedbackMap,
   update: DecisionFeedbackUpdate,
 ): FeedbackMap {
+  if (!isSafeKey(update.decision_id)) return prev;
   const prior = prev[update.decision_id];
   if (
     prior &&
