@@ -53,6 +53,8 @@ _STANDARD = frozenset(
 _ROOM_WORD = re.compile(r"(\b(?i:rooms?)\s+)([A-Z0-9]{6,8})\b")
 # /ws/<code> and /rooms/<code> in paths (access log, messages that echo one).
 _ROOM_PATH = re.compile(r"(/ws/|/rooms/)([A-Za-z0-9-]{4,16})(?=[/\s?#\"']|$)")
+# C0 controls (CR and LF included, tab left alone), DEL and C1 controls.
+_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]")
 
 
 def mask_code(code: str) -> str:
@@ -69,6 +71,27 @@ def redact(text: str) -> str:
     return text
 
 
+def escape_controls(text: str) -> str:
+    """Control characters as visible escapes, so a value a client chose (a
+    name, a path) cannot start a fake log line."""
+    return _CONTROL.sub(lambda m: m.group(0).encode("unicode_escape").decode("ascii"), text)
+
+
+def _single_line(record: logging.LogRecord) -> logging.LogRecord:
+    """A copy of `record` with its message's control characters escaped. The
+    traceback is untouched: its line breaks belong to the format."""
+    try:
+        message = record.getMessage()
+    except Exception:
+        return record
+    escaped = escape_controls(message)
+    if escaped == message:
+        return record
+    copy = logging.makeLogRecord(record.__dict__)
+    copy.msg, copy.args = escaped, None
+    return copy
+
+
 class RedactingFormatter(logging.Formatter):
     """Wraps the stdout formatter and redacts its output. A formatter, not a
     filter: the record itself is shared with every other handler (caplog in
@@ -79,7 +102,7 @@ class RedactingFormatter(logging.Formatter):
         self.inner = inner
 
     def format(self, record: logging.LogRecord) -> str:
-        return redact(self.inner.format(record))
+        return redact(self.inner.format(_single_line(record)))
 
 
 class RedactingFilter(logging.Filter):

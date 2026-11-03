@@ -32,6 +32,7 @@ import { publishHistoryChunk } from './replay';
 import { relativeTime } from './dashboard/people';
 import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import { copyText } from './clipboard';
+import { hasSafeKeys } from './safeKey';
 import { API_REFERENCE_URL, DOCS_URL } from './links';
 import { closeAction } from './closeCodes';
 import {
@@ -526,7 +527,8 @@ export default function App() {
         try {
           msg = JSON.parse(event.data as string) as ServerMessage;
         } catch {
-          console.warn('Invalid WS message', event.data);
+          // Length only: the frame is untrusted and may be huge or carry control characters.
+          console.warn('Invalid WS message', `(${String(event.data).length} chars)`);
           return;
         }
 
@@ -540,6 +542,7 @@ export default function App() {
         };
 
         const applyFeedEvent = (item: FeedEvent) => {
+          if (!hasSafeKeys(item as { user_id?: unknown; decision_id?: unknown })) return;
           if (rosterPhase === 'collecting') {
             if (item.type === 'user_joined') announced.add(item.user_id);
             else if (item.type !== 'room_settings' && item.type !== 'room_policy_update') finishRoster();
@@ -777,12 +780,12 @@ export default function App() {
             break;
 
           case 'rate_limited':
-            console.warn('rate_limited:', msg.reason);
+            console.warn('rate_limited:', String(msg.reason).slice(0, 200));
             retryAfterMs = Math.max(0, (msg.retry_after ?? 0) * 1000);
             break;
 
           case 'name_rejected':
-            console.warn('name_rejected:', msg.reason);
+            console.warn('name_rejected:', String(msg.reason).slice(0, 200));
             break;
         }
       };

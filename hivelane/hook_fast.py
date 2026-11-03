@@ -470,7 +470,8 @@ def claim_spawn(now: Optional[float] = None) -> bool:
             pass
     try:
         os.makedirs(hivelane_home(), exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        # Owner-only, like everything else under the hivelane home.
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except OSError:
         return False
     try:
