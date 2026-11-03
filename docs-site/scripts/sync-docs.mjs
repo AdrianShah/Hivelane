@@ -214,6 +214,16 @@ function buildPage(item, bySource) {
   );
 }
 
+/** The file's text, or null when it does not exist (one read, no exists-then-read race). */
+function readIfPresent(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
 function buildSitePage(item) {
   const text = readFileSync(join(SITE_ROOT, item.page), 'utf8');
   return text.replaceAll('{{BASE}}', PREFIX).replaceAll('{{SITE_HOME}}', SITE_HOME);
@@ -241,7 +251,7 @@ export function syncDocs({ log = console.log } = {}) {
 
   let written = 0;
   for (const [path, content] of wanted) {
-    if (existsSync(path) && readFileSync(path, 'utf8') === content) continue;
+    if (readIfPresent(path) === content) continue;
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, content);
     written += 1;
