@@ -403,6 +403,21 @@ def test_logged_room_codes_and_paths_are_masked_and_capped() -> None:
     assert len(logging_config.redact("x" * 600_000)) < logging_config.MAX_MESSAGE_CHARS + 100
 
 
+def test_client_values_cannot_forge_log_lines() -> None:
+    formatter = logging_config.RedactingFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    record = logging.LogRecord(
+        "relay", logging.INFO, "", 0, "%s left", ("maya\nERROR forged line\r",), None,
+    )
+    line = formatter.format(record)
+    assert "\n" not in line and "\r" not in line
+    assert "maya\\nERROR forged line\\r left" in line
+    assert record.getMessage() == "maya\nERROR forged line\r left"  # the shared record is untouched
+
+
+def test_inline_script_hashes_accept_end_tags_with_junk() -> None:
+    assert len(dashboard.inline_script_hashes("<script>a()</script >\n<script>b()</script\tfoo>")) == 2
+
+
 def test_access_log_paths_are_masked() -> None:
     record = logging.LogRecord(
         "uvicorn.access", logging.INFO, "", 0, '%s - "%s %s HTTP/%s" %d',
