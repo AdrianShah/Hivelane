@@ -44,17 +44,13 @@ lands.
 
 ## How it works
 
-```
-┌─────────────┐  intent / edit_check  ┌──────────────────┐     broadcast      ┌──────────────┐
-│    Daemon   │ ────────────────────► │  Hivelane relay  │ ─────────────────► │   Dashboard  │
-│ (per laptop)│ ◄──────────────────── │  FastAPI + rooms │   WebSocket        │  React / Vite│
-└─────────────┘  allow / warn / block └────────┬─────────┘                    └──────────────┘
-       ▲                                       │
-       │ hook call, before each edit           │ captions / conflict classification
-┌──────┴──────┐                                ▼
-│ Agent hooks │                        (optional AI layer)
-└─────────────┘
-```
+![Each laptop's agent hook asks its daemon before an edit; the daemon sends edit_check to the relay, which answers allow, warn or block and streams a live feed to the dashboard](docs/brand/architecture.svg)
+
+Before an agent writes a file, its hook asks the daemon on that laptop. The
+daemon sends an `edit_check` to the relay, which knows who in the room is
+editing what and answers **allow**, **warn** or **block**. The relay streams
+every intent, plan, diff and decision to the dashboard over WebSocket. An
+optional AI layer on the relay adds captions and conflict classification.
 
 | Component | Description |
 |-----------|-------------|

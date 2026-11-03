@@ -265,6 +265,8 @@ starlight-toc a[aria-current='true'] {
 }
 
 [data-has-hero] .hero h1 {
+  /* Fill the stack, or the shrink-wrapped heading sits at its left edge. */
+  align-self: stretch;
   text-align: center;
   font-size: clamp(2.6rem, 6.5vw, 4.25rem);
   font-weight: 400;
