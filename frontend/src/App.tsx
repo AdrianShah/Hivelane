@@ -32,7 +32,7 @@ import { publishHistoryChunk } from './replay';
 import { relativeTime } from './dashboard/people';
 import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import { copyText } from './clipboard';
-import { hasSafeKeys } from './safeKey';
+import { hasSafeKeys, withEntry } from './safeKey';
 import { API_REFERENCE_URL, DOCS_URL } from './links';
 import { closeAction } from './closeCodes';
 import {
@@ -611,11 +611,11 @@ export default function App() {
               // dashboard/laneReducer.ts: the same rules the replay fold uses.
               setUsers((prev) => {
                 const next = applyLaneEvent(prev[item.user_id] ?? BLANK_ENTRY, item);
-                return {
-                  ...prev,
-                  [item.user_id]:
-                    item.type === 'activity_update' ? { ...next, timestamp: item.timestamp } : next,
-                };
+                return withEntry(
+                  prev,
+                  item.user_id,
+                  item.type === 'activity_update' ? { ...next, timestamp: item.timestamp } : next,
+                );
               });
               break;
 
