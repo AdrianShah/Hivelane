@@ -36,6 +36,12 @@ import { hasSafeKeys } from './safeKey';
 import { API_REFERENCE_URL, DOCS_URL } from './links';
 import { closeAction } from './closeCodes';
 import {
+  applyLaneEvent,
+  conflictKey,
+  isActionableConflict,
+  replaceConflict,
+} from './dashboard/laneReducer';
+import {
   E2EDecoder,
   forgetRoomKey,
   rememberRoomKey,
@@ -84,7 +90,6 @@ import type {
 /** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
 const CONFLICT_TTL_SECONDS = 120;
 const CONFLICT_PRUNE_INTERVAL_MS = 5_000;
-const MAX_LANE_DECISIONS = 3;
 const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 /** How long a departed agent's greyed-out lane stays up before it is dropped. */
@@ -126,17 +131,8 @@ const BLANK_ENTRY: LaneEntry = {
   branch: '',
 };
 
-function isActionableConflict(alert: ConflictAlert): boolean {
-  return alert.verdict === 'overlapping' || alert.verdict === 'related';
-}
-
 function isExpired(event: { timestamp: number }, nowSeconds: number): boolean {
   return nowSeconds - event.timestamp > CONFLICT_TTL_SECONDS;
-}
-
-/** One alert per file *and* pair: the relay judges each pair separately. */
-function conflictKey(alert: ConflictAlert): string {
-  return `${alert.file_path}\u0000${[...alert.users].sort().join('\u0000')}`;
 }
 
 /** The newest `max` keys of a record (insertion order), or `prev` when within bounds. */
@@ -144,11 +140,6 @@ function capRecord<T>(prev: Record<string, T>, max: number): Record<string, T> {
   const keys = Object.keys(prev);
   if (keys.length <= max) return prev;
   return Object.fromEntries(keys.slice(keys.length - max).map((k) => [k, prev[k]]));
-}
-
-/** A relay default that means "not known" ("" branch, "unknown" agent) reads as absent. */
-function known<T extends string>(value: T | null | undefined, unknown: string): T | undefined {
-  return value && value !== unknown ? value : undefined;
 }
 
 function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
@@ -200,13 +191,14 @@ function upsertConflict(
   prev: ConflictAlert[],
   next: ConflictAlert,
 ): ConflictAlert[] {
-  // Only this pair's earlier alert is replaced (or cleared by a non-actionable verdict).
-  const key = conflictKey(next);
-  const without = prev.filter((c) => conflictKey(c) !== key);
-  if (!isActionableConflict(next) || isExpired(next, serverNowSeconds())) {
+  if (isExpired(next, serverNowSeconds())) {
+    // Too old to show: it only clears this pair's earlier alert.
+    const key = conflictKey(next);
+    const without = prev.filter((c) => conflictKey(c) !== key);
     return without.length === prev.length ? prev : without;
   }
-  return [...without, next].sort((a, b) => b.timestamp - a.timestamp);
+  const replaced = replaceConflict(prev, next);
+  return replaced === prev ? prev : [...replaced].sort((a, b) => b.timestamp - a.timestamp);
 }
 
 const STATUS_LABEL: Record<ConnStatus, string> = {
@@ -601,87 +593,28 @@ export default function App() {
               );
               break;
 
-            case 'activity_update':
-              setUsers((prev) => {
-                const prior = prev[item.user_id];
-                // Prompt-only updates send changes: [], keep the last diffs so
-                // the lane doesn't blank out when a new Cursor prompt arrives.
-                const changes =
-                  item.changes.length > 0
-                    ? item.changes
-                    : (prior?.changes ?? []);
-                return {
-                  ...prev,
-                  [item.user_id]: {
-                    ...(prior ?? BLANK_ENTRY),
-                    caption: item.caption ?? prior?.caption ?? null,
-                    changes,
-                    prompt: item.prompt,
-                    timestamp: item.timestamp,
-                    // The relay sends branch "" and agent "unknown" when it does
-                    // not know them: those must not wipe what the lane knows.
-                    agent: known(item.agent, 'unknown') ?? prior?.agent ?? 'unknown',
-                    branch: known(item.branch, '') ?? prior?.branch ?? '',
-                  },
-                };
-              });
-              break;
-
-            case 'intent_update':
-              setUsers((prev) => {
-                const prior = prev[item.user_id];
-                return {
-                  ...prev,
-                  [item.user_id]: {
-                    ...(prior ?? BLANK_ENTRY),
-                    intent: item.prompt,
-                    agent: known(item.agent, 'unknown') ?? prior?.agent ?? 'unknown',
-                  },
-                };
-              });
-              break;
-
-            case 'plan_update':
-              setUsers((prev) => {
-                const prior = prev[item.user_id] ?? BLANK_ENTRY;
-                return {
-                  ...prev,
-                  [item.user_id]: {
-                    ...prior,
-                    plan: item,
-                    agent: known(item.agent, 'unknown') ?? prior.agent,
-                  },
-                };
-              });
-              break;
-
             case 'decision_feedback_update':
               setFeedback((prev) => capRecord(applyFeedbackUpdate(prev, item), MAX_TRACKED_DECISIONS));
               break;
 
+            case 'activity_update':
+            case 'intent_update':
+            case 'plan_update':
             case 'edit_decision':
-              if (item.decision_id) {
+              if (item.type === 'edit_decision' && item.decision_id) {
                 const id = item.decision_id;
                 const scope = decisionScope(item);
                 setDecisionScopes((prev) =>
                   prev[id] === scope ? prev : capRecord({ ...prev, [id]: scope }, MAX_TRACKED_DECISIONS),
                 );
               }
+              // dashboard/laneReducer.ts: the same rules the replay fold uses.
               setUsers((prev) => {
-                const prior = prev[item.user_id] ?? BLANK_ENTRY;
-                const decisions = [
-                  item,
-                  ...prior.decisions.filter(
-                    (d) => d.file_path !== item.file_path,
-                  ),
-                ].slice(0, MAX_LANE_DECISIONS);
+                const next = applyLaneEvent(prev[item.user_id] ?? BLANK_ENTRY, item);
                 return {
                   ...prev,
-                  [item.user_id]: {
-                    ...prior,
-                    decisions,
-                    agent: known(item.agent, 'unknown') ?? prior.agent,
-                  },
+                  [item.user_id]:
+                    item.type === 'activity_update' ? { ...next, timestamp: item.timestamp } : next,
                 };
               });
               break;
