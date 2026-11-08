@@ -23,13 +23,14 @@ import type {
   PlanUpdate,
   RoomSettingsUpdate,
 } from './types';
+import { MAX_LANE_DECISIONS, applyLaneEvent, replaceConflict } from './dashboard/laneReducer.ts';
 
 /** Playback speeds offered by the replay view. */
 export const SPEEDS = [1, 10, 60] as const;
 export type Speed = (typeof SPEEDS)[number];
 
-/** Decisions shown per lane (matches App.tsx MAX_LANE_DECISIONS). */
-export const LANE_DECISIONS = 3;
+/** Decisions shown per lane (shared with the live dashboard). */
+export const LANE_DECISIONS = MAX_LANE_DECISIONS;
 /** Recent decisions listed under the lanes. */
 export const RECENT_DECISIONS = 50;
 /** A conflict alert stays "active" this long (App.tsx CONFLICT_TTL_SECONDS). */
@@ -118,10 +119,6 @@ function blankLane(userId: string, agent: AgentKind = 'unknown'): ReplayLane {
   };
 }
 
-function isActionable(alert: ConflictAlert): boolean {
-  return alert.verdict === 'overlapping' || alert.verdict === 'related';
-}
-
 /**
  * The board at time `at`: every event with a time at or before it, applied
  * in order. `events` must already be sorted (sortEvents). Lanes appear with
@@ -168,45 +165,25 @@ export function foldUntil(events: readonly FeedEvent[], at: number): ReplayState
         conflicts = conflicts.filter((c) => !c.users.includes(event.user_id));
         break;
       }
-      case 'activity_update': {
-        const l = lane(event.user_id, event.agent);
-        if (event.changes.length > 0) l.changes = event.changes;
-        l.prompt = event.prompt;
-        l.caption = event.caption ?? l.caption;
-        l.branch = event.branch ?? l.branch;
-        l.lastAt = ts;
-        break;
-      }
-      case 'intent_update': {
-        const l = lane(event.user_id, event.agent);
-        l.intent = event.prompt;
-        l.lastAt = ts;
-        break;
-      }
-      case 'plan_update': {
-        const l = lane(event.user_id, event.agent);
-        l.plan = event;
-        l.lastAt = ts;
-        break;
-      }
+      case 'activity_update':
+      case 'intent_update':
+      case 'plan_update':
       case 'edit_decision': {
-        const l = lane(event.user_id, event.agent);
-        l.decisions = [event, ...l.decisions.filter((d) => d.file_path !== event.file_path)].slice(
-          0,
-          LANE_DECISIONS,
-        );
-        l.lastAt = ts;
-        decisions.unshift(event);
-        if (decisions.length > RECENT_DECISIONS) decisions.pop();
-        if (event.decision === 'block') blocks += 1;
-        else warns += 1;
+        lanes.set(event.user_id, {
+          ...applyLaneEvent(lane(event.user_id), event),
+          lastAt: ts,
+        });
+        if (event.type === 'edit_decision') {
+          decisions.unshift(event);
+          if (decisions.length > RECENT_DECISIONS) decisions.pop();
+          if (event.decision === 'block') blocks += 1;
+          else warns += 1;
+        }
         break;
       }
-      case 'conflict_alert': {
-        conflicts = conflicts.filter((c) => c.file_path !== event.file_path);
-        if (isActionable(event)) conflicts.push(event);
+      case 'conflict_alert':
+        conflicts = replaceConflict(conflicts, event);
         break;
-      }
       case 'room_settings':
         settings = event;
         break;
