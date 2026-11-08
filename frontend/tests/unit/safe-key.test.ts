@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hasSafeKeys, isSafeKey } from '../../src/safeKey.ts';
+import { hasSafeKeys, isSafeKey, withEntry } from '../../src/safeKey.ts';
 import { applyFeedbackUpdate } from '../../src/detection.ts';
 
 test('prototype keys are unsafe, ordinary ids are not', () => {
@@ -28,4 +28,14 @@ test('a feedback update for a prototype key leaves the map and Object.prototype 
   } as Parameters<typeof applyFeedbackUpdate>[1]);
   assert.equal(next, prev);
   assert.equal(({} as Record<string, unknown>).useful_count, undefined);
+});
+
+test('withEntry sets own properties, keeps key order, refuses unsafe keys', () => {
+  const base = { a: 1, b: 2 };
+  const next = withEntry(base, 'a', 9);
+  assert.deepEqual(Object.keys(next), ['a', 'b']);
+  assert.equal(next.a, 9);
+  assert.equal(base.a, 1, 'input untouched');
+  assert.equal(withEntry(base, '__proto__', 5), base);
+  assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
