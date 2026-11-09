@@ -264,7 +264,9 @@ export function activate(context: vscode.ExtensionContext): void {
     })();
     return inFlight;
   };
-  void poll();
+  // The extension wakes on its first command; commands wait for this first
+  // daemon check so they don't report "offline" before it has answered.
+  const firstPoll = poll();
   const timer = setInterval(() => void poll(), POLL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
 
@@ -415,17 +417,25 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("hivelane.openDashboard", () => vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())))),
-    vscode.commands.registerCommand("hivelane.whosHere", whosHere),
+    vscode.commands.registerCommand("hivelane.openDashboard", async () => {
+      await firstPoll;
+      return vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())));
+    }),
+    vscode.commands.registerCommand("hivelane.whosHere", async () => {
+      await firstPoll;
+      return whosHere();
+    }),
     vscode.commands.registerCommand("hivelane.up", up),
     vscode.commands.registerCommand("hivelane.reconnect", reconnectFeeds),
-    vscode.commands.registerCommand("hivelane.checkFile", (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand("hivelane.checkFile", async (uri?: vscode.Uri) => {
+      await firstPoll;
       const doc = uri ? vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString()) : vscode.window.activeTextEditor?.document;
       if (doc) return preEdit(doc, true);
       if (uri) return vscode.workspace.openTextDocument(uri).then((d) => preEdit(d, true));
       void vscode.window.showInformationMessage("Hivelane: open a file first.");
     }),
     vscode.commands.registerCommand("hivelane.menu", async () => {
+      await firstPoll;
       const repo = activeRepo();
       const items: (vscode.QuickPickItem & { run: () => unknown })[] = [];
       if (repo) items.push({ label: "$(globe) Open dashboard", description: dashboardUrl(repo), run: () => vscode.commands.executeCommand("hivelane.openDashboard") });
