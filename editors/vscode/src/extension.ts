@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import * as vscode from "vscode";
 import { ActivityTracker, initials, tooltip } from "./activity";
 import {
@@ -20,13 +21,31 @@ import {
 import { EditGate, KeyedDebounce } from "./editGate";
 import { FeedState, RelayFeed, roomUrl } from "./relayFeed";
 
-// TODO(owner): keep in sync with package.json "repository" before publishing.
+// Keep in sync with package.json "repository".
 const DOCS_URL = "https://github.com/AdrianShah/Hivelane#readme";
+const INSTALL_URL = "https://github.com/AdrianShah/Hivelane/blob/HEAD/docs/install.md";
 const POLL_MS = 5000;
+const CLI_PROMPT_DISMISSED = "hivelane.cliPromptDismissed";
+
+/**
+ * Whether the `hivelane` CLI runs from the editor's PATH. Only a missing
+ * executable counts as "not installed"; any other failure (a timeout, a
+ * non-zero exit) means it is there. GUI-launched editors can have a shorter
+ * PATH than the shell, so callers word this as "not found", not "not installed".
+ */
+function cliOnPath(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("hivelane", ["--version"], { timeout: 5000, windowsHide: true }, (err) => {
+      resolve(!(err && (err as NodeJS.ErrnoException).code === "ENOENT"));
+    });
+  });
+}
 
 let status: DaemonStatus | undefined;
 // Set when the daemon answers but refuses our token (a different HIVELANE_HOME).
 let authProblem: string | undefined;
+// Checked once while the daemon is unreachable; undefined until then.
+let cliMissing: boolean | undefined;
 let client: DaemonClient;
 const feeds = new Map<string, { feed: RelayFeed; tracker: ActivityTracker; repo: RepoStatus }>();
 // Why a repo in this workspace has no live feed (keyed by repo root).
@@ -132,8 +151,22 @@ export function activate(context: vscode.ExtensionContext): void {
         ? `Hivelane: ${repo.fatal}`
         : status
           ? `Hivelane daemon v${status.version} on port ${status.port}`
-          : "Hivelane daemon not reachable, click to start it";
+          : cliMissing
+            ? "Hivelane: the `hivelane` CLI was not found on the editor's PATH, click for install steps"
+            : "Hivelane daemon not reachable, click to start it";
     bar.tooltip = note ? `${base}\n${note}` : base;
+  };
+
+  // Automatic prompts honour "Don't show again"; an explicit `hivelane up` always explains.
+  const promptInstall = async (explicit: boolean) => {
+    if (!explicit && context.globalState.get<boolean>(CLI_PROMPT_DISMISSED)) return;
+    const choices = explicit ? ["Install steps"] : ["Install steps", "Don't show again"];
+    const pick = await vscode.window.showWarningMessage(
+      "Hivelane: the `hivelane` CLI was not found on this editor's PATH. The extension needs it to run the local daemon (`hivelane up`).",
+      ...choices
+    );
+    if (pick === "Install steps") void vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL));
+    else if (pick === "Don't show again") await context.globalState.update(CLI_PROMPT_DISMISSED, true);
   };
 
   const syncFeeds = () => {
@@ -202,6 +235,11 @@ export function activate(context: vscode.ExtensionContext): void {
       status = undefined;
       authProblem = e instanceof DaemonAuthError || e instanceof DaemonUnverifiedError ? e.message : undefined;
     }
+    if (status) cliMissing = false;
+    else if (!authProblem && cliMissing === undefined) {
+      cliMissing = !(await cliOnPath());
+      if (cliMissing) void promptInstall(false);
+    }
     syncFeeds();
     render();
     for (const { tracker, repo: r } of feeds.values()) {
@@ -226,7 +264,9 @@ export function activate(context: vscode.ExtensionContext): void {
     })();
     return inFlight;
   };
-  void poll();
+  // The extension wakes on its first command; commands wait for this first
+  // daemon check so they don't report "offline" before it has answered.
+  const firstPoll = poll();
   const timer = setInterval(() => void poll(), POLL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(timer) });
 
@@ -352,7 +392,13 @@ export function activate(context: vscode.ExtensionContext): void {
 
   let upTerminal: vscode.Terminal | undefined;
   context.subscriptions.push(vscode.window.onDidCloseTerminal((t) => t === upTerminal && (upTerminal = undefined)));
-  const up = () => {
+  const up = async () => {
+    // Re-check: the user may have installed the CLI since the last poll.
+    cliMissing = !(await cliOnPath());
+    if (cliMissing) {
+      render();
+      return promptInstall(true);
+    }
     if (!upTerminal) {
       upTerminal = vscode.window.createTerminal({ name: "Hivelane", cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath });
       upTerminal.sendText("hivelane up");
@@ -371,17 +417,25 @@ export function activate(context: vscode.ExtensionContext): void {
   };
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("hivelane.openDashboard", () => vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())))),
-    vscode.commands.registerCommand("hivelane.whosHere", whosHere),
+    vscode.commands.registerCommand("hivelane.openDashboard", async () => {
+      await firstPoll;
+      return vscode.env.openExternal(vscode.Uri.parse(dashboardUrl(activeRepo())));
+    }),
+    vscode.commands.registerCommand("hivelane.whosHere", async () => {
+      await firstPoll;
+      return whosHere();
+    }),
     vscode.commands.registerCommand("hivelane.up", up),
     vscode.commands.registerCommand("hivelane.reconnect", reconnectFeeds),
-    vscode.commands.registerCommand("hivelane.checkFile", (uri?: vscode.Uri) => {
+    vscode.commands.registerCommand("hivelane.checkFile", async (uri?: vscode.Uri) => {
+      await firstPoll;
       const doc = uri ? vscode.workspace.textDocuments.find((d) => d.uri.toString() === uri.toString()) : vscode.window.activeTextEditor?.document;
       if (doc) return preEdit(doc, true);
       if (uri) return vscode.workspace.openTextDocument(uri).then((d) => preEdit(d, true));
       void vscode.window.showInformationMessage("Hivelane: open a file first.");
     }),
     vscode.commands.registerCommand("hivelane.menu", async () => {
+      await firstPoll;
       const repo = activeRepo();
       const items: (vscode.QuickPickItem & { run: () => unknown })[] = [];
       if (repo) items.push({ label: "$(globe) Open dashboard", description: dashboardUrl(repo), run: () => vscode.commands.executeCommand("hivelane.openDashboard") });
@@ -389,7 +443,8 @@ export function activate(context: vscode.ExtensionContext): void {
       if (vscode.window.activeTextEditor) items.push({ label: "$(shield) Check this file", run: () => vscode.commands.executeCommand("hivelane.checkFile") });
       const note = repo ? feedNotes.get(repo.root) : undefined;
       if (note && feeds.size) items.push({ label: "$(refresh) Reconnect peer badges", description: note, run: reconnectFeeds });
-      if (!status) items.push({ label: "$(terminal) Run `hivelane up`", description: "start the daemon", run: up });
+      if (!status && cliMissing) items.push({ label: "$(cloud-download) Install the Hivelane CLI", description: "not found on PATH", run: () => vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL)) });
+      else if (!status) items.push({ label: "$(terminal) Run `hivelane up`", description: "start the daemon", run: up });
       items.push({ label: "$(book) Open docs", run: () => vscode.env.openExternal(vscode.Uri.parse(DOCS_URL)) });
       const pick = await vscode.window.showQuickPick(items, { title: bar.text.replace(/^\$\([^)]*\)\s*/, "") });
       await pick?.run();

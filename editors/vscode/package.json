@@ -2,8 +2,14 @@
   "name": "hivelane",
   "displayName": "Hivelane",
   "description": "See which AI agents and teammates are editing your repo right now, and get warned before you collide.",
-  "version": "0.1.0",
-  "//": "TODO(owner): 'publisher' and 'repository' are suggestions; confirm the Marketplace/Open VSX publisher id and repo URL before running vsce/ovsx publish.",
+  "version": "0.2.0",
+  "preview": true,
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#FFFFFF",
+    "theme": "light"
+  },
+  "pricing": "Free",
   "publisher": "adrianshah",
   "license": "Apache-2.0",
   "repository": {
@@ -19,22 +25,28 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "SCM Providers",
     "Other"
   ],
   "keywords": [
     "ai",
     "agents",
     "collaboration",
+    "conflicts",
+    "claude-code",
     "cursor",
-    "claude"
+    "codex",
+    "multiplayer"
   ],
-  "activationEvents": [
-    "onStartupFinished"
-  ],
+  "activationEvents": [],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,
       "description": "Hivelane sends file paths and saved diffs to the local daemon, so it only runs in trusted workspaces."
+    },
+    "virtualWorkspaces": {
+      "supported": false,
+      "description": "Hivelane checks files on disk against the local daemon, so it needs a local folder."
     }
   },
   "main": "./out/extension.js",
@@ -42,27 +54,33 @@
     "commands": [
       {
         "command": "hivelane.menu",
-        "title": "Hivelane: Menu"
+        "title": "Menu",
+        "category": "Hivelane"
       },
       {
         "command": "hivelane.checkFile",
-        "title": "Hivelane: Check this file"
+        "title": "Check this file",
+        "category": "Hivelane"
       },
       {
         "command": "hivelane.whosHere",
-        "title": "Hivelane: Who's here"
+        "title": "Who's here",
+        "category": "Hivelane"
       },
       {
         "command": "hivelane.openDashboard",
-        "title": "Hivelane: Open dashboard"
+        "title": "Open dashboard",
+        "category": "Hivelane"
       },
       {
         "command": "hivelane.up",
-        "title": "Hivelane: Start daemon (hivelane up)"
+        "title": "Start daemon (hivelane up)",
+        "category": "Hivelane"
       },
       {
         "command": "hivelane.reconnect",
-        "title": "Hivelane: Reconnect peer badges"
+        "title": "Reconnect peer badges",
+        "category": "Hivelane"
       }
     ],
     "configuration": {
