@@ -9,3 +9,5 @@ node_modules/typescript/**
 node_modules/@vscode/**
 .vscode/**
 *.vsix
+media/icon.svg
+DEVELOPMENT.md
