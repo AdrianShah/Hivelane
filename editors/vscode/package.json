@@ -38,10 +38,7 @@
     "codex",
     "multiplayer"
   ],
-  "activationEvents": [
-    "workspaceContains:.hivelane.toml",
-    "workspaceContains:**/.hivelane.toml"
-  ],
+  "activationEvents": [],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": false,

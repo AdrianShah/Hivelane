@@ -4,9 +4,9 @@
 
 First Marketplace and Open VSX release (preview).
 
-- Starts only in workspaces with a `.hivelane.toml` instead of on every startup; commands still work anywhere.
+- No longer starts on every editor launch: the extension stays off until you run a Hivelane command (for example **Hivelane: Menu**), then runs for that window.
 - If the `hivelane` CLI is not on the editor's PATH, the extension says so once (with "Don't show again"), the status bar tooltip and menu link the install steps, and "Start daemon" explains instead of running a missing command.
-- Marketplace listing: icon, preview flag, gallery banner, SCM Providers category, commands grouped under the "Hivelane" category. Virtual workspaces are declared unsupported.
+- Marketplace listing: a rewritten, user-facing README (build and publishing notes moved to DEVELOPMENT.md), icon, preview flag, gallery banner, SCM Providers category, commands grouped under the "Hivelane" category. Virtual workspaces are declared unsupported.
 - Publisher and repository confirmed as `adrianshah` and AdrianShah/Hivelane.
 
 - Relay feed no longer reconnects in a storm: the backoff resets only after a successful join, `room_rejected`/`version_rejected` and close codes 4403/4404/4426 stop the feed, `rate_limited` `retry_after` is honoured, and retries are capped (then "Hivelane: Reconnect peer badges").
