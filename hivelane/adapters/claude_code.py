@@ -28,6 +28,11 @@ EDIT_MATCHER = "|".join(EDIT_TOOLS)
 # PostToolUse for these yields a `plan` event: the agent's todo list / plan.
 PLAN_TOOLS: tuple[str, ...] = ("TodoWrite", "ExitPlanMode")
 POST_MATCHER = "|".join(EDIT_TOOLS + PLAN_TOOLS)
+# The tool that launches a subagent: "Agent" today, "Task" in older releases.
+# Its PreToolUse yields a `delegate` event carrying the subagent's task, which
+# becomes that subagent's intent on the dashboard.
+DELEGATE_TOOLS: tuple[str, ...] = ("Agent", "Task")
+DELEGATE_MATCHER = "|".join(DELEGATE_TOOLS)
 
 PRE_TOOL_TIMEOUT = 5
 OTHER_TIMEOUT = 10
@@ -42,7 +47,8 @@ DECISIONS = base.DECISIONS
 def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]]:
     """The hooks block hivelane wants merged into a Claude Code settings.json.
 
-    UserPromptSubmit has no matcher support, so the entry omits it.
+    UserPromptSubmit has no matcher support, so the entry omits it. The
+    subagent hooks need none either: every subagent type gets its own lane.
     """
     return {
         "UserPromptSubmit": [
@@ -52,13 +58,23 @@ def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]
             {
                 "matcher": EDIT_MATCHER,
                 "hooks": [{"type": "command", "command": command, "timeout": PRE_TOOL_TIMEOUT}],
-            }
+            },
+            {
+                "matcher": DELEGATE_MATCHER,
+                "hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}],
+            },
         ],
         "PostToolUse": [
             {
                 "matcher": POST_MATCHER,
                 "hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}],
             }
+        ],
+        "SubagentStart": [
+            {"hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}]}
+        ],
+        "SubagentStop": [
+            {"hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}]}
         ],
     }
 
@@ -102,18 +118,59 @@ def _event(kind: str, session_id: str, cwd: str, **fields: Any) -> dict[str, Any
     return base.make_event(AGENT, kind, session_id, cwd, **fields)
 
 
+MAX_ID_CHARS = 128
+
+
+def _subagent(payload: dict[str, Any]) -> dict[str, Any]:
+    """subagent_id / subagent_type when the hook fired inside a subagent.
+
+    Claude Code puts `agent_id` on every hook input from a subagent, and
+    `agent_type` there or when the whole session runs under `--agent`; only
+    an agent_id marks a subagent, so a bare agent_type is ignored."""
+    agent_id = payload.get("agent_id")
+    if not isinstance(agent_id, str) or not agent_id.strip():
+        return {}
+    agent_type = payload.get("agent_type")
+    return {
+        "subagent_id": agent_id.strip()[:MAX_ID_CHARS],
+        "subagent_type": agent_type.strip()[:MAX_ID_CHARS] if isinstance(agent_type, str) else None,
+    }
+
+
+def _delegate_event(session_id: str, cwd: str, tool: Any, tool_input: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """The task handed to a subagent. subagent_type is the type asked for, so
+    the daemon can pair the task with the subagent that starts next."""
+    prompt = tool_input.get("prompt")
+    if not isinstance(prompt, str) or not prompt.strip():
+        return None
+    description = tool_input.get("description")
+    kind = tool_input.get("subagent_type")
+    return _event(
+        "delegate", session_id, cwd, prompt=prompt, tool=tool,
+        summary=description.strip() if isinstance(description, str) and description.strip() else None,
+        subagent_type=kind.strip()[:MAX_ID_CHARS] if isinstance(kind, str) and kind.strip() else None,
+    )
+
+
 def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     """Translate one hook stdin payload into NormalizedEvent-shaped JSON, or
     None if hivelane does not care about it."""
     event_name = payload.get("hook_event_name")
     session_id = str(payload.get("session_id") or "")
     cwd = str(payload.get("cwd") or "")
+    sub = _subagent(payload)
 
     if event_name == "UserPromptSubmit":
         prompt = payload.get("prompt") or payload.get("user_prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             return None
-        return _event("intent", session_id, cwd, prompt=prompt)
+        return _event("intent", session_id, cwd, prompt=prompt, **sub)
+
+    if event_name in ("SubagentStart", "SubagentStop"):
+        if not sub:
+            return None
+        kind = "subagent_start" if event_name == "SubagentStart" else "subagent_stop"
+        return _event(kind, session_id, cwd, **sub)
 
     if event_name not in ("PreToolUse", "PostToolUse"):
         return None
@@ -122,10 +179,17 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return None
+    if tool in DELEGATE_TOOLS:
+        if event_name != "PreToolUse":
+            return None
+        return _delegate_event(session_id, cwd, tool, tool_input)
     if tool in PLAN_TOOLS:
         if event_name != "PostToolUse":
             return None
-        return base.plan_event(AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool)
+        event = base.plan_event(AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool)
+        if event is not None:
+            event.update(sub)
+        return event
     if tool not in EDIT_TOOLS:
         return None
     file_path = _file_path(tool_input, cwd)
@@ -135,10 +199,10 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     if event_name == "PreToolUse":
         return _event(
             "pre_edit", session_id, cwd, file_path=file_path, old_content=_read(file_path), tool=tool,
-            edit_hints=_edit_hints(tool, tool_input),
+            edit_hints=_edit_hints(tool, tool_input), **sub,
         )
     return _event(
-        "post_edit", session_id, cwd, file_path=file_path, new_content=_read(file_path), tool=tool
+        "post_edit", session_id, cwd, file_path=file_path, new_content=_read(file_path), tool=tool, **sub
     )
 
 

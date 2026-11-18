@@ -237,7 +237,7 @@ def test_uninstall_never_touches_unrelated_or_malformed_groups(tmp_path: Path) -
     settings["hooks"].update(json.loads(json.dumps(claude_code.hook_settings())))
     settings["hooks"]["PreToolUse"] = [lookalike, malformed, empty] + claude_code.hook_settings()["PreToolUse"]
     removed = base.remove_hooks(settings)
-    assert sorted(removed) == ["PostToolUse", "PreToolUse", "UserPromptSubmit"]
+    assert sorted(removed) == ["PostToolUse", "PreToolUse", "SubagentStart", "SubagentStop", "UserPromptSubmit"]
     assert settings == {"hooks": {"PreToolUse": [lookalike, malformed, empty]}}
 
 
@@ -248,7 +248,9 @@ def test_reinstall_keeps_a_customised_command(tmp_path: Path) -> None:
     old_group = {"matcher": "Edit", "hooks": [{"type": "command", "command": custom, "timeout": 1}]}
     settings = {"hooks": {"PreToolUse": [old_group]}}
     base.merge_hooks(settings, claude_code.hook_settings())
-    (group,) = settings["hooks"]["PreToolUse"]
+    group, delegate = settings["hooks"]["PreToolUse"]
+    assert delegate["matcher"] == claude_code.DELEGATE_MATCHER
+    assert delegate["hooks"][0]["command"] == custom
     assert group["matcher"] == claude_code.EDIT_MATCHER
     assert group["hooks"] == [{"type": "command", "command": custom, "timeout": claude_code.PRE_TOOL_TIMEOUT}]
     assert settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"] == claude_code.HOOK_COMMAND
@@ -264,7 +266,7 @@ def test_absolute_path_entry_is_not_duplicated(tmp_path: Path) -> None:
     settings = {"hooks": {e: [{**g, "hooks": [{**h, "command": absolute} for h in g["hooks"]]} for g in groups]
                           for e, groups in desired.items()}}
     assert base.merge_hooks(settings, desired) == []
-    assert all(len(groups) == 1 for groups in settings["hooks"].values())
+    assert all(len(groups) == len(desired[e]) for e, groups in settings["hooks"].items())
     assert sorted(base.remove_hooks(settings)) == sorted(desired)
     assert settings == {}
 

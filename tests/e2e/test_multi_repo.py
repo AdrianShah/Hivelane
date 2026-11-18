@@ -36,7 +36,9 @@ def _repo(path: Path, room: str, relay: str) -> Path:
 
 
 def _event(kind: str, cwd: Path, file_path: Path | None = None, **fields: Any) -> dict[str, Any]:
-    event = {"kind": kind, "agent": "claude-code", "session_id": f"s-{cwd.name}", "cwd": str(cwd), **fields}
+    # One agent session per daemon, wherever it runs from: a session id
+    # that changed with the cwd would be a second chat, with a lane of its own.
+    event = {"kind": kind, "agent": "claude-code", "session_id": "s-agent", "cwd": str(cwd), **fields}
     if file_path is not None:
         event["file_path"] = str(file_path)
     return event

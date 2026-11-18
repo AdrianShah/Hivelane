@@ -13,7 +13,13 @@ from pydantic import BaseModel, field_validator
 
 from hivelane.protocol import AgentKind, Decision, PeerTouch
 
-EventKind = Literal["intent", "pre_edit", "post_edit", "plan"]
+# delegate: an agent handing work to a subagent (Claude Code's Agent/Task
+# tool), carrying the task as prompt. subagent_start / subagent_stop bracket a
+# subagent's life. Events fired inside a subagent carry subagent_id (and
+# subagent_type), so the daemon can give it a lane of its own.
+EventKind = Literal[
+    "intent", "pre_edit", "post_edit", "plan", "delegate", "subagent_start", "subagent_stop"
+]
 
 
 def _encodable(value: Any) -> Any:
@@ -51,6 +57,9 @@ class NormalizedEvent(BaseModel):
     summary: Optional[str] = None
     files: Optional[list[str]] = None
     symbols: Optional[list[str]] = None
+    # Set when the hook fired inside a subagent: its id and type ("Explore").
+    subagent_id: Optional[str] = None
+    subagent_type: Optional[str] = None
 
     @field_validator(
         "session_id",
@@ -64,6 +73,8 @@ class NormalizedEvent(BaseModel):
         "summary",
         "files",
         "symbols",
+        "subagent_id",
+        "subagent_type",
     )
     @classmethod
     def _no_lone_surrogates(cls, value: Any) -> Any:

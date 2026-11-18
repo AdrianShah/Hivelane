@@ -93,6 +93,23 @@ checked against them in every test run and tree-sitter when it is installed.
 Lines are counted on `\n` only everywhere (pre_edit prediction, post_edit
 ranges, both tiers), and a UTF-8 BOM no longer pushes Python off `ast`.
 
+## Several agents per person
+
+Every agent is its own party to these checks. The daemon gives each agent
+session a lane, which is a relay member of its own named after you: the first
+chat is `ada`, a second chat is `ada-claude`, Cursor beside Claude Code is
+`ada-cursor`, and a Claude Code subagent is `ada-explore-3f2a` (its type and a
+short id). Their collisions are checked like anyone else's, with one
+exception. Agents of the same chat never block each other. A subagent editing
+a file its parent just touched is treated as a hand-off and allowed. Two
+subagents of one chat in the same file get a warning. A subagent's lane shows
+the task it was given as its intent and closes a few seconds after it
+finishes. Idle lanes close after 15 minutes.
+
+If the relay will not admit a lane (a room that requires approval, a full
+room), that agent falls back to sharing your main lane and the daemon tries
+again two minutes later. `HIVELANE_LANES=0` turns lanes off.
+
 ## Dashboard
 
 * Each lane shows a **branch badge**, the agent's **active plan** (summary;
