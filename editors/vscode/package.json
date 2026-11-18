@@ -151,13 +151,13 @@
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {
-    "ws": "^8.22.1"
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "@types/vscode": "~1.85.0",
     "@types/ws": "^8.5.10",
-    "@vscode/vsce": "^4.1.0",
+    "@vscode/vsce": "^4.1.1",
     "typescript": "^7.0.2"
   },
   "overrides": {
