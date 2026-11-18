@@ -413,6 +413,48 @@ def find_project_file(cwd: str) -> Optional[str]:
         current = parent
 
 
+NESTED_SEARCH_DEPTH = 2
+NESTED_SEARCH_DIRS = 400
+
+
+def find_nested_project_file(cwd: str) -> Optional[str]:
+    """A .hivelane.toml up to NESTED_SEARCH_DEPTH folders *below* cwd, when
+    exactly one is found: an agent started a folder above its repo. Bounded
+    and only run when the daemon is down, so cheap enough for the hook."""
+    if not cwd:
+        return None
+    found: list[str] = []
+    frontier = [cwd]
+    visited = 0
+    for _depth in range(NESTED_SEARCH_DEPTH):
+        nxt: list[str] = []
+        for directory in frontier:
+            try:
+                entries = list(os.scandir(directory))
+            except OSError:
+                continue
+            for entry in entries:
+                if entry.name.startswith(".") or entry.name == "node_modules":
+                    continue
+                try:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                visited += 1
+                if visited > NESTED_SEARCH_DIRS:
+                    return None
+                candidate = os.path.join(entry.path, PROJECT_FILE)
+                if os.path.isfile(candidate):
+                    found.append(candidate)
+                    if len(found) > 1:
+                        return None
+                else:
+                    nxt.append(entry.path)
+        frontier = nxt
+    return found[0] if found else None
+
+
 def spawn_lock_path() -> str:
     return os.path.join(hivelane_home(), SPAWN_LOCK_FILENAME)
 
@@ -546,12 +588,17 @@ def spawn_daemon(port: int) -> Any:
     return process
 
 
-def maybe_start_daemon(cwd: str, port: int) -> bool:
-    """Start the daemon if this cwd belongs to a Hivelane project and nobody
+def maybe_start_daemon(cwd: str, port: int, file_path: str = "") -> bool:
+    """Start the daemon if this event belongs to a Hivelane project (by the
+    edited file, the cwd, or a single project just below the cwd) and nobody
     else started one in the last SPAWN_LOCK_SECONDS. True means this event
     started it, so the caller lets the event through without the offline
     notice: the daemon is on its way, not missing."""
-    if find_project_file(cwd) is None:
+    if (
+        (not file_path or find_project_file(os.path.dirname(file_path)) is None)
+        and find_project_file(cwd) is None
+        and find_nested_project_file(cwd) is None
+    ):
         return False
     if not claim_spawn():
         return False
@@ -618,7 +665,9 @@ def run_agent(agent_id: str, port: int) -> int:
             # away: this is the offline case. A block or warn already in hand
             # still decides, below, it must never be lost to a later failure.
             event, exc = failure
-            if exc.not_running and maybe_start_daemon(str(event.get("cwd") or ""), port):
+            if exc.not_running and maybe_start_daemon(
+                str(event.get("cwd") or ""), port, str(event.get("file_path") or "")
+            ):
                 return 0
             notice = adapter.render_notice(event, str(exc))
             if notice.stdout and claim_offline_notice():

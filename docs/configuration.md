@@ -17,6 +17,7 @@ Full precedence and every command: [docs/cli.md](cli.md).
 | `HIVELANE_PORT` | `4600` | Loopback port the daemon listens on and the hooks call. |
 | `HIVELANE_HOME` | `~/.hivelane` | Personal config, daemon state and logs (`logs/daemon.log`). |
 | `HIVELANE_OUTBOX_LIMIT` | `500` | Messages the daemon keeps per room while the relay is unreachable (oldest dropped). `0` = unlimited. |
+| `HIVELANE_LANES` | `1` | Give every agent its own lane (relay member): each chat, each other tool (Cursor beside Claude Code) and each subagent. `0` = all agents on a machine share one lane per repo, as before. |
 
 ## Relay (`server/`)
 
