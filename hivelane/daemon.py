@@ -3346,8 +3346,9 @@ class Daemon:
     async def _route(self, event: NormalizedEvent) -> Optional[RepoBinding]:
         """The repo an event belongs to. The edited file decides first: an
         agent started in a folder above its repo still edits inside it, so
-        its cwd alone would miss the repo. Then the repo this session last
-        worked in, then the cwd itself, then a single project below the cwd."""
+        its cwd alone would miss the repo. Then the cwd itself, then (for a
+        cwd outside every repo) the repo this session last worked in, then a
+        single project below the cwd."""
         if self._default is not None:
             return await self.binding_for(event.cwd)
         if event.file_path:
@@ -3359,14 +3360,18 @@ class Daemon:
             # A file outside every repo is judged by the cwd, as it always
             # was; never by where the session happened to work before.
             return await self.binding_for(event.cwd)
+        binding = await self.binding_for(event.cwd)
+        if binding is not None:
+            return binding
+        # Only a cwd outside every repo falls back to the session's memory:
+        # an agent that moves into another repo goes with its cwd.
         remembered = self._session_roots.get(event.session_id) if event.session_id else None
         if remembered is not None:
             binding = self._bindings.get(remembered)
             if binding is not None and binding.connection.fatal is None:
                 return binding
-        binding = await self.binding_for(event.cwd)
-        if binding is not None or not event.cwd:
-            return binding
+        if not event.cwd:
+            return None
         nested = await self._nested_project(event.cwd)
         return await self.binding_for(str(nested)) if nested is not None else None
 
@@ -3477,13 +3482,10 @@ class Daemon:
             subagent_type=event.subagent_type or "", conn=primary, primary=primary,
         )
         holder = self._primary_holder.get(id(primary))
-        if (
-            not event.subagent_id
-            and agent in (primary.agent, "unknown")
-            and (holder is None or now - holder.last_used > LANE_IDLE_SECONDS)
-        ):
-            # The person's first main session of the repo's agent is who the
-            # repo's own connection stands for.
+        if not event.subagent_id and (holder is None or now - holder.last_used > LANE_IDLE_SECONDS):
+            # The person's first main session is who the repo's own
+            # connection stands for, whichever tool it runs in: the `agent`
+            # in .hivelane.toml is the team's, not necessarily this person's.
             self._primary_holder[id(primary)] = lane
             return lane
         owned = [other for other in self._lanes_of(primary) if other.owned]
