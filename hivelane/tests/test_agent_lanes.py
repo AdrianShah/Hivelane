@@ -296,6 +296,27 @@ def test_parallel_agents_each_get_a_lane(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_first_session_takes_the_main_lane_whatever_its_tool(tmp_path: Path) -> None:
+    """The repo's config names the team's agent, not this person's: a lone
+    Cursor user in a claude-code repo is still just `ada`, not `ada-cursor`."""
+    repo = make_repo(tmp_path / "repo")
+
+    async def scenario() -> None:
+        async with MemberRelay() as relay:
+            daemon = Daemon(batch_seconds=0.05)
+            await daemon.start()
+            await registered(daemon, repo, relay, agent="claude-code")
+            await wait_for(lambda: daemon.status()["repos"][0]["connected"], "the primary")
+            await daemon.handle_event(
+                event("pre_edit", repo, repo / "src" / "a.py", agent="cursor", session_id="conv")
+            )
+            await wait_for(lambda: relay.of_type("ada", "edit_check"), "the check on the main lane")
+            assert relay.members() == ["ada"]
+            await daemon.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_subagent_gets_a_lane_with_its_task_as_intent(tmp_path: Path) -> None:
     repo = make_repo(tmp_path / "repo")
 
