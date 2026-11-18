@@ -67,6 +67,9 @@ EVENT_FIELDS: tuple[str, ...] = (
     "summary",
     "files",
     "symbols",
+    # Inside a subagent: which one (see hivelane.events.NormalizedEvent).
+    "subagent_id",
+    "subagent_type",
 )
 
 DECISIONS: tuple[str, ...] = ("allow", "warn", "block")

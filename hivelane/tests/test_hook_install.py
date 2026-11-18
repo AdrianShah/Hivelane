@@ -50,7 +50,8 @@ def test_install_merges_and_is_idempotent(
 
     assert first["model"] == "opus"
     assert UNRELATED in first["hooks"]["PreToolUse"]
-    assert len(hivelane_hooks(first["hooks"]["PreToolUse"])) == 1
+    # The edit check and the subagent-launch hook.
+    assert len(hivelane_hooks(first["hooks"]["PreToolUse"])) == 2
     assert len(hivelane_hooks(first["hooks"]["PostToolUse"])) == 1
     assert len(hivelane_hooks(first["hooks"]["UserPromptSubmit"])) == 1
 

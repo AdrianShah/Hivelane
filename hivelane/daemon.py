@@ -48,6 +48,7 @@ from websockets.asyncio.client import connect as ws_connect
 from hivelane import __version__, auth, crypto, gitinfo, redact, symbols
 from hivelane.depgraph import DepTracker
 from hivelane.config import (
+    PROJECT_FILE,
     ConfigFileError,
     HivelaneConfig,
     load_config,
@@ -177,6 +178,46 @@ QUEUE_MEMORY = 256
 # One POST /wait holds at most this long; `hivelane wait` polls in slices.
 WAIT_SLICE_MAX = 30.0
 _HASH_TOKEN = re.compile(r"h:[0-9a-f]{32}")
+
+# --- agent lanes -------------------------------------------------------------
+# The relay knows one member per WebSocket, and every member is one agent
+# (one lane on the dashboard, one party to conflict checks). A person often
+# runs several agents at once: two chats, Claude Code beside Cursor, and the
+# subagents each of those spawns. Each gets a lane: its own relay member,
+# named after the person (`adrian-cursor`, `adrian-explore-3f2a`). The repo's
+# own connection is the person's first main session; further lanes are opened
+# on demand and closed once idle. HIVELANE_LANES=0 turns this off (every agent
+# shares the one connection, as before).
+LANES_ENABLED = os.environ.get("HIVELANE_LANES", "1").strip().lower() not in ("0", "false", "no", "off")
+# A lane nobody has used for this long is closed (and the primary connection
+# is free for the next chat to claim).
+LANE_IDLE_SECONDS = 15 * 60.0
+# A subagent's lane outlives its SubagentStop by this long, so its last
+# batched edits still go out under its own name.
+LANE_END_GRACE = 8.0
+# How long a new lane's first event waits for the relay to admit it before
+# falling back to the primary connection for that event.
+LANE_JOIN_WAIT = 2.5
+# A lane the relay would not admit (approval room, name taken, room full) is
+# not retried for this long: its agent rides the primary connection meanwhile.
+LANE_RETRY_SECONDS = 120.0
+MAX_LANES_PER_CONNECTION = 16
+LANE_SWEEP_SECONDS = 5.0
+# Subagent tasks (delegate events) waiting for their subagent to start.
+DELEGATION_TTL = 600.0
+MAX_DELEGATIONS = 32
+# An intent from a cwd no repo claims yet (the chat started above the repo
+# folder) is held this long for the session's first routed event.
+PENDING_INTENT_TTL = 600.0
+MAX_PENDING_INTENTS = 64
+# session_id -> the repo its last routed event belonged to.
+SESSION_ROOT_MEMORY = 512
+# Looking for a .hivelane.toml *below* a cwd outside every repo: how deep, and
+# how many directories at most, so a chat started in a home folder stays cheap.
+NESTED_SEARCH_DEPTH = 3
+NESTED_SEARCH_DIRS = 4000
+_NESTED_SKIP = frozenset({"node_modules", "__pycache__", "venv", "env", "dist", "build", "target", "site-packages"})
+_LANE_SHORT_NAMES = {"claude-code": "claude", "gemini-cli": "gemini", "antigravity": "agy"}
 
 # Mirrors server/room.py _ALWAYS_WARN_BASENAMES: files the relay always judges
 # at file level. In an e2e room it only sees a hashed path and cannot tell, so
@@ -613,6 +654,91 @@ def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
     return config, name
 
 
+def find_nested_project(cwd: str) -> Optional[Path]:
+    """The one directory below cwd holding a .hivelane.toml, or None (none
+    found, or several: then which one a cwd-only event means is a guess).
+
+    For agents started a folder above the repo they work in: their cwd is
+    outside it, so walking *up* from the cwd never finds the project.
+    Breadth-first, hidden and dependency folders skipped, bounded by
+    NESTED_SEARCH_DEPTH and NESTED_SEARCH_DIRS. Blocking: run in a thread.
+    """
+    try:
+        start = Path(cwd).resolve()
+    except (OSError, ValueError):
+        return None
+    if not cwd or not start.is_dir():
+        return None
+    found: list[Path] = []
+    frontier = [start]
+    visited = 0
+    for _depth in range(NESTED_SEARCH_DEPTH):
+        nxt: list[Path] = []
+        for directory in frontier:
+            try:
+                entries = list(os.scandir(directory))
+            except OSError:
+                continue
+            for entry in entries:
+                name = entry.name
+                if name.startswith(".") or name.lower() in _NESTED_SKIP:
+                    continue
+                try:
+                    if not entry.is_dir(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                visited += 1
+                if visited > NESTED_SEARCH_DIRS:
+                    return found[0] if len(found) == 1 else None
+                child = Path(entry.path)
+                if (child / PROJECT_FILE).is_file():
+                    found.append(child)
+                    if len(found) > 1:
+                        return None
+                    continue  # a project's own subfolders are its business
+                nxt.append(child)
+        frontier = nxt
+    return found[0] if len(found) == 1 else None
+
+
+def _existing_dir(path: Path) -> Optional[Path]:
+    """path, or its nearest existing ancestor (a Write may create folders)."""
+    try:
+        for candidate in (path, *path.parents):
+            if candidate.is_dir():
+                return candidate
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _bounded_put(table: OrderedDict, key: Any, value: Any, limit: int) -> None:
+    table.pop(key, None)
+    table[key] = value
+    while len(table) > limit:
+        table.popitem(last=False)
+
+
+def lane_suffix(agent: str, subagent_id: Optional[str], subagent_type: Optional[str]) -> str:
+    """The part after the person's name in a lane's relay name: the agent for
+    a main session (`cursor`), type plus a short id for a subagent
+    (`explore-3f2a`)."""
+    if subagent_id:
+        kind = _RELAY_UNSAFE.sub("", (subagent_type or "").lower())[:8] or "sub"
+        tag = _RELAY_UNSAFE.sub("", subagent_id.lower().replace("agent-", "").replace("agent_", ""))
+        return f"{kind}-{(tag or '0')[-4:]}"
+    return _LANE_SHORT_NAMES.get(agent, _RELAY_UNSAFE.sub("", agent.lower())[:10] or "agent")
+
+
+def lane_name(base: str, suffix: str) -> str:
+    """`base-suffix` within the relay's name limit, the base cut to fit."""
+    base = relay_user_id(base) or "agent"
+    suffix = suffix[: NAME_MAX_LENGTH - 2]
+    room = max(1, NAME_MAX_LENGTH - len(suffix) - 1)
+    return f"{base[:room].rstrip('-_') or base[:1]}-{suffix}"
+
+
 # --- ignore globs ----------------------------------------------------------------
 
 
@@ -734,6 +860,41 @@ class RepoBinding:
     spec: tuple[Any, ...] = ()
     # Secret redaction for what this repo sends (`redact`, `redact_patterns`).
     redactor: redact.Redactor = field(default_factory=redact.Redactor)
+
+
+@dataclass(eq=False)
+class Lane:
+    """One agent's own relay member (see LANES_ENABLED).
+
+    `conn` is the connection its events go out on: its own (`owned`), or
+    the repo's primary connection when it holds the primary claim or when
+    no own connection could be admitted (`retry_at` then says when to try
+    again)."""
+
+    agent: str
+    session_id: str
+    subagent_id: str
+    subagent_type: str
+    conn: RoomConnection
+    primary: RoomConnection
+    owned: bool = False
+    last_used: float = field(default_factory=time.monotonic)
+    ended_at: Optional[float] = None
+    retry_at: Optional[float] = None
+
+    @property
+    def key(self) -> tuple[str, str, str]:
+        return (self.agent, self.session_id, self.subagent_id)
+
+    def describe(self) -> dict[str, Any]:
+        return {
+            "name": self.conn.name,
+            "agent": self.agent,
+            "session": self.session_id[:12],
+            "subagent": self.subagent_type or (self.subagent_id[:12] if self.subagent_id else None),
+            "own_connection": self.owned,
+            "connected": self.conn.live,
+        }
 
 
 class RoomConnection:
@@ -2506,6 +2667,22 @@ class Daemon:
         # Where single-room mode was started, for display in /status.
         self._anchor: Optional[Path] = None
 
+        # Agent lanes (see LANES_ENABLED): (id(primary), lane key) -> Lane,
+        # and which lane holds each primary connection.
+        self.lanes_enabled = LANES_ENABLED
+        self._lanes: dict[tuple[int, tuple[str, str, str]], Lane] = {}
+        self._primary_holder: dict[int, Lane] = {}
+        self._lane_locks: dict[tuple[int, tuple[str, str, str]], asyncio.Lock] = {}
+        self._closing: set[asyncio.Task[Any]] = set()
+        self._lane_sweeper: Optional[asyncio.Task[None]] = None
+        # session_id -> [(subagent type asked for, task text, monotonic)].
+        self._delegations: OrderedDict[str, list[tuple[str, str, float]]] = OrderedDict()
+        # Repo routing beyond the cwd (agents started above their repo):
+        # session_id -> repo root, intents waiting for one, nested lookups.
+        self._session_roots: OrderedDict[str, Path] = OrderedDict()
+        self._pending_intents: OrderedDict[str, tuple[NormalizedEvent, float]] = OrderedDict()
+        self._nested: dict[str, tuple[float, Optional[Path]]] = {}
+
         self._stopping = asyncio.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._running = False
@@ -2773,6 +2950,8 @@ class Daemon:
                 {k: v for k, v in request.items() if k != "received_at"}
                 for request in conn.pending_join_requests()
             ],
+            # Every agent on this machine working in the repo (see Lane).
+            "lanes": [lane.describe() for lane in self._lanes_of(conn)],
             # Teammates' files this connection is waiting in line for.
             "queued": [
                 {"file_path": rel, "position": queued.get("position", 0)}
@@ -3109,6 +3288,9 @@ class Daemon:
         self._route_cache.clear()
         conn = binding.connection
         if all(other.connection is not conn for other in self._all_bindings()):
+            for index, lane in list(self._lanes.items()):
+                if lane.primary is conn:
+                    self._drop_lane(index, lane)
             await conn.close()
 
     def _start_connection(self, conn: RoomConnection) -> None:
@@ -3124,11 +3306,299 @@ class Daemon:
     # --- events ----------------------------------------------------------------
 
     async def handle_event(self, event: NormalizedEvent) -> EventAck:
-        binding = await self.binding_for(event.cwd)
+        self._sweep_lanes()
+        binding = await self._route(event)
         if binding is None:
-            # Nobody coordinates this repo: fail open.
+            # Nobody coordinates this repo (yet): fail open. An intent is
+            # held, since the session's first edit may reveal its repo.
+            if event.kind == "intent":
+                self._hold_intent(event)
+            elif event.kind == "delegate":
+                self._note_delegation(event)
             return EventAck()
-        return await binding.connection.handle_event(event, binding)
+        if binding.root is not None and event.session_id:
+            _bounded_put(self._session_roots, event.session_id, binding.root, SESSION_ROOT_MEMORY)
+        if event.kind == "delegate":
+            # The task travels to the subagent's own lane once it starts.
+            self._note_delegation(event)
+            return EventAck()
+        if event.kind == "subagent_stop":
+            # Never opens a lane: one that never did anything has nothing to close.
+            key = (event.agent, event.session_id, event.subagent_id or "")
+            stopped = self._lanes.get((id(binding.connection), key))
+            if stopped is not None:
+                stopped.ended_at = time.monotonic()
+            return EventAck()
+        lane = await self._lane_for(binding, event)
+        conn = lane.conn if lane is not None else binding.connection
+        held = self._take_held_intent(event)
+        if held is not None:
+            await conn.handle_event(held, binding)
+        if event.kind == "subagent_start":
+            return EventAck()
+        ack = await conn.handle_event(event, binding)
+        if lane is not None and event.kind == "pre_edit":
+            ack = self._family_ack(lane, ack)
+        return ack
+
+    # --- routing beyond the cwd ------------------------------------------------
+
+    async def _route(self, event: NormalizedEvent) -> Optional[RepoBinding]:
+        """The repo an event belongs to. The edited file decides first: an
+        agent started in a folder above its repo still edits inside it, so
+        its cwd alone would miss the repo. Then the cwd itself, then (for a
+        cwd outside every repo) the repo this session last worked in, then a
+        single project below the cwd."""
+        if self._default is not None:
+            return await self.binding_for(event.cwd)
+        if event.file_path:
+            directory = _existing_dir(Path(event.file_path).parent)
+            if directory is not None:
+                binding = await self.binding_for(str(directory))
+                if binding is not None:
+                    return binding
+            # A file outside every repo is judged by the cwd, as it always
+            # was; never by where the session happened to work before.
+            return await self.binding_for(event.cwd)
+        binding = await self.binding_for(event.cwd)
+        if binding is not None:
+            return binding
+        # Only a cwd outside every repo falls back to the session's memory:
+        # an agent that moves into another repo goes with its cwd.
+        remembered = self._session_roots.get(event.session_id) if event.session_id else None
+        if remembered is not None:
+            binding = self._bindings.get(remembered)
+            if binding is not None and binding.connection.fatal is None:
+                return binding
+        if not event.cwd:
+            return None
+        nested = await self._nested_project(event.cwd)
+        return await self.binding_for(str(nested)) if nested is not None else None
+
+    async def _nested_project(self, cwd: str) -> Optional[Path]:
+        cached = self._nested.get(cwd)
+        now = time.monotonic()
+        if cached is not None and cached[0] > now:
+            return cached[1]
+        found = await asyncio.to_thread(find_nested_project, cwd)
+        if len(self._nested) > ROUTE_CACHE_SIZE:
+            self._nested.clear()
+        self._nested[cwd] = (now + NEGATIVE_CACHE_SECONDS, found)
+        return found
+
+    def _hold_intent(self, event: NormalizedEvent) -> None:
+        if not event.session_id or not event.prompt:
+            return
+        _bounded_put(self._pending_intents, event.session_id, (event, time.monotonic()), MAX_PENDING_INTENTS)
+
+    def _take_held_intent(self, event: NormalizedEvent) -> Optional[NormalizedEvent]:
+        """A held intent of this session, replayed before its first routed
+        event (a newer intent simply replaces it)."""
+        if not event.session_id:
+            return None
+        if event.kind == "intent":
+            self._pending_intents.pop(event.session_id, None)
+            return None
+        if event.subagent_id:
+            return None
+        held = self._pending_intents.pop(event.session_id, None)
+        if held is None or time.monotonic() - held[1] > PENDING_INTENT_TTL:
+            return None
+        return held[0]
+
+    # --- agent lanes -------------------------------------------------------------
+
+    def _note_delegation(self, event: NormalizedEvent) -> None:
+        """Keep a subagent's task until that subagent shows up."""
+        if not event.session_id or not event.prompt:
+            return
+        text = f"{event.summary}: {event.prompt}" if event.summary else event.prompt
+        now = time.monotonic()
+        queue = [d for d in self._delegations.pop(event.session_id, []) if now - d[2] < DELEGATION_TTL]
+        queue.append(((event.subagent_type or "").lower(), text, now))
+        _bounded_put(self._delegations, event.session_id, queue[-MAX_DELEGATIONS:], SESSION_ROOT_MEMORY)
+
+    def _take_delegation(self, session_id: str, subagent_type: Optional[str]) -> Optional[str]:
+        """The oldest pending task of this session for this subagent type
+        (any type when none matches)."""
+        queue = self._delegations.get(session_id)
+        if not queue:
+            return None
+        now = time.monotonic()
+        queue[:] = [d for d in queue if now - d[2] < DELEGATION_TTL]
+        wanted = (subagent_type or "").lower()
+        for index, item in enumerate(queue):
+            if item[0] == wanted:
+                return queue.pop(index)[1]
+        return queue.pop(0)[1] if queue else None
+
+    def _lanes_of(self, primary: RoomConnection) -> list[Lane]:
+        return [lane for (pid, _), lane in self._lanes.items() if pid == id(primary)]
+
+    async def _lane_for(self, binding: RepoBinding, event: NormalizedEvent) -> Optional[Lane]:
+        """The lane an event goes out on, opening one if need be; None means
+        the repo's own connection, as without lanes."""
+        primary = binding.connection
+        if not self.lanes_enabled or primary.fatal is not None or not event.session_id:
+            return None
+        key = (event.agent, event.session_id, event.subagent_id or "")
+        index = (id(primary), key)
+        lock = self._lane_locks.setdefault(index, asyncio.Lock())
+        opened = False
+        async with lock:
+            now = time.monotonic()
+            found = self._lanes.get(index)
+            if found is not None and found.retry_at is not None and now >= found.retry_at:
+                self._drop_lane(index, found)
+                found = None
+            if found is not None and found.owned and (found.conn._closed or found.conn.fatal is not None):
+                self._drop_lane(index, found)
+                found = None
+            if found is not None:
+                lane = found
+            else:
+                lane = await self._open_lane(binding, event)
+                self._lanes[index] = lane
+                self._lane_locks[index] = lock
+                opened = True
+            lane.last_used = now
+        if opened and event.subagent_id:
+            task = self._take_delegation(event.session_id, event.subagent_type)
+            if task:
+                intent = NormalizedEvent(
+                    kind="intent", agent=event.agent, session_id=event.session_id,
+                    cwd=event.cwd, prompt=task, subagent_id=event.subagent_id,
+                    subagent_type=event.subagent_type,
+                )
+                await lane.conn.handle_event(intent, binding)
+        return lane
+
+    async def _open_lane(self, binding: RepoBinding, event: NormalizedEvent) -> Lane:
+        primary = binding.connection
+        now = time.monotonic()
+        agent = event.agent if event.agent in AGENT_KINDS else "unknown"
+        lane = Lane(
+            agent=agent, session_id=event.session_id, subagent_id=event.subagent_id or "",
+            subagent_type=event.subagent_type or "", conn=primary, primary=primary,
+        )
+        holder = self._primary_holder.get(id(primary))
+        if not event.subagent_id and (holder is None or now - holder.last_used > LANE_IDLE_SECONDS):
+            # The person's first main session is who the repo's own
+            # connection stands for, whichever tool it runs in: the `agent`
+            # in .hivelane.toml is the team's, not necessarily this person's.
+            self._primary_holder[id(primary)] = lane
+            return lane
+        owned = [other for other in self._lanes_of(primary) if other.owned]
+        if not self._running or len(owned) >= MAX_LANES_PER_CONNECTION:
+            lane.retry_at = now + LANE_RETRY_SECONDS
+            return lane
+        taken = {relay_user_id(primary.name)} | {relay_user_id(other.conn.name) for other in owned}
+        suffix = lane_suffix(agent, event.subagent_id, event.subagent_type)
+        name = lane_name(primary.name, suffix)
+        number = 2
+        while name in taken:
+            name = lane_name(primary.name, f"{suffix}{number}")
+            number += 1
+        conn = RoomConnection(
+            primary.room,
+            name,
+            agent=agent if agent != "unknown" else primary.agent,  # type: ignore[arg-type]
+            server=primary.server,
+            batch_seconds=primary.batch_seconds,
+            edit_check_timeout=primary.edit_check_timeout,
+            settings=primary.settings,
+            e2e_key=primary.e2e_key,
+            owner_token=primary.owner_token,
+        )
+        conn.repo_id = primary.repo_id
+        conn.repo_root = primary.repo_root
+        conn.key_fingerprint = primary.key_fingerprint
+        conn.start()
+        deadline = time.monotonic() + LANE_JOIN_WAIT
+        while (
+            not conn.live
+            and conn.fatal is None
+            and conn.awaiting_approval is None
+            and time.monotonic() < deadline
+        ):
+            await asyncio.sleep(0.02)
+        if not conn.live:
+            # Not admitted in time (an approval room, a taken name, a full
+            # room, a slow relay): this agent rides the primary connection
+            # for now, exactly as it would without lanes.
+            self._close_later(conn)
+            lane.retry_at = time.monotonic() + LANE_RETRY_SECONDS
+            return lane
+        print(f"hivelane: lane {name} for {agent} session {event.session_id[:8]}")
+        lane.conn = conn
+        lane.owned = True
+        return lane
+
+    def _close_later(self, conn: RoomConnection) -> None:
+        task = asyncio.get_running_loop().create_task(conn.close())
+        self._closing.add(task)
+        task.add_done_callback(self._closing.discard)
+
+    def _drop_lane(self, index: tuple[int, tuple[str, str, str]], lane: Lane) -> None:
+        if self._lanes.get(index) is lane:
+            del self._lanes[index]
+        if self._primary_holder.get(index[0]) is lane:
+            del self._primary_holder[index[0]]
+        if lane.owned and not lane.conn._closed:
+            self._close_later(lane.conn)
+
+    def _sweep_lanes(self, now: Optional[float] = None) -> None:
+        """Close lanes whose agent went quiet or whose subagent finished."""
+        if not self._lanes:
+            return
+        now = time.monotonic() if now is None else now
+        for index, lane in list(self._lanes.items()):
+            ended = lane.ended_at is not None and now - lane.ended_at > LANE_END_GRACE
+            if ended or now - lane.last_used > LANE_IDLE_SECONDS:
+                self._drop_lane(index, lane)
+                lock = self._lane_locks.get(index)
+                if lock is not None and not lock.locked():
+                    del self._lane_locks[index]
+
+    async def _sweep_periodically(self) -> None:
+        while True:
+            await asyncio.sleep(LANE_SWEEP_SECONDS)
+            self._sweep_lanes()
+
+    def _family_ack(self, lane: Lane, ack: EventAck) -> EventAck:
+        """Agents of one chat never block each other.
+
+        A subagent editing a file its own parent just touched is a hand-off,
+        not a collision (the parent launched it); two subagents of the same
+        chat in one file get a warning, never a block. Anyone else in the
+        file (another chat, another tool, a teammate) keeps the relay's
+        decision."""
+        if ack.decision == "allow" or not ack.others or not lane.session_id:
+            return ack
+        own: dict[str, Lane] = {}
+        for other in self._lanes_of(lane.primary):
+            if other.owned:
+                own[relay_user_id(other.conn.name)] = other
+        holder = self._primary_holder.get(id(lane.primary))
+        if holder is not None:
+            own[relay_user_id(lane.primary.name)] = holder
+        siblings: list[PeerTouch] = []
+        for peer in ack.others:
+            mate = own.get(relay_user_id(peer.user_id))
+            if mate is None or mate is lane or mate.session_id != lane.session_id:
+                return ack
+            if mate.subagent_id and lane.subagent_id:
+                siblings.append(peer)
+        if not siblings:
+            return EventAck(file_path=ack.file_path)
+        path = ack.file_path or "this file"
+        names = ", ".join(peer.user_id for peer in siblings[:3])
+        return EventAck(
+            decision="warn",
+            reason=f"another subagent of this same chat ({names}) is also editing {path}",
+            file_path=ack.file_path,
+            others=siblings,
+        )
 
     # --- lifecycle -----------------------------------------------------------
 
@@ -3163,14 +3633,24 @@ class Daemon:
         self._running = True
         for conn in self._connections():
             self._start_connection(conn)
+        if self._lane_sweeper is None:
+            self._lane_sweeper = asyncio.create_task(self._sweep_periodically(), name="lanes")
 
     async def aclose(self) -> None:
         """Graceful stop of the relay side: flush batches, close sockets."""
         self._running = False
         for task in list(self._discovering.values()):
             task.cancel()
+        if self._lane_sweeper is not None:
+            self._lane_sweeper.cancel()
+            self._lane_sweeper = None
+        lanes = [lane.conn for lane in self._lanes.values() if lane.owned]
+        self._lanes.clear()
+        self._primary_holder.clear()
         await asyncio.gather(
-            *(conn.close() for conn in self._connections()), return_exceptions=True
+            *(conn.close() for conn in [*self._connections(), *lanes]),
+            *list(self._closing),
+            return_exceptions=True,
         )
 
     def stop(self) -> None:

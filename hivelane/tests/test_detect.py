@@ -76,7 +76,7 @@ def test_claude_adapter_installs_idempotently(machine: dict[str, str], tmp_path:
 
     first = claude.install(scope)
     assert first.changed
-    assert set(first.added) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
+    assert set(first.added) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"}
     assert first.path == tmp_path / "repo" / ".claude" / "settings.json"
     assert claude.is_installed(scope)
     content = first.path.read_text(encoding="utf-8")
