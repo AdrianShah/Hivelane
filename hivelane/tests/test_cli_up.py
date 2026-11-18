@@ -42,7 +42,7 @@ def test_first_run_creates_room_writes_config_installs_hooks_and_connects(
     out = capsys.readouterr().out
     assert machine.relay.urls("POST") == ["http://localhost:8000/rooms"]
     assert project_values(machine) == {"room": "K7Q2XM"}  # default relay is not recorded
-    assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
+    assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"}
 
     assert machine.service.called("start_background") == [("start_background", 4600)]
     (_, port, root, config) = machine.service.called("connect_repo")[0]
@@ -382,7 +382,7 @@ def test_claude_code_is_hooked_even_when_not_detected(
     assert cli.main(["up"]) == 0
 
     out = capsys.readouterr().out
-    assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse"}
+    assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"}
     assert "Claude Code (not detected): added hooks" in out
     assert "Codex (codex on PATH): added hooks to .codex" in out
     assert "Gemini CLI (~/.gemini): added hooks to .gemini" in out
