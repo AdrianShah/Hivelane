@@ -14,7 +14,8 @@
     "join_decision": "#/$defs/JoinDecision",
     "room_policy": "#/$defs/RoomPolicy",
     "file_request": "#/$defs/FileRequest",
-    "history_request": "#/$defs/HistoryRequest"
+    "history_request": "#/$defs/HistoryRequest",
+    "task": "#/$defs/TaskRequest"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -39,7 +40,9 @@
     "file_requested": "#/$defs/FileRequested",
     "file_released": "#/$defs/FileReleased",
     "history_chunk": "#/$defs/HistoryChunk",
-    "hivelane_feed": "#/$defs/HivelaneFeed"
+    "hivelane_feed": "#/$defs/HivelaneFeed",
+    "task_reply": "#/$defs/TaskReply",
+    "task_update": "#/$defs/TaskUpdate"
   },
   "oneOf": [
     {
@@ -71,6 +74,9 @@
     },
     {
       "$ref": "#/$defs/HistoryRequest"
+    },
+    {
+      "$ref": "#/$defs/TaskRequest"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -140,6 +146,12 @@
     },
     {
       "$ref": "#/$defs/HivelaneFeed"
+    },
+    {
+      "$ref": "#/$defs/TaskReply"
+    },
+    {
+      "$ref": "#/$defs/TaskUpdate"
     }
   ],
   "$defs": {
@@ -500,6 +512,14 @@
           },
           "title": "Siblings",
           "type": "array"
+        },
+        "own_names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Own Names",
+          "type": "array"
         }
       },
       "required": [
@@ -555,7 +575,8 @@
             "file",
             "intent",
             "plan",
-            "branch"
+            "branch",
+            "task"
           ],
           "title": "Scope",
           "type": "string"
@@ -656,7 +677,8 @@
             "file",
             "intent",
             "plan",
-            "branch"
+            "branch",
+            "task"
           ],
           "title": "Scope",
           "type": "string"
@@ -1742,6 +1764,335 @@
         "warn_window_seconds"
       ],
       "title": "RoomSettingsUpdate",
+      "type": "object"
+    },
+    "Task": {
+      "properties": {
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "body": {
+          "default": "",
+          "title": "Body",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "depends_on": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "status": {
+          "default": "open",
+          "enum": [
+            "open",
+            "claimed",
+            "done",
+            "cancelled"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "created_by": {
+          "title": "Created By",
+          "type": "string"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "number"
+        },
+        "updated_at": {
+          "title": "Updated At",
+          "type": "number"
+        },
+        "claimer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claimer"
+        },
+        "claimed_at": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claimed At"
+        },
+        "lease_until": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lease Until"
+        },
+        "notes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/TaskNote"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "created_by",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Task",
+      "type": "object"
+    },
+    "TaskNote": {
+      "properties": {
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "kind": {
+          "default": "note",
+          "enum": [
+            "note",
+            "done",
+            "cancel"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "timestamp"
+      ],
+      "title": "TaskNote",
+      "type": "object"
+    },
+    "TaskReply": {
+      "properties": {
+        "type": {
+          "const": "task_reply",
+          "default": "task_reply",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "task": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Task"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tasks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Task"
+          },
+          "title": "Tasks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "request_id",
+        "ok"
+      ],
+      "title": "TaskReply",
+      "type": "object"
+    },
+    "TaskRequest": {
+      "description": "One operation on the room's task list. Every request gets exactly one\ntask_reply with the same request_id.",
+      "properties": {
+        "type": {
+          "const": "task",
+          "default": "task",
+          "title": "Type",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 128,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "create",
+            "claim",
+            "renew",
+            "note",
+            "done",
+            "release",
+            "cancel",
+            "list"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "task_id": {
+          "default": "",
+          "maxLength": 16,
+          "title": "Task Id",
+          "type": "string"
+        },
+        "next": {
+          "default": false,
+          "title": "Next",
+          "type": "boolean"
+        },
+        "title": {
+          "default": "",
+          "title": "Title",
+          "type": "string"
+        },
+        "body": {
+          "default": "",
+          "title": "Body",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "depends_on": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Depends On",
+          "type": "array"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "lease_seconds": {
+          "default": 1800,
+          "maximum": 28800,
+          "minimum": 60,
+          "title": "Lease Seconds",
+          "type": "number"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "include_closed": {
+          "default": false,
+          "title": "Include Closed",
+          "type": "boolean"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "op"
+      ],
+      "title": "TaskRequest",
+      "type": "object"
+    },
+    "TaskUpdate": {
+      "description": "A task changed (dashboards only: members ask with op \"list\").",
+      "properties": {
+        "type": {
+          "const": "task_update",
+          "default": "task_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "task": {
+          "$ref": "#/$defs/Task"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "title": "TaskUpdate",
       "type": "object"
     },
     "UserJoined": {

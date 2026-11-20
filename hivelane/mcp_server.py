@@ -21,6 +21,7 @@ from hivelane import __version__ as _VERSION  # type: ignore[attr-defined]
 PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 HTTP_TIMEOUT = 5.0
+TASK_TIMEOUT = 10.0
 MAX_CONTENT = 256 * 1024
 
 AGENTS_MD = """\
@@ -35,6 +36,10 @@ tools tell you who is where:
   teammate is working there, tell the user and ask before editing.
 - After editing a file, call `report_edit` with its path.
 - Call `who_is_here` to see who else is in the room.
+- The room has a shared task list. `task_list` shows it; `task_claim` (with
+  `next: true` for the oldest ready task) claims one and reserves its files
+  for you; post progress with `task_note` and finish with `task_done`. If an
+  edit is blocked because a teammate's task reserves the file, pick other work.
 """
 
 
@@ -71,7 +76,7 @@ class DaemonClient:
         headers.update(auth.auth_headers(self.token))
         return headers
 
-    def _request(self, path: str, body: Optional[dict[str, Any]] = None) -> Any:
+    def _request(self, path: str, body: Optional[dict[str, Any]] = None, timeout: Optional[float] = None) -> Any:
         from hivelane import auth
 
         # File contents and the token go only to a daemon that proves it holds
@@ -93,7 +98,7 @@ class DaemonClient:
             headers=self._headers(),
         )
         try:
-            with _OPENER.open(req, timeout=self.timeout) as resp:
+            with _OPENER.open(req, timeout=timeout or self.timeout) as resp:
                 return json.loads(resp.read().decode() or "null")
         except urllib.error.HTTPError as exc:
             if exc.code == 401:
@@ -112,6 +117,10 @@ class DaemonClient:
 
     def status(self) -> Any:
         return self._request("/status")
+
+    def tasks(self, body: dict[str, Any]) -> dict[str, Any]:
+        # The daemon waits up to 5 s for the relay's reply.
+        return self._request("/tasks", body, timeout=TASK_TIMEOUT) or {}
 
 
 def read_text(path: Path, cap: int = MAX_CONTENT) -> Optional[str]:
@@ -185,6 +194,64 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["path"],
         },
     },
+    {
+        "name": "task_list",
+        "description": "Lists the room's shared tasks (open and claimed; all=true adds finished ones).",
+        "inputSchema": {"type": "object", "properties": {"all": {"type": "boolean"}}},
+    },
+    {
+        "name": "task_add",
+        "description": "Adds a task to the room's shared list. Files listed are reserved for whoever claims it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "what needs doing, in one line"},
+                "body": {"type": "string"},
+                "files": {"type": "array", "items": {"type": "string"}},
+                "after": {"type": "array", "items": {"type": "string"}, "description": "task ids that must be done first"},
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "task_claim",
+        "description": "Claims a task (task_id, or next=true for the oldest ready one). Its files are reserved for you until you finish or the lease (default 30 min, renewed by your edits) runs out.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_id": {"type": "string"},
+                "next": {"type": "boolean"},
+                "lease_minutes": {"type": "number"},
+            },
+        },
+    },
+    {
+        "name": "task_note",
+        "description": "Posts a short progress note on a task you created or claimed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["task_id", "text"],
+        },
+    },
+    {
+        "name": "task_done",
+        "description": "Marks your claimed task done (with a result, e.g. a PR link) and frees its files.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}, "result": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    },
+    {
+        "name": "task_release",
+        "description": "Gives up your claim on a task without finishing it (it is open again).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
+        },
+    },
 ]
 
 
@@ -201,6 +268,12 @@ class McpServer:
             "declare_intent": self.declare_intent,
             "who_is_here": self.who_is_here,
             "report_edit": self.report_edit,
+            "task_list": self.task_list,
+            "task_add": self.task_add,
+            "task_claim": self.task_claim,
+            "task_note": self.task_note,
+            "task_done": self.task_done,
+            "task_release": self.task_release,
         }
 
     # --- tools ---------------------------------------------------------------
@@ -270,6 +343,70 @@ class McpServer:
             else:
                 lines.append("- no teammates present")
         return "\n".join(lines)
+
+    # --- room tasks ------------------------------------------------------------
+
+    def _task(self, op: str, **fields: Any) -> dict[str, Any]:
+        return self.client.tasks({"cwd": self.cwd, "op": op, **fields})
+
+    @staticmethod
+    def _task_refusal(reply: dict[str, Any], task_id: str = "") -> str:
+        from hivelane import tasks_cli
+
+        text = tasks_cli._refusal(reply, task_id).removeprefix("hivelane: ")
+        return text[:1].upper() + text[1:] + "."
+
+    def task_list(self, args: dict[str, Any]) -> str:
+        from hivelane import tasks_cli
+
+        reply = self._task("list", include_closed=bool(args.get("all")))
+        if not reply.get("ok"):
+            return self._task_refusal(reply)
+        tasks = reply.get("tasks") or []
+        if not tasks:
+            return "No tasks in this room's list."
+        return "\n".join(tasks_cli._line(t).strip() for t in tasks)
+
+    def task_add(self, args: dict[str, Any]) -> str:
+        reply = self._task(
+            "create",
+            title=str(args.get("title") or ""),
+            body=str(args.get("body") or ""),
+            files=[str(f) for f in (args.get("files") or [])],
+            depends_on=[str(t) for t in (args.get("after") or [])],
+        )
+        if not reply.get("ok"):
+            return self._task_refusal(reply)
+        return f"Created {reply['task']['task_id']}."
+
+    def task_claim(self, args: dict[str, Any]) -> str:
+        from hivelane import tasks_cli
+
+        task_id = str(args.get("task_id") or "")
+        minutes = args.get("lease_minutes")
+        lease = 1800.0 if not isinstance(minutes, (int, float)) else min(28800.0, max(60.0, float(minutes) * 60))
+        reply = self._task("claim", task_id=task_id, next=bool(args.get("next")) and not task_id, lease_seconds=lease)
+        if not reply.get("ok"):
+            return self._task_refusal(reply, task_id)
+        task = reply["task"]
+        files = task.get("files") or []
+        reserved = f" Reserved for you: {', '.join(files)}." if files else ""
+        return f"Claimed {tasks_cli._line(task).strip()}.{reserved} Finish with task_done."
+
+    def task_note(self, args: dict[str, Any]) -> str:
+        task_id = str(args["task_id"])
+        reply = self._task("note", task_id=task_id, text=str(args.get("text") or ""))
+        return f"Noted on {task_id.upper()}." if reply.get("ok") else self._task_refusal(reply, task_id)
+
+    def task_done(self, args: dict[str, Any]) -> str:
+        task_id = str(args["task_id"])
+        reply = self._task("done", task_id=task_id, text=str(args.get("result") or ""))
+        return f"{task_id.upper()} is done; its files are free." if reply.get("ok") else self._task_refusal(reply, task_id)
+
+    def task_release(self, args: dict[str, Any]) -> str:
+        task_id = str(args["task_id"])
+        reply = self._task("release", task_id=task_id)
+        return f"Released {task_id.upper()}." if reply.get("ok") else self._task_refusal(reply, task_id)
 
     # --- JSON-RPC ------------------------------------------------------------
 

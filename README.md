@@ -38,6 +38,7 @@ lands.
 - **Pre-edit checks.** Agents ask the relay before writing a file and are warned or blocked when a teammate is already editing it.
 - **Per-agent lanes.** Declared intent, prompts, captions and expandable diffs for every agent in the room.
 - **Conflict radar.** Overlapping edits within a short window are flagged as they happen.
+- **Room tasks.** A shared task list agents claim from the CLI or MCP; a claimed task reserves its files so teammates' agents stay out of them.
 - **Shared rooms.** One room per repository, recorded in a committed config file. No accounts required.
 - **Agent support.** Works with Claude Code, Cursor, Codex, Gemini CLI and others through hooks.
 - **Self-hostable.** The relay ships as a Docker image with ready-made Compose, Fly.io and Render configurations.
@@ -116,6 +117,7 @@ hivelane serve       Run the multi-repo daemon in the foreground
 hivelane service     Install or uninstall the daemon as a login service
 hivelane join ROOM   Run a single-room daemon in the foreground
 hivelane hook ...    Agent hook entry point
+hivelane task ...    The room's shared task list (add, claim, done)
 hivelane --version   Print the version
 ```
 
@@ -130,6 +132,7 @@ See [docs/cli.md](docs/cli.md) for every flag and configuration option.
 | Environment variables | [docs/configuration.md](docs/configuration.md) |
 | Wire protocol (HTTP and WebSocket) | [docs/protocol.md](docs/protocol.md) |
 | Conflict detection | [docs/conflict-detection.md](docs/conflict-detection.md) |
+| Room tasks | [docs/tasks.md](docs/tasks.md) |
 | Agent adapters | [docs/adapters.md](docs/adapters.md) |
 | Self-hosting a relay | [docs/self-hosting.md](docs/self-hosting.md) |
 | Security model | [docs/security.md](docs/security.md) |

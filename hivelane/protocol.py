@@ -51,7 +51,7 @@ RepoId = Annotated[str, Field(max_length=64)]
 
 
 # Granularity at which an edit check (or its broadcast) found the conflict.
-DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch"]
+DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch", "task"]
 
 # How a peer is involved: edited the file, plans to, or only mentioned it.
 PeerKind = Literal["edited", "planned", "intent"]
@@ -164,6 +164,10 @@ class EditCheckRequest(BaseModel):
     # the hook itself: it only shapes the requester's own decision.
     same_chat: list[str] = []
     siblings: list[str] = []
+    # Every name the requester's daemon speaks under in this room (its main
+    # name and its agent lanes): reservations of tasks claimed by any of
+    # them do not block it. Advisory, like same_chat.
+    own_names: list[str] = []
 
 
 class FileRequest(BaseModel):
@@ -310,6 +314,84 @@ class PlanUpdate(BaseModel):
     timestamp: float
     expires_at: float
     e2e: E2EBlob = ""
+
+# --- room tasks ----------------------------------------------------------------
+# A shared task list per room: members create tasks, claim them under a lease,
+# post notes and complete them. A claimed task's files are reserved: other
+# members' edit_checks on them are blocked (scope "task") until the task is
+# done, released or its lease lapses. In an e2e room titles, bodies and note
+# text travel only inside e2e blobs and files are h: hashes.
+
+TaskStatus = Literal["open", "claimed", "done", "cancelled"]
+TaskOp = Literal["create", "claim", "renew", "note", "done", "release", "cancel", "list"]
+
+
+class TaskNote(BaseModel):
+    user_id: str
+    text: str = ""
+    timestamp: float
+    # "note", or the op that wrote it: "done" (the result) or "cancel".
+    kind: Literal["note", "done", "cancel"] = "note"
+    e2e: E2EBlob = ""
+
+
+class Task(BaseModel):
+    task_id: str
+    repo_id: RepoId = ""
+    title: str = ""
+    body: str = ""
+    files: list[str] = []
+    depends_on: list[str] = []
+    status: TaskStatus = "open"
+    created_by: str
+    created_at: float
+    updated_at: float
+    claimer: Optional[str] = None
+    claimed_at: Optional[float] = None
+    lease_until: Optional[float] = None
+    notes: list[TaskNote] = []
+    e2e: E2EBlob = ""
+
+
+class TaskRequest(BaseModel):
+    """One operation on the room's task list. Every request gets exactly one
+    task_reply with the same request_id."""
+
+    type: Literal["task"] = "task"
+    request_id: str = Field(..., max_length=128)
+    op: TaskOp
+    task_id: str = Field("", max_length=16)
+    # claim: the oldest ready task of repo_id instead of task_id.
+    next: bool = False
+    title: str = ""
+    body: str = ""
+    files: list[str] = []
+    depends_on: list[str] = []
+    repo_id: RepoId = ""
+    lease_seconds: float = Field(1800, ge=60, le=28800)
+    # note / done / cancel: the text recorded on the task.
+    text: str = ""
+    # list: done and cancelled tasks too.
+    include_closed: bool = False
+    e2e: E2EBlob = ""
+
+
+class TaskReply(BaseModel):
+    type: Literal["task_reply"] = "task_reply"
+    request_id: str
+    ok: bool
+    # Why not ("not_found", "not_ready", "claimed", "not_claimer", "not_owner",
+    # "closed", "none_ready", "limit", "rate_limited", "invalid"); "" when ok.
+    reason: str = ""
+    task: Optional[Task] = None
+    tasks: list[Task] = []
+
+
+class TaskUpdate(BaseModel):
+    """A task changed (dashboards only: members ask with op "list")."""
+
+    type: Literal["task_update"] = "task_update"
+    task: Task
 
 
 class DecisionFeedbackUpdate(BaseModel):
@@ -474,6 +556,7 @@ CLIENT_TO_RELAY: tuple[type[BaseModel], ...] = (
     RoomPolicy,
     FileRequest,
     HistoryRequest,
+    TaskRequest,
 )
 
 RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
@@ -500,4 +583,6 @@ RELAY_TO_CLIENT: tuple[type[BaseModel], ...] = (
     FileReleased,
     HistoryChunk,
     HivelaneFeed,
+    TaskReply,
+    TaskUpdate,
 )

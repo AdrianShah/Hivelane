@@ -113,7 +113,10 @@ def test_mcp_handshake(stub: StubDaemon, tmp_path: Path) -> None:
     init = replies[0]["result"]
     assert init["protocolVersion"] == "2025-06-18"
     assert init["serverInfo"]["name"] == "hivelane" and "tools" in init["capabilities"]
-    assert {t["name"] for t in replies[1]["result"]["tools"]} == {"check_file", "declare_intent", "who_is_here", "report_edit"}
+    assert {t["name"] for t in replies[1]["result"]["tools"]} == {
+        "check_file", "declare_intent", "who_is_here", "report_edit",
+        "task_list", "task_add", "task_claim", "task_note", "task_done", "task_release",
+    }
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601
     unknown = rpc(server, [{"jsonrpc": "2.0", "id": 9, "method": "initialize", "params": {"protocolVersion": "1999-01-01"}}])
@@ -146,6 +149,32 @@ def test_mcp_tools(stub: StubDaemon, tmp_path: Path) -> None:
 
     text = call(server, "who_is_here")["content"][0]["text"]
     assert "TEAM42" in text and "connected" in text and "bob" in text
+
+
+def test_mcp_task_tools(stub: StubDaemon, tmp_path: Path) -> None:
+    server = mcp_server.McpServer(mcp_server.DaemonClient(stub.port), agent="codex", cwd=str(tmp_path))
+    task = {
+        "task_id": "T4", "title": "Add rate limiting", "files": ["server/api.py"], "depends_on": [],
+        "status": "claimed", "claimer": "ada", "lease_until": 9e9, "created_by": "sam",
+        "created_at": 1.0, "updated_at": 1.0, "notes": [],
+    }
+    stub.ack = {"ok": True, "task": task}
+    text = call(server, "task_claim", {"next": True, "lease_minutes": 45})["content"][0]["text"]
+    assert stub.events[-1] == {
+        "cwd": str(tmp_path.resolve()), "op": "claim", "task_id": "", "next": True, "lease_seconds": 2700.0,
+    }
+    assert "Claimed T4" in text and "Reserved for you: server/api.py" in text
+
+    call(server, "task_add", {"title": "Docs", "files": ["README.md"], "after": ["T4"]})
+    assert (stub.events[-1]["op"], stub.events[-1]["files"], stub.events[-1]["depends_on"]) == ("create", ["README.md"], ["T4"])
+
+    stub.ack = {"ok": True, "tasks": [task]}
+    assert "T4" in call(server, "task_list")["content"][0]["text"]
+
+    stub.ack = {"ok": False, "reason": "not_claimer"}
+    text = call(server, "task_done", {"task_id": "t4", "result": "PR 9"})["content"][0]["text"]
+    assert stub.events[-1]["text"] == "PR 9"
+    assert text == "Only the agent that claimed T4 can do that."
 
 
 def test_mcp_daemon_down_is_tool_error(tmp_path: Path, dead_port: int) -> None:

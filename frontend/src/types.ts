@@ -28,7 +28,7 @@ export interface FileChange {
 }
 
 /** Granularity at which the relay found a conflict. */
-export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch';
+export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch' | 'task';
 
 /**
  * Opaque repository identity from the daemon (hash of the normalized origin
@@ -109,6 +109,47 @@ export interface PlanUpdate {
   timestamp: number;
   expires_at: number;
   e2e?: string;
+}
+
+export type TaskStatus = 'open' | 'claimed' | 'done' | 'cancelled';
+
+/** A note on a room task (kind "done" is the result, "cancel" the reason). */
+export interface TaskNote {
+  user_id: string;
+  text: string;
+  timestamp: number;
+  kind?: 'note' | 'done' | 'cancel';
+  e2e?: string;
+}
+
+/**
+ * A room task: created and claimed from the CLI or MCP. While claimed its
+ * files are reserved (others' edits to them are blocked, scope "task").
+ * In an e2e room title, body and note text live in the blobs and files are
+ * h: hashes.
+ */
+export interface Task {
+  task_id: string;
+  repo_id?: RepoId;
+  title: string;
+  body?: string;
+  files: string[];
+  depends_on: string[];
+  status: TaskStatus;
+  created_by: string;
+  created_at: number;
+  updated_at: number;
+  claimer?: string | null;
+  claimed_at?: number | null;
+  lease_until?: number | null;
+  notes: TaskNote[];
+  e2e?: string;
+}
+
+/** A task changed (dashboards only), also sent in the join catch-up. */
+export interface TaskUpdate {
+  type: 'task_update';
+  task: Task;
 }
 
 export interface PlanConflict {
@@ -318,7 +359,8 @@ export type FeedEvent =
   | RoomSettingsUpdate
   | RoomPolicyUpdate
   | UserJoined
-  | UserLeft;
+  | UserLeft
+  | TaskUpdate;
 
 /** Team-wide conflict windows from a repo's committed .hivelane.toml. */
 export interface RoomSettings {
@@ -354,6 +396,7 @@ export type ServerMessage =
   | IntentUpdate
   | PlanUpdate
   | PlanConflicts
+  | TaskUpdate
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | RoomPolicyUpdate

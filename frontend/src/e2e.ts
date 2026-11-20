@@ -38,7 +38,7 @@ export const PBKDF2_ITERATIONS = 600_000;
 export const BLOB_V2_PREFIX = '2.';
 const PAD_MIN = 256;
 const PAD_LINEAR_STEP = 16 * 1024;
-export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check'] as const;
+export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check', 'task'] as const;
 export type EnvelopeType = (typeof ENVELOPE_TYPES)[number];
 
 const NONCE_BYTES = 12;
@@ -498,7 +498,8 @@ export class E2EDecoder {
     if (!frame || typeof frame !== 'object') return item;
     const blob = frame.e2e;
     const encrypted = typeof blob === 'string' && blob.length > 0;
-    if (!encrypted && !JSON.stringify(frame).includes('"h:')) return item;
+    // A task_update carries its blobs on the task and its notes, not the frame.
+    if (!encrypted && frame.type !== 'task_update' && !JSON.stringify(frame).includes('"h:')) return item;
     const envelope = await this.open(blob);
     const locked = encrypted && envelope === null;
     const hidden = this.key ? UNREADABLE_TEXT : LOCKED_TEXT;
@@ -553,6 +554,38 @@ export class E2EDecoder {
             : this.name(String(frame.file_path ?? ''));
         if (typeof frame.reason === 'string') out.reason = this.text(frame.reason);
         break;
+      case 'task_update': {
+        // The blobs are on the task and on each note, not on the frame.
+        const task = frame.task;
+        if (!task || typeof task !== 'object') break;
+        const t = task as Record<string, unknown>;
+        const taskBlob = typeof t.e2e === 'string' && t.e2e.length > 0 ? t.e2e : '';
+        const opened = taskBlob ? await this.open(taskBlob) : null;
+        const copy: Record<string, unknown> = { ...t, e2e: '' };
+        if (opened) {
+          copy.title = typeof opened.title === 'string' ? opened.title : '';
+          copy.body = typeof opened.body === 'string' ? opened.body : '';
+          copy.files = asStrings(opened.files);
+        } else {
+          if (taskBlob) copy.title = hidden;
+          copy.files = asStrings(t.files).map((f) => this.name(f));
+        }
+        const notes: unknown[] = [];
+        for (const note of Array.isArray(t.notes) ? t.notes : []) {
+          if (!note || typeof note !== 'object') continue;
+          const n = note as Record<string, unknown>;
+          const noteBlob = typeof n.e2e === 'string' && n.e2e.length > 0 ? n.e2e : '';
+          if (!noteBlob) {
+            notes.push(n);
+            continue;
+          }
+          const openedNote = await this.open(noteBlob);
+          notes.push({ ...n, e2e: '', text: openedNote && typeof openedNote.text === 'string' ? openedNote.text : hidden });
+        }
+        copy.notes = notes;
+        out.task = copy;
+        break;
+      }
       case 'conflict_alert':
         out.file_path = this.name(String(frame.file_path ?? ''));
         if (typeof frame.explanation === 'string') out.explanation = this.text(frame.explanation);
