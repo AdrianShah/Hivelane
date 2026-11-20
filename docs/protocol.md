@@ -254,6 +254,8 @@ with `warn` and a reason saying it was not checked.
 | `line_ranges` | [integer, integer][] | `[]` | Line ranges the edit is predicted to touch. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+| `same_chat` | string[] (at most 32) | `[]` | Members that are agents of the sender's own chat (a parent and its subagents, see [several agents per person](conflict-detection.md#several-agents-per-person)). Their touches, plans and intents are left out of the decision: a hand-off is not a conflict. |
+| `siblings` | string[] (at most 32) | `[]` | Sibling subagents of the sender's chat. Their touches warn at most, never block. |
 
 The decision rules (symbols, line ranges, windows, branches, plans) are in
 [Conflict detection](conflict-detection.md). A client should give up waiting

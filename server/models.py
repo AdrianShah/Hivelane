@@ -165,6 +165,12 @@ class EditCheckRequest(BaseModel):
     line_ranges: list[tuple[int, int]] = []
     branch: str = ""
     e2e: E2EBlob = ""
+    # Members that are agents of the requester's own chat (the daemon's agent
+    # lanes): their touches are a hand-off and are left out of the verdict,
+    # and siblings' (two subagents of one chat) warn at most. Only the
+    # requester's own decision changes, which its daemon could override anyway.
+    same_chat: list[str] = []
+    siblings: list[str] = []
 
 
 class FileRequest(BaseModel):

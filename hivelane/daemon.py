@@ -36,7 +36,7 @@ from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 from urllib.parse import urlsplit
 
 import uvicorn
@@ -725,7 +725,9 @@ def lane_suffix(agent: str, subagent_id: Optional[str], subagent_type: Optional[
     a main session (`cursor`), type plus a short id for a subagent
     (`explore-3f2a`)."""
     if subagent_id:
-        kind = _RELAY_UNSAFE.sub("", (subagent_type or "").lower())[:8] or "sub"
+        # Cut, then trimmed: "general-purpose"[:8] is "general-", and its
+        # dash would double up with the separator below.
+        kind = _RELAY_UNSAFE.sub("", (subagent_type or "").lower())[:8].strip("-_") or "sub"
         tag = _RELAY_UNSAFE.sub("", subagent_id.lower().replace("agent-", "").replace("agent_", ""))
         return f"{kind}-{(tag or '0')[-4:]}"
     return _LANE_SHORT_NAMES.get(agent, _RELAY_UNSAFE.sub("", agent.lower())[:10] or "agent")
@@ -1301,7 +1303,17 @@ class RoomConnection:
             return cached
         return await asyncio.to_thread(repo_id_for, root)
 
-    async def handle_event(self, event: NormalizedEvent, binding: RepoBinding) -> EventAck:
+    async def handle_event(
+        self,
+        event: NormalizedEvent,
+        binding: RepoBinding,
+        *,
+        same_chat: Sequence[str] = (),
+        siblings: Sequence[str] = (),
+    ) -> EventAck:
+        """same_chat / siblings: the lanes of this event's own chat, sent on
+        an edit_check so the relay leaves a hand-off out of the verdict (see
+        Daemon._family_names)."""
         repo_id = await self.repo_id_for_cwd(event.cwd, binding)
         if event.kind == "intent":
             return self._handle_intent(event, repo_id, binding.redactor)
@@ -1316,7 +1328,9 @@ class RoomConnection:
         head = gitinfo.head_for(root)
         if event.kind == "pre_edit":
             branch = (head.branch or "") if head else ""
-            ack = await self._handle_pre_edit(event, rel, repo_id, branch=branch)
+            ack = await self._handle_pre_edit(
+                event, rel, repo_id, branch=branch, same_chat=same_chat, siblings=siblings
+            )
             for note in (
                 self._release_note(repo_id, rel, event.session_id, ack),
                 self.deps.note_for(rel, event.old_content, repo_id),
@@ -1394,7 +1408,14 @@ class RoomConnection:
         return EventAck(decision="warn", reason=note) if note else EventAck()
 
     async def _handle_pre_edit(
-        self, event: NormalizedEvent, rel: str, repo_id: str = "", branch: str = ""
+        self,
+        event: NormalizedEvent,
+        rel: str,
+        repo_id: str = "",
+        branch: str = "",
+        *,
+        same_chat: Sequence[str] = (),
+        siblings: Sequence[str] = (),
     ) -> EventAck:
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
@@ -1419,6 +1440,8 @@ class RoomConnection:
                 symbols=names,
                 line_ranges=ranges,
                 branch=branch,
+                same_chat=list(same_chat),
+                siblings=list(siblings),
             )
         )
         if not sent:
@@ -3336,10 +3359,13 @@ class Daemon:
             await conn.handle_event(held, binding)
         if event.kind == "subagent_start":
             return EventAck()
-        ack = await conn.handle_event(event, binding)
         if lane is not None and event.kind == "pre_edit":
-            ack = self._family_ack(lane, ack)
-        return ack
+            same_chat, siblings = self._family_names(lane)
+            ack = await conn.handle_event(event, binding, same_chat=same_chat, siblings=siblings)
+            # Still applied: a relay older than same_chat ignores the lists,
+            # and then only this ack (not the room's feed) reflects them.
+            return self._family_ack(lane, ack)
+        return await conn.handle_event(event, binding)
 
     # --- routing beyond the cwd ------------------------------------------------
 
@@ -3565,6 +3591,34 @@ class Daemon:
             await asyncio.sleep(LANE_SWEEP_SECONDS)
             self._sweep_lanes()
 
+    def _chat_lanes(self, lane: Lane) -> dict[str, Lane]:
+        """Relay name -> lane, for every lane on lane's repo connection that
+        speaks under a name of its own (the primary holder included)."""
+        own: dict[str, Lane] = {}
+        for other in self._lanes_of(lane.primary):
+            if other.owned:
+                own[relay_user_id(other.conn.name)] = other
+        holder = self._primary_holder.get(id(lane.primary))
+        if holder is not None:
+            own[relay_user_id(lane.primary.name)] = holder
+        return own
+
+    def _family_names(self, lane: Lane) -> tuple[list[str], list[str]]:
+        """The relay names of lane's own chat, for its edit_check: the
+        parent and its subagents (same_chat: a hand-off, left out of the
+        verdict), and sibling subagents (siblings: warn at most). The same
+        rules as _family_ack, decided by the relay so the room's feed shows
+        what the agent was actually told."""
+        same_chat: list[str] = []
+        siblings: list[str] = []
+        if not lane.session_id:
+            return same_chat, siblings
+        for name, mate in self._chat_lanes(lane).items():
+            if mate is lane or mate.session_id != lane.session_id:
+                continue
+            (siblings if mate.subagent_id and lane.subagent_id else same_chat).append(name)
+        return same_chat, siblings
+
     def _family_ack(self, lane: Lane, ack: EventAck) -> EventAck:
         """Agents of one chat never block each other.
 
@@ -3575,13 +3629,7 @@ class Daemon:
         decision."""
         if ack.decision == "allow" or not ack.others or not lane.session_id:
             return ack
-        own: dict[str, Lane] = {}
-        for other in self._lanes_of(lane.primary):
-            if other.owned:
-                own[relay_user_id(other.conn.name)] = other
-        holder = self._primary_holder.get(id(lane.primary))
-        if holder is not None:
-            own[relay_user_id(lane.primary.name)] = holder
+        own = self._chat_lanes(lane)
         siblings: list[PeerTouch] = []
         for peer in ack.others:
             mate = own.get(relay_user_id(peer.user_id))

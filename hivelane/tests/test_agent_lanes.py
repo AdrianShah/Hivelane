@@ -188,6 +188,10 @@ def test_lane_names_fit_the_relay() -> None:
     assert lane_name("ada", lane_suffix("claude-code", None, None)) == "ada-claude"
     sub = lane_name("ada", lane_suffix("claude-code", "agent-abc123", "Explore"))
     assert sub == "ada-explore-c123"
+    # A type cut mid-word at a dash keeps one separator, not two.
+    general = lane_name("ada", lane_suffix("claude-code", "agent-a1f9", "general-purpose"))
+    assert general == "ada-general-a1f9"
+    assert lane_suffix("claude-code", "agent-0001", "---") == "sub-0001"
     long = lane_name("Bartholomew Longname", lane_suffix("claude-code", "agent-ffff", "security-reviewer"))
     assert len(long) <= 20 and long.endswith("-security-ffff")
     assert all(ch.isalnum() or ch in "-_" for ch in long)
@@ -342,7 +346,10 @@ def test_subagent_gets_a_lane_with_its_task_as_intent(tmp_path: Path) -> None:
             assert (await daemon.handle_event(event("pre_edit", repo, repo / "src" / "p.py"))).decision == "allow"
             handoff = await daemon.handle_event(event("pre_edit", repo, repo / "src" / "p.py", **sub))
             assert handoff.decision == "allow"
-            assert relay.of_type("ada-explore-c123", "edit_check")
+            check = relay.of_type("ada-explore-c123", "edit_check")[-1]
+            # The relay is told who the chat is, so the room's feed records
+            # no conflict for a hand-off either.
+            assert (check["same_chat"], check["siblings"]) == (["ada"], [])
 
             # Two subagents of one chat in one file: a warning, never a block.
             sibling = {"subagent_id": "agent-def456", "subagent_type": "general-purpose"}
@@ -350,12 +357,16 @@ def test_subagent_gets_a_lane_with_its_task_as_intent(tmp_path: Path) -> None:
             clash = await daemon.handle_event(event("pre_edit", repo, repo / "src" / "q.py", **sibling))
             assert clash.decision == "warn"
             assert "ada-explore-c123" in clash.reason
+            check = relay.of_type("ada-general-f456", "edit_check")[-1]
+            assert (check["same_chat"], check["siblings"]) == (["ada"], ["ada-explore-c123"])
 
             # Another chat in the parent's file still gets the relay's block.
             stranger = await daemon.handle_event(
                 event("pre_edit", repo, repo / "src" / "p.py", session_id="chat2")
             )
             assert stranger.decision == "block"
+            other_chat = relay.of_type("ada-claude", "edit_check")[-1]
+            assert (other_chat["same_chat"], other_chat["siblings"]) == ([], [])
 
             # The subagent finishes: its lane closes after the grace period.
             await daemon.handle_event(event("subagent_stop", repo, **sub))

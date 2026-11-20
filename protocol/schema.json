@@ -484,6 +484,22 @@
           "maxLength": 262144,
           "title": "E2E",
           "type": "string"
+        },
+        "same_chat": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Same Chat",
+          "type": "array"
+        },
+        "siblings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Siblings",
+          "type": "array"
         }
       },
       "required": [
