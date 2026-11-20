@@ -19,6 +19,8 @@ import { PreventedCounter, ShareCardDialog } from './components/PreventedCounter
 import ShortcutHelp from './components/ShortcutHelp';
 import ThemeToggle from './components/ThemeToggle';
 import TimelineView from './components/TimelineView';
+import TasksView from './components/TasksView';
+import { applyTaskEvent, claimedBy } from './dashboard/taskReducer';
 import { fileMatches, isFiltering, matchesLane } from './dashboard/filters';
 import { deriveLane } from './dashboard/laneFacts';
 import { useDashboardState, viewFromParam } from './dashboard/useDashboardState';
@@ -85,6 +87,7 @@ import type {
   RoomPolicy,
   RoomSettingsUpdate,
   ServerMessage,
+  Task,
 } from './types';
 
 /** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
@@ -231,6 +234,7 @@ const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
 const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
   dashboard: 'Cluster',
   agents: 'Cluster',
+  tasks: 'Cluster',
   timeline: 'Logs',
   heatmap: 'Analytics',
   invite: 'Cluster',
@@ -250,6 +254,8 @@ export default function App() {
   const [users, setUsers] = useState<Record<string, LaneEntry>>({});
   const [conflicts, setConflicts] = useState<ConflictAlert[]>([]);
   const [conflictHistory, setConflictHistory] = useState<ConflictAlert[]>([]);
+  // The room's task list (task_update frames; read-only here).
+  const [tasks, setTasks] = useState<Record<string, Task>>({});
   // Conflict windows the relay enforces here; null until its catch-up arrives.
   const [roomSettings, setRoomSettings] = useState<RoomSettingsUpdate | null>(
     null,
@@ -418,6 +424,7 @@ export default function App() {
     setUsers({});
     setConflicts([]);
     setConflictHistory([]);
+    setTasks({});
     recordFeedEvent({ type: 'reset' });
     setRoomSettings(null);
     setStatus('connecting');
@@ -618,6 +625,10 @@ export default function App() {
               setRequireApproval(item.require_approval);
               break;
 
+            case 'task_update':
+              setTasks((prev) => applyTaskEvent(prev, item));
+              break;
+
             case 'conflict_alert':
               setConflicts((prev) => upsertConflict(prev, item));
               if (isActionableConflict(item)) {
@@ -677,6 +688,7 @@ export default function App() {
           case 'plan_update':
           case 'decision_feedback_update':
           case 'room_policy_update':
+          case 'task_update':
             // Catch-up frames still arrive as individual messages via send().
             applyDecoded(msg);
             break;
@@ -833,6 +845,16 @@ export default function App() {
   // Recomputed when the log, the lanes or the coarse clock move, not on every
   // unrelated render (toasts, copy state, dialogs). laneNow stands for "now".
   const laneNow = Math.floor(nowSeconds / (CLOCK_TICK_MS / 1000)) * (CLOCK_TICK_MS / 1000);
+  // Tasks each member holds, for the claimed-task line on its lane card.
+  const tasksByClaimer = useMemo(() => {
+    const out: Record<string, Task[]> = {};
+    for (const task of Object.values(tasks)) {
+      if (task.status === 'claimed' && task.claimer && !out[task.claimer]) {
+        out[task.claimer] = claimedBy(tasks, task.claimer);
+      }
+    }
+    return out;
+  }, [tasks]);
   const laneDerived = useMemo(
     () =>
       Object.fromEntries(
@@ -1239,6 +1261,7 @@ export default function App() {
                           lastActivity={laneDerived[id].lastActivity}
                           nowSeconds={laneNow}
                           fileFilter={laneFileFilter}
+                          claimedTasks={tasksByClaimer[id]}
                         />
                       ))}
                     </div>
@@ -1276,6 +1299,7 @@ export default function App() {
             </div>
           ) : null}
 
+          {view === 'tasks' ? <TasksView tasks={tasks} nowSeconds={laneNow} /> : null}
           {view === 'timeline' ? (
             <TimelineView
               log={dash.log}

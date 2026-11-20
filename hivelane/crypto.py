@@ -81,7 +81,7 @@ GENERATED_KEY_BYTES = 32
 MIN_PASSPHRASE_CHARS = 16
 MIN_PASSPHRASE_BITS = 80
 # The client message types a blob can be made for: its associated data.
-ENVELOPE_TYPES = ("activity", "intent", "plan", "edit_check")
+ENVELOPE_TYPES = ("activity", "intent", "plan", "edit_check", "task")
 INSTALL_HINT = "pip install 'hivelane[e2e]'  (or: pipx inject hivelane cryptography)"
 
 

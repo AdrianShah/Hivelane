@@ -520,7 +520,7 @@ def test_daemon_adopts_a_token_regenerated_on_disk(live_daemon: tuple[Any, int])
     assert new != old
     assert hook_fast.post_event({"kind": "intent", "session_id": "s", "cwd": "/", "prompt": "x"}, port) == {
         "decision": "allow", "reason": "", "file_path": None, "others": [],
-        "queue_position": 0, "suggestion": "",
+        "queue_position": 0, "suggestion": "", "scope": "",
     }
     assert daemon.token == new
 

@@ -2067,6 +2067,12 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--port", type=int, default=None, help=port_help)
     wait.set_defaults(func=cmd_wait)
 
+    # `hivelane task ...` (hivelane/tasks_cli.py): imported here, at parse
+    # time, but it has no heavy imports of its own.
+    from hivelane import tasks_cli
+
+    tasks_cli.register(sub, port_help)
+
     doctor = sub.add_parser("doctor", help="check the setup and say how to fix what is wrong")
     doctor.add_argument("--root", default=None, metavar="PATH", help=root_help)
     doctor.add_argument("--port", type=int, default=None, help=port_help)

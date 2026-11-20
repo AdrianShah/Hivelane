@@ -147,6 +147,7 @@ arrived on its own.
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
 | [`history_request`](#history_request) | members and spectators | `history_chunk` frames to the sender |
+| [`task`](#task) | members | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
 
 The relay ignores fields it does not know, frames that are not JSON objects,
 messages with an unknown `type`, and messages that fail validation (they are
@@ -254,6 +255,7 @@ with `warn` and a reason saying it was not checked.
 | `line_ranges` | [integer, integer][] | `[]` | Line ranges the edit is predicted to touch. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+| `own_names` | string[] (at most 32) | `[]` | Every name the sender's daemon speaks under in the room (its main name and agent lanes). Files reserved by a [task](#task) claimed under any of them do not block the sender. |
 | `same_chat` | string[] (at most 32) | `[]` | Members that are agents of the sender's own chat (a parent and its subagents, see [several agents per person](conflict-detection.md#several-agents-per-person)). Their touches, plans and intents are left out of the decision: a hand-off is not a conflict. |
 | `siblings` | string[] (at most 32) | `[]` | Sibling subagents of the sender's chat. Their touches warn at most, never block. |
 
@@ -348,6 +350,28 @@ off admits everyone waiting.
 |-------|------|---------|-------------|
 | `require_approval` | boolean | required | `true`: every new joiner without the owner token waits for an owner's approval. |
 
+### task
+
+One operation on the room's shared task list ([Room tasks](tasks.md)). Every
+request gets exactly one `task_reply` with its `request_id`, also when it is
+refused or invalid. `list` is never rate limited; other operations are limited
+to one every 0.2 s per member.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `request_id` | string (at most 128 chars) | required | Echoed on the reply. |
+| `op` | `"create"`, `"claim"`, `"renew"`, `"note"`, `"done"`, `"release"`, `"cancel"`, `"list"` | required | The operation. |
+| `task_id` | string | `""` | The task (`"T12"`; `"12"` and `"t12"` also work). |
+| `next` | boolean | `false` | `claim`: the oldest ready task of `repo_id` instead of `task_id`. |
+| `title` / `body` | string | `""` | `create`. At most 200 / 2,000 bytes. Required (title or `e2e`). |
+| `files` | string[] | `[]` | `create`: repo-relative paths (hashes in e2e rooms) reserved while claimed. At most 50. |
+| `depends_on` | string[] | `[]` | `create`: tasks that must be done or cancelled first. At most 10. |
+| `repo_id` | string | `""` | The repository (as on `edit_check`). |
+| `lease_seconds` | number (60 to 28,800) | `1800` | `claim` / `renew`. |
+| `text` | string | `""` | `note` / `done` / `cancel`: the note, result or reason. At most 500 bytes. |
+| `include_closed` | boolean | `false` | `list`: also done and cancelled tasks. |
+| `e2e` | string | `""` | In an e2e room: a `"task"` envelope with `title`, `body`, `text` and `files`. |
+
 ## Relay to client
 
 ### edit_check_response
@@ -361,7 +385,7 @@ The answer to an `edit_check`, sent only to the member who asked.
 | `file_path` | string | required | The checked path, as sent. |
 | `others` | [PeerTouch](#peertouch)[] | `[]` | The peers that drove the decision, most relevant first. |
 | `reason` | string | `""` | One sentence about the peer that drove the decision; `""` for allow. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan` or `branch`. |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | The sender's place in the file's [wait queue](#wait-queues) after this check, `1` being next; `0` when not queued (allowed, or the queue was full). |
 | `suggestion` | string | `""` | For warn/block, one short thing to do instead, built from room state: another file nobody active is in (this module's tests, the sender's own plan, a neighbour in the same directory) and, for a block, how long to wait. `""` when there is nothing to offer. Paths are never suggested in encrypted rooms. |
@@ -391,6 +415,36 @@ One peer's recent involvement with the checked file.
              "prompt": "Rewrite broadcast fan-out", "symbols": ["Room.broadcast"],
              "branch": "main", "kind": "edited", "e2e": ""}]}
 ```
+
+### task_reply
+
+The answer to a `task`, sent only to the member who asked.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `request_id` | string | required | The request's id. |
+| `ok` | boolean | required | Whether the operation happened. |
+| `reason` | string | `""` | Why not: `not_found`, `not_ready`, `claimed`, `not_claimer`, `not_owner`, `closed`, `none_ready`, `limit`, `rate_limited` or `invalid`. |
+| `task` | [Task](#task_update) or `null` | `null` | The task after the operation. |
+| `tasks` | Task[] | `[]` | `list`: the tasks of `repo_id`. |
+
+### task_update
+
+A task changed. Sent to **dashboards only** (members ask with `list`), and
+included in a dashboard's join catch-up. A dashboard should keep the snapshot
+with the newest `updated_at`: feed events queued before it joined can arrive
+after its catch-up.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `task.task_id` | string | `"T1"`, `"T2"`, … per room. |
+| `task.status` | `"open"`, `"claimed"`, `"done"`, `"cancelled"` | |
+| `task.title`, `task.body` | string | Empty in e2e rooms (read `task.e2e`). |
+| `task.files`, `task.depends_on` | string[] | |
+| `task.created_by`, `task.claimer` | string, string or `null` | Member names. |
+| `task.created_at`, `task.updated_at`, `task.claimed_at`, `task.lease_until` | number (or `null`) | Unix seconds. |
+| `task.notes` | `{user_id, text, timestamp, kind, e2e}`[] | `kind` is `note`, `done` (the result) or `cancel`. At most 20. |
+| `task.e2e` | string | The creator's `"task"` envelope, in e2e rooms. |
 
 ### plan_conflicts
 
@@ -476,7 +530,7 @@ show it. Allowed edits are not broadcast.
 | `reason` | string | `""` | Human-readable explanation, safe to show verbatim. |
 | `timestamp` | number | now | Unix time in seconds. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan` or `branch`. |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | As in `edit_check_response`: the member's place in the file's wait queue. |
 | `suggestion` | string | `""` | As in `edit_check_response`. |

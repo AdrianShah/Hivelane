@@ -58,6 +58,9 @@ try:
         PlanMessage,
         RateLimited,
         RoomPolicy,
+        TaskReply,
+        TaskRequest,
+        TaskUpdate,
         RoomRejected,
         RoomSettings,
         UserJoined,
@@ -78,12 +81,14 @@ try:
     )
     from .room_manager import RoomManager, room_is_full, spectators_full
     from .store import StoreReadError, store_kind
+    from .tasks import TaskError
     from .sanitize import (
         MAX_FRAME_BYTES,
         cap_activity,
         cap_edit_check,
         cap_intent,
         cap_plan,
+        cap_task,
         sanitize_name,
     )
 except ImportError:  # Render runs with rootDir=server as a flat module tree
@@ -128,6 +133,9 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         PlanMessage,
         RateLimited,
         RoomPolicy,
+        TaskReply,
+        TaskRequest,
+        TaskUpdate,
         RoomRejected,
         RoomSettings,
         UserJoined,
@@ -148,12 +156,14 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     )
     from room_manager import RoomManager, room_is_full, spectators_full  # type: ignore[no-redef]
     from store import StoreReadError, store_kind  # type: ignore[no-redef]
+    from tasks import TaskError  # type: ignore[no-redef]
     from sanitize import (  # type: ignore[no-redef]
         MAX_FRAME_BYTES,
         cap_activity,
         cap_edit_check,
         cap_intent,
         cap_plan,
+        cap_task,
         sanitize_name,
     )
 
@@ -284,6 +294,8 @@ metrics.register_gauge(
 
 # Drop activity spam: same user must wait this long between accepted updates.
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
+# Task operations per member (list is free): a script cannot churn the board.
+TASK_MIN_INTERVAL_SECONDS = 0.2
 
 # Keep empty rooms around so a shared Vercel link / daemon reconnect still
 # works after a brief disconnect (Render free-tier blips, laptop sleep, etc.).
@@ -1075,6 +1087,77 @@ async def handle_plan(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
     await room.broadcast(update)
 
 
+async def _answer_task(room: Room, socket: WebSocket, raw: dict, *, reason: str) -> None:
+    """A refused task request still gets its reply (the daemon waits on it)."""
+    request_id = raw.get("request_id") if isinstance(raw, dict) else None
+    if isinstance(request_id, str) and request_id:
+        await room.send(
+            socket, TaskReply(request_id=request_id[:128], ok=False, reason=reason)
+        )
+
+
+async def handle_task(room: Room, socket: WebSocket, user_id: str, raw: dict) -> None:
+    """One operation on the room's task list (server/tasks.py): reply to the
+    sender, and show the changed task on the dashboards."""
+    try:
+        message = TaskRequest.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("task", user_id, exc)
+        await _answer_task(room, socket, raw, reason="invalid")
+        return
+    cap_task(message)
+    if message.op != "list" and room.is_activity_rate_limited(
+        user_id, TASK_MIN_INTERVAL_SECONDS, channel="task", scope=message.repo_id
+    ):
+        await _answer_task(room, socket, raw, reason="rate_limited")
+        return
+
+    now = time.time()
+    board = room.tasks
+    reply = TaskReply(request_id=message.request_id, ok=True)
+    try:
+        if message.op == "list":
+            reply.tasks = board.list(message.repo_id, message.include_closed)
+        else:
+            if message.op == "create":
+                task = board.create(
+                    user_id,
+                    now,
+                    repo_id=message.repo_id,
+                    title=message.title,
+                    body=message.body,
+                    files=message.files,
+                    depends_on=message.depends_on,
+                    e2e=message.e2e,
+                )
+            elif message.op == "claim":
+                task = board.claim(
+                    user_id,
+                    now,
+                    task_id=message.task_id,
+                    next_ready=message.next,
+                    repo_id=message.repo_id,
+                    lease_seconds=message.lease_seconds,
+                )
+            elif message.op == "renew":
+                task = board.renew(
+                    user_id, now, task_id=message.task_id, lease_seconds=message.lease_seconds
+                )
+            elif message.op == "release":
+                task = board.release(user_id, now, task_id=message.task_id)
+            else:  # note, done, cancel
+                op = {"note": board.note, "done": board.done, "cancel": board.cancel}[message.op]
+                task = op(user_id, now, task_id=message.task_id, text=message.text, e2e=message.e2e)
+            reply.task = task
+    except TaskError as exc:
+        reply = TaskReply(request_id=message.request_id, ok=False, reason=exc.reason)
+    await room.send(socket, reply)
+    if reply.ok and reply.task is not None:
+        log.debug("task %s %s by %s", message.op, reply.task.task_id, user_id)
+        await room.broadcast(TaskUpdate(task=reply.task), spectators_only=True)
+        room.ensure_task_sweeper()
+
+
 async def handle_decision_feedback(room: Room, voter: str, raw: dict) -> None:
     """Count a dashboard's useful/noise vote on a warn or block decision."""
     try:
@@ -1169,6 +1252,7 @@ async def handle_edit_check(
         branch=request.branch,
         same_chat=request.same_chat,
         siblings=request.siblings,
+        own_names=request.own_names,
     )
     # The file's wait queue (server/file_queue.py) has the last word: it can
     # hold back an edit no touch blocks (the file is promised to whoever is
@@ -1186,6 +1270,12 @@ async def handle_edit_check(
         branch=request.branch,
     )
     decision, peers, scope = outcome.decision, outcome.peers, outcome.scope
+    if decision != "block":
+        # The claimer working on its task's files keeps the lease alive.
+        for renewed in room.tasks.renew_on_edit(
+            [user_id, *request.own_names], request.repo_id, request.file_path, now
+        ):
+            await room.broadcast(TaskUpdate(task=renewed), spectators_only=True)
     reason = outcome.reason or _edit_check_reason(
         decision, request.file_path, peers, now, scope
     )
@@ -1480,6 +1570,7 @@ async def serve_spectator(
     catch_up.extend(room.latest_intents())
     catch_up.extend(room.active_plans())
     catch_up.extend(room.latest_updates())
+    catch_up.extend(TaskUpdate(task=task) for task in room.tasks.all())
     if admission.is_owner:
         catch_up.extend(room.pending_requests())
     try:
@@ -1574,6 +1665,8 @@ async def serve_member(
             if _over_quota(room):
                 if kind == "plan":
                     await _answer_plan(room, socket, raw, reason="rate_limited")
+                elif kind == "task":
+                    await _answer_task(room, socket, raw, reason="rate_limited")
                 continue
             if kind in _QUEUE_JUDGED:
                 await room.tick_file_queues()
@@ -1585,6 +1678,8 @@ async def serve_member(
                 await handle_file_request(room, user_id, raw)
             elif kind == "plan":
                 await handle_plan(room, socket, user_id, raw)
+            elif kind == "task":
+                await handle_task(room, socket, user_id, raw)
             elif kind == "decision_feedback":
                 await handle_decision_feedback(room, f"socket:{id(socket)}", raw)
             elif kind == "join_decision":

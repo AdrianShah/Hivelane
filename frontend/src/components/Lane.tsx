@@ -1,5 +1,6 @@
 import { memo, useId, useState } from 'react';
-import type { LaneState, PlanUpdate } from '../types';
+import type { LaneState, PlanUpdate, Task } from '../types';
+import { leaseLabel } from '../dashboard/taskReducer';
 import { decisionScope, scopeLabel, type FeedbackMap, type Vote } from '../detection';
 import type { LaneStatus } from '../dashboard/laneStatus';
 import { normPath } from '../dashboard/paths';
@@ -41,6 +42,8 @@ interface LaneProps {
   nowSeconds: number;
   /** When a file filter is active, diffs of other files are hidden. */
   fileFilter?: (path: string) => boolean;
+  /** Room tasks this member has claimed (their files are reserved for it). */
+  claimedTasks?: Task[];
 }
 
 const MAX_DIFFS = 5;
@@ -81,6 +84,7 @@ function Lane({
   lastActivity,
   nowSeconds,
   fileFilter,
+  claimedTasks,
 }: LaneProps) {
   const { caption, prompt, intent, decisions, agent, changes, timestamp } = state;
   const activeIntent = intent?.trim() || null;
@@ -206,6 +210,24 @@ function Lane({
               <span className="break-words min-w-0">{caption}</span>
             </p>
           ) : null}
+          {claimedTasks?.map((task) => (
+            <p
+              key={task.task_id}
+              className="m-0 mt-1.5 text-[12px] text-on-muted leading-snug flex gap-1.5 min-w-0"
+              title={task.files.length ? `Reserved: ${task.files.join(', ')}` : undefined}
+            >
+              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
+                assignment_ind
+              </span>
+              <span className="break-words min-w-0">
+                <span className="font-semibold text-on-surface">{task.task_id}</span>{' '}
+                {task.title || 'encrypted task'} · {leaseLabel(task, nowSeconds)}
+                {task.files.length
+                  ? ` · reserves ${task.files.length} file${task.files.length === 1 ? '' : 's'}`
+                  : ''}
+              </span>
+            </p>
+          ))}
         </section>
 
         {plan ? (

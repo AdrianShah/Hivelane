@@ -108,6 +108,12 @@ the dashboard shows the same decision the agent got. A subagent's lane shows
 the task it was given as its intent and closes a few seconds after it
 finishes. Idle lanes close after 15 minutes.
 
+A [room task](tasks.md) adds one more rule. While a task is claimed, its
+files are reserved. A teammate's edit to one of them is blocked with
+`scope: "task"` ("server/api.py is reserved by adrian's task T1"), unless a
+live edit by someone else already decides the check. The claimer's own lanes
+are exempt: the daemon names them on every edit check (`own_names`).
+
 If the relay will not admit a lane (a room that requires approval, a full
 room), that agent falls back to sharing your main lane and the daemon tries
 again two minutes later. `HIVELANE_LANES=0` turns lanes off.

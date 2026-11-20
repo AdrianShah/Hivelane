@@ -36,6 +36,7 @@ try:
         QueueNotice,
     )
     from .history import RoomHistory
+    from .tasks import TaskBoard
     from .limits import TokenBucket
     from .models import (
         ActivityMessage,
@@ -56,6 +57,7 @@ try:
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
+        TaskUpdate,
     )
 except ImportError:  # Render rootDir=server
     import config  # type: ignore[no-redef]
@@ -70,6 +72,7 @@ except ImportError:  # Render rootDir=server
         QueueNotice,
     )
     from history import RoomHistory  # type: ignore[no-redef]
+    from tasks import TaskBoard  # type: ignore[no-redef]
     from limits import TokenBucket  # type: ignore[no-redef]
     from models import (
         ActivityMessage,
@@ -90,9 +93,15 @@ except ImportError:  # Render rootDir=server
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
+        TaskUpdate,
     )
 
 log = logging.getLogger(__name__)
+
+# Task leases are swept when the soonest one lapses, but at least this often
+# (a renewal moves it later) and at most this often.
+TASK_SWEEP_MAX_SECONDS = 30.0
+TASK_SWEEP_MIN_SECONDS = 0.5
 
 # Observers of room events (server/webhooks.py registers one): called with
 # (room, payload) for every room-wide broadcast as it is queued, and for every
@@ -386,6 +395,9 @@ class EditVerdict:
     decision: Decision
     peers: list[FileTouch]
     scope: DecisionScope = "file"
+    # scope "task": the claimed task reserving the file.
+    task_id: str = ""
+    task_lease_until: float = 0.0
 
 
 @dataclass
@@ -524,6 +536,8 @@ class Room:
         # Appending never awaits; deliveries are serialized by _deliver_lock
         # (so each socket sees feeds in order), which no broadcast() waits on.
         self._broadcast_queue: list[dict] = []
+        # ids of queued payloads only dashboards get (see broadcast).
+        self._spectator_only: set[int] = set()
         self._flush_task: Optional[asyncio.Task] = None
         self._deliver_lock = asyncio.Lock()
         # Sockets that missed a send deadline: skipped by every later send
@@ -568,6 +582,9 @@ class Room:
         # them while any exist, and the paths seen here (suggestions).
         self.file_queues = FileQueues()
         self._queue_sweeper: Optional[asyncio.Task] = None
+        # The room's task list (server/tasks.py) and its lease sweeper.
+        self.tasks = TaskBoard()
+        self._task_sweeper: Optional[asyncio.Task] = None
         self._known_paths: OrderedDict[tuple[str, str], None] = OrderedDict()
 
     # --- membership ----------------------------------------------------------
@@ -1325,6 +1342,7 @@ class Room:
         branch: str = "",
         same_chat: Collection[str] = (),
         siblings: Collection[str] = (),
+        own_names: Collection[str] = (),
     ) -> EditVerdict:
         """The full decision table: block/warn/allow plus the deciding scope.
 
@@ -1338,6 +1356,11 @@ class Room:
         same_chat names members that are agents of the requester's own chat
         (a parent and its subagents): they are left out entirely, a hand-off
         is not a conflict. siblings (two subagents of one chat) warn at most.
+
+        A file reserved by a claimed task (server/tasks.py) blocks, scope
+        "task", unless the claimer is the requester, one of its own_names (its
+        daemon's main name and lanes) or same_chat. Touch blocks come first:
+        they name who is editing right now.
         """
         wanted_symbols = list(symbols or [])
         wanted_ranges = [(int(a), int(b)) for a, b in (line_ranges or [])]
@@ -1369,6 +1392,31 @@ class Room:
         blocking = [(touch, scope) for touch, decision, scope in judged if decision == "block"]
         if blocking:
             return EditVerdict("block", [touch for touch, _ in blocking], blocking[0][1])
+        reserved = self.tasks.reservation_for(
+            repo_id, file_path, user_id, [*own_names, *same_chat], now
+        )
+        if reserved is not None:
+            claimer = reserved.claimer or ""
+            return EditVerdict(
+                "block",
+                [
+                    FileTouch(
+                        user_id=claimer,
+                        file_path=file_path,
+                        diff="",
+                        prompt=reserved.title or None,
+                        timestamp=reserved.claimed_at or now,
+                        agent=self.member_agent(claimer),
+                        repo_id=repo_id,
+                        kind="planned",
+                        # No blob: the task's is a "task" envelope, which a
+                        # daemon older than tasks cannot open.
+                    )
+                ],
+                "task",
+                task_id=reserved.task_id,
+                task_lease_until=reserved.lease_until or now,
+            )
         if judged:
             # Same-branch peers first (stable sort keeps newest-first within):
             # a live edit matters more than a future merge conflict.
@@ -1635,6 +1683,16 @@ class Room:
         block_window = self._settings.block_window_seconds
         request = {"e2e": e2e, "symbols": symbols, "line_ranges": line_ranges, "branch": branch}
 
+        if verdict.decision == "block" and verdict.scope == "task":
+            # A task can hold its files for hours: no line to wait in, the
+            # reason points at the task instead.
+            claimer = verdict.peers[0].user_id if verdict.peers else "a teammate"
+            minutes = max(1, int((verdict.task_lease_until - now) // 60))
+            reason = (
+                f"{file_path} is reserved by {claimer}'s task {verdict.task_id} "
+                f"({minutes} min left on its lease)"
+            )
+            return QueueOutcome("block", verdict.peers, "task", reason=reason)
         if verdict.decision == "block":
             position = queues.enqueue(key, user_id, agent, now, **request)
             entry = queues.entry(key, user_id)
@@ -1898,6 +1956,38 @@ class Room:
             except Exception:
                 log.exception("File queue sweep failed")
 
+    # --- tasks -----------------------------------------------------------------
+
+    async def sweep_tasks(self, now: Optional[float] = None) -> list:
+        """Reopen tasks whose lease lapsed and tell the dashboards."""
+        expired = self.tasks.sweep(time.time() if now is None else now)
+        for task in expired:
+            await self.broadcast(TaskUpdate(task=task), spectators_only=True)
+        return expired
+
+    def ensure_task_sweeper(self) -> None:
+        """Sweep leases while any task is claimed; ends with the last claim."""
+        if not self.tasks.has_claims():
+            return
+        task = self._task_sweeper
+        if task is not None and not task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:  # synchronous unit tests sweep by hand
+            return
+        self._task_sweeper = loop.create_task(self._sweep_tasks_periodically())
+
+    async def _sweep_tasks_periodically(self) -> None:
+        while self.tasks.has_claims():
+            wake = self.tasks.next_wakeup()
+            delay = TASK_SWEEP_MAX_SECONDS if wake is None else wake - time.time()
+            await asyncio.sleep(min(TASK_SWEEP_MAX_SECONDS, max(TASK_SWEEP_MIN_SECONDS, delay)))
+            try:
+                await self.sweep_tasks()
+            except Exception:
+                log.exception("Task lease sweep failed")
+
     # --- decision feedback ---------------------------------------------------
 
     def register_decision(self, decision_id: str, scope: DecisionScope) -> None:
@@ -1933,16 +2023,20 @@ class Room:
 
     # --- broadcast -----------------------------------------------------------
 
-    async def broadcast(self, message: BaseModel) -> None:
+    async def broadcast(self, message: BaseModel, *, spectators_only: bool = False) -> None:
         """Queue a room-wide event and flush as a Hivelane feed batch (~500ms).
 
         Never waits on any socket: it only appends to the queue (async for the
         callers' sake). Point-to-point replies still use send() and go out
-        immediately.
+        immediately. spectators_only: dashboards get it, members do not
+        (task_update: daemons ask for tasks, and an older daemon would try,
+        and fail, to open a blob of an envelope type it does not know).
         """
         payload = message.model_dump()
         self._emit(payload)
         self._broadcast_queue.append(payload)
+        if spectators_only:
+            self._spectator_only.add(id(payload))
         if self._flush_task is None or self._flush_task.done():
             self._flush_task = asyncio.create_task(self._flush_broadcast_queue())
 
@@ -1954,6 +2048,8 @@ class Room:
         async with self._deliver_lock:
             events = self._broadcast_queue
             self._broadcast_queue = []
+            dashboards_only = self._spectator_only
+            self._spectator_only = set()
             if self._flush_task is asyncio.current_task():
                 self._flush_task = None
             if not events:
@@ -1961,8 +2057,15 @@ class Room:
             log.debug("Flushing Hivelane feed (%d event(s))", len(events))
             # Kept exactly as spectators get them (a no-op while history is off).
             self.history.record(events)
+            if not dashboards_only:
+                for text in feed_frames(events):
+                    await self._deliver_text(text)
+                return
             for text in feed_frames(events):
-                await self._deliver_text(text)
+                await self._deliver_text(text, members=False)
+            shared = [event for event in events if id(event) not in dashboards_only]
+            for text in feed_frames(shared):
+                await self._deliver_text(text, spectators=False)
 
     def _emit(self, payload: dict) -> None:
         for sink in list(_event_sinks):
@@ -1975,7 +2078,7 @@ class Room:
         """Send one frame to every member and spectator (see _deliver_text)."""
         await self._deliver_text(_dumps(payload))
 
-    async def _deliver_text(self, text: str) -> None:
+    async def _deliver_text(self, text: str, *, members: bool = True, spectators: bool = True) -> None:
         """Send one serialized frame to every member and spectator at once.
 
         Serialized once, sent concurrently, each send bounded by
@@ -1985,10 +2088,11 @@ class Room:
         left to the member's own handler, which removes it on disconnect
         (removing by name here could evict a reconnected successor).
         Sockets still receiving their catch-up get the frame afterwards."""
-        targets: list[tuple[Optional[str], WebSocket]] = [
-            (user_id, socket) for user_id, socket in self._members.items()
-        ]
-        targets.extend((None, socket) for socket in self._spectators)
+        targets: list[tuple[Optional[str], WebSocket]] = []
+        if members:
+            targets.extend((user_id, socket) for user_id, socket in self._members.items())
+        if spectators:
+            targets.extend((None, socket) for socket in self._spectators)
         live: list[tuple[Optional[str], WebSocket]] = []
         for user_id, socket in targets:
             if socket in self._stalled:

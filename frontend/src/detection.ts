@@ -9,6 +9,7 @@ export const SCOPE_LABEL: Record<DecisionScope, string> = {
   plan: 'planned',
   branch: 'other branch',
   intent: 'intent',
+  task: 'reserved by task',
 };
 
 export const SCOPE_ORDER: DecisionScope[] = [
@@ -18,6 +19,7 @@ export const SCOPE_ORDER: DecisionScope[] = [
   'plan',
   'branch',
   'intent',
+  'task',
 ];
 
 /** The relay's older decisions carry no scope: they were file-level. */

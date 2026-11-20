@@ -344,7 +344,8 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
             steps.append(f"you're #{position} in line")
         steps.append(suggestion or CALL_TO_ACTION["block"])
         word = shell_path(named_raw) if isinstance(named_raw, str) else None
-        if word:
+        # A file reserved by a room task has no line to wait in.
+        if word and ack.get("scope") != "task":
             steps.append(f"run `hivelane wait {word}` to wait your turn")
     else:
         steps = [CALL_TO_ACTION.get(decision, CALL_TO_ACTION["warn"])]

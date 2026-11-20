@@ -61,6 +61,7 @@ export const SIDEBAR = [
         description: 'How the agent hooks, the per-machine daemon, the relay and the dashboard fit together.',
       },
       { slug: 'conflict-detection', file: 'docs/conflict-detection.md', label: 'Conflict detection' },
+      { slug: 'tasks', file: 'docs/tasks.md', label: 'Room tasks' },
       { slug: 'comparison', file: 'docs/comparison.md', label: 'Approaches compared' },
     ],
   },
