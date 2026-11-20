@@ -2,9 +2,13 @@
  * Light / dark / system theme. The preference lives in localStorage (wrapped:
  * storage can be blocked); the resolved theme is written to <html
  * data-theme> and the Tailwind `dark` class, and every colour in index.css
- * and the Tailwind config reads CSS custom properties keyed off data-theme.
+ * and the Tailwind theme reads CSS custom properties keyed off data-theme.
  * index.html applies the same logic inline before first paint, so there is
  * no flash of the wrong theme.
+ *
+ * Start-up order: a stored choice, else the system setting
+ * (prefers-color-scheme), else light. Light is also the answer when storage
+ * or matchMedia is unavailable.
  */
 
 export type ThemePref = 'light' | 'dark' | 'system';
@@ -40,12 +44,23 @@ export function storeThemePref(pref: ThemePref): void {
   }
 }
 
-export function systemPrefersDark(): boolean {
+/** True only when the system asks for dark; no preference (or no matchMedia) is light. */
+export function systemPrefersDark(
+  matchMedia: ((query: string) => { matches: boolean }) | undefined = globalThis.matchMedia,
+): boolean {
   try {
-    return globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? true;
+    return matchMedia?.call(globalThis, '(prefers-color-scheme: dark)').matches ?? false;
   } catch {
-    return true;
+    return false;
   }
+}
+
+/** The theme a first visit (nothing stored) renders with. */
+export function initialTheme(
+  stored: string | null | undefined,
+  matchMedia?: (query: string) => { matches: boolean },
+): ResolvedTheme {
+  return resolveTheme(parseThemePref(stored), systemPrefersDark(matchMedia));
 }
 
 export function applyTheme(pref: ThemePref): ResolvedTheme {

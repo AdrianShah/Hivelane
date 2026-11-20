@@ -379,6 +379,39 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
     return message
 
 
+# The card's first line: the Hivelane mark, then what happened.
+CARD_MARK = "\u2b21 Hivelane"
+CARD_TITLE = {"block": "held", "warn": "overlap"}
+
+
+def ack_card(ack: dict[str, Any], decision: str, fallback_path: Optional[str]) -> str:
+    """The short card a person sees in the agent's chat for a held or
+    overlapping edit (dashboard v3's "bee inside agent apps"): the mark, the
+    state and the file, who is in it, and what to do. Three lines at most;
+    everything from the ack is sanitised like ack_message's text. The agent
+    itself still reads ack_message: this is for the human watching."""
+    named_raw = ack.get("file_path") or fallback_path
+    path = clean_text(named_raw, MAX_REASON_CHARS) if named_raw else "this file"
+    reason = clean_text(ack.get("reason"), MAX_REASON_CHARS) or f"a teammate's agent is already working in {path}"
+    lines = [f"{CARD_MARK} \u00b7 {CARD_TITLE.get(decision, 'overlap')} \u00b7 {path}", f"  {reason}"]
+    suggestion = clean_text(ack.get("suggestion"), MAX_REASON_CHARS) if isinstance(ack.get("suggestion"), str) else ""
+    extras: list[str] = []
+    if decision == "block":
+        position = _queue_position(ack)
+        if position:
+            extras.append(f"#{position} in line")
+        if suggestion:
+            extras.append(suggestion)
+        word = shell_path(named_raw) if isinstance(named_raw, str) else None
+        if word and ack.get("scope") != "task":
+            extras.append(f"hivelane wait {word}")
+    elif suggestion:
+        extras.append(suggestion)
+    if extras:
+        lines.append("  " + " \u00b7 ".join(extras))
+    return "\n".join(lines)
+
+
 # --- shared install logic for Claude-Code-shaped JSON hook configs -------------
 # Claude Code's settings.json and Codex's hooks.json share the same
 # {"hooks": {Event: [{matcher?, hooks: [{type, command, timeout}]}]}} shape.

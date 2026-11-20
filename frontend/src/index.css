@@ -1,21 +1,115 @@
 /* ==========================================================================
+   Tailwind (compiled by @tailwindcss/vite; no runtime CDN)
+   ========================================================================== */
+
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+
+/* `dark:` follows <html class="dark">, which theme.ts keeps in step with data-theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Theme colours read the --c-* channels below, so bg-primary/10 and the other
+   opacity modifiers keep working in both themes. `inline` makes each utility
+   use the token itself, so a subtree can re-theme. */
+@theme inline {
+  --color-background: rgb(var(--c-background));
+  --color-surface: rgb(var(--c-surface));
+  --color-surface-card: rgb(var(--c-surface-card));
+  --color-surface-raised: rgb(var(--c-surface-raised));
+  --color-surface-deep: rgb(var(--c-surface-deep));
+  --color-primary: rgb(var(--c-primary));
+  --color-lavender: rgb(var(--c-lavender));
+  --color-lavender-bright: rgb(var(--c-lavender-bright));
+  --color-indigo: rgb(var(--c-indigo));
+  --color-emerald: rgb(var(--c-emerald));
+  --color-amber: rgb(var(--c-amber));
+  --color-error: rgb(var(--c-error));
+  --color-error-deep: rgb(var(--c-error-deep));
+  --color-on-surface: rgb(var(--c-on-surface));
+  --color-on-muted: rgb(var(--c-on-muted));
+  --color-on-dim: rgb(var(--c-on-dim));
+  --color-on-accent: rgb(var(--c-on-accent));
+  --color-outline: rgb(var(--c-outline));
+  --color-outline-soft: rgb(var(--c-outline-soft));
+  --color-ink: rgb(var(--c-ink));
+  --color-shade: rgb(var(--c-shade));
+  --color-scrim: rgb(var(--c-scrim));
+
+  --shadow-live: var(--elev-live);
+  --shadow-card: var(--elev-card);
+  --shadow-card-hover: var(--elev-card-hover);
+  --shadow-conflict: var(--elev-conflict);
+  --shadow-fab: var(--fab-shadow);
+}
+
+@theme {
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, monospace;
+
+  --animate-fade-up: fade-up 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-dot: pulse-dot 2s ease-in-out infinite;
+
+  @keyframes fade-up {
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+}
+
+/* Tailwind v4 preflight differs from v3 in two ways this code relied on. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: rgb(var(--c-outline));
+  }
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Everything below is in the components layer, as it was under the Tailwind
+   CDN: a utility on the same element (hidden, px-3, md:flex...) wins over
+   these hand-written classes. Unlayered CSS would beat every utility. */
+@layer components {
+/* ==========================================================================
    Theme tokens
    --------------------------------------------------------------------------
    Every colour in the dashboard comes from here. `--c-*` are space-separated
-   RGB channels so Tailwind's opacity modifiers keep working (index.html maps
-   bg-primary/10 and friends to rgb(var(--c-primary) / 0.1)); the rest are
-   full colour values for the hand-written classes below.
+   RGB channels so Tailwind's opacity modifiers keep working (the @theme block
+   above maps bg-primary/10 and friends to them); the rest are full colour
+   values for the hand-written classes below.
 
-   <html data-theme> is set before first paint by the inline script in
-   index.html (see src/dashboard/theme.ts). Dark is the default, so a page
-   whose script did not run still renders as before.
+   Light is the default (:root). <html data-theme> is set before first paint
+   by the inline script in index.html (see src/dashboard/theme.ts): a stored
+   choice, else the system setting, else light. Dark lives under
+   [data-theme='dark'].
+
+   The v3 design tokens (--v3-*: page, sheet, hairline, ink, accent, state
+   colours, shadows, radii and motion) are defined for both themes.
    ========================================================================== */
 
-:root,
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --c-background: 9 9 11;
+  --c-background: 11 11 12;
   --c-surface: 14 14 16;
   --c-surface-card: 20 20 22;
   --c-surface-raised: 32 32 34;
@@ -39,13 +133,13 @@
   --c-scrim: 0 0 0;
   --c-on-accent: 9 9 11;
 
-  --page-bg: #09090b;
+  --page-bg: #0b0b0c;
   --page-bg-image: none;
   --canvas-dot: transparent;
   --canvas-glow: transparent;
 
-  --glass-header-bg: #09090b;
-  --glass-sidebar-bg: #0c0c0e;
+  --glass-header-bg: #0b0b0c;
+  --glass-sidebar-bg: #0b0b0c;
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-highlight: transparent;
 
@@ -137,61 +231,91 @@
   --tooltip-border: rgba(255, 255, 255, 0.12);
   --tooltip-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
 
-  --shadow-live: 0 0 0 3px rgba(48, 209, 88, 0.22);
-  --shadow-card: none;
-  --shadow-card-hover: none;
-  --shadow-conflict: none;
-  --shadow-highlight: none;
+  --elev-live: 0 0 0 3px rgba(48, 209, 88, 0.22);
+  --elev-card: none;
+  --elev-card-hover: none;
+  --elev-conflict: none;
+  --elev-highlight: none;
+  /* --- v3 design tokens (dark) ------------------------------------------- */
+  --v3-page: #0b0b0c;
+  --v3-sheet: #141416;
+  --v3-sheet-sunk: #101012;
+  --v3-hairline: rgba(255, 255, 255, 0.07);
+  --v3-hairline-strong: rgba(255, 255, 255, 0.12);
+  --v3-ring: 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --v3-ink: #f4f4f5;
+  --v3-ink-2: #a1a1a6;
+  --v3-ink-3: #77777d;
+  --v3-on-ink: #0e0f12;
+  --v3-accent: #3b95ff;
+  --v3-accent-soft: rgba(59, 149, 255, 0.12);
+  --v3-warn: #f5a524;
+  --v3-block: #ff6369;
+  --v3-live: #3dd68c;
+  --v3-wait: #3b95ff;
+  --v3-idle: #55555b;
+  --v3-hover: rgba(255, 255, 255, 0.04);
+  --v3-shadow-sheet: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 8px 24px -8px rgba(0, 0, 0, 0.5);
+  --v3-shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
+  --v3-shadow-pill: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --v3-btn-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  --v3-notch-bg: #000000;
+  --v3-notch-fg: #f4f4f5;
+  --v3-chart-fill: rgba(59, 149, 255, 0.14);
+  --v3-chart-line: #3b95ff;
+  --v3-bar: rgba(255, 255, 255, 0.16);
+  --v3-bar-hot: #f4f4f5;
 }
 
+:root,
 :root[data-theme='light'] {
   color-scheme: light;
 
-  --c-background: 232 232 235;
-  --c-surface: 241 241 243;
-  --c-surface-card: 241 241 243;
-  --c-surface-raised: 225 225 229;
-  --c-surface-deep: 236 236 239;
+  --c-background: 251 251 250;
+  --c-surface: 255 255 255;
+  --c-surface-card: 255 255 255;
+  --c-surface-raised: 244 244 242;
+  --c-surface-deep: 247 247 245;
   --c-primary: 0 98 209;
   --c-lavender: 109 40 217;
   --c-lavender-bright: 91 33 182;
   --c-indigo: 0 98 209;
-  --c-emerald: 21 112 61;
+  --c-emerald: 29 128 82;
   --c-amber: 145 92 0;
-  --c-error: 196 35 26;
+  --c-error: 205 43 49;
   --c-error-deep: 136 19 55;
-  --c-on-surface: 36 36 40;
-  --c-on-muted: 86 86 92;
-  --c-on-dim: 104 104 110;
-  --c-outline: 218 218 223;
-  --c-outline-soft: 205 205 211;
-  --c-ink: 29 29 31;
+  --c-on-surface: 14 15 18;
+  --c-on-muted: 92 94 100;
+  --c-on-dim: 112 114 120;
+  --c-outline: 236 236 234;
+  --c-outline-soft: 226 226 223;
+  --c-ink: 14 15 18;
   --c-shade: 142 142 147;
   --c-scrim: 0 0 0;
   --c-on-accent: 255 255 255;
 
-  --page-bg: #e8e8eb;
+  --page-bg: #fbfbfa;
   --page-bg-image: none;
   --canvas-dot: transparent;
   --canvas-glow: transparent;
 
-  --glass-header-bg: #e8e8eb;
-  --glass-sidebar-bg: #e4e4e8;
-  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-header-bg: #fbfbfa;
+  --glass-sidebar-bg: #fbfbfa;
+  --glass-border: rgba(14, 15, 18, 0.06);
   --glass-highlight: transparent;
 
-  --panel-bg: #f1f1f3;
-  --panel-bg-strong: #f4f4f6;
-  --panel-border: rgba(0, 0, 0, 0.08);
+  --panel-bg: #ffffff;
+  --panel-bg-strong: #fbfbfa;
+  --panel-border: rgba(14, 15, 18, 0.06);
   --panel-border-strong: rgba(0, 0, 0, 0.12);
-  --code-bg: #f1f1f3;
+  --code-bg: #fbfbfa;
   --code-border: rgba(0, 0, 0, 0.08);
   --control-bg: rgba(0, 0, 0, 0.04);
   --control-bg-hover: rgba(0, 0, 0, 0.07);
   --control-border: rgba(0, 0, 0, 0.1);
 
-  --lane-bg: #f1f1f3;
-  --lane-border: rgba(0, 0, 0, 0.08);
+  --lane-bg: #ffffff;
+  --lane-border: rgba(14, 15, 18, 0.06);
   --lane-shadow: none;
   --lane-hover-border: rgba(0, 0, 0, 0.18);
   --lane-hover-shadow: none;
@@ -217,7 +341,7 @@
   --diff-hunk-fg: #0040a3;
   --diff-meta-fg: #68686e;
 
-  --accent-gradient: #2a2a2e;
+  --accent-gradient: #0e0f12;
   --accent-fg: #ffffff;
   --accent-shadow: none;
   --accent-shadow-hover: none;
@@ -268,11 +392,54 @@
   --tooltip-border: rgba(0, 0, 0, 0.12);
   --tooltip-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
 
-  --shadow-live: 0 0 0 3px rgba(21, 112, 61, 0.2);
-  --shadow-card: none;
-  --shadow-card-hover: none;
-  --shadow-conflict: none;
-  --shadow-highlight: 0 0 18px rgba(217, 119, 6, 0.18);
+  --elev-live: 0 0 0 3px rgba(21, 112, 61, 0.2);
+  --elev-card: none;
+  --elev-card-hover: none;
+  --elev-conflict: none;
+  --elev-highlight: 0 0 18px rgba(217, 119, 6, 0.18);
+  /* --- v3 design tokens (light) ------------------------------------------ */
+  --v3-page: #fbfbfa;
+  --v3-sheet: #ffffff;
+  --v3-sheet-sunk: #f7f7f5;
+  --v3-hairline: rgba(14, 15, 18, 0.06);
+  --v3-hairline-strong: rgba(14, 15, 18, 0.1);
+  --v3-ring: 0 0 0 1px rgba(14, 15, 18, 0.06);
+  --v3-ink: #0e0f12;
+  --v3-ink-2: #5c5e64;
+  --v3-ink-3: #8b8d93;
+  --v3-on-ink: #ffffff;
+  --v3-accent: #0062d1;
+  --v3-accent-soft: rgba(0, 98, 209, 0.08);
+  --v3-warn: #f5a524;
+  --v3-block: #e5484d;
+  --v3-live: #2fa36b;
+  --v3-wait: #0062d1;
+  --v3-idle: #b4b6bb;
+  --v3-hover: rgba(14, 15, 18, 0.035);
+  --v3-shadow-sheet: 0 0 0 1px rgba(14, 15, 18, 0.06), 0 1px 2px rgba(14, 15, 18, 0.04),
+    0 8px 24px -8px rgba(14, 15, 18, 0.08);
+  --v3-shadow-pop: 0 0 0 1px rgba(14, 15, 18, 0.06), 0 12px 32px -8px rgba(14, 15, 18, 0.18),
+    0 4px 8px -4px rgba(14, 15, 18, 0.08);
+  --v3-shadow-pill: 0 1px 2px rgba(14, 15, 18, 0.06), 0 0 0 1px rgba(14, 15, 18, 0.06);
+  --v3-btn-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --v3-notch-bg: #0e0f12;
+  --v3-notch-fg: #ffffff;
+  --v3-chart-fill: rgba(0, 98, 209, 0.1);
+  --v3-chart-line: #0062d1;
+  --v3-bar: rgba(14, 15, 18, 0.14);
+  --v3-bar-hot: #0e0f12;
+}
+
+:root {
+  /* v3 shape and motion: one easing curve everywhere. */
+  --v3-radius: 10px;
+  --v3-radius-sm: 8px;
+  --v3-radius-lg: 14px;
+  --v3-radius-sheet: 16px;
+  --v3-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --v3-dur-fast: 160ms;
+  --v3-dur: 280ms;
+  --v3-dur-slow: 640ms;
 }
 
 /* ==========================================================================
@@ -294,10 +461,10 @@ body {
   min-height: 100dvh;
 }
 
-.material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+.v3-icon {
+  display: inline-block;
+  flex-shrink: 0;
   vertical-align: middle;
-  user-select: none;
 }
 
 /* One visible focus style for every control; mouse clicks stay ring-free. */
@@ -810,8 +977,9 @@ kbd,
   white-space: nowrap;
 }
 
-.agent-status-pill .material-symbols-outlined {
-  font-size: 13px;
+.agent-status-pill .v3-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .agent-status-pill.is-live,
@@ -907,7 +1075,7 @@ kbd,
 .highlight-ring {
   box-shadow:
     0 0 0 1px rgb(var(--c-amber) / 0.5),
-    var(--shadow-highlight);
+    var(--elev-highlight);
 }
 
 /* ==========================================================================
@@ -1312,8 +1480,9 @@ kbd,
   border: 1px solid;
 }
 
-.kind-badge .material-symbols-outlined {
-  font-size: 13px;
+.kind-badge .v3-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .kind-badge.is-block {
@@ -1347,8 +1516,9 @@ kbd,
   color: var(--neutral-fg);
 }
 
-.outcome-tag .material-symbols-outlined {
-  font-size: 12px;
+.outcome-tag .v3-icon {
+  width: 12px;
+  height: 12px;
 }
 
 .outcome-tag.is-prevented {
@@ -1565,7 +1735,7 @@ kbd,
 .dialog-panel {
   background: rgb(var(--c-surface-card));
   border: 1px solid var(--panel-border-strong);
-  box-shadow: var(--shadow-card-hover);
+  box-shadow: var(--elev-card-hover);
 }
 
 .share-canvas {
@@ -1603,8 +1773,9 @@ kbd,
   background: var(--control-bg-hover);
 }
 
-.theme-toggle .material-symbols-outlined {
-  font-size: 16px;
+.theme-toggle .v3-icon {
+  width: 16px;
+  height: 16px;
 }
 
 /* Bottom tab bar (phones and small tablets; the sidebar takes over at md). */
@@ -1744,154 +1915,4 @@ p {
     margin-top: 0;
   }
 }
-
-/* ---- first-room onboarding (components/Onboarding.tsx) ------------------ */
-
-.onb {
-  padding: 1.5rem;
-}
-
-.onb__head {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.onb__count {
-  font-size: 0.78rem;
-  color: rgb(var(--c-on-dim));
-}
-
-.onb__skip {
-  margin-left: auto;
-  font-size: 0.82rem;
-  color: rgb(var(--c-on-muted));
-}
-
-.onb__skip:hover {
-  color: rgb(var(--c-on-surface));
-}
-
-.onb__progress {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 0.35rem;
-  margin: 1rem 0 1.25rem;
-}
-
-.onb__progress span {
-  height: 3px;
-  border-radius: 3px;
-  background: rgb(var(--c-ink) / 0.1);
-  transition: background 0.25s ease;
-}
-
-.onb__progress span.is-on {
-  background: rgb(var(--c-primary));
-}
-
-.onb h2 {
-  margin: 0 0 0.75rem;
-  font-size: 1.25rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.onb__body {
-  min-height: 10rem;
-  font-size: 0.9rem;
-  line-height: 1.6;
-  color: rgb(var(--c-on-muted));
-}
-
-.onb__body p {
-  margin: 0 0 0.75rem;
-}
-
-.onb__body code,
-.onb__body kbd {
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 0.85em;
-  color: rgb(var(--c-on-surface));
-}
-
-.onb__body a {
-  color: rgb(var(--c-primary));
-}
-
-.onb__room strong {
-  margin-left: 0.4rem;
-  font-family: 'Geist Mono', ui-monospace, monospace;
-  font-size: 1.05rem;
-  letter-spacing: 0.08em;
-  color: rgb(var(--c-primary));
-}
-
-.onb__note {
-  font-size: 0.8rem;
-  color: rgb(var(--c-on-dim));
-}
-
-.onb__code {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  margin: 0 0 0.75rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 10px;
-  background: var(--code-bg);
-  border: 1px solid var(--code-border);
-}
-
-.onb__code code {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.75rem;
-  line-height: 1.55;
-  word-break: break-all;
-}
-
-.onb__code button {
-  flex: none;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: rgb(var(--c-primary));
-}
-
-.onb__list {
-  margin: 0 0 0.75rem;
-  padding-left: 1.1rem;
-}
-
-.onb__list li {
-  margin-bottom: 0.4rem;
-}
-
-.onb__list strong {
-  color: rgb(var(--c-on-surface));
-}
-
-.onb__foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 1.25rem;
-}
-
-.onb__back {
-  font-size: 0.88rem;
-  color: rgb(var(--c-on-muted));
-}
-
-.onb__next {
-  padding: 0.6rem 1.1rem;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--accent-fg);
-  background: var(--accent-gradient);
-}
-
-.onb__next:hover {
-  opacity: 0.88;
-}
+} /* @layer components */

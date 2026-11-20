@@ -11,7 +11,7 @@ import {
 } from '../../src/dashboard/laneStatus.ts';
 import { diffStat, initials, personColor, relativeTime } from '../../src/dashboard/people.ts';
 import { createShortcutMatcher, isTypingTarget } from '../../src/dashboard/shortcuts.ts';
-import { parseThemePref, resolveTheme } from '../../src/dashboard/theme.ts';
+import { initialTheme, parseThemePref, resolveTheme, systemPrefersDark } from '../../src/dashboard/theme.ts';
 
 const NOW = 10_000;
 
@@ -112,6 +112,25 @@ test('theme preference parsing and resolution', () => {
   assert.equal(resolveTheme('system', false), 'light');
   assert.equal(resolveTheme('light', true), 'light');
   assert.equal(resolveTheme('dark', false), 'dark');
+});
+
+test('first visit: stored choice, else the system setting, else light', () => {
+  const dark = () => ({ matches: true });
+  const light = () => ({ matches: false });
+  const broken = () => {
+    throw new Error('no matchMedia here');
+  };
+  // Nothing stored: follow the system.
+  assert.equal(initialTheme(null, dark), 'dark');
+  assert.equal(initialTheme(null, light), 'light');
+  // No system preference, no matchMedia, or a throwing one: light.
+  assert.equal(initialTheme(null, undefined), 'light');
+  assert.equal(initialTheme(null, broken), 'light');
+  assert.equal(systemPrefersDark(undefined), false);
+  // A pinned choice wins over the system.
+  assert.equal(initialTheme('light', dark), 'light');
+  assert.equal(initialTheme('dark', light), 'dark');
+  assert.equal(initialTheme('system', dark), 'dark');
 });
 
 test('people helpers', () => {

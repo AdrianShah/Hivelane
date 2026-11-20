@@ -33,3 +33,10 @@ def _hivelane_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     from hivelane.adapters import base
 
     monkeypatch.setattr(base, "hivelane_on_path", lambda: True)
+
+
+@pytest.fixture(autouse=True)
+def _no_desktop_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A ping in a test must never pop a real notification on the
+    developer's desktop (hivelane/desktop.py)."""
+    monkeypatch.setenv("HIVELANE_DESKTOP_NOTIFY", "0")

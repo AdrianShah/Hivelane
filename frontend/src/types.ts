@@ -279,6 +279,9 @@ export interface RoomSettingsUpdate {
   history_hours?: number;
   set_by: string | null;
   timestamp: number;
+  /** When the room was created and when its code stops working (seconds); 0 from an older relay. */
+  created_at?: number;
+  expires_at?: number;
 }
 
 /**
@@ -332,6 +335,60 @@ export interface RoomPolicyUpdate {
 }
 
 /** Spectator → relay: replay the room's kept events newer than `since` (0 = all). */
+/** Owner -> relay: let a held (blocked) edit go ahead (server/models.py HoldRelease). */
+export interface HoldRelease {
+  type: 'hold_release';
+  decision_id: string;
+}
+
+/** Owner -> relay: who edits a contested file first (QueueOrder). */
+export interface QueueOrder {
+  type: 'queue_order';
+  file_path: string;
+  repo_id?: RepoId;
+  first_user_id: string;
+}
+
+/** Owner -> relay: ping one member's agent (Nudge). */
+export interface Nudge {
+  type: 'nudge';
+  to_user_id: string;
+  text: string;
+}
+
+/** Relay -> dashboards: an owner pinged user_id (delivered: its daemon got it). */
+export interface Nudged {
+  type: 'nudged';
+  user_id: string;
+  by: string;
+  text: string;
+  delivered: boolean;
+  timestamp: number;
+}
+
+/** Relay -> dashboards: an owner released decision_id's hold. */
+export interface HoldReleased {
+  type: 'hold_released';
+  decision_id: string;
+  user_id: string;
+  file_path: string;
+  repo_id?: RepoId;
+  by: string;
+  timestamp: number;
+  e2e?: string;
+}
+
+/** Relay -> dashboards: an owner let first_user_id go first; waiting is the rest of the line. */
+export interface QueueReordered {
+  type: 'queue_reordered';
+  file_path: string;
+  repo_id?: RepoId;
+  first_user_id: string;
+  waiting: string[];
+  timestamp: number;
+  e2e?: string;
+}
+
 export interface HistoryRequest {
   type: 'history_request';
   since?: number;
@@ -362,7 +419,10 @@ export type FeedEvent =
   | RoomPolicyUpdate
   | UserJoined
   | UserLeft
-  | TaskUpdate;
+  | TaskUpdate
+  | Nudged
+  | HoldReleased
+  | QueueReordered;
 
 /** Team-wide conflict windows from a repo's committed .hivelane.toml. */
 export interface RoomSettings {
@@ -409,7 +469,10 @@ export type ServerMessage =
   | UserLeft
   | NameRejected
   | RateLimited
-  | RoomRejected;
+  | RoomRejected
+  | Nudged
+  | HoldReleased
+  | QueueReordered;
 
 export interface LaneState {
   caption: string | null;
