@@ -130,6 +130,20 @@ def string_hints(edits: Any, old_key: str = "old_string", new_key: str = "new_st
     return hints or None
 
 
+# A whole-file write's new content is sent as a hint up to this size (the
+# daemon's symbol extraction skips larger files anyway).
+MAX_WRITE_HINT_CHARS = 200_000
+
+
+def write_hints(content: Any) -> Optional[list[dict[str, str]]]:
+    """[{"write": content}] for a tool that replaces the whole file, so the
+    daemon can diff it against the current content and predict which lines
+    (and so which functions) actually change. None when unusable."""
+    if not isinstance(content, str) or len(content) > MAX_WRITE_HINT_CHARS:
+        return None
+    return [{"write": content}]
+
+
 # File extensions a plan's path-like token must end with to be a file candidate.
 PLAN_FILE_EXTENSIONS: tuple[str, ...] = (
     ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java",
@@ -347,11 +361,16 @@ def ack_message(ack: dict[str, Any], decision: str, fallback_path: Optional[str]
         # A file reserved by a room task has no line to wait in.
         if word and ack.get("scope") != "task":
             steps.append(f"run `hivelane wait {word}` to wait your turn")
+    elif ack.get("scope") in ("symbol", "lines") and "safe to proceed" in detail:
+        # A teammate in another function (or other lines) of the file: the
+        # relay already says to go ahead, and "check with them" would only
+        # make the agent stop and ask.
+        steps = [suggestion] if suggestion else []
     else:
         steps = [CALL_TO_ACTION.get(decision, CALL_TO_ACTION["warn"])]
         if suggestion:
             steps.append(suggestion)
-    message = f"{detail}, {'; '.join(steps)}"
+    message = f"{detail}, {'; '.join(steps)}" if steps else detail
     first = others[0] if others else None
     if isinstance(first, dict) and first.get("prompt"):
         prompt = clean_text(first["prompt"], MAX_PROMPT_CHARS)

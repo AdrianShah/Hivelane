@@ -221,6 +221,7 @@ on the same files to produce `conflict_alert`s.
 | `diff` | string | required | Unified diff of the change (`""` when the member does not share diffs). |
 | `symbols` | string[] | `[]` | Function/class names touched (`"<imports>"` for an import block); empty if not extracted. |
 | `line_ranges` | [integer, integer][] | `[]` | 1-based inclusive `[start, end]` line ranges in the new file; empty if not extracted. |
+| `version` | string (at most 64 chars) | `""` | Fingerprint of the file content `line_ranges` count lines in (the content after this change). SHA-256 based; keyed with the room key in [encrypted rooms](#end-to-end-encrypted-rooms). |
 
 ### intent
 
@@ -255,6 +256,7 @@ with `warn` and a reason saying it was not checked.
 | `line_ranges` | [integer, integer][] | `[]` | Line ranges the edit is predicted to touch. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+| `base_version` | string (at most 64 chars) | `""` | Fingerprint of the file version `line_ranges` count lines in (the sender's current content). Line ranges are compared only between equal versions; see [Conflict detection](conflict-detection.md#inputs). |
 | `own_names` | string[] (at most 32) | `[]` | Every name the sender's daemon speaks under in the room (its main name and agent lanes). Files reserved by a [task](#task) claimed under any of them do not block the sender. |
 | `same_chat` | string[] (at most 32) | `[]` | Members that are agents of the sender's own chat (a parent and its subagents, see [several agents per person](conflict-detection.md#several-agents-per-person)). Their touches, plans and intents are left out of the decision: a hand-off is not a conflict. |
 | `siblings` | string[] (at most 32) | `[]` | Sibling subagents of the sender's chat. Their touches warn at most, never block. |

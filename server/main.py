@@ -1253,6 +1253,7 @@ async def handle_edit_check(
         same_chat=request.same_chat,
         siblings=request.siblings,
         own_names=request.own_names,
+        base_version=request.base_version,
     )
     # The file's wait queue (server/file_queue.py) has the last word: it can
     # hold back an edit no touch blocks (the file is promised to whoever is
@@ -1271,12 +1272,25 @@ async def handle_edit_check(
     )
     decision, peers, scope = outcome.decision, outcome.peers, outcome.scope
     if decision != "block":
+        # Until this member's activity reports the edit, the check itself
+        # stands for it: a second agent asking now is judged against it.
+        room.note_passed_check(
+            user_id,
+            request.repo_id,
+            request.file_path,
+            now,
+            symbols=symbols,
+            line_ranges=list(request.line_ranges),
+            version=request.base_version,
+            branch=request.branch,
+            e2e=request.e2e,
+        )
         # The claimer working on its task's files keeps the lease alive.
         for renewed in room.tasks.renew_on_edit(
             [user_id, *request.own_names], request.repo_id, request.file_path, now
         ):
             await room.broadcast(TaskUpdate(task=renewed), spectators_only=True)
-    reason = outcome.reason or _edit_check_reason(
+    reason = outcome.reason or verdict.reason or _edit_check_reason(
         decision, request.file_path, peers, now, scope
     )
     suggestion = room.edit_suggestion(

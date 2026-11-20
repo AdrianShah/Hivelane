@@ -179,6 +179,7 @@ def test_activity_is_trimmed_not_dropped(relay: RoomManager) -> None:
         "diff": "+x",
         "symbols": [],
         "line_ranges": [],
+        "version": "",
     }
 
 

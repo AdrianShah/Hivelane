@@ -58,10 +58,15 @@ def test_a_claimed_task_reserves_its_files_for_the_claimer(cluster: Cluster, tmp
         ],
     )
 
-    created = _task(sam, repo, "create", title="Add rate limiting", files=["server/api.py"])
+    limits = repo / "server" / "limits.py"
+    limits.write_text("WINDOW = 60\n", encoding="utf-8")
+    users = repo / "server" / "users.py"
+    users.write_text("USERS = []\n", encoding="utf-8")
+    files = ["server/api.py", "server/limits.py", "server/users.py"]
+    created = _task(sam, repo, "create", title="Add rate limiting", files=files)
     assert created["ok"], created
     task_id = created["task"]["task_id"]
-    assert created["task"]["files"] == ["server/api.py"]
+    assert created["task"]["files"] == files
 
     claimed = _task(adrian, repo, "claim", next=True)
     assert claimed["ok"] and claimed["task"]["task_id"] == task_id, claimed
@@ -71,11 +76,14 @@ def test_a_claimed_task_reserves_its_files_for_the_claimer(cluster: Cluster, tmp
         what="the dashboard seeing the claim",
     )
 
-    # adrian's first chat, then a second chat on its own lane: both may edit.
+    # adrian's first chat, then a second chat on its own lane: both may edit
+    # the reserved files (each its own file: two chats asking about one file
+    # at once are judged against each other like any two agents).
     assert _pre_edit(adrian, "chat-1", repo, api)["decision"] == "allow"
-    assert _pre_edit(adrian, "chat-2", repo, api)["decision"] == "allow"
+    assert _pre_edit(adrian, "chat-2", repo, limits)["decision"] == "allow"
 
-    blocked = _pre_edit(sam, "sam-1", repo, api)
+    # A reserved file nobody is editing right now: the reservation decides.
+    blocked = _pre_edit(sam, "sam-1", repo, users)
     assert blocked["decision"] == "block", blocked
     assert blocked["scope"] == "task"
     assert f"reserved by adrian's task {task_id}" in blocked["reason"]
@@ -91,7 +99,7 @@ def test_a_claimed_task_reserves_its_files_for_the_claimer(cluster: Cluster, tmp
         lambda e: e.get("type") == "task_update" and e["task"]["status"] == "done",
         what="the dashboard seeing the task done",
     )
-    assert _pre_edit(sam, "sam-1", repo, api)["decision"] != "block"
+    assert _pre_edit(sam, "sam-1", repo, users)["decision"] != "block"
 
     listed = _task(sam, repo, "list", include_closed=True)
     assert [t["task_id"] for t in listed["tasks"]] == [task_id]

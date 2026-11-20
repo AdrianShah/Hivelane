@@ -184,6 +184,9 @@ def legacy_normalize(payload: dict[str, Any]) -> Optional[NormalizedEvent]:
             for e in (edits if isinstance(edits, list) else [])
             if isinstance(e, dict) and isinstance(e.get("old_string"), str) and e["old_string"]
         ]
+        # Same-file reliability: a Write sends its new content to be diffed.
+        if tool == "Write" and isinstance(tool_input.get("content"), str):
+            hints = [{"write": tool_input["content"]}]
         return NormalizedEvent(
             kind="pre_edit", agent="claude-code", session_id=session_id, cwd=cwd,
             file_path=file_path, old_content=read(file_path), tool=tool, edit_hints=hints or None,
