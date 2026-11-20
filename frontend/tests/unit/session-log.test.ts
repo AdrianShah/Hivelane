@@ -148,3 +148,11 @@ test('reset clears everything', () => {
   const log = apply([activity('sam', 1, ['a.ts']), { type: 'reset' }]);
   assert.deepEqual(log, createSessionLog());
 });
+
+test('a "__proto__" user id never reaches Object.prototype', () => {
+  const log = apply([activity('__proto__', 10, ['src/a.ts'])]);
+  assert.equal(Object.getPrototypeOf(log.agents), Object.prototype);
+  assert.equal(Object.getPrototypeOf(log.lastActivity), Object.prototype);
+  assert.equal(({} as Record<string, unknown>).agent, undefined);
+  assert.equal(Object.hasOwn(log.agents, '__proto__'), false);
+});
