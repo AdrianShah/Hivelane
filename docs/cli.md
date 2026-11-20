@@ -24,6 +24,7 @@ managing the daemon, or for advanced and scripted use.
 | [`watch`](#hivelane-watch) | Observe-only file watcher for agents without hooks (e.g. Aider). |
 | [`run`](#hivelane-run) | Run a hookless agent (e.g. `hivelane run aider`) with the watcher. |
 | [`githook`](#hivelane-githook) | Git pre-commit check against teammates' recent edits. |
+| [`task`](#hivelane-task) | The room's shared task list: add, claim, finish (a claimed task reserves its files). |
 
 Global options: `--version` prints `hivelane X.Y.Z`; `-h`/`--help` works on
 every command.
@@ -218,6 +219,27 @@ absolute, relative to the current directory, or relative to the repo root (the
 form block messages print). With no daemon running, or a file hivelane does not
 coordinate, there is nothing to wait for and it exits 0 at once.
 
+## hivelane task
+
+```text
+hivelane task add TITLE [--body TEXT] [--files A,B] [--after T1,T2]
+hivelane task list [--all] [--mine] [--json]
+hivelane task show ID [--json]
+hivelane task claim [ID | --next] [--wait DURATION] [--lease DURATION]
+hivelane task renew ID [--lease DURATION]
+hivelane task note ID TEXT
+hivelane task done ID [RESULT]
+hivelane task release ID
+hivelane task cancel ID [REASON]
+```
+
+The room's shared task list. A claimed task reserves its files: teammates'
+agents are blocked from editing them until the task is done, released, or its
+lease (default 30 minutes, renewed by your own edits to those files) runs
+out. Exit status is 0 on success and 1 when the relay refuses (for example,
+nothing is ready, or the task is someone else's). Details and rules are in
+[Room tasks](tasks.md).
+
 ## hivelane relay
 
 ```text
@@ -319,8 +341,11 @@ hivelane mcp [--agent ID] [--port PORT] [--print-config] [--agents-md]
 Runs an MCP server over stdio (protocol `2025-11-25`; also accepts
 `2025-06-18`, `2025-03-26`, `2024-11-05`) for agents that have no native
 hooks. Tools: `check_file(path)` (asks whether a teammate is in the file),
-`declare_intent(text, files?)`, `who_is_here()` and `report_edit(path)`. If the
-daemon is down, tools return an error text and the server keeps running.
+`declare_intent(text, files?)`, `who_is_here()` and `report_edit(path)`, plus
+the [room task](tasks.md) tools `task_list(all?)`, `task_add(title, body?,
+files?, after?)`, `task_claim(task_id? | next?, lease_minutes?)`,
+`task_note(task_id, text)`, `task_done(task_id, result?)` and
+`task_release(task_id)`. If the daemon is down, tools return an error text and the server keeps running.
 `--agent` sets the agent id sent to the room (default `unknown`).
 
 `--print-config` prints a JSON snippet for your MCP client's config.

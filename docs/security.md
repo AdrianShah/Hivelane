@@ -246,7 +246,10 @@ thread, so a slow Redis does not stall every room on the instance.
   minutes by default and at most 24 hours); recent file touches (paths,
   symbols, line ranges, diffs), swept once older than the room's warn window
   (at least 60 s); the last 1,000 warn/block decision ids with their vote
-  tallies; pending join requests (at most 5 minutes); in a room with
+  tallies; the room's [tasks](tasks.md) (titles, bodies, notes and file paths
+  in a cleartext room; only ciphertext and hashed paths in an e2e room; up to
+  200 open plus the 50 most recently finished, kept until the room is
+  dropped, not when a member leaves); pending join requests (at most 5 minutes); in a room with
   `history_hours` set, the feed events it broadcast over that many hours
   ([History and webhooks](#history-and-webhooks)).
 - **Logs:** never prompts, diffs, plan summaries or intent text (an intent is

@@ -6,6 +6,7 @@ import { Mark } from '../brand/BrandArt';
 export type AppView =
   | 'dashboard'
   | 'agents'
+  | 'tasks'
   | 'timeline'
   | 'heatmap'
   | 'invite'
@@ -54,6 +55,7 @@ function formatElapsed(seconds: number): string {
 const NAV: { id: AppView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
   { id: 'agents', label: 'Hivelane feed', icon: 'dynamic_feed' },
+  { id: 'tasks', label: 'Tasks', icon: 'task_alt' },
   { id: 'timeline', label: 'Timeline', icon: 'timeline' },
   { id: 'heatmap', label: 'Heat map', icon: 'local_fire_department' },
   { id: 'invite', label: 'Invite', icon: 'group_add' },
