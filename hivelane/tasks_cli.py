@@ -6,7 +6,8 @@ blocked from editing them until the task is done, released, or its lease
 lapses (server/tasks.py). Every command talks to the local daemon (POST
 /tasks), which sends it to the room of the repo the current directory is in.
 
-Imported only when a `task` command runs, so other commands do not pay for it.
+Imports nothing from hivelane.cli: the CLI passes in what this needs (how
+to reach the daemon, how to print), so the two never import each other.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ import json
 import os
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 # How often `claim --wait` asks again while nothing is ready.
 CLAIM_RETRY_SECONDS = 5.0
@@ -56,8 +57,9 @@ def _csv(raw: str) -> list[str]:
     return [part.strip() for part in (raw or "").split(",") if part.strip()]
 
 
-def register(sub: Any, port_help: str) -> None:
-    """Add `hivelane task` and its subcommands to the CLI's parser."""
+def register(sub: Any, port_help: str, run: Callable[[argparse.Namespace], int]) -> None:
+    """Add `hivelane task` and its subcommands to the CLI's parser; `run`
+    (hivelane.cli.cmd_task) handles them."""
     task = sub.add_parser(
         "task",
         help="the room's shared task list: add, claim, finish (claimed files are reserved)",
@@ -111,28 +113,10 @@ def register(sub: Any, port_help: str) -> None:
     cancel.add_argument("task_id", metavar="ID")
     cancel.add_argument("reason", nargs="?", default="")
 
-    task.set_defaults(func=cmd_task)
+    task.set_defaults(func=run)
 
 
-def _call(port: int, body: dict[str, Any]) -> dict[str, Any]:
-    import urllib.error
-
-    from hivelane.cli import CommandFailed, load_service, service_errors
-
-    svc = load_service()
-    if not svc.is_running(port):
-        raise CommandFailed(f"no daemon running on port {port}; run `hivelane up` first")
-    with service_errors(svc, "the daemon refused"):
-        try:
-            reply = svc._request(port, "POST", "/tasks", body, timeout=REQUEST_TIMEOUT)
-        except urllib.error.HTTPError as exc:
-            raise CommandFailed(svc._error_detail(exc)) from None
-        except OSError as exc:
-            raise CommandFailed(f"could not reach the daemon on port {port} ({exc})") from None
-    return reply if isinstance(reply, dict) else {}
-
-
-def _refusal(reply: dict[str, Any], task_id: str) -> str:
+def refusal(reply: dict[str, Any], task_id: str) -> str:
     reason = str(reply.get("reason") or "error")
     text = _REASONS.get(reason, reason).format(id=task_id.upper() or "that task")
     return f"hivelane: {text}"
@@ -146,7 +130,7 @@ def _left(task: dict[str, Any]) -> str:
     return f"{minutes} min left" if minutes < 120 else f"{minutes // 60} h left"
 
 
-def _line(task: dict[str, Any]) -> str:
+def task_line(task: dict[str, Any]) -> str:
     status = task.get("status", "?")
     who = ""
     if status == "claimed":
@@ -159,7 +143,7 @@ def _line(task: dict[str, Any]) -> str:
 
 
 def _details(task: dict[str, Any]) -> list[str]:
-    lines = [_line(task)]
+    lines = [task_line(task)]
     if task.get("body"):
         lines.append(f"      {task['body']}")
     lines.append(f"      created by {task.get('created_by')}")
@@ -169,18 +153,22 @@ def _details(task: dict[str, Any]) -> list[str]:
     return lines
 
 
-def cmd_task(args: argparse.Namespace) -> int:
-    from hivelane.cli import resolve_port, say
-
-    port = resolve_port(args.port)
+def cmd_task(
+    args: argparse.Namespace,
+    *,
+    call: Callable[[dict[str, Any]], dict[str, Any]],
+    say: Callable[..., None],
+) -> int:
+    """Run one `hivelane task` command. call(body) POSTs body to the daemon's
+    /tasks and returns its answer; say(text, err=False) prints."""
     action = args.task_command
     cwd = os.getcwd()
     task_id = getattr(args, "task_id", "") or ""
 
     if action in ("list", "show"):
-        reply = _call(port, {"cwd": cwd, "op": "list", "include_closed": action == "show" or args.all})
+        reply = call({"cwd": cwd, "op": "list", "include_closed": action == "show" or args.all})
         if not reply.get("ok"):
-            say(_refusal(reply, task_id), err=True)
+            say(refusal(reply, task_id), err=True)
             return 1
         tasks = list(reply.get("tasks") or [])
         if action == "show":
@@ -188,7 +176,7 @@ def cmd_task(args: argparse.Namespace) -> int:
             wanted = wanted if wanted.startswith("T") else f"T{wanted}"
             tasks = [t for t in tasks if t.get("task_id") == wanted]
             if not tasks:
-                say(_refusal({"reason": "not_found"}, wanted), err=True)
+                say(refusal({"reason": "not_found"}, wanted), err=True)
                 return 1
         if getattr(args, "mine", False):
             tasks = [t for t in tasks if t.get("claimer") == reply.get("me")]
@@ -201,7 +189,7 @@ def cmd_task(args: argparse.Namespace) -> int:
         if not tasks:
             say("hivelane: no tasks" + ("" if args.all else " open (--all shows finished ones)"))
             return 0
-        say("\n".join(_line(t) for t in tasks))
+        say("\n".join(task_line(t) for t in tasks))
         return 0
 
     body: dict[str, Any] = {"cwd": cwd, "op": action, "task_id": task_id}
@@ -224,7 +212,7 @@ def cmd_task(args: argparse.Namespace) -> int:
     deadline = time.monotonic() + (args.wait if action == "claim" else 0.0)
     announced = False
     while True:
-        reply = _call(port, body)
+        reply = call(body)
         retry = action == "claim" and reply.get("reason") in ("none_ready", "not_ready", "claimed")
         if reply.get("ok") or not retry or time.monotonic() >= deadline:
             break
@@ -234,7 +222,7 @@ def cmd_task(args: argparse.Namespace) -> int:
         time.sleep(min(CLAIM_RETRY_SECONDS, max(0.0, deadline - time.monotonic())))
 
     if not reply.get("ok"):
-        say(_refusal(reply, task_id), err=True)
+        say(refusal(reply, task_id), err=True)
         return 1
     task = reply.get("task") or {}
     tid = task.get("task_id", task_id.upper())

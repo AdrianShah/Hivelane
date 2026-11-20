@@ -353,7 +353,7 @@ class McpServer:
     def _task_refusal(reply: dict[str, Any], task_id: str = "") -> str:
         from hivelane import tasks_cli
 
-        text = tasks_cli._refusal(reply, task_id).removeprefix("hivelane: ")
+        text = tasks_cli.refusal(reply, task_id).removeprefix("hivelane: ")
         return text[:1].upper() + text[1:] + "."
 
     def task_list(self, args: dict[str, Any]) -> str:
@@ -365,7 +365,7 @@ class McpServer:
         tasks = reply.get("tasks") or []
         if not tasks:
             return "No tasks in this room's list."
-        return "\n".join(tasks_cli._line(t).strip() for t in tasks)
+        return "\n".join(tasks_cli.task_line(t).strip() for t in tasks)
 
     def task_add(self, args: dict[str, Any]) -> str:
         reply = self._task(
@@ -391,7 +391,7 @@ class McpServer:
         task = reply["task"]
         files = task.get("files") or []
         reserved = f" Reserved for you: {', '.join(files)}." if files else ""
-        return f"Claimed {tasks_cli._line(task).strip()}.{reserved} Finish with task_done."
+        return f"Claimed {tasks_cli.task_line(task).strip()}.{reserved} Finish with task_done."
 
     def task_note(self, args: dict[str, Any]) -> str:
         task_id = str(args["task_id"])
