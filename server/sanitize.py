@@ -87,6 +87,9 @@ MAX_FILES = config.MAX_FILES_PER_MESSAGE
 MAX_SYMBOLS = config.MAX_SYMBOLS_PER_MESSAGE
 # Line ranges per file change or edit check.
 MAX_LINE_RANGES = config.MAX_LINE_RANGES_PER_MESSAGE
+# Same-chat member names per edit check (a daemon opens at most 16 lanes per
+# repo connection, plus the connection itself).
+MAX_SAME_CHAT = 32
 
 TRUNCATION_MARKER = "…[truncated]"
 
@@ -138,3 +141,5 @@ def cap_plan(message: PlanMessage) -> None:
 def cap_edit_check(message: EditCheckRequest) -> None:
     _trim(message.symbols, MAX_SYMBOLS)
     _trim(message.line_ranges, MAX_LINE_RANGES)
+    _trim(message.same_chat, MAX_SAME_CHAT)
+    _trim(message.siblings, MAX_SAME_CHAT)

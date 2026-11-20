@@ -101,6 +101,49 @@ def test_disjoint_symbols_with_overlapping_lines_block(room: Room) -> None:
     assert (v.decision, v.scope) == ("block", "lines")
 
 
+def test_same_chat_touches_are_a_hand_off(room: Room) -> None:
+    # Agent lanes: priya's subagent editing what priya's own chat just
+    # touched is not a conflict, so the relay leaves it out of the verdict
+    # (and broadcasts no decision for it).
+    _join(room, "priya-explore-c123", "claude-code")
+    _touch(room, "priya", 1000.0, symbols=["Room.check_edit"])
+    v = room.evaluate_edit(
+        "priya-explore-c123", FILE, 1005.0, symbols=["Room.check_edit"], same_chat=["Priya"]
+    )
+    assert (v.decision, v.peers) == ("allow", [])
+    # Anyone else in the file still counts.
+    _touch(room, "sam", 1001.0, symbols=["Room.check_edit"])
+    v = room.evaluate_edit(
+        "priya-explore-c123", FILE, 1005.0, symbols=["Room.check_edit"], same_chat=["priya"]
+    )
+    assert v.decision == "block"
+    assert [peer.user_id for peer in v.peers] == ["sam"]
+
+
+def test_sibling_subagents_warn_at_most(room: Room) -> None:
+    _join(room, "priya-explore-c123", "claude-code")
+    _join(room, "priya-general-a1f9", "claude-code")
+    _touch(room, "priya-general-a1f9", 1000.0, symbols=["Room.check_edit"])
+    v = room.evaluate_edit(
+        "priya-explore-c123", FILE, 1005.0, symbols=["Room.check_edit"],
+        siblings=["priya-general-a1f9"],
+    )
+    assert (v.decision, v.scope) == ("warn", "symbol")
+    assert v.peers[0].user_id == "priya-general-a1f9"
+    # Without the hint it is an ordinary block.
+    v = room.evaluate_edit("priya-explore-c123", FILE, 1005.0, symbols=["Room.check_edit"])
+    assert v.decision == "block"
+
+
+def test_same_chat_intent_is_not_a_mention(room: Room) -> None:
+    _join(room, "priya-cursor", "cursor")
+    room.record_intent("priya", "refactor room.py broadcast", timestamp=1000.0)
+    v = room.evaluate_edit("priya-cursor", FILE, 1005.0)
+    assert (v.decision, v.scope) == ("warn", "intent")
+    v = room.evaluate_edit("priya-cursor", FILE, 1005.0, same_chat=["priya"])
+    assert v.decision == "allow"
+
+
 def test_project_config_is_always_warn() -> None:
     from server.room import is_always_warn_file
 
