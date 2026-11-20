@@ -44,9 +44,8 @@ from the same address. Every option below runs the same code: the repo's
   in the relay process's memory, so several instances need Redis and routing
   by room code.
 
-Optional: `GEMINI_API_KEY` for AI captions and conflict summaries. Every
-variable is listed in the [README](../README.md#relay-server); the ones for
-hosting are [below](#environment-variables-for-hosting).
+Every variable is listed in the [README](../README.md#relay-server); the ones
+for hosting are [below](#environment-variables-for-hosting).
 
 ## Connecting clients
 
@@ -140,7 +139,6 @@ hivelane relay: listening on 0.0.0.0:8000 (Ctrl+C to stop)
   which is why the join line carries `--insecure`. For TLS on a LAN, put the
   relay behind [Caddy](#docker-compose--caddy) with `tls internal`, or use the
   Docker image with a proxy.
-- AI captions: `pip install "hivelane[relay,gemini]"` and set `GEMINI_API_KEY`.
 
 ## Docker
 
@@ -218,7 +216,7 @@ setup: [deploy/fly/README.md](../deploy/fly/README.md).
 `deploy/render/render.yaml` is a Blueprint: one Docker web service with a 1 GB
 disk, health-checked on `/readyz`. Create a Blueprint from the repo with
 **Blueprint Path** `deploy/render/render.yaml`. Render then prompts for
-`CORS_ORIGINS` (and optionally `GEMINI_API_KEY`). Details:
+`CORS_ORIGINS`. Details:
 [deploy/render/README.md](../deploy/render/README.md). A disk needs a paid
 instance; the free tier also sleeps.
 

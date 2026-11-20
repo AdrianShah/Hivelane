@@ -511,7 +511,8 @@ class HivelaneFeed(BaseModel):
 
 
 def placeholder_caption(message: ActivityMessage) -> str:
-    """Stand-in until Gemini captioning lands. Same shape, no network call."""
+    """The activity_update caption: one deterministic line built from the
+    message alone, no network call."""
     count = len(message.changes)
     if count == 0:
         if message.prompt:

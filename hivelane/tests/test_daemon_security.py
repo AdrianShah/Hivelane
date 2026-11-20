@@ -184,7 +184,7 @@ def test_nothing_secret_reaches_the_relay(tmp_path: Path) -> None:
 # --- end-to-end encrypted rooms ---------------------------------------------------------
 
 # AES-GCM comes from the optional e2e extra; `pip install -e .[dev]` alone does
-# not pull in cryptography (CI only has it through google-genai's deps).
+# not pull in cryptography.
 needs_crypto = pytest.mark.skipif(
     not crypto.available(), reason="needs the e2e extra (cryptography)"
 )

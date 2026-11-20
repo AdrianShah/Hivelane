@@ -70,10 +70,9 @@ You can narrow that:
 - Secret redaction and the end-to-end encryption mode, in which the relay only
   sees ciphertext, are described in [Security](security.md).
 
-If the relay's operator sets `GEMINI_API_KEY`, the relay also sends prompts
-and diffs to Google's Gemini API to write captions and explain conflicts.
-Without the key, captions are placeholders and conflicts are labelled by
-heuristics. Ask whoever runs your relay, or run your own.
+The relay calls no AI model or other third-party service: captions and
+conflict alerts are built from room state, so nothing you send leaves the
+relay (except a room owner's webhooks, below).
 
 ## Who can join my room?
 

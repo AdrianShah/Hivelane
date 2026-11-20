@@ -25,7 +25,7 @@
 
 ---
 
-Hivelane streams each agent's intent, prompts, AI-generated captions and file
+Hivelane streams each agent's intent, prompts, activity captions and file
 diffs into a shared real-time board, and checks with the relay before every
 edit whether another agent is already working in that file.
 
@@ -55,7 +55,7 @@ optional AI layer on the relay adds captions and conflict classification.
 | Component | Description |
 |-----------|-------------|
 | [`hivelane/`](hivelane/) | The `hivelane` CLI. Installs agent hooks and runs one background daemon per machine that answers hooks on `127.0.0.1:4600`. |
-| [`server/`](server/) | The relay. Manages rooms, broadcasts activity, answers pre-edit checks and optionally runs AI captioning and conflict classification. |
+| [`server/`](server/) | The relay. Manages rooms, broadcasts activity, answers pre-edit checks and raises conflict alerts. |
 | [`frontend/`](frontend/) | The spectator dashboard. Live lanes, conflict alerts and analytics, at `<dashboard>/r/<ROOM>`. |
 | [`editors/vscode/`](editors/vscode/) | VS Code, Cursor and Windsurf extension with status-bar info, file badges and pre-edit warnings. |
 | `.hivelane.toml` | Per-repository config, committed to git, that records the room and relay so teammates join automatically. |
@@ -138,9 +138,9 @@ See [docs/cli.md](docs/cli.md) for every flag and configuration option.
 
 ## Development
 
-Prerequisites: Python 3.12+, Node.js 18+ and, optionally, a
-[Gemini API key](https://aistudio.google.com/apikey) for AI captions. Without
-a key, Hivelane falls back to heuristic conflict labels.
+Prerequisites: Python 3.12+ and Node.js 18+. Hivelane needs no API keys: the
+relay builds captions and conflict alerts from room state, and nothing a
+member sends leaves the relay.
 
 `./setup.sh` (or `setup.ps1` on Windows) creates a virtual environment,
 installs the CLI in editable mode and enables the repository's git hooks.
@@ -151,7 +151,7 @@ installs the CLI in editable mode and enables the repository's git hooks.
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r server/requirements.txt
-cp .env.example .env               # optional: set GEMINI_API_KEY
+cp .env.example .env               # optional: relay settings
 uvicorn server.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 

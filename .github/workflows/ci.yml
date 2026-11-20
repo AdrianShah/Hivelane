@@ -235,8 +235,7 @@ jobs:
             pyproject.toml
       - name: Install
         if: env.RUN == 'true'
-        # e2e: the cryptography the encrypted-room tests need, explicitly
-        # rather than through google-genai's dependency tree.
+        # e2e: the cryptography the encrypted-room tests need.
         run: pip install -r server/requirements-dev.txt -e ".[dev,e2e]"
       - name: Test
         if: env.RUN == 'true' && !matrix.coverage

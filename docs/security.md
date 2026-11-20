@@ -259,17 +259,9 @@ thread, so a slow Redis does not stall every room on the instance.
   characters, and one message template is logged at most 120 times a minute
   (errors always; the next line says how many were suppressed).
 - **Metrics:** aggregate counters and gauges only; no codes, names or paths.
-- **Third parties:** with `GEMINI_API_KEY` set, the relay sends prompts and
-  diffs of cleartext rooms (trimmed) to Google's Gemini API for captions and
-  conflict explanations. That text is wrapped in delimiters with a random
-  per-call nonce (anything delimiter-like in it is removed first), and what
-  comes back is treated as untrusted: one line, capped, URLs and markup
-  stripped, explanations prefixed "AI assessment:". The model can add detail
-  to a conflict alert but never suppress one (an "unrelated" verdict keeps the
-  same-file alert). Calls are capped process-wide (`GEMINI_MAX_CONCURRENCY`,
-  default 8; `GEMINI_MAX_CALLS_PER_MINUTE`, 120; `GEMINI_DAILY_CALL_BUDGET`,
-  20,000 per UTC day), with placeholders past any cap. Never from an e2e room; without the key, nothing
-  leaves the relay. A room owner's webhooks send that room's blocks, warnings,
+- **Third parties:** none. The relay calls no AI model or other outside
+  service: captions and conflict alerts are built from room state, so prompts
+  and diffs never leave it. A room owner's webhooks send that room's blocks, warnings,
   conflict alerts and join requests to the URLs the owner chose (from an e2e
   room, only that something happened).
 
@@ -378,7 +370,7 @@ most 24) makes the relay keep the room's feed so a dashboard can replay it.
   key**: post only to channels whose members may join the room. In an e2e room
   the payload says only "a blocked edit in room CODE" (or "a warned edit", "a
   conflict alert", "a join request waiting for approval"): no paths, hashes,
-  names, reasons or prompts. Text from members and from Gemini is escaped for
+  names, reasons or prompts. Text from members is escaped for
   the target: Slack mrkdwn and Discord markdown (masked links included) are
   escaped, paths sit in code spans, and `://` and `www.` are defanged
   (`https[:]//`), so a code holder cannot plant a clickable link in the
@@ -562,8 +554,7 @@ equal: a file's hash is stable for the life of the room key, and the same
 string hashes the same whether it is a path, a symbol or a branch. A
 malicious relay can also replay an old blob or attach one teammate's blob to
 another's message; blobs are authenticated as coming from *a* key holder,
-not from a particular one. AI captions and Gemini conflict summaries are off in e2e
-rooms (the relay has nothing to send them).
+not from a particular one.
 
 **Keys.** One passphrase per room, known to every teammate:
 

@@ -20,7 +20,6 @@ crashes. Railway injects `$PORT`, which the image listens on.
      production; add any dashboard hosted elsewhere, comma-separated)
    - `TRUST_PROXY_HEADER=true` (Railway's proxy terminates TLS; see
      [docs/security.md](../../docs/security.md) for the proxy-hop settings)
-   - optional `GEMINI_API_KEY` for AI captions
 5. Deploy, then check `https://<your-service>.up.railway.app/readyz`.
 
 `https://<your-service>.up.railway.app/` is the dashboard, and teammates run
