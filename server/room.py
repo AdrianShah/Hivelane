@@ -19,7 +19,7 @@ import time
 import uuid
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Callable, Collection, Optional
 
 from fastapi import WebSocket
 from pydantic import BaseModel
@@ -1328,6 +1328,8 @@ class Room:
         symbols: Optional[list[str]] = None,
         line_ranges: Optional[list[tuple[int, int]]] = None,
         branch: str = "",
+        same_chat: Collection[str] = (),
+        siblings: Collection[str] = (),
     ) -> EditVerdict:
         """The full decision table: block/warn/allow plus the deciding scope.
 
@@ -1337,26 +1339,38 @@ class Room:
         settings; a block window of zero never blocks, so the room still warns.
         A request without symbols or line ranges gets the legacy file-level
         answer.
+
+        same_chat names members that are agents of the requester's own chat
+        (a parent and its subagents): they are left out entirely, a hand-off
+        is not a conflict. siblings (two subagents of one chat) warn at most.
         """
         wanted_symbols = list(symbols or [])
         wanted_ranges = [(int(a), int(b)) for a, b in (line_ranges or [])]
         always_warn = is_always_warn_file(file_path)
-        others = self.recent_other_touches(
-            file_path,
-            user_id,
-            now,
-            repo_id=repo_id,
-            active_only=True,
-            window_seconds=self._settings.warn_window_seconds,
-        )
+        ignored = {name.lower() for name in same_chat}
+        capped = {name.lower() for name in siblings}
+        others = [
+            touch
+            for touch in self.recent_other_touches(
+                file_path,
+                user_id,
+                now,
+                repo_id=repo_id,
+                active_only=True,
+                window_seconds=self._settings.warn_window_seconds,
+            )
+            if touch.user_id.lower() not in ignored
+        ]
         others.sort(key=lambda touch: touch.timestamp, reverse=True)
 
-        judged = [
-            (touch, *self._judge_touch(
+        judged = []
+        for touch in others:
+            decision, scope = self._judge_touch(
                 touch, now, wanted_symbols, wanted_ranges, branch, always_warn
-            ))
-            for touch in others
-        ]
+            )
+            if decision == "block" and touch.user_id.lower() in capped:
+                decision = "warn"
+            judged.append((touch, decision, scope))
         blocking = [(touch, scope) for touch, decision, scope in judged if decision == "block"]
         if blocking:
             return EditVerdict("block", [touch for touch, _ in blocking], blocking[0][1])
@@ -1366,11 +1380,19 @@ class Room:
             judged.sort(key=lambda item: item[2] == "branch")
             return EditVerdict("warn", [touch for touch, _, _ in judged], judged[0][2])
 
-        planned = self._plan_mentions(file_path, user_id, now, repo_id, wanted_symbols)
+        planned = [
+            touch
+            for touch in self._plan_mentions(file_path, user_id, now, repo_id, wanted_symbols)
+            if touch.user_id.lower() not in ignored
+        ]
         if planned:
             return EditVerdict("warn", planned, "plan")
 
-        mentions = self._intent_mentions(file_path, user_id, now, repo_id)
+        mentions = [
+            touch
+            for touch in self._intent_mentions(file_path, user_id, now, repo_id)
+            if touch.user_id.lower() not in ignored
+        ]
         if mentions:
             return EditVerdict("warn", mentions, "intent")
         return EditVerdict("allow", [], "file")

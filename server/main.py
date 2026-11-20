@@ -1256,6 +1256,8 @@ async def handle_edit_check(
         symbols=symbols,
         line_ranges=list(request.line_ranges),
         branch=request.branch,
+        same_chat=request.same_chat,
+        siblings=request.siblings,
     )
     # The file's wait queue (server/file_queue.py) has the last word: it can
     # hold back an edit no touch blocks (the file is promised to whoever is
