@@ -494,6 +494,9 @@ def edit_symbols(
     old/new string hints against the file's current content."""
     if not old or not hints or len(old) > symbols.MAX_SOURCE_BYTES:
         return [], []
+    written = next((h["write"] for h in hints if isinstance(h.get("write"), str)), None)
+    if written is not None:
+        return write_symbols(rel, old, written)
     ranges: list[tuple[int, int]] = []
     for hint in hints:
         ranges.extend(symbols.predict_ranges(old, hint.get("old") or ""))
@@ -501,6 +504,38 @@ def edit_symbols(
     if not ranges:
         return [], []
     return symbols.symbols_for_ranges(rel, old, ranges), ranges
+
+
+def write_symbols(rel: str, old: str, new: str) -> tuple[list[str], list[tuple[int, int]]]:
+    """What a whole-file write is about to change: the definitions whose
+    lines it edits or removes (named in the current file) and the ones it
+    adds (named in the new content). A pure insertion claims no existing
+    definition; its insertion point still goes into the line ranges, which
+    are in the current file's numbering like every other pre-edit
+    prediction."""
+    if len(new) > symbols.MAX_SOURCE_BYTES or old == new:
+        return [], []
+    a, b = symbols.source_lines(old), symbols.source_lines(new)
+    matcher = difflib.SequenceMatcher(None, a, b, autojunk=len(a) + len(b) > 4000)
+    changed_old: list[tuple[int, int]] = []
+    anchors: list[tuple[int, int]] = []
+    added_new: list[tuple[int, int]] = []
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if i2 > i1:  # replace / delete: existing lines change
+            changed_old.append((i1 + 1, i2))
+        else:  # insert: between old lines i1 and i1 + 1
+            line = max(1, min(i1, len(a)) or 1)
+            anchors.append((line, line))
+        if j2 > j1:
+            added_new.append((j1 + 1, j2))
+    names = symbols.symbols_for_ranges(rel, old, symbols.merge_ranges(changed_old))
+    for name in symbols.symbols_for_ranges(rel, new, symbols.merge_ranges(added_new)):
+        if name not in names:
+            names.append(name)
+    ranges = symbols.merge_ranges(changed_old + anchors)
+    return names[: symbols.MAX_SYMBOLS], ranges[:200]
 
 
 def change_symbols(rel: str, old: str, new: str) -> tuple[list[str], list[tuple[int, int]]]:
@@ -1069,6 +1104,15 @@ class RoomConnection:
         self._remember_name(token, value)
         return token
 
+    def content_version(self, content: str) -> str:
+        """A fingerprint of one version of a file, sent with line numbers so
+        the relay compares them only within one version. Keyed in an e2e room
+        (the relay must not be able to confirm a guessed file content)."""
+        key = self.e2e_key
+        if key is not None:
+            return key.hash(content)
+        return hashlib.sha256(content.encode("utf-8", "surrogatepass")).hexdigest()[:32]
+
     def _remember_name(self, token: str, value: str) -> None:
         self._names.pop(token, None)
         self._names[token] = value
@@ -1237,6 +1281,7 @@ class RoomConnection:
                     diff="",
                     symbols=[] if warn_only else [self._hash(s) for s in change.symbols],
                     line_ranges=[] if warn_only else list(change.line_ranges),
+                    version=change.version,
                 )
             )
         return message.model_copy(
@@ -1489,6 +1534,7 @@ class RoomConnection:
                 same_chat=list(same_chat),
                 siblings=list(siblings),
                 own_names=list(own_names),
+                base_version=self.content_version(old) if old is not None else "",
             )
         )
         if not sent:
@@ -1757,7 +1803,9 @@ class RoomConnection:
             # Two edits to one file inside a batch: report both edits' symbols.
             names = list(dict.fromkeys([*previous.symbols, *names]))[: symbols.MAX_SYMBOLS]
         self._batch[(repo_id, rel)] = FileChange(
-            file_path=rel, diff=diff, symbols=names, line_ranges=ranges
+            file_path=rel, diff=diff, symbols=names, line_ranges=ranges,
+            # The version these line ranges are numbered in: the file now.
+            version=self.content_version(new) if known_old else "",
         )
         self._schedule_flush()
         return EventAck(file_path=rel)

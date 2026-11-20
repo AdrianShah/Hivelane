@@ -95,6 +95,8 @@ def _edit_hints(tool: Any, tool_input: dict[str, Any]) -> Optional[list[dict[str
         return base.string_hints(tool_input)
     if tool == "MultiEdit":
         return base.string_hints(tool_input.get("edits"))
+    if tool == "Write":
+        return base.write_hints(tool_input.get("content"))
     return None
 
 

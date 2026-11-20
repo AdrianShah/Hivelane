@@ -79,6 +79,11 @@ class FileChange(BaseModel):
     # Empty when the client could not extract them (or predates them).
     symbols: list[str] = []
     line_ranges: list[tuple[int, int]] = []
+    # Fingerprint of the file version line_ranges are numbered in (the
+    # content after this change). Line numbers are only compared between
+    # equal versions; across versions (two checkouts) symbols decide. "" if
+    # unknown (an older client).
+    version: str = Field("", max_length=64)
 
 
 # --- Client -> Server ---------------------------------------------------------
@@ -175,6 +180,9 @@ class EditCheckRequest(BaseModel):
     # name and its agent lanes): reservations of tasks claimed by any of
     # them do not block it. Advisory, like same_chat.
     own_names: list[str] = []
+    # Fingerprint of the file version line_ranges are numbered in (the
+    # requester's current content); see FileChange.version.
+    base_version: str = Field("", max_length=64)
 
 
 class FileRequest(BaseModel):

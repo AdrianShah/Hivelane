@@ -8,6 +8,7 @@ test can see exactly what every room received; tests/e2e covers the real relay.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import socket
 from collections import defaultdict
@@ -310,8 +311,10 @@ def test_repo_is_adopted_from_its_project_config(tmp_path: Path) -> None:
             (activity,) = relay.of_type("TEAMX", "activity")
             # Symbol names and line numbers still go out (they drive overlap
             # detection); the content of the change does not.
+            # The version is a fingerprint of the file (hashed, not its text).
+            version = hashlib.sha256(b"b\n").hexdigest()[:32]
             assert activity["changes"] == [
-                {"file_path": "src/a.py", "diff": "", "symbols": ["<module>"], "line_ranges": [[1, 1]]}
+                {"file_path": "src/a.py", "diff": "", "symbols": ["<module>"], "line_ranges": [[1, 1]], "version": version}
             ]
 
             entry = daemon.status()["repos"][0]

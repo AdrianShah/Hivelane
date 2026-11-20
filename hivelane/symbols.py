@@ -10,8 +10,10 @@ Runs in the daemon, never on the hook hot path. Two tiers:
   language pack fetches each grammar on first use, so grammars are loaded in a
   background thread and the heuristic answers until one is ready.
 
-Special names: `<imports>` is the file's import block (the relay treats it as
-intersecting everything), `<module>` is any other top-level code.
+Special names: `<imports>` is the file's import block, `<module>` is any other
+top-level code. In Python, a top-level or class-level assignment to a single
+name is a definition of its own (`LIMIT`, `Store.timeout`), so two agents
+changing different constants are not both just "<module>".
 
 Every public function is pure and never raises; callers skip files larger than
 MAX_SOURCE_BYTES, where the relay falls back to file-level overlap.
@@ -159,6 +161,21 @@ def _py_branches(node: ast.AST) -> list[list[ast.stmt]]:
     return [b for b in branches if b]
 
 
+def _py_assign_name(node: ast.stmt) -> Optional[str]:
+    """`LIMIT = 1`, `LIMIT: int = 1`, `LIMIT += 1` -> "LIMIT". None for
+    anything else (tuple unpacking, attribute or subscript targets, chained
+    `a = b = 1`): those stay part of the surrounding scope."""
+    if isinstance(node, ast.Assign):
+        if len(node.targets) != 1:
+            return None
+        target: ast.expr = node.targets[0]
+    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+        target = node.target
+    else:
+        return None
+    return target.id if isinstance(target, ast.Name) else None
+
+
 def _python_outline(source: str) -> Optional[Outline]:
     try:
         tree = ast.parse(source)
@@ -166,7 +183,7 @@ def _python_outline(source: str) -> Optional[Outline]:
         return None
     outline = Outline()
 
-    def visit(body: list[ast.stmt], prefix: str, top: bool) -> None:
+    def visit(body: list[ast.stmt], prefix: str, top: bool, named_assigns: bool) -> None:
         for node in body:
             if top and isinstance(node, (ast.Import, ast.ImportFrom)):
                 outline.imports.append((node.lineno, node.end_lineno or node.lineno))
@@ -174,15 +191,23 @@ def _python_outline(source: str) -> Optional[Outline]:
                 name = f"{prefix}{node.name}"
                 start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
                 outline.defs.append(Definition(name, start, node.end_lineno or node.lineno))
-                visit(node.body, name + ".", False)
+                # A class body's own assignments are its attributes; a
+                # function body's are its business (the function is the unit).
+                visit(node.body, name + ".", False, isinstance(node, ast.ClassDef))
+            elif named_assigns and isinstance(node, (ast.Assign, ast.AnnAssign, ast.AugAssign)):
+                target = _py_assign_name(node)
+                if target is not None:
+                    outline.defs.append(
+                        Definition(f"{prefix}{target}", node.lineno, node.end_lineno or node.lineno)
+                    )
             elif isinstance(node, _PY_COMPOUND):
                 # `if TYPE_CHECKING:`, try-import blocks (the `except` branch
                 # too), `with` blocks: imports inside still belong to the
                 # import block, and defs inside are still defs.
                 for branch in _py_branches(node):
-                    visit(branch, prefix, top)
+                    visit(branch, prefix, top, named_assigns)
 
-    visit(tree.body, "", True)
+    visit(tree.body, "", True, True)
     return outline.finalize()
 
 
@@ -668,6 +693,8 @@ def outline_for(path: str, source: str) -> Optional[Outline]:
 
 
 _PY_DEF = re.compile(r"^(?P<indent>\s*)(?:async\s+)?(?:def|class)\s+(?P<name>\w+)")
+# `NAME = ...`, `NAME: T = ...`, `NAME += ...` at the start of a line.
+_PY_ASSIGN = re.compile(r"^(?P<name>[A-Za-z_]\w*)\s*(?::[^=]*)?(?://|\*\*|<<|>>|[-+*/%&|^@])?=(?!=)")
 _PY_IMPORT = re.compile(r"^﻿?(?:import|from\s+\S+\s+import)\b")
 
 
@@ -700,6 +727,12 @@ def _heuristic_python(source: str) -> Outline:
         close(indent, last_code)
         if indent == 0 and _PY_IMPORT.match(stripped):
             outline.imports.append((index + 1, index + 1))
+        elif indent == 0 and not stack:
+            assign = _PY_ASSIGN.match(line)
+            if assign is not None:
+                # One line: without a parse the extent of a multi-line value
+                # is a guess, and a wrong guess would hide a real overlap.
+                outline.defs.append(Definition(assign.group("name"), index + 1, index + 1))
         match = _PY_DEF.match(line)
         if stripped.startswith("@"):
             if decorator_start is None:

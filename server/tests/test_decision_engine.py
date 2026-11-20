@@ -155,8 +155,73 @@ def test_imports_symbol_intersects_only_imports(room: Room) -> None:
     _touch(room, "sam", 1000.0, symbols=["<imports>", "foo"])
     v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["Room.check_edit"])
     assert (v.decision, v.scope) == ("warn", "symbol")
+    # Both only touching the import block: separate import lines, a warning
+    # with its own reason, not a block.
     v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["<imports>"])
+    assert (v.decision, v.scope) == ("warn", "symbol")
+    assert "also adding imports" in v.reason
+
+
+def test_import_edits_on_the_same_lines_still_block(room: Room) -> None:
+    _touch(room, "sam", 1000.0, symbols=["<imports>"], line_ranges=[(1, 2)])
+    _set_version(room, "sam", "v1")
+    v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["<imports>"], line_ranges=[(2, 2)], base_version="v1")
+    assert (v.decision, v.scope) == ("block", "lines")
+    # Another version of the file: its line 2 is not sam's line 2.
+    v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["<imports>"], line_ranges=[(2, 2)], base_version="v2")
+    assert v.decision == "warn"
+
+
+def _set_version(room: Room, user: str, version: str) -> None:
+    for touches in room._file_activity.values():
+        for (_repo, other), touch in touches.items():
+            if other == user:
+                touch.version = version
+
+
+def test_line_numbers_from_another_file_version_do_not_block(room: Room) -> None:
+    # sam grew alpha in their checkout; their new line numbers overlap the
+    # lines of beta in priya's (older) copy. Different functions: a warning.
+    _touch(room, "sam", 1000.0, symbols=["alpha"], line_ranges=[(10, 30)])
+    _set_version(room, "sam", "sam-v2")
+    v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["beta"], line_ranges=[(20, 21)], base_version="priya-v1")
+    assert (v.decision, v.scope) == ("warn", "symbol")
+    # The same version (one checkout): the lines really are the same lines.
+    v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["beta"], line_ranges=[(20, 21)], base_version="sam-v2")
+    assert (v.decision, v.scope) == ("block", "lines")
+    # A client that sends no version is judged as before.
+    v = room.evaluate_edit("priya", FILE, 1005.0, symbols=["beta"], line_ranges=[(20, 21)])
+    assert (v.decision, v.scope) == ("block", "lines")
+
+
+def test_a_passed_check_stands_in_until_its_activity_arrives(room: Room) -> None:
+    # sam's check passed (no activity yet): priya asking about the same
+    # function a moment later is blocked, a different one is not.
+    room.note_passed_check("sam", "", FILE, 1000.0, symbols=["alpha"], line_ranges=[(5, 6)])
+    v = room.evaluate_edit("priya", FILE, 1001.0, symbols=["alpha"])
     assert (v.decision, v.scope) == ("block", "symbol")
+    assert room.evaluate_edit("priya", FILE, 1001.0, symbols=["beta"]).decision == "warn"
+    # Never against yourself.
+    assert room.evaluate_edit("sam", FILE, 1001.0, symbols=["alpha"]).decision == "allow"
+    # sam's activity reports the edit: the real touch takes over.
+    _touch(room, "sam", 1002.0, symbols=["alpha"])
+    assert not room._pending_checks
+    assert room.evaluate_edit("priya", FILE, 1003.0, symbols=["alpha"]).decision == "block"
+
+
+def test_a_pending_check_lapses_and_never_raises_a_conflict_alert(room: Room) -> None:
+    try:
+        from server.room import PENDING_CHECK_SECONDS
+    except ImportError:  # Render rootDir=server
+        from room import PENDING_CHECK_SECONDS  # type: ignore[no-redef]
+    room.note_passed_check("sam", "", FILE, 1000.0, symbols=["alpha"], line_ranges=[])
+    later = 1000.0 + PENDING_CHECK_SECONDS + 1
+    assert room.evaluate_edit("priya", FILE, later, symbols=["alpha"]).decision == "allow"
+    room.note_passed_check("sam", "", FILE, 1000.0, symbols=["alpha"], line_ranges=[])
+    assert room.recent_other_touches(FILE, "priya", 1001.0) == []
+    # A member who leaves takes its pending checks along.
+    room.remove_member("sam")
+    assert not room._pending_checks
 
 
 @pytest.mark.parametrize(
