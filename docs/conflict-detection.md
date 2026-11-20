@@ -102,7 +102,9 @@ chat is `ada`, a second chat is `ada-claude`, Cursor beside Claude Code is
 short id). Their collisions are checked like anyone else's, with one
 exception. Agents of the same chat never block each other. A subagent editing
 a file its parent just touched is treated as a hand-off and allowed. Two
-subagents of one chat in the same file get a warning. A subagent's lane shows
+subagents of one chat in the same file get a warning. The daemon names the
+chat's other lanes on each edit check, so the relay decides this itself and
+the dashboard shows the same decision the agent got. A subagent's lane shows
 the task it was given as its intent and closes a few seconds after it
 finishes. Idle lanes close after 15 minutes.
 

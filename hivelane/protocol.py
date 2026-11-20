@@ -158,6 +158,12 @@ class EditCheckRequest(BaseModel):
     line_ranges: list[tuple[int, int]] = []
     branch: str = ""
     e2e: E2EBlob = ""
+    # Members that are agents of the requester's own chat (agent lanes):
+    # their touches of the file are a hand-off and do not count; siblings'
+    # (two subagents of one chat) warn at most, never block. Advisory, like
+    # the hook itself: it only shapes the requester's own decision.
+    same_chat: list[str] = []
+    siblings: list[str] = []
 
 
 class FileRequest(BaseModel):
