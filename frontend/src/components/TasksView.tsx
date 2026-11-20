@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import type { Task } from '../types';
 import { groupTasks, leaseLabel, taskResult } from '../dashboard/taskReducer';
 import { relativeTime } from '../dashboard/people';
@@ -42,9 +44,7 @@ export default function TasksView({ tasks, nowSeconds }: TasksViewProps) {
             return (
               <section key={column.key} className="lane-shell rounded-2xl p-4 min-w-0" aria-label={column.label}>
                 <h2 className="section-label m-0 mb-3 flex items-center gap-1.5">
-                  <span className="material-symbols-outlined text-[15px] text-lavender" aria-hidden="true">
-                    {column.icon}
-                  </span>
+                  <Icon name={fromMaterial(column.icon)} size={15} className="text-lavender" />
                   {column.label}
                   <span className="ml-auto text-on-dim tabular-nums">{items.length}</span>
                 </h2>

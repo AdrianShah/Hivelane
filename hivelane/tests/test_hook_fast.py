@@ -222,6 +222,17 @@ def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
     if ack.others and ack.others[0].prompt:
         prompt = ack.others[0].prompt.replace('"', "'")  # these ACKS carry no control characters
         message += f" (their task, in the teammate's own words: \"{prompt}\")"
+    # Dashboard v3's chat card: mark, state and file; who; what to do.
+    card = f"\u2b21 Hivelane \u00b7 {'held' if ack.decision == 'block' else 'overlap'} \u00b7 {path}\n  {detail.split(' (and ')[0]}"
+    extras = []
+    if ack.decision == "block":
+        extras += [f"#{ack.queue_position} in line"] if ack.queue_position else []
+        extras += [ack.suggestion] if ack.suggestion else []
+        extras += [f"hivelane wait {named}"] if named else []
+    elif ack.suggestion:
+        extras.append(ack.suggestion)
+    if extras:
+        card += "\n  " + " \u00b7 ".join(extras)
     if ack.decision == "block":
         return json.dumps(
             {
@@ -229,7 +240,8 @@ def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": f"Hivelane: {message}",
-                }
+                },
+                "systemMessage": card,
             }
         )
     return json.dumps(
@@ -238,7 +250,7 @@ def legacy_render_response(event: NormalizedEvent, ack: EventAck) -> str:
                 "hookEventName": "PreToolUse",
                 "additionalContext": f"Hivelane warning: {message}",
             },
-            "systemMessage": f"Hivelane: {message}",
+            "systemMessage": card,
         }
     )
 

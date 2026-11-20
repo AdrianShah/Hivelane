@@ -21,7 +21,7 @@ Verdict = Literal["overlapping", "related", "unrelated"]
 # clients cannot satisfy. A daemon that predates edit_check would connect happily
 # and simply never ask permission, so conflict prevention would be silently off;
 # the handshake rejects it instead.
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 MIN_SUPPORTED_PROTOCOL = 1
 
 # Answer to "may I edit this file right now?", an agent's PreToolUse hook maps
@@ -456,6 +456,10 @@ class RoomSettingsUpdate(BaseModel):
     history_hours: float = 0
     set_by: Optional[str] = None
     timestamp: float = Field(default_factory=time.time)
+    # When the room was created and when its code stops working (the relay
+    # keeps codes for a week). 0 from a relay that predates room expiry.
+    created_at: float = 0
+    expires_at: float = 0
 
 
 class UserJoined(BaseModel):
@@ -579,6 +583,95 @@ class FileReleased(BaseModel):
     type: Literal["file_released"] = "file_released"
     file_path: str
     repo_id: RepoId = ""
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+    # Why the file is ours now when it was not the holder letting go:
+    # "owner" when a room owner released the hold or let us go first.
+    reason: str = ""
+
+
+# --- Resolve actions (owner dashboard -> relay) ---------------------------------
+#
+# Three things an owner can do about a collision from the dashboard. Each is
+# ignored from a socket that did not present the room's owner token, and
+# counts against the spectator message budget like every dashboard frame.
+
+# A ping's text is shown in an agent's chat and a desktop notification: short.
+NUDGE_MAX_CHARS = 280
+# Member names are bounded by the join's display-name rule; this is a
+# relay-side memory bound for the frames that name one.
+USER_ID_MAX_CHARS = 64
+
+
+class HoldRelease(BaseModel):
+    """Owner -> relay: let a held (blocked) edit go ahead. decision_id names
+    the block (EditDecision.decision_id). The relay puts that member first in
+    the file's wait queue, lets its edits through the holders' touches for a
+    short while, sends it file_released and broadcasts hold_released."""
+
+    type: Literal["hold_release"] = "hold_release"
+    decision_id: str = Field(..., max_length=64)
+
+
+class QueueOrder(BaseModel):
+    """Owner -> relay: settle who goes first on a contested file. The named
+    member moves to the front of the file's queue (and is let through the
+    others' touches for a short while); everyone else involved waits behind
+    it with a queue_position."""
+
+    type: Literal["queue_order"] = "queue_order"
+    file_path: str = Field(..., max_length=4096)
+    repo_id: RepoId = ""
+    first_user_id: str = Field(..., max_length=USER_ID_MAX_CHARS)
+
+
+class Nudge(BaseModel):
+    """Owner -> relay: ping one member's agent. The relay hands it to that
+    member as `nudged`; its daemon shows it in the agent's next hook output
+    and as a desktop notification."""
+
+    type: Literal["nudge"] = "nudge"
+    to_user_id: str = Field(..., max_length=USER_ID_MAX_CHARS)
+    text: str = Field("", max_length=NUDGE_MAX_CHARS)
+
+
+class Nudged(BaseModel):
+    """Relay -> the pinged member (point to point) and the dashboards (feed):
+    an owner pinged user_id. delivered is False when the member was not
+    connected to receive it."""
+
+    type: Literal["nudged"] = "nudged"
+    user_id: str
+    by: str = "room owner"
+    text: str = ""
+    delivered: bool = True
+    timestamp: float = Field(default_factory=time.time)
+
+
+class HoldReleased(BaseModel):
+    """Relay -> feed: an owner released decision_id's hold; user_id may now
+    edit file_path. Carries the held edit's e2e blob so encrypted rooms can
+    show the path."""
+
+    type: Literal["hold_released"] = "hold_released"
+    decision_id: str
+    user_id: str
+    file_path: str
+    repo_id: RepoId = ""
+    by: str = "room owner"
+    timestamp: float = Field(default_factory=time.time)
+    e2e: E2EBlob = ""
+
+
+class QueueReordered(BaseModel):
+    """Relay -> feed: an owner let first_user_id go first on file_path;
+    waiting lists everyone else in line, in order."""
+
+    type: Literal["queue_reordered"] = "queue_reordered"
+    file_path: str
+    repo_id: RepoId = ""
+    first_user_id: str
+    waiting: list[str] = []
     timestamp: float = Field(default_factory=time.time)
     e2e: E2EBlob = ""
 

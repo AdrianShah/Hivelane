@@ -163,7 +163,7 @@ The first frame on every connection.
 |-------|------|---------|-------------|
 | `name` | string or `null` | `null` | Display name. Omit or `null` to join as a spectator (a dashboard). See [Names](#names). |
 | `agent` | [agent kind](#agent-kinds) | `"unknown"` | The agent behind the member. Labelling only; never used for decisions. |
-| `protocol_version` | integer | `1` | Protocol the client speaks. The relay reads an omitted value as `0`; members below `MIN_SUPPORTED_PROTOCOL` are refused. |
+| `protocol_version` | integer | `2` | Protocol the client speaks (2 adds the owner resolve actions below; the relay still accepts 1). The relay reads an omitted value as `0`; members below `MIN_SUPPORTED_PROTOCOL` are refused. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque id of the repository the member works in; see [step 6](#writing-a-client-in-another-language) for how the reference client computes it. |
 | `settings` | [RoomSettings](#roomsettings) or `null` | `null` | The team's committed conflict windows, applied room-wide when this member is admitted. Invalid settings are ignored, not fatal. |
 | `owner_token` | string or `null` | `null` | The `owner_token` returned by `POST /rooms`. A matching token makes this socket a room owner; a wrong one is treated as none. |
@@ -180,7 +180,7 @@ The team's conflict windows, as committed in `.hivelane.toml`. The relay applies
 | `history_hours` | number (0 to 24) | `0` | Hours of feed events the relay keeps in memory for [`history_request`](#history_request) (the dashboard's replay). `0` keeps none. A join that omits it leaves the room's value alone. |
 
 ```json
-{"type": "join", "name": "adrian", "agent": "claude-code", "protocol_version": 1,
+{"type": "join", "name": "adrian", "agent": "claude-code", "protocol_version": 2,
  "repo_id": "3f2c9a1b7d4e5f60", "settings": {"block_window_seconds": 20, "warn_window_seconds": 60}}
 ```
 
@@ -351,6 +351,31 @@ off admits everyone waiting.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `require_approval` | boolean | required | `true`: every new joiner without the owner token waits for an owner's approval. |
+
+### hold_release, queue_order, nudge
+
+Owner resolve actions from the dashboard (protocol 2). Ignored from a socket
+without the room's owner token; they count against the spectator message
+budget like every dashboard frame.
+
+`hold_release` lets a held edit go ahead: `decision_id` names a block
+(`edit_decision.decision_id`, releasable for 15 minutes). `queue_order` settles
+who edits a contested file first: `file_path`, `repo_id` (default `""`) and
+`first_user_id`. Both put that member at the front of the file's wait queue,
+send it `file_released` (`reason: "owner"`, a 30 s grace) and, for 60 s or the
+block window if longer, let its edits of the file pass the other members'
+touches (they still warn). Everyone else touching, queued for or claiming the
+file waits behind it and its holders hear `file_requested`. The relay then
+broadcasts `hold_released` or `queue_reordered`.
+
+`nudge` pings one member's agent: `to_user_id` and `text` (at most 280
+characters). The relay sends that member `nudged` and tells the dashboards.
+
+| Message | Fields |
+|---------|--------|
+| `hold_release` | `decision_id` (string, at most 64 chars) |
+| `queue_order` | `file_path` (string), `repo_id` (string, default `""`), `first_user_id` (string) |
+| `nudge` | `to_user_id` (string), `text` (string, default `""`) |
 
 ### task
 
@@ -565,6 +590,8 @@ change them, and sent first in every spectator's catch-up.
 | `history_hours` | number | `0` | Hours of feed events the relay keeps for `history_request`; `0` when it keeps none. |
 | `set_by` | string or `null` | `null` | The member whose join set these, or `null` for the room's creation settings. |
 | `timestamp` | number | now | Unix time in seconds. |
+| `created_at` | number | `0` | When the room was created (Unix seconds); `0` from a relay older than protocol 2. |
+| `expires_at` | number | `0` | When the room code stops working: a week after creation. `0` when unknown. |
 
 ### room_policy_update
 
@@ -644,7 +671,7 @@ close 4426.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `reason` | string | required | What to do (upgrade). The socket closes with 4426. |
-| `server_protocol` | integer | `1` | The relay's `PROTOCOL_VERSION`. |
+| `server_protocol` | integer | `2` | The relay's `PROTOCOL_VERSION`. |
 | `min_supported` | integer | `1` | The relay's `MIN_SUPPORTED_PROTOCOL`. |
 
 ### room_rejected
@@ -700,6 +727,31 @@ the release is withdrawn and a new `file_released` follows later.
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
 | `timestamp` | number | now | When the file was released to the recipient (the grace starts here). |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), the recipient's own, copied from the request that queued it; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
+| `reason` | string | `""` | `"owner"` when a room owner released the hold or let the recipient go first (`hold_release`, `queue_order`), and the grace is 30 s instead of 10 s. |
+
+### nudged
+
+An owner pinged a member from the dashboard (`nudge`). Sent point-to-point to
+that member, whose daemon shows the text in the agent's next hook output and as
+a desktop notification (`HIVELANE_DESKTOP_NOTIFY=0` turns that off), and to the
+dashboards as a feed event.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `user_id` | string | required | The member pinged. |
+| `by` | string | `"room owner"` | Who pinged. |
+| `text` | string | `""` | The ping, with control and bidi characters removed. In an e2e room it is not encrypted: keep it free of code. |
+| `delivered` | boolean | `true` | `false` when the member could not be reached. |
+| `timestamp` | number | now | Unix time in seconds. |
+
+### hold_released / queue_reordered
+
+Feed events for the dashboards after an owner's `hold_release` (fields
+`decision_id`, `user_id`, `file_path`, `repo_id`, `by`, `timestamp`, `e2e`) or
+`queue_order` (`file_path`, `repo_id`, `first_user_id`, `waiting`: the rest of
+the line in order, `timestamp`, `e2e`). Each member now waiting behind the one
+let through also gets an `edit_decision` (`block`, with its `queue_position`),
+which an owner can release in turn.
 
 ### history_chunk
 

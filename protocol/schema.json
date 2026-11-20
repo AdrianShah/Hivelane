@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Hivelane wire protocol",
   "description": "Every WebSocket frame between a Hivelane client and the relay. Generated from hivelane/protocol.py by protocol/generate.py; do not edit by hand.",
-  "x-protocol-version": 1,
+  "x-protocol-version": 2,
   "x-min-supported-protocol": 1,
   "x-client-to-relay": {
     "join": "#/$defs/JoinMessage",
@@ -15,7 +15,10 @@
     "room_policy": "#/$defs/RoomPolicy",
     "file_request": "#/$defs/FileRequest",
     "history_request": "#/$defs/HistoryRequest",
-    "task": "#/$defs/TaskRequest"
+    "task": "#/$defs/TaskRequest",
+    "hold_release": "#/$defs/HoldRelease",
+    "queue_order": "#/$defs/QueueOrder",
+    "nudge": "#/$defs/Nudge"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -42,7 +45,10 @@
     "history_chunk": "#/$defs/HistoryChunk",
     "hivelane_feed": "#/$defs/HivelaneFeed",
     "task_reply": "#/$defs/TaskReply",
-    "task_update": "#/$defs/TaskUpdate"
+    "task_update": "#/$defs/TaskUpdate",
+    "nudged": "#/$defs/Nudged",
+    "hold_released": "#/$defs/HoldReleased",
+    "queue_reordered": "#/$defs/QueueReordered"
   },
   "oneOf": [
     {
@@ -77,6 +83,15 @@
     },
     {
       "$ref": "#/$defs/TaskRequest"
+    },
+    {
+      "$ref": "#/$defs/HoldRelease"
+    },
+    {
+      "$ref": "#/$defs/QueueOrder"
+    },
+    {
+      "$ref": "#/$defs/Nudge"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -152,6 +167,15 @@
     },
     {
       "$ref": "#/$defs/TaskUpdate"
+    },
+    {
+      "$ref": "#/$defs/Nudged"
+    },
+    {
+      "$ref": "#/$defs/HoldReleased"
+    },
+    {
+      "$ref": "#/$defs/QueueReordered"
     }
   ],
   "$defs": {
@@ -796,6 +820,11 @@
           "maxLength": 262144,
           "title": "E2E",
           "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
         }
       },
       "required": [
@@ -973,6 +1002,78 @@
       "title": "HivelaneFeed",
       "type": "object"
     },
+    "HoldRelease": {
+      "description": "Owner -> relay: let a held (blocked) edit go ahead. decision_id names\nthe block (EditDecision.decision_id). The relay puts that member first in\nthe file's wait queue, lets its edits through the holders' touches for a\nshort while, sends it file_released and broadcasts hold_released.",
+      "properties": {
+        "type": {
+          "const": "hold_release",
+          "default": "hold_release",
+          "title": "Type",
+          "type": "string"
+        },
+        "decision_id": {
+          "maxLength": 64,
+          "title": "Decision Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id"
+      ],
+      "title": "HoldRelease",
+      "type": "object"
+    },
+    "HoldReleased": {
+      "description": "Relay -> feed: an owner released decision_id's hold; user_id may now\nedit file_path. Carries the held edit's e2e blob so encrypted rooms can\nshow the path.",
+      "properties": {
+        "type": {
+          "const": "hold_released",
+          "default": "hold_released",
+          "title": "Type",
+          "type": "string"
+        },
+        "decision_id": {
+          "title": "Decision Id",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "by": {
+          "default": "room owner",
+          "title": "By",
+          "type": "string"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "decision_id",
+        "user_id",
+        "file_path"
+      ],
+      "title": "HoldReleased",
+      "type": "object"
+    },
     "IntentMessage": {
       "properties": {
         "type": {
@@ -1134,7 +1235,7 @@
           "type": "string"
         },
         "protocol_version": {
-          "default": 1,
+          "default": 2,
           "title": "Protocol Version",
           "type": "integer"
         },
@@ -1290,6 +1391,72 @@
         "reason"
       ],
       "title": "NameRejected",
+      "type": "object"
+    },
+    "Nudge": {
+      "description": "Owner -> relay: ping one member's agent. The relay hands it to that\nmember as `nudged`; its daemon shows it in the agent's next hook output\nand as a desktop notification.",
+      "properties": {
+        "type": {
+          "const": "nudge",
+          "default": "nudge",
+          "title": "Type",
+          "type": "string"
+        },
+        "to_user_id": {
+          "maxLength": 64,
+          "title": "To User Id",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "maxLength": 280,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "to_user_id"
+      ],
+      "title": "Nudge",
+      "type": "object"
+    },
+    "Nudged": {
+      "description": "Relay -> the pinged member (point to point) and the dashboards (feed):\nan owner pinged user_id. delivered is False when the member was not\nconnected to receive it.",
+      "properties": {
+        "type": {
+          "const": "nudged",
+          "default": "nudged",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "by": {
+          "default": "room owner",
+          "title": "By",
+          "type": "string"
+        },
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string"
+        },
+        "delivered": {
+          "default": true,
+          "title": "Delivered",
+          "type": "boolean"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        }
+      },
+      "required": [
+        "user_id"
+      ],
+      "title": "Nudged",
       "type": "object"
     },
     "PeerTouch": {
@@ -1612,6 +1779,88 @@
       "title": "PlanUpdate",
       "type": "object"
     },
+    "QueueOrder": {
+      "description": "Owner -> relay: settle who goes first on a contested file. The named\nmember moves to the front of the file's queue (and is let through the\nothers' touches for a short while); everyone else involved waits behind\nit with a queue_position.",
+      "properties": {
+        "type": {
+          "const": "queue_order",
+          "default": "queue_order",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "maxLength": 4096,
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "first_user_id": {
+          "maxLength": 64,
+          "title": "First User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "first_user_id"
+      ],
+      "title": "QueueOrder",
+      "type": "object"
+    },
+    "QueueReordered": {
+      "description": "Relay -> feed: an owner let first_user_id go first on file_path;\nwaiting lists everyone else in line, in order.",
+      "properties": {
+        "type": {
+          "const": "queue_reordered",
+          "default": "queue_reordered",
+          "title": "Type",
+          "type": "string"
+        },
+        "file_path": {
+          "title": "File Path",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "first_user_id": {
+          "title": "First User Id",
+          "type": "string"
+        },
+        "waiting": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Waiting",
+          "type": "array"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "first_user_id"
+      ],
+      "title": "QueueReordered",
+      "type": "object"
+    },
     "RateLimited": {
       "properties": {
         "type": {
@@ -1768,6 +2017,16 @@
         },
         "timestamp": {
           "title": "Timestamp",
+          "type": "number"
+        },
+        "created_at": {
+          "default": 0,
+          "title": "Created At",
+          "type": "number"
+        },
+        "expires_at": {
+          "default": 0,
+          "title": "Expires At",
           "type": "number"
         }
       },
@@ -2175,7 +2434,7 @@
           "type": "string"
         },
         "server_protocol": {
-          "default": 1,
+          "default": 2,
           "title": "Server Protocol",
           "type": "integer"
         },

@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import { memo, useId, useState } from 'react';
 import type { LaneState, PlanUpdate, Task } from '../types';
 import { leaseLabel } from '../dashboard/taskReducer';
@@ -159,9 +161,7 @@ function Lane({
             <StatusPill status={status} />
             {inConflict && !offline ? (
               <span className="agent-status-pill is-conflict" title="Overlapping edits right now">
-                <span className="material-symbols-outlined" aria-hidden="true">
-                  warning
-                </span>
+                <Icon name="warning" size={16} />
                 Conflict
               </span>
             ) : null}
@@ -170,9 +170,7 @@ function Lane({
             <AgentBadge agent={agent} />
             {branch ? (
               <span className="branch-badge" title={`Branch: ${branch}`}>
-                <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-                  call_split
-                </span>
+                <Icon name="branch" size={13} />
                 <span className="sr-only">Branch </span>
                 <span className="truncate">{branch}</span>
               </span>
@@ -187,9 +185,7 @@ function Lane({
       <div className="flex flex-col gap-3 p-4 sm:p-5 flex-1 min-w-0">
         <section aria-label="Current intent" className="min-w-0">
           <p className="section-label m-0 mb-1 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px] text-lavender" aria-hidden="true">
-              my_location
-            </span>
+            <Icon name="target" size={14} className="text-lavender" />
             Working on
           </p>
           {activeIntent || activePrompt ? (
@@ -204,9 +200,7 @@ function Lane({
           )}
           {caption ? (
             <p className="m-0 mt-1.5 text-[12px] text-on-muted leading-snug flex gap-1.5 min-w-0">
-              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
-                bolt
-              </span>
+              <Icon name="bolt" size={14} className="text-primary shrink-0" />
               <span className="break-words min-w-0">{caption}</span>
             </p>
           ) : null}
@@ -216,9 +210,7 @@ function Lane({
               className="m-0 mt-1.5 text-[12px] text-on-muted leading-snug flex gap-1.5 min-w-0"
               title={task.files.length ? `Reserved: ${task.files.join(', ')}` : undefined}
             >
-              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
-                assignment_ind
-              </span>
+              <Icon name="claim" size={14} className="text-primary shrink-0" />
               <span className="break-words min-w-0">
                 <span className="font-semibold text-on-surface">{task.task_id}</span>{' '}
                 {task.title || 'encrypted task'} · {leaseLabel(task, nowSeconds)}
@@ -233,9 +225,7 @@ function Lane({
         {plan ? (
           <section className="plan-panel rounded-xl p-3 min-w-0" aria-label="Plan checklist">
             <div className="flex items-center gap-1.5 text-[11.5px] min-w-0">
-              <span className="material-symbols-outlined text-[14px] text-primary shrink-0" aria-hidden="true">
-                checklist
-              </span>
+              <Icon name="plan" size={14} className="text-primary shrink-0" />
               <span className="text-on-muted truncate flex-1" title={plan.summary}>
                 {plan.summary || 'Declared plan'}
               </span>
@@ -253,7 +243,7 @@ function Lane({
                     <li key={file} className="flex items-center gap-2 text-[11.5px] min-w-0">
                       <span className={`plan-check ${edited ? 'is-edited' : ''}`} aria-hidden="true">
                         {edited ? (
-                          <span className="material-symbols-outlined text-[12px] leading-none" aria-hidden="true">check</span>
+                          <Icon name="check" size={12} className="leading-none" />
                         ) : null}
                       </span>
                       <code
@@ -286,9 +276,7 @@ function Lane({
                   className={`decision-chip ${blocked ? 'is-block' : 'is-warn'}`}
                   title={decision.reason || undefined}
                 >
-                  <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-                    {blocked ? 'block' : 'warning'}
-                  </span>
+                  <Icon name={fromMaterial(blocked ? 'block' : 'warning')} size={13} />
                   <span className="font-semibold">{blocked ? 'blocked' : 'warned'}</span>
                   <span className="text-on-dim" aria-hidden="true">
                     ·
@@ -314,9 +302,7 @@ function Lane({
 
         <section aria-label="Latest diffs" className="min-w-0">
           <p className="section-label m-0 mb-1.5 flex items-center gap-1">
-            <span className="material-symbols-outlined text-[14px] text-primary" aria-hidden="true">
-              difference
-            </span>
+            <Icon name="diff" size={14} className="text-primary" />
             Last {MAX_DIFFS} diffs
           </p>
           {edits.length === 0 ? (
@@ -349,14 +335,9 @@ function Lane({
                         })
                       }
                     >
-                      <span
-                        className={`material-symbols-outlined text-[16px] text-on-dim transition-transform duration-150 ${
+                      <Icon name="chevron" size={16} className={`text-on-dim transition-transform duration-150 ${
                           open ? 'rotate-90' : ''
-                        }`}
-                        aria-hidden="true"
-                      >
-                        chevron_right
-                      </span>
+                        }`} />
                       <code className="font-mono text-[11.5px] text-primary truncate flex-1 min-w-0">
                         {edit.file_path}
                       </code>

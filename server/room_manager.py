@@ -22,7 +22,7 @@ try:
     from .directory import RoomDirectory, RoomRoute, build_room_directory
     from .models import RoomSettings
     from .room import Room, hash_owner_token, settings_problem
-    from .store import RoomStore, build_room_store
+    from .store import ROOM_TTL_SECONDS, RoomStore, build_room_store
 except ImportError:  # Render rootDir=server
     if __package__:  # imported as server.*: a real missing dependency, not the flat tree
         raise
@@ -30,7 +30,7 @@ except ImportError:  # Render rootDir=server
     from directory import RoomDirectory, RoomRoute, build_room_directory
     from models import RoomSettings
     from room import Room, hash_owner_token, settings_problem
-    from store import RoomStore, build_room_store
+    from store import ROOM_TTL_SECONDS, RoomStore, build_room_store  # type: ignore[no-redef]
 
 log = logging.getLogger(__name__)
 
@@ -135,6 +135,13 @@ def _settings_from_store(room_id: str, stored: Optional[dict]) -> Optional[RoomS
     return settings
 
 
+def _set_lifetime(room: Room, created_at: float) -> None:
+    """A room code works for ROOM_TTL_SECONDS from its creation (the store
+    forgets it after that): what the dashboard shows as the room's expiry."""
+    room.created_at = created_at
+    room.expires_at = created_at + ROOM_TTL_SECONDS
+
+
 class RoomManager:
     """Live Room instances plus the durable set of valid room codes.
 
@@ -183,11 +190,13 @@ class RoomManager:
         for _ in range(10):  # collisions are astronomically unlikely; bound retries anyway
             room_id = _generate_code()
             if room_id not in self._rooms and not self._store.exists(room_id):
+                created_at = time.time()
                 self._rooms[room_id] = Room(settings=settings)
                 self._rooms[room_id].code = room_id
+                _set_lifetime(self._rooms[room_id], created_at)
                 self._store.add(
                     room_id,
-                    time.time(),
+                    created_at,
                     None if settings is None else settings.model_dump(),
                 )
                 log.info(
@@ -228,6 +237,9 @@ class RoomManager:
         # activity either.
         room.load_access(record.get("access"))
         room.code = normalized
+        created_at = record.get("created_at")
+        if isinstance(created_at, (int, float)) and not isinstance(created_at, bool):
+            _set_lifetime(room, float(created_at))
         self._rooms[normalized] = room
         log.info(
             "Room %s revived after restart (%d room(s) live)",

@@ -1,3 +1,4 @@
+import Icon from './Icon';
 import { useId, useRef } from 'react';
 import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { SHORTCUTS } from '../dashboard/shortcuts';
@@ -22,9 +23,7 @@ export default function ShortcutHelp({ open, onClose }: { open: boolean; onClose
             Keyboard shortcuts
           </h2>
           <button ref={closeRef} type="button" className="icon-btn p-1.5" onClick={onClose} aria-label="Close">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              close
-            </span>
+            <Icon name="close" size={20} />
           </button>
         </div>
         <dl className="m-0 divide-y divide-outline-soft/60">

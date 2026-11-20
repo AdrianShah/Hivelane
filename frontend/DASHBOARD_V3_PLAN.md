@@ -63,66 +63,76 @@ Design reference: the "Synergo dashboard redesign" Design canvas on claude.ai
 | "eu-west" region | not known | cut |
 | Past sessions table | relay history, limited by `history_hours` | show only what history covers |
 
+## Status (2026-11-20)
+
+Phases 0 to 5 and the Phase 6 CLI and hook items are done on this branch;
+the boxes below say so, with notes where the file layout differs from the
+plan. Phase 3's views all render inside the v3 sheet: Feed (Lane cards,
+status as dots), Conflicts (side by side, wired to the Phase 2.5 actions,
+"All clear" empty state), Timeline, Heat map, Tasks, History, Replay,
+Analytics, Invite, Notifications and Settings. Open: the overlay-pill trial
+(Phase 6), and Adrian's review of the look against the canvas.
+
 ## Phases
 
 Tick the boxes as you go so whoever picks this up knows where it stands.
 
 ### Phase 0: Foundations (no visible change)
 
-- [ ] **Tailwind into the build.** Remove the CDN script and inline
+- [x] **Tailwind into the build.** Remove the CDN script and inline
   `tailwind.config` from `index.html`. Add Tailwind v4 with `@tailwindcss/vite`
   (or v3 + PostCSS if v4 breaks the forms/container-queries usage). Port the
   inline config: colours map to `rgb(var(--c-*) / <alpha-value>)` so
   `bg-primary/10` keeps working. Check `npm run build` output size and that no
   class went missing (grep a few dynamic class strings).
-- [ ] **Tokens.** In `src/index.css`, make light the `:root` default and move
+- [x] **Tokens.** In `src/index.css`, make light the `:root` default and move
   dark under `[data-theme='dark']` (today it is the reverse). Add the v3
   values: page `#FBFBFA`, sheet `#FFFFFF`, hairline, ink, accent, state colours,
   shadows, radii, and the motion curve and durations as custom properties.
   Dark gets matching values (near-black page, `#141416` sheet).
-- [ ] **Theme start-up.** In `index.html`'s inline script and
+- [x] **Theme start-up.** In `index.html`'s inline script and
   `src/dashboard/theme.ts`: stored choice → else `prefers-color-scheme` → else
   light. Update `status-shortcuts-theme.test.ts`.
-- [ ] **Fonts.** Geist is already loaded; add weight 300. Drop the Material
+- [x] **Fonts.** Geist is already loaded; add weight 300. Drop the Material *(Material Symbols is gone: every icon is `components/Icon.tsx`.)*
   Symbols font once Phase 3 has replaced every use.
-- [ ] **`src/components/Icon.tsx`.** Inline-SVG icon set, one `name` prop,
+- [x] **`src/components/Icon.tsx`.** Inline-SVG icon set, one `name` prop,
   paths copied from the canvas (dashboard, feed, tasks, timeline, heatmap,
   conflicts, history, replay, analytics, invite, notifications, settings,
   search, chevron, close, copy, share).
-- [ ] **`src/components/Bee.tsx`.** Wraps `avatarSvg` from `brand/mascot.ts`
+- [x] **`src/components/Bee.tsx`.** Wraps `avatarSvg` from `brand/mascot.ts`
   in a square, centred box (`size` × `size`); props `state`, `accent`, `size`,
   optional `ring`. Add a `waiting` avatar state.
-- [ ] **Feature flag.** `ui=v3` URL parameter, remembered in localStorage;
+- [ ] **Feature flag.** `ui=v3` URL parameter, remembered in localStorage; *(Not built: the cutover (Phase 5) landed in the same change, so v3 is the only UI and there was nothing to flag.)*
   `App.tsx` renders the new shell when it is on. Old UI stays the default
   until Phase 5.
 
 ### Phase 1: Page frame
 
-- [ ] `src/v3/Shell.tsx`: header + sidebar + main sheet + right rail slot.
-- [ ] Header: logo (home), `/`, room code dropdown (rooms from
+- [x] `src/v3/Shell.tsx`: header + sidebar + main sheet + right rail slot. *(Done as App.tsx rendering `v3/Header.tsx` + `components/Sidebar.tsx` + the sheet + `.v3-rail`; no separate Shell file.)*
+- [x] Header: logo (home), `/`, room code dropdown (rooms from
   `roomAccess.ts`, "+ New room"), ⌘K trigger, avatar stack (to feed), Invite.
-- [ ] `src/v3/Notch.tsx`: collapsed 252×42 black pill with bee, agent count and
+- [x] `src/v3/Notch.tsx`: collapsed 252×42 black pill with bee, agent count and
   one status (overlap / held / all clear). Click or hover expands to a sentence
   plus Review / Ping. Driven by conflicts and blocks.
-- [ ] Sidebar: restyle `Sidebar.tsx`: two groups split by one hairline,
+- [x] Sidebar: restyle `Sidebar.tsx`: two groups split by one hairline,
   active item as a raised white pill, conflict count badge, footer box with
   relay status and room expiry (expiry after Phase 2.5).
-- [ ] Remove the Cluster/Logs/Analytics/Config top tabs (`TOP_NAV` in
+- [x] Remove the Cluster/Logs/Analytics/Config top tabs (`TOP_NAV` in
   `App.tsx`) and the floating invite button. Restyle `MobileNav.tsx`.
 
 ### Phase 2: Dashboard view
 
 Replaces the `view === 'dashboard'` block in `App.tsx`.
 
-- [ ] `headline()` in `src/dashboard/headline.ts` + unit test.
-- [ ] Four key numbers with trend lines (`Sparkline.tsx`, path from a number
+- [x] `headline()` in `src/dashboard/headline.ts` + unit test.
+- [x] Four key numbers with trend lines (`Sparkline.tsx`, path from a number *(`Sparkline` lives in `v3/Charts.tsx`; path builder `sparkPath` in `dashboard/charts.ts`, tested.)*
   array; unit test the path builder). Each one is a button to its view.
-- [ ] Session chart (`EditsChart.tsx`): area + line, range switch, clickable
+- [x] Session chart (`EditsChart.tsx`): area + line, range switch, clickable *(`EditsChart` in `v3/Charts.tsx`; series in `dashboard/charts.ts`, tested.)*
   dots for warns/blocks/overlaps.
-- [ ] Lane rows (`LaneRow.tsx`): bee, name, app, file, 24-bucket bar chart,
+- [x] Lane rows (`LaneRow.tsx`): bee, name, app, file, 24-bucket bar chart, *(`v3/LaneRow.tsx`; bucketing `laneBuckets` and the overlap bar `overlapBar` in `dashboard/charts.ts`, tested.)*
   status dot, chevron. Click opens intent, overlap bar (from `line_ranges`) and
   actions. Bucketing in a pure fn + test.
-- [ ] Activity rail and prevented card.
+- [x] Activity rail and prevented card.
 
 ### Phase 2.5: Server: resolve actions and room expiry
 
@@ -130,17 +140,17 @@ Bump `PROTOCOL_VERSION` in **both** `server/models.py` and
 `synergo/protocol.py` (a test fails on drift); update `protocol/schema.json`
 and `frontend/src/types.ts`.
 
-- [ ] **Release a held edit**: owner-authenticated spectator →
+- [x] **Release a held edit**: owner-authenticated spectator →
   relay `hold_release { decision_id }`. The relay clears the block and tells
   the waiting daemon it may proceed (reuse the queue path in `server/room.py`).
-- [ ] **Go first**: `queue_order { file_path, first_user_id }`. The
+- [x] **Go first**: `queue_order { file_path, first_user_id }`. The
   relay moves that user to the front of the file's queue; the other gets a
   `waiting` decision with `queue_position`.
-- [ ] **Ping**: `nudge { to_user_id, text }`. The daemon surfaces it
+- [x] **Ping**: `nudge { to_user_id, text }`. The daemon surfaces it
   through the agent's hook output and desktop notifications.
-- [ ] **Room expiry**: include `created_at` and `expires_at` in the room
+- [x] **Room expiry**: include `created_at` and `expires_at` in the room
   settings the relay sends to spectators.
-- [ ] Rate-limit the three new messages like other spectator messages; only
+- [x] Rate-limit the three new messages like other spectator messages; only
   the owner token may send them. Tests in `server/tests`; daemon tests in
   `hivelane/tests`.
 
@@ -153,24 +163,24 @@ Notifications → Settings.
 
 ### Phase 4: Overlays
 
-- [ ] Command menu with a real ⌘K / Ctrl+K shortcut: views and actions; files and agents later.
-- [ ] Invite sheet (merge `SharePanel` + `AddTeammate`).
-- [ ] Confirmation toasts and the room menu.
+- [x] Command menu with a real ⌘K / Ctrl+K shortcut: views and actions; files and agents later.
+- [x] Invite sheet (merge `SharePanel` + `AddTeammate`).
+- [x] Confirmation toasts and the room menu.
 
 ### Phase 5: Start page, setup and cutover
 
-- [ ] Restyle `pages/Start.tsx` like the flow artboard.
-- [ ] Move `Onboarding.tsx` from a modal into the empty dashboard as an
+- [x] Restyle `pages/Start.tsx` like the flow artboard.
+- [x] Move `Onboarding.tsx` from a modal into the empty dashboard as an
   inline four-step guide with the "Listening for your first agent…" bee.
-- [ ] Remove the flag and the old dashboard code.
+- [x] Remove the flag and the old dashboard code.
 
 ### Phase 6: Bee in agent apps (separate track)
 
-- [ ] `hivelane status --line` (one line: hex mark, state dot, counts).
-- [ ] `hivelane up` offers to set Claude Code's status line to it; shell
+- [x] `hivelane status --line` (one line: hex mark, state dot, counts).
+- [x] `hivelane up` offers to set Claude Code's status line to it; shell
   prompt snippet for Codex / Gemini CLI.
-- [ ] Inline held/overlap card in the agent chat through the existing hooks.
-- [ ] Short trial: a tiny always-on-top overlay pill started by the daemon
+- [x] Inline held/overlap card in the agent chat through the existing hooks.
+- [ ] Short trial: a tiny always-on-top overlay pill started by the daemon *(Not done: a trial and a decision, not a build task.)*
   for GUI apps (Cursor, VS Code, Claude desktop). Decide after the trial.
 
 ## Who does what (to keep Hivelane lanes apart)

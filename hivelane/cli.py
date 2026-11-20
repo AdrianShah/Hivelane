@@ -29,6 +29,8 @@ if TYPE_CHECKING:
     from hivelane.config import HivelaneConfig
 
 STATUS_TIMEOUT = 2.0
+# `status --line` runs on every prompt: give up quickly.
+LINE_STATUS_TIMEOUT = 0.5
 # Relay HTTP calls (room creation, doctor's probes).
 HTTP_TIMEOUT = 10.0
 DOCTOR_HTTP_TIMEOUT = 5.0
@@ -880,6 +882,59 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, {hint}")
 
 
+STATUS_LINE_ARGS = "status --line"
+
+
+def status_line_command() -> str:
+    """`hivelane status --line`, spelled the way installed hooks call hivelane
+    (bare when it is on PATH, else its absolute path)."""
+    from hivelane import detect
+    from hivelane.adapters import base
+
+    hook = base.hook_command_for(detect.PRIMARY_AGENT)
+    program = hook.rsplit(" hook ", 1)[0] if " hook " in hook else "hivelane"
+    return f"{program} {STATUS_LINE_ARGS}"
+
+
+def offer_status_line(root: Path, *, choice: Optional[bool]) -> None:
+    """Offer to show Hivelane in Claude Code's status line (the project's
+    .claude/settings.json, where the hooks went). Never replaces a status line
+    someone already set, and --yes alone does not turn it on: it changes what
+    the person sees, so it takes their own yes (or --status-line)."""
+    from hivelane.adapters import base
+
+    if choice is False:
+        return
+    path = root / ".claude" / "settings.json"
+    try:
+        settings, fmt = base.read_settings(path)
+    except base.SettingsError:
+        return
+    current = settings.get("statusLine")
+    where = display_path(path, root)
+    if isinstance(current, dict) and STATUS_LINE_ARGS in str(current.get("command") or ""):
+        say(f"  {mark('ok')} Claude Code status line: already shows Hivelane ({where})")
+        return
+    if current:
+        say(f"  {mark('info')} Claude Code status line: yours is kept; `hivelane status --line` prints Hivelane's")
+        return
+    if choice is None and not confirm(
+        "Show the room, agents and held edits in Claude Code's status line?", assume_yes=False, default=False
+    ):
+        say(f"  {mark('info')} Claude Code status line: not changed (hivelane up --status-line adds it)")
+        return
+    if fmt.commented:
+        say(f"  {mark('warn')} {where} has comments, add by hand: \"statusLine\": {{\"type\": \"command\", \"command\": \"{status_line_command()}\"}}")
+        return
+    settings["statusLine"] = {"type": "command", "command": status_line_command(), "padding": 0}
+    try:
+        base.save_settings(path, settings, fmt)
+    except (base.SettingsError, OSError) as exc:
+        say(f"  {mark('warn')} Claude Code status line: could not write {where} ({exc})")
+        return
+    say(f"  {mark('ok')} Claude Code status line: shows Hivelane ({where})")
+
+
 def project_file_values(root: Path) -> dict[str, Any]:
     """The raw contents of `<root>/.hivelane.toml` ({} when absent)."""
     import tomllib
@@ -915,6 +970,8 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     # 1. agent hooks
     setup_hooks(root, skip=args.no_hooks, assume_yes=args.yes)
+    if not args.no_hooks:
+        offer_status_line(root, choice=args.status_line)
 
     # 2. the room: --room > .hivelane.toml > a new one from the relay
     existing = config.room.upper() if config.room else None
@@ -1322,11 +1379,94 @@ def _format_repo(repo: dict[str, Any]) -> list[str]:
     return lines
 
 
+# The one-line status (Claude Code's status line, a shell prompt): the
+# hexagon mark, a state dot and the room's counts.
+LINE_MARK = "\u2b21"
+LINE_DOT = {"live": ("\u25cf", "32"), "held": ("\u25cf", "31"), "off": ("\u25cb", "90"), "error": ("\u25cf", "33")}
+
+PROMPT_SNIPPET = """# Hivelane in your shell prompt (Codex, Gemini CLI, any terminal agent).
+# zsh (~/.zshrc):
+setopt PROMPT_SUBST
+PROMPT='$(hivelane status --line --plain 2>/dev/null) '$PROMPT
+# bash (~/.bashrc):
+PS1='$(hivelane status --line --plain 2>/dev/null) '$PS1"""
+
+
+def _repo_for_cwd(repos: list[dict[str, Any]], cwd: Path) -> Optional[dict[str, Any]]:
+    """The connected repo cwd is inside (deepest root first), else the first."""
+    from pathlib import Path
+    best: Optional[dict[str, Any]] = None
+    best_depth = -1
+    for repo in repos:
+        root = repo.get("root")
+        if not isinstance(root, str):
+            continue
+        try:
+            Path(cwd).resolve().relative_to(Path(root).resolve())
+        except (ValueError, OSError):
+            continue
+        depth = len(Path(root).parts)
+        if depth > best_depth:
+            best, best_depth = repo, depth
+    return best or (repos[0] if repos else None)
+
+
+def format_status_line(status: Any, cwd: Path, *, color: bool) -> str:
+    """One line: mark, state dot, room, how many agents are in it, and how
+    many of our edits are held (waiting in a file's line)."""
+    def dot(state: str) -> str:
+        glyph, code = LINE_DOT[state]
+        return f"\x1b[{code}m{glyph}\x1b[0m" if color else glyph
+
+    if status is None:
+        return f"{LINE_MARK} {dot('off')} hivelane off"
+    repos = repo_entries(status)
+    if repos is None:
+        repos = [status] if isinstance(status, dict) and "room" in status else []
+    repo = _repo_for_cwd(repos, cwd)
+    if repo is None:
+        return f"{LINE_MARK} {dot('off')} no room here"
+    room = str(repo.get("room") or "?")
+    if repo.get("fatal"):
+        return f"{LINE_MARK} {dot('error')} {room} stopped"
+    if not repo.get("connected"):
+        return f"{LINE_MARK} {dot('off')} {room} connecting"
+    peers = repo.get("peers")
+    agents = (len(peers) if isinstance(peers, list) else 0) + 1
+    held = repo.get("held") if isinstance(repo.get("held"), int) else 0
+    parts = [f"{LINE_MARK} {dot('held' if held else 'live')} {room}", f"{agents} agent{'s' if agents != 1 else ''}"]
+    if held:
+        parts.append(f"{held} held")
+    return " \u00b7 ".join(parts)
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     import json
+    from pathlib import Path
 
+    if getattr(args, "prompt_snippet", False):
+        say(PROMPT_SNIPPET)
+        return 0
     port = resolve_port(args.port)
     svc = load_service()
+    if getattr(args, "line", False):
+        # Runs on every prompt or status refresh: never fails, never slow.
+        try:
+            status = svc.status(port, timeout=LINE_STATUS_TIMEOUT)
+        except Exception:
+            status = None
+        cwd = Path.cwd()
+        if not sys.stdin.isatty():
+            # Claude Code passes the session as JSON on stdin.
+            try:
+                data = json.loads(sys.stdin.read() or "{}")
+                current = (data.get("workspace") or {}).get("current_dir") or data.get("cwd")
+                if isinstance(current, str) and current:
+                    cwd = Path(current)
+            except (ValueError, AttributeError, OSError):
+                pass
+        say(format_status_line(status, cwd, color=not args.plain))
+        return 0
     with service_errors(svc, "could not read the daemon's status"):
         status = svc.status(port, timeout=STATUS_TIMEOUT)
     if status is None:
@@ -2043,6 +2183,12 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--port", type=int, default=None, help=port_help)
     up.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
     up.add_argument("--no-hooks", action="store_true", help="do not install agent hooks")
+    up.add_argument(
+        "--status-line",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="show Hivelane in Claude Code's status line (default: ask; never replaces your own)",
+    )
     up.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
     up.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
     up.add_argument(
@@ -2064,6 +2210,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="show the daemon and its connected repos")
     status.add_argument("--port", type=int, default=None, help=port_help)
+    status.add_argument(
+        "--line",
+        action="store_true",
+        help="one line (mark, state dot, room, agents, held edits) for a status line or shell prompt",
+    )
+    status.add_argument("--plain", action="store_true", help="with --line: no colours")
+    status.add_argument(
+        "--prompt-snippet",
+        action="store_true",
+        help="print shell prompt snippets that show --line (for Codex, Gemini CLI and other terminal agents)",
+    )
     status.set_defaults(func=cmd_status)
 
     wait = sub.add_parser(
