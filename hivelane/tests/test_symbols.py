@@ -55,7 +55,7 @@ def lines_of(path: str, source: str) -> list[str]:
 def test_python_is_exact() -> None:
     per_line = lines_of("server/room.py", PY)
     assert per_line[0:4] == [IMPORTS] * 4  # multi-line import block included
-    assert per_line[5] == MODULE  # CONSTANT
+    assert per_line[5] == "CONSTANT"  # a top-level assignment names itself
     assert per_line[8] == "Room"  # class line
     assert per_line[11] == "Room.code"  # the decorator belongs to the method
     assert per_line[12] == "Room.code"
@@ -63,6 +63,44 @@ def test_python_is_exact() -> None:
     assert per_line[16] == "Room.check_edit.inner"
     assert per_line[18] == "Room.check_edit"
     assert per_line[21] == "main"
+
+
+def test_assignments_are_named_at_top_level_and_in_classes_only() -> None:
+    src = (
+        "import os\n"
+        "LIMIT = 100\n"
+        "WINDOW: int = 60\n"
+        "COUNT += 1\n"
+        "a, b = 1, 2\n"
+        "x = y = 0\n"
+        "obj.attr = 3\n"
+        "class Store:\n"
+        "    timeout = 5\n"
+        "    def load(self):\n"
+        "        local = 1\n"
+        "        return local\n"
+        "if DEBUG:\n"
+        "    LEVEL = 'debug'\n"
+    )
+    per_line = lines_of("a.py", src)
+    assert per_line[1:4] == ["LIMIT", "WINDOW", "COUNT"]
+    # Unpacking, chained and attribute targets stay plain module code.
+    assert per_line[4:7] == [MODULE, MODULE, MODULE]
+    assert per_line[8] == "Store.timeout"
+    # Inside a function the function is the unit.
+    assert per_line[10] == "Store.load"
+    # Assignments under a top-level `if` are still top-level.
+    assert per_line[13] == "LEVEL"
+    # Two different constants are two different symbols.
+    assert symbols_for_ranges("a.py", src, [(2, 2)]) != symbols_for_ranges("a.py", src, [(3, 3)])
+
+
+def test_unparseable_python_still_names_top_level_assignments() -> None:
+    broken = "LIMIT = 1\nWINDOW: int = 2\nx == 3\ndef f(:\n    a = 1\n"
+    assert symbols_for_ranges("a.py", broken, [(1, 1)]) == ["LIMIT"]
+    assert symbols_for_ranges("a.py", broken, [(2, 2)]) == ["WINDOW"]
+    assert symbols_for_ranges("a.py", broken, [(3, 3)]) == [MODULE]
+    assert symbols_for_ranges("a.py", broken, [(5, 5)]) == ["f"]
 
 
 def test_ranges_return_each_symbol_once_in_order() -> None:

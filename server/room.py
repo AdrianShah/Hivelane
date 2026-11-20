@@ -153,6 +153,12 @@ BROADCAST_FLUSH_SECONDS = 0.5
 # Two line-range edits closer than this are treated as the same hunk: git's
 # merge context makes near-adjacent edits conflict too.
 LINE_PROXIMITY = 10
+# A passed edit_check stands in for the edit until the editor's activity
+# reports it (normally within a batch, ~1.5 s), so a second agent asking about
+# the same function in between is not let through blind. Bounded, in case the
+# activity never comes (the edit was abandoned, or the client predates this).
+PENDING_CHECK_SECONDS = 30.0
+MAX_PENDING_CHECKS = 2000
 
 # The symbol a client sends for an import-block edit. It intersects only with
 # itself: two agents both adding imports collide, but one agent's import line
@@ -364,6 +370,10 @@ class FileTouch:
     range_seen: list[tuple[int, int, float]] = field(default_factory=list)
     # Bytes this touch holds in the room's touch budget.
     cost: int = 0
+    # Fingerprint of the file version line_ranges are numbered in ("" when
+    # the client did not say): line numbers from different versions (two
+    # checkouts, one edited) are not compared.
+    version: str = ""
 
     def symbol_time(self, names: set[str]) -> float:
         """When the newest of `names` (all in self.symbols) was edited."""
@@ -398,6 +408,8 @@ class EditVerdict:
     # scope "task": the claimed task reserving the file.
     task_id: str = ""
     task_lease_until: float = 0.0
+    # A reason sentence of the verdict's own (else main builds one from peers).
+    reason: str = ""
 
 
 @dataclass
@@ -584,6 +596,9 @@ class Room:
         self._queue_sweeper: Optional[asyncio.Task] = None
         # The room's task list (server/tasks.py) and its lease sweeper.
         self.tasks = TaskBoard()
+        # (file_path, repo_id, user_id) -> the touch a passed edit_check
+        # predicts, until that member's activity for the file arrives.
+        self._pending_checks: OrderedDict[tuple[str, str, str], FileTouch] = OrderedDict()
         self._task_sweeper: Optional[asyncio.Task] = None
         self._known_paths: OrderedDict[tuple[str, str], None] = OrderedDict()
 
@@ -659,6 +674,8 @@ class Room:
                 del store[key]
         for key in [k for k in self._last_activity_at if k[0] == user_id]:
             self._last_activity_at.pop(key, None)
+        for key in [k for k in self._pending_checks if k[2] == user_id]:
+            del self._pending_checks[key]
         for key in [k for k in self.deferred_activity if k[0] == user_id]:
             self.deferred_activity.pop(key, None)
         self._edit_check_quotas.pop(user_id, None)
@@ -1082,7 +1099,10 @@ class Room:
                 e2e=message.e2e,
                 symbol_seen=symbol_seen,
                 range_seen=range_seen,
+                version=change.version,
             )
+            # The edit a passed check predicted has now been reported.
+            self._pending_checks.pop((change.file_path, message.repo_id, message.user_id), None)
             touch.cost = (
                 len(diff)
                 + len(change.file_path)
@@ -1151,11 +1171,13 @@ class Room:
         repo_id: str = "",
         active_only: bool = True,
         window_seconds: Optional[float] = None,
+        include_pending: bool = False,
     ) -> list[FileTouch]:
         """Other users' recent touches of the same file, in the same repo,
         within window_seconds (default: this room's warn window). A window of
         zero turns touch comparison off rather than matching same-instant
-        touches only."""
+        touches only. include_pending adds edits other members' passed
+        edit_checks announced but their activity has not reported yet."""
         if window_seconds is None:
             window_seconds = self._settings.warn_window_seconds
         if window_seconds <= 0:
@@ -1170,7 +1192,55 @@ class Room:
             if now - touch.timestamp > window_seconds:
                 continue
             results.append(touch)
+        if include_pending:
+            for (path, touch_repo, other_id), pending in list(self._pending_checks.items()):
+                if path != file_path or touch_repo != repo_id or other_id == user_id:
+                    continue
+                if now - pending.timestamp > PENDING_CHECK_SECONDS:
+                    del self._pending_checks[(path, touch_repo, other_id)]
+                    continue
+                if active_only and not self.is_active(other_id):
+                    continue
+                results.append(pending)
         return results
+
+    def note_passed_check(
+        self,
+        user_id: str,
+        repo_id: str,
+        file_path: str,
+        now: float,
+        *,
+        symbols: list[str],
+        line_ranges: list[tuple[int, int]],
+        version: str = "",
+        branch: str = "",
+        e2e: str = "",
+    ) -> None:
+        """Remember what a passed edit_check is about to change, until the
+        member's activity for the file reports it (record_activity) or
+        PENDING_CHECK_SECONDS pass. Without this, two agents asking about the
+        same function within one activity batch would both be allowed."""
+        if MAX_TRACKED_PATH_CHARS > 0 and len(file_path) > MAX_TRACKED_PATH_CHARS:
+            return
+        key = (file_path, repo_id, user_id)
+        self._pending_checks.pop(key, None)
+        self._pending_checks[key] = FileTouch(
+            user_id=user_id,
+            file_path=file_path,
+            diff="",
+            prompt=None,
+            timestamp=now,
+            agent=self.member_agent(user_id),
+            repo_id=repo_id,
+            symbols=list(symbols),
+            line_ranges=list(line_ranges),
+            branch=branch,
+            e2e=e2e,
+            version=version,
+        )
+        while len(self._pending_checks) > MAX_PENDING_CHECKS:
+            self._pending_checks.popitem(last=False)
 
     def find_overlaps(self, message: ActivityMessage) -> list[FileOverlap]:
         """Return per-file overlaps with the most recent active peer (if any).
@@ -1289,8 +1359,11 @@ class Room:
         line_ranges: list[tuple[int, int]],
         branch: str,
         always_warn: bool,
-    ) -> tuple[Decision, DecisionScope]:
-        """Decision table for one peer touch already inside the warn window."""
+        version: str = "",
+    ) -> tuple[Decision, str]:
+        """Decision table for one peer touch already inside the warn window.
+        The scope is a DecisionScope, or "imports" (both sides only share the
+        import block: reported as "symbol" with its own reason)."""
         if _branches_differ(branch, touch.branch):
             # Not a live collision, but a merge conflict waiting to happen.
             return "warn", "branch"
@@ -1308,15 +1381,27 @@ class Room:
             for name in touch.symbols
             if now - touch.symbol_seen.get(name, touch.timestamp) <= warn_window
         ]
+        # Line numbers compare only within one version of the file: after a
+        # peer adds lines in their checkout, the same numbers name different
+        # code in ours. Unknown versions (older clients) are compared as before.
+        same_version = not (version and touch.version and version != touch.version)
         if symbols and touch_symbols:
             shared = set(symbols).intersection(touch_symbols)
+            if shared == {IMPORTS_SYMBOL} and not always_warn:
+                # Both only change the import block: separate import lines
+                # are separate edits. Literally the same lines still collide.
+                if same_version and line_ranges and touch.line_ranges:
+                    when = touch.ranges_time(line_ranges, 0)
+                    if when is not None:
+                        return hard_at(when), "lines"
+                return "warn", "imports"
             if shared:
                 return hard_at(touch.symbol_time(shared)), "symbol"
             if always_warn:
                 return hard, "file"
             # Symbol extraction can mislabel a hunk on a definition boundary;
             # literally overlapping lines are a collision whatever the names say.
-            if line_ranges and touch.line_ranges:
+            if same_version and line_ranges and touch.line_ranges:
                 when = touch.ranges_time(line_ranges, 0)
                 if when is not None:
                     return hard_at(when), "lines"
@@ -1343,6 +1428,7 @@ class Room:
         same_chat: Collection[str] = (),
         siblings: Collection[str] = (),
         own_names: Collection[str] = (),
+        base_version: str = "",
     ) -> EditVerdict:
         """The full decision table: block/warn/allow plus the deciding scope.
 
@@ -1376,6 +1462,7 @@ class Room:
                 repo_id=repo_id,
                 active_only=True,
                 window_seconds=self._settings.warn_window_seconds,
+                include_pending=True,
             )
             if touch.user_id.lower() not in ignored
         ]
@@ -1384,7 +1471,7 @@ class Room:
         judged = []
         for touch in others:
             decision, scope = self._judge_touch(
-                touch, now, wanted_symbols, wanted_ranges, branch, always_warn
+                touch, now, wanted_symbols, wanted_ranges, branch, always_warn, base_version
             )
             if decision == "block" and touch.user_id.lower() in capped:
                 decision = "warn"
@@ -1421,7 +1508,17 @@ class Room:
             # Same-branch peers first (stable sort keeps newest-first within):
             # a live edit matters more than a future merge conflict.
             judged.sort(key=lambda item: item[2] == "branch")
-            return EditVerdict("warn", [touch for touch, _, _ in judged], judged[0][2])
+            peers = [touch for touch, _, _ in judged]
+            if all(scope == "imports" for _, _, scope in judged):
+                who = f"{peers[0].user_id}'s {peers[0].agent}"
+                return EditVerdict(
+                    "warn",
+                    peers,
+                    "symbol",
+                    reason=f"{who} is also adding imports to {file_path}; different lines, safe to proceed",
+                )
+            scope = judged[0][2]
+            return EditVerdict("warn", peers, "symbol" if scope == "imports" else scope)
 
         planned = [
             touch

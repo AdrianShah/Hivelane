@@ -25,6 +25,8 @@ export interface FileChange {
   symbols?: string[];
   /** 1-based inclusive [start, end] ranges in the new file. */
   line_ranges?: [number, number][];
+  /** Fingerprint of the file version line_ranges are numbered in. */
+  version?: string;
 }
 
 /** Granularity at which the relay found a conflict. */

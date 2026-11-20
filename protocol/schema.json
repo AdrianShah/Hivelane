@@ -520,6 +520,12 @@
           },
           "title": "Own Names",
           "type": "array"
+        },
+        "base_version": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Base Version",
+          "type": "string"
         }
       },
       "required": [
@@ -748,6 +754,12 @@
           },
           "title": "Line Ranges",
           "type": "array"
+        },
+        "version": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Version",
+          "type": "string"
         }
       },
       "required": [
