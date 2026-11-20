@@ -94,7 +94,8 @@ def test_claude_code_multiedit_hints(tmp_path: Path) -> None:
     event = claude_code.normalize(payload("MultiEdit", edits, tmp_path, event="PreToolUse"))
     assert event is not None and event.edit_hints == [{"old": "x = 1", "new": "x = 2"}]
     write = claude_code.normalize(payload("Write", {"file_path": str(target), "content": "y"}, tmp_path, "PreToolUse"))
-    assert write is not None and write.edit_hints is None
+    # A whole-file write sends its new content, to be diffed in the daemon.
+    assert write is not None and write.edit_hints == [{"write": "y"}]
 
 
 def test_gemini_replace_hints(tmp_path: Path) -> None:

@@ -12,6 +12,19 @@ calls `check_edit` with the same fields. Agents may also declare a **plan**
 (`plan_update`: summary, files, symbols, expiry) and an **intent** (the current
 prompt).
 
+With each set of line ranges the daemon also sends a **version**: a
+fingerprint of the file content those line numbers count (the current content
+on an edit check, the new content on an edit). Line numbers are only compared
+between equal versions. Two checkouts of a repo hold different versions of a
+file as soon as one agent edits it, and after an agent adds lines, the same
+number points at different code in the other copy. Across versions, symbols
+decide on their own.
+
+A Claude Code `Write` (a whole-file rewrite) is predicted by diffing the new
+content against the current file, so it is judged by the definitions it
+actually changes, not as touching every function. A pure insertion claims no
+existing definition.
+
 Older clients send none of the new fields; the relay then falls back to the
 file-level decision it always made.
 
@@ -47,7 +60,9 @@ unknown, and the file is judged whole until symbols arrive again.
 | peer is on a different (known) branch                   | warn, "conflict at merge" | `branch` |
 | both sides have symbols and they intersect              | hard     | `symbol` |
 | symbols on both sides, disjoint, always-warn file       | hard     | `file`   |
-| symbols on both sides, disjoint, but line ranges literally overlap | hard | `lines` |
+| both only share `<imports>`, same version, lines literally overlap | hard | `lines` |
+| both only share `<imports>`                             | warn, "also adding imports" | `symbol` |
+| symbols on both sides, disjoint, but line ranges literally overlap (same version) | hard | `lines` |
 | symbols on both sides, disjoint                          | warn, "different function" | `symbol` |
 | line ranges on both sides within 10 lines               | hard     | `lines`  |
 | line ranges on both sides, further apart                | warn     | `lines`  |
@@ -57,10 +72,17 @@ unknown, and the file is judged whole until symbols arrive again.
 
 Always-warn files (`package.json`, `pyproject.toml`, `requirements*.txt`,
 `*.lock`, `go.mod`, `Cargo.toml`, `tsconfig*.json`, `.env*`, `Dockerfile`,
-`.github/**/*.yml`) are never cleared by disjoint symbols. `<imports>` is
-a symbol like any other: two agents both editing the import block collide
-(`symbol`), but one agent's new import line does not block a teammate editing
-an unrelated function in the same file.
+`.github/**/*.yml`) are never cleared by disjoint symbols. Two agents both
+adding imports are separate edits (a warning), unless they change literally
+the same import lines of the same version. One agent's new import line never
+blocks a teammate editing an unrelated function in the same file.
+
+**Checks in flight.** A peer's edit is only known once its activity arrives
+(within a batch, about 1.5 s). So that two agents asking about the same
+function in that gap are not both let through, every passed edit check
+stands in for its edit: the relay judges later checks against the functions
+it predicted until that member's activity for the file arrives (at most 30 s,
+or until the member leaves). Pending checks never raise conflict alerts.
 
 Plans: a plan's symbols belong to its files. `main` in a plan for
 `api/server.py` says nothing about `cli/tool.py`, so plan symbols are matched
@@ -86,7 +108,12 @@ both give one format:
 * JS/TS methods only directly inside a class or interface (a semicolon-free
   bare call `doThing(x)` is not a definition), interface members included;
 * Ruby one-line (`def a; 1; end`) and endless (`def b = 2`) defs end on their
-  own line.
+  own line;
+* Python top-level and class-level assignments to a single name are their own
+  definitions (`LIMIT`, `Store.timeout`), so two agents changing different
+  constants do not both count as `<module>`. Tuple unpacking, chained and
+  attribute targets stay `<module>`, and inside a function the function is
+  the unit.
 
 `hivelane/tests/symbol_cases.py` holds the shared fixtures; the heuristic is
 checked against them in every test run and tree-sitter when it is installed.
