@@ -561,18 +561,12 @@ export default function App() {
                   if (agent === prior.agent && prior.offlineSince == null) {
                     return prev;
                   }
-                  return {
-                    ...prev,
-                    [item.user_id]: { ...prior, agent, offlineSince: null },
-                  };
+                  return withEntry(prev, item.user_id, { ...prior, agent, offlineSince: null });
                 }
-                return {
-                  ...prev,
-                  [item.user_id]: {
-                    ...BLANK_ENTRY,
-                    agent: item.agent ?? 'unknown',
-                  },
-                };
+                return withEntry(prev, item.user_id, {
+                  ...BLANK_ENTRY,
+                  agent: item.agent ?? 'unknown',
+                });
               });
               break;
 
@@ -583,10 +577,7 @@ export default function App() {
               setUsers((prev) => {
                 const prior = prev[item.user_id];
                 if (!prior || prior.offlineSince != null) return prev;
-                return {
-                  ...prev,
-                  [item.user_id]: { ...prior, offlineSince: Date.now() },
-                };
+                return withEntry(prev, item.user_id, { ...prior, offlineSince: Date.now() });
               });
               setConflicts((prev) =>
                 prev.filter((c) => !c.users.includes(item.user_id)),
@@ -605,7 +596,7 @@ export default function App() {
                 const id = item.decision_id;
                 const scope = decisionScope(item);
                 setDecisionScopes((prev) =>
-                  prev[id] === scope ? prev : capRecord({ ...prev, [id]: scope }, MAX_TRACKED_DECISIONS),
+                  prev[id] === scope ? prev : capRecord(withEntry(prev, id, scope), MAX_TRACKED_DECISIONS),
                 );
               }
               // dashboard/laneReducer.ts: the same rules the replay fold uses.

@@ -19,6 +19,7 @@ import type {
   PlanUpdate,
 } from '../types';
 import { normPath } from './paths.ts';
+import { withEntry } from '../safeKey.ts';
 
 /** File touches kept for the heat map and lane history (oldest dropped first). */
 export const MAX_TOUCHES = 3000;
@@ -112,7 +113,7 @@ function withAgent(log: SessionLog, userId: string, agent?: AgentKind): SessionL
   const prior = log.agents[userId];
   const known = agent && agent !== 'unknown' ? agent : undefined;
   if (prior !== undefined && (known === undefined || known === prior)) return log;
-  return { ...log, agents: { ...log.agents, [userId]: known ?? prior ?? 'unknown' } };
+  return { ...log, agents: withEntry(log.agents, userId, known ?? prior ?? 'unknown') };
 }
 
 function withActivityAt(log: SessionLog, userId: string, timestamp: number): SessionLog {
@@ -126,7 +127,7 @@ function withActivityAt(log: SessionLog, userId: string, timestamp: number): Ses
     lastActivity:
       prior != null && prior >= timestamp
         ? log.lastActivity
-        : { ...log.lastActivity, [userId]: timestamp },
+        : withEntry(log.lastActivity, userId, timestamp),
   };
 }
 
