@@ -33,7 +33,6 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 os.environ.setdefault("HIVELANE_ENV", "development")
 os.environ["ROOM_MESSAGE_LIMIT"] = "0"
-os.environ.pop("GEMINI_API_KEY", None)
 
 DIFF = "".join(f"+    line {i}: value = compute(value, {i})  # padding padding\n" for i in range(36))
 

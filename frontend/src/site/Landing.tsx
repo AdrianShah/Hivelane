@@ -18,7 +18,7 @@ const REASONS = [
   },
   {
     title: 'Every lane, live.',
-    body: "Each agent gets a lane with its intent, prompts, AI captions and diffs, so you can read what your teammates' agents are doing without asking.",
+    body: "Each agent gets a lane with its intent, prompts, activity captions and diffs, so you can read what your teammates' agents are doing without asking.",
   },
   {
     title: 'Fails open, never in the way.',

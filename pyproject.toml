@@ -51,12 +51,8 @@ dependencies = [
 dev = ["pytest"]
 # `hivelane relay`: run the relay (server/, shipped in the wheel) on your own
 # machine. fastapi, uvicorn, websockets and pydantic are already core
-# dependencies; this adds what server/requirements.txt has on top, minus the
-# heavy Gemini SDK (see `gemini`).
+# dependencies; this adds what server/requirements.txt has on top.
 relay = ["python-dotenv>=1.0.1,<2", "uvicorn[standard]>=0.34,<1"]
-# AI captions and conflict summaries on a relay you run, with GEMINI_API_KEY:
-# hivelane[relay,gemini]. Without it the relay uses deterministic placeholders.
-gemini = ["google-genai>=2.14,<4"]
 # Several relay instances sharing room codes, room leases and rate limits
 # through HIVELANE_REDIS_URL (docs/self-hosting.md#scaling-out).
 redis = ["redis>=5,<9"]

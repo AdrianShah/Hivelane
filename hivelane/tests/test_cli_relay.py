@@ -148,7 +148,7 @@ def relay_process(tmp_path: Path) -> Iterator[RelayProcess]:
     env = {
         key: value
         for key, value in os.environ.items()
-        if not key.startswith(("HIVELANE_", "CORS_", "FLY_", "GEMINI_"))
+        if not key.startswith(("HIVELANE_", "CORS_", "FLY_"))
     }
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(REPO_ROOT), env.get("PYTHONPATH")]))
     env["PYTHONIOENCODING"] = "utf-8"

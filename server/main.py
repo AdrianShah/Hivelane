@@ -30,7 +30,6 @@ try:
     from . import config, limits, logging_config, metrics
     from . import dashboard, directory
     from . import history, webhooks
-    from .gemini import classify_conflict, generate_caption, heuristic_conflict_alert
     from .headers import SecurityHeadersMiddleware
     from .limits import check_room_creation_async, check_ws_attempt_async, client_ip
     from .models import (
@@ -39,6 +38,7 @@ try:
         ActivityMessage,
         ActivityUpdate,
         AgentKind,
+        ConflictAlert,
         Decision,
         DecisionFeedback,
         DecisionScope,
@@ -100,7 +100,6 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     import logging_config  # type: ignore[no-redef]
     import metrics  # type: ignore[no-redef]
     import webhooks  # type: ignore[no-redef]
-    from gemini import classify_conflict, generate_caption, heuristic_conflict_alert
     from headers import SecurityHeadersMiddleware  # type: ignore[no-redef]
     from limits import check_room_creation_async, check_ws_attempt_async, client_ip
     from models import (
@@ -109,6 +108,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         ActivityMessage,
         ActivityUpdate,
         AgentKind,
+        ConflictAlert,
         Decision,
         DecisionFeedback,
         DecisionScope,
@@ -303,16 +303,6 @@ WS_CLOSE_HANDSHAKE_TIMEOUT = 4408
 # the members' traffic.
 SPECTATOR_MESSAGE_LIMIT = 120
 
-# Gemini calls (captions and conflict classification) running at once,
-# process-wide. Past it, the deterministic placeholder is used instead of
-# queueing: a slow Gemini must not pile up tasks holding 512 KB messages.
-MAX_GEMINI_IN_FLIGHT = 16
-_gemini_in_flight = 0
-# The same, per room, so one busy room cannot take every slot; and how many
-# overlapping files of one activity message are classified by Gemini (the
-# rest get the deterministic alert).
-MAX_GEMINI_IN_FLIGHT_PER_ROOM = 4
-MAX_CLASSIFIED_OVERLAPS_PER_MESSAGE = 5
 
 # Private-use close code: room code unknown / expired.
 WS_CLOSE_ROOM_NOT_FOUND = 4404
@@ -449,31 +439,6 @@ def _schedule_empty_room_cleanup(room_id: str) -> None:
     """(Re)arm the room's single cleanup timer: the grace is measured from the
     latest departure, and a room that is in use when it fires is kept."""
     room_manager.schedule_cleanup(room_id, EMPTY_ROOM_GRACE_SECONDS)
-
-
-def _take_gemini_slot(room: Optional[Room] = None) -> bool:
-    global _gemini_in_flight
-    if _gemini_in_flight >= MAX_GEMINI_IN_FLIGHT:
-        return False
-    if room is not None:
-        if room.gemini_in_flight >= MAX_GEMINI_IN_FLIGHT_PER_ROOM:
-            return False
-        room.gemini_in_flight += 1
-    _gemini_in_flight += 1
-    return True
-
-
-def _release_gemini_slot(room: Optional[Room] = None) -> None:
-    global _gemini_in_flight
-    _gemini_in_flight = max(0, _gemini_in_flight - 1)
-    if room is not None:
-        room.gemini_in_flight = max(0, room.gemini_in_flight - 1)
-
-
-def _captions_enabled() -> bool:
-    """True when captions come from Gemini (a network call): they are then
-    generated off the member's receive loop."""
-    return bool(os.environ.get("GEMINI_API_KEY"))
 
 
 def _log_conflict_task_error(task: asyncio.Task) -> None:
@@ -869,44 +834,37 @@ async def apply_member_settings(
     await room.broadcast(update)
 
 
+def heuristic_conflict_alert(
+    file_path: str,
+    current_user: str,
+    other: FileTouch,
+) -> ConflictAlert:
+    """The conflict alert for a same-file overlap in the recent window:
+    deterministic, built from room state alone (no model, no network)."""
+    return ConflictAlert(
+        users=[current_user, other.user_id],
+        file_path=file_path,
+        verdict="related",
+        explanation=(
+            f"{current_user} and {other.user_id} both edited {file_path} "
+            "within the last minute."
+        ),
+    )
+
+
 async def evaluate_and_broadcast_conflicts(
     room: Room,
     user_id: str,
-    message: ActivityMessage,
     overlaps: list[FileOverlap],
 ) -> None:
-    """Classify each overlapping file and broadcast conflict_alert when warranted.
+    """Broadcast a conflict_alert for each overlapping file.
 
-    Fully isolated from the activity_update path, any failure here is logged
-    and swallowed so the main broadcast loop keeps working. In an e2e room
-    nothing is sent to Gemini: the deterministic same-file alert is used, as
-    it is whenever MAX_GEMINI_IN_FLIGHT calls are already running.
+    Fully isolated from the activity_update path: any failure here is logged
+    and swallowed so the main broadcast loop keeps working.
     """
-    if not overlaps:
-        return
-
-    private = room.settings.e2e
-    for index, overlap in enumerate(overlaps):
+    for overlap in overlaps:
         try:
-            if (
-                private
-                or index >= MAX_CLASSIFIED_OVERLAPS_PER_MESSAGE
-                or not _take_gemini_slot(room)
-            ):
-                alert = heuristic_conflict_alert(overlap.file_path, user_id, overlap.other)
-            else:
-                try:
-                    alert = await classify_conflict(
-                        file_path=overlap.file_path,
-                        current_user=user_id,
-                        current_diff=overlap.current_diff,
-                        current_prompt=message.prompt,
-                        other=overlap.other,
-                    )
-                finally:
-                    _release_gemini_slot(room)
-            if alert is None:
-                continue
+            alert = heuristic_conflict_alert(overlap.file_path, user_id, overlap.other)
             log.info(
                 "Conflict %s on %s between %s",
                 alert.verdict,
@@ -937,59 +895,12 @@ def _activity_update(message: ActivityMessage, caption: Optional[str]) -> Activi
     )
 
 
-async def _captioned_publish(
-    room: Room, message: ActivityMessage, previous: Optional[asyncio.Task]
-) -> None:
-    """Background half of _publish_activity when captions come from Gemini:
-    caption, then broadcast, after the same sender's earlier update."""
-    caption: Optional[str] = None
-    if _take_gemini_slot(room):
-        try:
-            caption = await generate_caption(message, room.code)
-        except Exception as exc:
-            log.warning("Caption path crashed; using placeholder: %s", exc)
-        finally:
-            _release_gemini_slot(room)
-    if caption is None:
-        caption = placeholder_caption(message)
-    if previous is not None and not previous.done():
-        with contextlib.suppress(BaseException):
-            await previous
-    update = _activity_update(message, caption)
-    room.remember_update(update)
-    await room.broadcast(update)
-
-
 async def _publish_activity(room: Room, message: ActivityMessage) -> None:
     """Caption an accepted activity and broadcast it as activity_update.
 
-    With Gemini configured the caption is a network call of up to seconds,
-    so it runs in a background task: the sender's receive loop (and the
-    edit_check queued behind this frame) never waits for it."""
-    if room.settings.e2e:
-        # The readable content is in the e2e blob, and nothing from an e2e
-        # room goes to a third party: the no-network placeholder caption.
-        caption: Optional[str] = placeholder_caption(message)
-    elif _captions_enabled():
-        key = (message.user_id, message.repo_id)
-        previous = room.caption_tail.get(key)
-        task = asyncio.create_task(_captioned_publish(room, message, previous))
-        room.caption_tail[key] = task
-
-        def _done(finished: asyncio.Task, key: tuple[str, str] = key) -> None:
-            if room.caption_tail.get(key) is finished:
-                room.caption_tail.pop(key, None)
-            _log_conflict_task_error(finished)
-
-        task.add_done_callback(_done)
-        return
-    else:
-        try:
-            caption = await generate_caption(message, room.code)
-        except Exception as exc:
-            log.warning("Caption path crashed; using empty caption: %s", exc)
-            caption = None
-    update = _activity_update(message, caption)
+    The caption is the deterministic placeholder, built from the message
+    alone: nothing a member sends leaves the relay for a third party."""
+    update = _activity_update(message, placeholder_caption(message))
     room.remember_update(update)
     await room.broadcast(update)
 
@@ -1044,11 +955,11 @@ async def handle_activity(room: Room, user_id: str, raw: dict) -> None:
     overlaps = room.find_overlaps(message)
     room.record_activity(message)
 
-    # Conflict Gemini calls can take several seconds each, run them in the
-    # background so this socket's receive loop stays free.
+    # Alerts go out in the background, so a slow broadcast to a large room
+    # never holds up this socket's receive loop.
     if overlaps:
         task = asyncio.create_task(
-            evaluate_and_broadcast_conflicts(room, user_id, message, overlaps)
+            evaluate_and_broadcast_conflicts(room, user_id, overlaps)
         )
         task.add_done_callback(_log_conflict_task_error)
 

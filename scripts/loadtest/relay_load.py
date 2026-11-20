@@ -72,7 +72,6 @@ def relay_env(extra: dict[str, str] | None = None) -> dict[str, str]:
         HIVELANE_STATIC_DIR="",
         PYTHONUNBUFFERED="1",
     )
-    env.pop("GEMINI_API_KEY", None)
     env.pop("HIVELANE_STATE_PATH", None)
     env.pop("HIVELANE_REDIS_URL", None)
     env.update(extra or {})

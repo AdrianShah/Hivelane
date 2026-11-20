@@ -51,10 +51,10 @@ export function Privacy() {
         <li>We don&apos;t use your code or prompts to train models.</li>
         <li>The dashboard uses no analytics or tracking cookies; it keeps preferences in your browser only.</li>
       </ul>
-      <h2>AI features</h2>
+      <h2>Third parties</h2>
       <p>
-        Captions and conflict classification are optional. When the relay operator turns them on, diffs from rooms
-        without end-to-end encryption are sent to the configured model provider to produce them.
+        The relay sends nothing to an AI model or any other outside service: captions and conflict alerts are built
+        from room state, so prompts and diffs stay on the relay.
       </p>
       <p>
         The full list of what the relay stores and for how long is in the{' '}

@@ -281,8 +281,6 @@ class Cluster:
 
 @pytest.fixture
 def cluster(monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Cluster]:
-    # No captions from the network: the relay reads the key per call.
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     # The daemons' token (and anything else they keep) stays out of the real
     # home; a test that needs its own home sets it after this.
     monkeypatch.setenv("HIVELANE_HOME", str(tmp_path_factory.mktemp("hivelane-home")))

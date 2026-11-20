@@ -35,7 +35,7 @@ it is the only dashboard, plus any dashboard hosted elsewhere.
 | `relay.trustProxyHeader` | `null` (follows `ingress.enabled`) | Read the client IP from `X-Forwarded-For` (the ingress controller's). Set `true` behind another proxy you run; never without one, since clients could forge their address. Pair it with the proxy-hop settings in [docs/security.md](../../../docs/security.md) through `extraEnv`. |
 | `relay.serveDashboard` | `true` | `false` serves the API only. |
 | `relay.redisUrl` | `""` | `HIVELANE_REDIS_URL`. Prefer `relay.existingSecret` when it has a password. |
-| `relay.existingSecret` | `""` | A Secret whose keys become env vars, e.g. `HIVELANE_REDIS_URL`, `GEMINI_API_KEY`. |
+| `relay.existingSecret` | `""` | A Secret whose keys become env vars, e.g. `HIVELANE_REDIS_URL`. |
 | `extraEnv` | `[]` | Any other relay variable. |
 | `persistence.*` | 1 Gi, RWO | The room-code volume, used only with one replica. Kept on uninstall. |
 
