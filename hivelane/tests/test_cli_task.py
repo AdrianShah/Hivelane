@@ -88,3 +88,19 @@ def test_without_a_daemon_it_says_so(capsys: pytest.CaptureFixture[str]) -> None
 @pytest.mark.parametrize("raw,seconds", [("90", 90), ("90s", 90), ("30m", 1800), ("1.5h", 5400), ("1d", 86400)])
 def test_durations(raw: str, seconds: float) -> None:
     assert tasks_cli.duration(raw) == seconds
+
+
+def test_tasks_cli_never_imports_the_cli_back() -> None:
+    # hivelane.cli imports tasks_cli (and mcp_server imports it too); an
+    # import the other way would close a cycle (CodeQL py/cyclic-import).
+    import ast
+    from pathlib import Path
+
+    tree = ast.parse(Path(tasks_cli.__file__).read_text(encoding="utf-8"))
+    imported = {
+        node.module if isinstance(node, ast.ImportFrom) else alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        for alias in node.names
+    }
+    assert not {name for name in imported if name and name.startswith("hivelane")}, imported
