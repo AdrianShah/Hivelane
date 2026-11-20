@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import type { KeyboardEvent } from 'react';
 import { THEME_PREFS, type ThemePref } from '../dashboard/theme';
 import { useThemePref } from '../dashboard/useTheme';
@@ -41,9 +43,7 @@ export default function ThemeToggle({ showLabels = false }: { showLabels?: boole
             onKeyDown={onKeyDown}
             className={showLabels ? '!w-auto px-2.5 gap-1 !flex items-center' : ''}
           >
-            <span className="material-symbols-outlined" aria-hidden="true">
-              {META[option].icon}
-            </span>
+            <Icon name={fromMaterial(META[option].icon)} size={16} />
             {showLabels ? <span className="text-[11px] font-semibold">{META[option].label}</span> : null}
           </button>
         );

@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -311,15 +313,8 @@ export default function HeatMapView({ log, filters, nowSeconds, filterBar, onOpe
                         onClick={() => toggle(node.path)}
                         onKeyDown={(e) => onKeyDown(e, node)}
                       >
-                        <span
-                          className={`material-symbols-outlined text-[16px] text-on-dim transition-transform ${open ? 'rotate-90' : ''}`}
-                          aria-hidden="true"
-                        >
-                          chevron_right
-                        </span>
-                        <span className="material-symbols-outlined text-[16px] text-on-dim" aria-hidden="true">
-                          {open ? 'folder_open' : 'folder'}
-                        </span>
+                        <Icon name="chevron" size={16} className={`text-on-dim transition-transform ${open ? 'rotate-90' : ''}`} />
+                        <Icon name={fromMaterial(open ? 'folder_open' : 'folder')} size={16} className="text-on-dim" />
                         <span className="font-mono text-[12px] truncate min-w-0">{node.name}/</span>
                         <span className="text-[10.5px] text-on-dim shrink-0 tabular-nums">
                           {node.fileCount}
@@ -356,9 +351,7 @@ export default function HeatMapView({ log, filters, nowSeconds, filterBar, onOpe
                       <span className="font-mono text-[12px] truncate min-w-0">{node.name}</span>
                       {stat.collisions > 0 ? (
                         <span className="outcome-tag is-edited-anyway shrink-0" title="Collisions on this file">
-                          <span className="material-symbols-outlined" aria-hidden="true">
-                            warning
-                          </span>
+                          <Icon name="warning" size={16} />
                           {stat.collisions}
                         </span>
                       ) : null}

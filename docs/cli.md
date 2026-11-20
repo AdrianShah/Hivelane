@@ -64,6 +64,7 @@ through the background daemon. Safe to re-run.
 | `--port PORT` | Daemon loopback port (default `4600`, or `HIVELANE_PORT`). |
 | `-y`, `--yes` | Answer yes to every question (scripts, CI). |
 | `--no-hooks` | Do not install agent hooks. |
+| `--status-line` / `--no-status-line` | Show Hivelane in Claude Code's status line (the project's `.claude/settings.json`). Without either flag `up` asks on a terminal (default no) and never replaces a status line you set; `--yes` alone does not turn it on. |
 | `--foreground` | Run the daemon in this terminal instead of the background (debugging, CI). |
 | `--insecure` | Allow a plaintext `ws://` relay on another machine. Without it, `up` refuses `ws://` to anything but this machine. Also settable as `insecure = true` in `.hivelane.toml`. |
 | `--e2e` | Turn on end-to-end encryption for this repo's room: writes `e2e = true` to `.hivelane.toml` and, if you have no key yet, generates one and prints it once. Share the key out of band; it is never written to the repo. |
@@ -98,15 +99,26 @@ Disconnects this repo from its room. The daemon keeps serving your other repos.
 ## hivelane status
 
 ```text
-hivelane status [--port PORT]
+hivelane status [--port PORT] [--line [--plain]] [--prompt-snippet]
 ```
 
 Shows whether the daemon is running and, for each connected repo, its room,
 connection state and peers. Exits 1 when no daemon answers.
 
+`--line` prints one line instead, for an agent app's status line or a shell
+prompt: the hexagon mark, a state dot (green live, red when one of your edits
+is held, grey when off) and the counts, e.g. `⬡ ● K7M2PQ2X · 3 agents · 1 held`.
+It picks the repo you are in (Claude Code's session JSON on stdin, else the
+working directory), gives up on the daemon after half a second and always exits
+0, so a stopped daemon reads `⬡ ○ hivelane off` rather than an error.
+`hivelane up` offers to put it in Claude Code's status line (see `--status-line`).
+
 | Option | Description |
 |--------|-------------|
 | `--port PORT` | Daemon loopback port (default `4600`, or `HIVELANE_PORT`). |
+| `--line` | One-line status for a status line or shell prompt. |
+| `--plain` | With `--line`: no ANSI colours (for shells that do not render them in a prompt). |
+| `--prompt-snippet` | Print zsh and bash prompt snippets that show `--line` (for Codex, Gemini CLI and other terminal agents). |
 
 ## hivelane doctor
 

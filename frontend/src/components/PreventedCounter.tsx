@@ -1,3 +1,4 @@
+import Icon from './Icon';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useDialogFocus } from '../dashboard/useDialogFocus';
 import { PREVENTION_WINDOW_SECONDS, type PreventionSummary } from '../dashboard/prevented';
@@ -52,9 +53,7 @@ export function PreventedCounter({ prevention, stats, onShare }: PreventedCounte
           </details>
         </div>
         <button type="button" className="deploy-btn rounded-xl px-4 py-2 text-[12px] font-bold shrink-0" onClick={onShare}>
-          <span className="material-symbols-outlined text-[16px] mr-1 align-[-3px]" aria-hidden="true">
-            ios_share
-          </span>
+          <Icon name="share" size={16} className="mr-1 align-[-3px]" />
           Share card
         </button>
       </div>
@@ -144,9 +143,7 @@ export function ShareCardDialog({ open, stats, onClose, onNotice }: ShareCardDia
             </p>
           </div>
           <button ref={closeRef} type="button" className="icon-btn p-1.5 shrink-0" onClick={onClose} aria-label="Close">
-            <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-              close
-            </span>
+            <Icon name="close" size={20} />
           </button>
         </div>
         <canvas

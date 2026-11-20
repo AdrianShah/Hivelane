@@ -1,3 +1,4 @@
+import Icon from './Icon';
 import type { FeedbackTally, Vote } from '../detection';
 
 interface Props {
@@ -23,9 +24,7 @@ export default function DecisionFeedbackButtons({ decisionId, tally, voted, onVo
         title={disabled ? 'You already rated this decision' : 'This warning was useful'}
         onClick={() => onVote(decisionId, 'useful')}
       >
-        <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-          thumb_up
-        </span>
+        <Icon name="thumb-up" size={13} />
         <span>useful</span>
         <span className="tabular-nums">{useful}</span>
       </button>
@@ -38,9 +37,7 @@ export default function DecisionFeedbackButtons({ decisionId, tally, voted, onVo
         title={disabled ? 'You already rated this decision' : 'This warning was noise'}
         onClick={() => onVote(decisionId, 'noise')}
       >
-        <span className="material-symbols-outlined text-[13px]" aria-hidden="true">
-          thumb_down
-        </span>
+        <Icon name="thumb-down" size={13} />
         <span>noise</span>
         <span className="tabular-nums">{noise}</span>
       </button>

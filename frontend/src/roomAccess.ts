@@ -10,6 +10,7 @@
 
 import { normalizeRoomCode, relayHttpOrigin, relaySource, relayWsBase } from './relayUrl';
 import type { JoinMessage } from './types';
+import { ownedRoomCodes } from './dashboard/roomLife';
 
 const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
 
@@ -90,4 +91,13 @@ export function spectatorJoin(roomId: string): JoinMessage {
  */
 export function isApprovalRefusal(reason: string, wasWaiting: boolean): boolean {
   return wasWaiting || reason.includes('waiting for approval');
+}
+
+/** Room codes this browser owns on the relay in use (the header's room switcher). */
+export function ownedRooms(): string[] {
+  try {
+    return ownedRoomCodes(window.localStorage, OWNER_TOKEN_PREFIX, relayWsBase());
+  } catch {
+    return [];
+  }
 }

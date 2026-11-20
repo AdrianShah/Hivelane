@@ -157,8 +157,11 @@ export function mascotSvg(pose: MascotPose = 'clear', c: MascotPalette = THEME_P
  *   conflict - wide eyes, wobbling (overlapping edits)
  *   blocked  - cross brows, shaking
  *   offline  - eyes shut, grounded and greyed
+ *   waiting  - eyes up and to the side, mouth flat: in line for a file
  */
-export type AvatarState = 'editing' | 'idle' | 'conflict' | 'blocked' | 'offline';
+export type AvatarState = 'editing' | 'idle' | 'conflict' | 'blocked' | 'offline' | 'waiting';
+
+export const AVATAR_STATES: AvatarState[] = ['editing', 'idle', 'conflict', 'blocked', 'offline', 'waiting'];
 
 function avatarFace(state: AvatarState, c: MascotPalette): string {
   const line = (d: string, w = 5) =>
@@ -175,6 +178,13 @@ function avatarFace(state: AvatarState, c: MascotPalette): string {
       return eyes('blocked', c) + mouth('blocked', c);
     case 'offline':
       return line('M59 84h14M87 84h14') + line('M75 95h10', 4);
+    case 'waiting':
+      // Open eyes glancing up at the queue, a patient flat mouth.
+      return (
+        `<circle cx="66" cy="83" r="6" fill="${c.ink}"/><circle cx="94" cy="83" r="6" fill="${c.ink}"/>` +
+        `<circle cx="68.6" cy="79.8" r="2" fill="${c.body}"/><circle cx="96.6" cy="79.8" r="2" fill="${c.body}"/>` +
+        line('M74 95h12', 4)
+      );
   }
 }
 

@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import { STATUS_HINT, STATUS_LABEL, type LaneStatus } from '../dashboard/laneStatus';
 import { agentLabel, personColor } from '../dashboard/people';
 import { BeeAvatar } from '../brand/BrandArt';
@@ -90,9 +92,7 @@ const STATUS_ICON: Record<LaneStatus, string> = {
 export function StatusPill({ status }: { status: LaneStatus }) {
   return (
     <span className={`agent-status-pill is-${status}`} title={STATUS_HINT[status]}>
-      <span className="material-symbols-outlined" aria-hidden="true">
-        {STATUS_ICON[status]}
-      </span>
+      <Icon name={fromMaterial(STATUS_ICON[status])} size={16} />
       <span>
         <span className="sr-only">Status: </span>
         {STATUS_LABEL[status]}

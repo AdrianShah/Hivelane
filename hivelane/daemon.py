@@ -45,7 +45,7 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
-from hivelane import __version__, auth, crypto, gitinfo, redact, symbols
+from hivelane import __version__, auth, crypto, desktop, gitinfo, redact, symbols
 from hivelane.depgraph import DepTracker
 from hivelane.config import (
     PROJECT_FILE,
@@ -182,6 +182,10 @@ JOIN_REQUEST_TTL = 900.0
 RELEASE_GRACE = 10.0
 # A file_released note is still shown on the session's next pre_edit for this long.
 RELEASE_NOTE_TTL = 60.0
+# Session-note key for whichever session of a connection asks first.
+ANY_SESSION = "*"
+# A ping's text as shown in the agent's chat (the relay caps it too).
+NUDGE_TEXT_MAX = 280
 # Files whose queue state (our place in line, a release) is remembered.
 QUEUE_MEMORY = 256
 # One POST /wait holds at most this long; `hivelane wait` polls in slices.
@@ -1597,6 +1601,9 @@ class RoomConnection:
             for note in (
                 self._session_notes.pop(session_id, None),
                 self._session_notes.pop(f"*:{repo_id}", None),
+                # Notes for whichever session of this connection comes first,
+                # in any repo (a ping from the room owner).
+                self._session_notes.pop(ANY_SESSION, None),
             )
             if note
         ]
@@ -1619,6 +1626,8 @@ class RoomConnection:
         self._released.pop(key, None)
         if ack.decision == "block" or time.time() - released["at"] > RELEASE_NOTE_TTL:
             return None
+        if released.get("reason") == "owner":
+            return f"the room owner let you go first on {rel}, it's your turn"
         return f"{rel} was released to you, it's your turn"
 
     def _resolve_file_waiters(self, key: tuple[str, str], how: str) -> None:
@@ -1644,10 +1653,14 @@ class RoomConnection:
         key = (self._local_repo_id(str(data.get("repo_id") or "")), rel)
         queued = self._queued.pop(key, None)
         sessions = set(queued["sessions"]) if queued else set()
-        self._remember_bounded(self._released, key, {"at": time.time(), "sessions": sessions})
+        reason = str(data.get("reason") or "")
+        self._remember_bounded(
+            self._released, key, {"at": time.time(), "sessions": sessions, "reason": reason}
+        )
         self._resolve_file_waiters(key, "released")
         place = f" (you were #{queued['position']} in line)" if queued and queued.get("position") else ""
-        print(f"hivelane: room {self.room}: {rel} is free, your turn{place}")
+        who = " (the room owner let you go first)" if reason == "owner" else ""
+        print(f"hivelane: room {self.room}: {rel} is free, your turn{place}{who}")
 
     def _on_file_requested(self, data: dict[str, Any]) -> None:
         rel = self._frame_path(data)
@@ -1662,6 +1675,17 @@ class RoomConnection:
             f"{by}'s agent is waiting for {rel}, finish up or hand it off",
         )
         print(f"hivelane: room {self.room}: {by} ({agent}) is waiting for {rel}")
+
+    def _on_nudged(self, data: dict[str, Any]) -> None:
+        """A room owner pinged this agent from the dashboard: shown in the
+        agent's next hook output (whichever session asks first), in this
+        log, and as a desktop notification."""
+        text = (clean_text(str(data.get("text") or "")) or "").strip()[:NUDGE_TEXT_MAX]
+        by = str(data.get("by") or "room owner")[:64]
+        note = f"the {by} pinged you" + (f": {text}" if text else "")
+        self._add_session_note(ANY_SESSION, note)
+        print(f"hivelane: room {self.room}: {note}")
+        desktop.notify(f"Hivelane · {self.room}", note[0].upper() + note[1:])
 
     # --- room tasks ----------------------------------------------------------------
 
@@ -2422,6 +2446,10 @@ class RoomConnection:
             self._on_file_requested(data)
             return
 
+        if kind == "nudged":
+            self._on_nudged(data)
+            return
+
         if kind == "edit_check_response":
             response = EditCheckResponse.model_validate(data)
             rel = self._pending_paths.pop(response.request_id, None)
@@ -3176,6 +3204,8 @@ class Daemon:
             "connected_since": conn.connected_since,
             "peers": sorted(conn._peers),
             "queued_events": conn.queued_events,
+            # Files this connection is waiting in line for (held edits).
+            "held": len(conn._queued),
             "repo_id": self._binding_repo_id(binding),
             "fatal": conn.fatal,
             # What the team's file set (history_hours only when it says so).

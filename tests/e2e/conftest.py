@@ -32,6 +32,12 @@ STARTUP_TIMEOUT = 10.0
 SHUTDOWN_TIMEOUT = 10.0
 
 
+@pytest.fixture(autouse=True)
+def _no_desktop_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pings between in-process daemons must not reach the real desktop."""
+    monkeypatch.setenv("HIVELANE_DESKTOP_NOTIFY", "0")
+
+
 def free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((LOOPBACK, 0))

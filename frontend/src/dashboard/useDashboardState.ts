@@ -13,7 +13,8 @@ import { useUrlState } from './useUrlState';
  */
 
 /** Views the URL can open, and the default (no ?view=). */
-export const DEFAULT_URL_VIEW = 'agents';
+/** v3 opens on the dashboard (the room overview); ?view=agents opens the feed. */
+export const DEFAULT_URL_VIEW = 'dashboard';
 export const URL_VIEWS = new Set([
   'dashboard',
   'agents',

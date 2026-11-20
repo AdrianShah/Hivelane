@@ -64,6 +64,10 @@ MAX_QUEUED_PATH_CHARS = config.MAX_PATH_CHARS
 # How long the head of a line has to take a released file before the next
 # member in line is considered.
 RELEASE_GRACE_SECONDS = 10.0
+# A member an owner let go first (hold_release / queue_order) gets longer
+# than the usual grace to take the file: its agent may be idle, waiting on a
+# person who just clicked the button.
+OWNER_GRACE_SECONDS = 30.0
 # A claim covers the gap between an allowed edit and its activity reaching
 # the relay (the daemon batches for 1.5 s), so it lapses well before the block
 # window: a taker whose edit produced no activity (a failed tool call, an
@@ -95,6 +99,10 @@ class QueueEntry:
     branch: str = ""
     # Set while the member is at the head and the file has been released to it.
     released_at: Optional[float] = None
+    # Who released it when it was not the holders letting go ("owner"), and
+    # the grace that release carries (0 = the queue's default).
+    released_by: str = ""
+    grace: float = 0.0
     # Holders already told this member is waiting.
     notified: set[str] = field(default_factory=set)
 
@@ -244,6 +252,40 @@ class FileQueues:
         else:
             del self._queues[key]
 
+    def prioritize(
+        self, key: QueueKey, user_id: str, agent: str, now: float, *, e2e: str = ""
+    ) -> QueueEntry:
+        """An owner let user_id go first: its entry (made if it had none)
+        moves to the front of key's line, released to it at once with
+        OWNER_GRACE_SECONDS to take the file. Everyone else keeps their order
+        behind it. The line's length bound drops the last entry, never this one."""
+        queue = self._queues.setdefault(key, [])
+        entry = next((item for item in queue if item.user_id == user_id), None)
+        if entry is None:
+            entry = QueueEntry(user_id=user_id, agent=agent, enqueued_at=now, refreshed_at=now, e2e=e2e)
+        else:
+            queue.remove(entry)
+            if e2e:
+                entry.e2e = e2e
+        queue.insert(0, entry)
+        entry.refreshed_at = now
+        entry.released_at = now
+        entry.released_by = "owner"
+        entry.grace = OWNER_GRACE_SECONDS
+        if self.max_length > 0:
+            del queue[self.max_length :]
+        return entry
+
+    def drop_claims(self, key: QueueKey, *, exclude: str = "") -> None:
+        """Forget every claim on key but exclude's (an owner decided who goes first)."""
+        claims = self._claims.get(key)
+        if not claims:
+            return
+        for user_id in [user for user in claims if user != exclude]:
+            del claims[user_id]
+        if not claims:
+            del self._claims[key]
+
     def remove_user(self, user_id: str) -> None:
         """A member left: its places in line and its claims go with it."""
         for key in list(self._queues):
@@ -323,5 +365,5 @@ class FileQueues:
         if entry.released_at is not None:
             # A released head that did not take the file in its grace makes
             # way for the next in line.
-            return now - entry.released_at <= self.grace_seconds
+            return now - entry.released_at <= (entry.grace or self.grace_seconds)
         return now - entry.refreshed_at <= warn_window

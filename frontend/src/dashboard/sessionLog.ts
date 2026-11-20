@@ -41,6 +41,8 @@ export interface Touch {
   /** Relay timestamp, seconds. */
   timestamp: number;
   symbols: string[];
+  /** Inclusive line ranges the edit covered, when the daemon sent them. */
+  line_ranges?: [number, number][];
   diff: string;
   /** The update's caption, if any. */
   caption: string | null;
@@ -281,6 +283,7 @@ export function reduceSessionLog(log: SessionLog, action: SessionLogAction): Ses
         file_path: normPath(change.file_path),
         timestamp: action.timestamp,
         symbols: change.symbols ?? [],
+        line_ranges: change.line_ranges ?? [],
         diff: change.diff,
         caption: action.caption ?? null,
         intent,
