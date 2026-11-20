@@ -525,7 +525,7 @@ _DISCORD_COLORS = {
 
 def _defang(text: str) -> str:
     """Break anything a chat client would turn into a clickable link: the
-    text comes from room members (paths, prompts, names) and from Gemini, so
+    text comes from room members (paths, prompts, names), so
     a code holder could otherwise plant a phishing link in the owner's
     channel. "https://x" becomes "https[:]//x", "www." becomes "www[.]"."""
     return text.replace("://", "[:]//").replace("www.", "www[.]").replace("WWW.", "WWW[.]")

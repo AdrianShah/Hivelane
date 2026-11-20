@@ -45,10 +45,6 @@ Full precedence and every command: [docs/cli.md](cli.md).
 | `HIVELANE_ROOM_STORE` | - | Set to `local` to keep room codes in SQLite/memory even when `HIVELANE_REDIS_URL` is set (Redis for rate limits only). |
 | `HIVELANE_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's id in room-ownership leases. |
 | `HIVELANE_STATIC_DIR` | - (`/app/static` in the image) | Built dashboard to serve from the relay, same-origin, so the bundled dashboard needs no CORS entry. |
-| `GEMINI_API_KEY` | - | Enables AI captions and conflict explanations |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Model override |
-| `GEMINI_CAPTION_TIMEOUT` | `4.0` | Seconds before caption fallback |
-| `GEMINI_CONFLICT_TIMEOUT` | `5.0` | Seconds before heuristic conflict label |
 
 > **`TRUST_PROXY_HEADER` cuts both ways.** Behind Render or Cloudflare the socket
 > peer is the proxy, so with it off every user shares one rate-limit bucket. With

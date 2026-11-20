@@ -1,4 +1,4 @@
-"""Shared fixtures. Keeps the suite offline: no Gemini key, no network calls."""
+"""Shared fixtures. Keeps the suite offline: no network calls."""
 
 from __future__ import annotations
 
@@ -32,11 +32,6 @@ def _fast_feed_debounce(
         monkeypatch.setattr(
             room_module, "BROADCAST_FLUSH_SECONDS", TEST_BROADCAST_FLUSH_SECONDS
         )
-
-
-@pytest.fixture(autouse=True)
-def _no_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
 
 @pytest.fixture(autouse=True)

@@ -49,7 +49,6 @@ primary_region = "iad"
   #   CORS_ORIGINS=https://your-app.fly.dev   (required; the bundled dashboard
   #                                            is same-origin, but production
   #                                            needs at least one origin)
-  #   GEMINI_API_KEY=...                      (optional AI captions)
   #   HIVELANE_REDIS_URL=redis://...           (only for more than one machine)
 
 [[mounts]]

@@ -229,39 +229,6 @@ def test_rate_limit_is_per_repo_and_monotonic() -> None:
 # --- 03-2 / 03-30: Gemini off the receive loop ----------------------------------------
 
 
-def test_gemini_captions_do_not_block_the_receive_loop(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def slow_caption(message: ActivityMessage, room: str = "") -> str:
-        await asyncio.sleep(0.3)
-        return "a real caption"
-
-    monkeypatch.setattr(main, "_captions_enabled", lambda: True)
-    monkeypatch.setattr(main, "generate_caption", slow_caption)
-
-    async def scenario() -> None:
-        room = Room()
-        room.add_member("alice", FakeSocket())
-        started = time.monotonic()
-        await main.handle_activity(
-            room, "alice",
-            {"type": "activity", "user_id": "alice", "changes": [{"file_path": "a.py", "diff": "@@"}]},
-        )
-        assert time.monotonic() - started < 0.1
-        await asyncio.sleep(0.5)
-        assert [u.caption for u in room.latest_updates()] == ["a real caption"]
-
-    asyncio.run(scenario())
-
-
-def test_gemini_concurrency_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "MAX_GEMINI_IN_FLIGHT", 1)
-    monkeypatch.setattr(main, "_gemini_in_flight", 0)
-    assert main._take_gemini_slot() is True
-    assert main._take_gemini_slot() is False
-    main._release_gemini_slot()
-    assert main._take_gemini_slot() is True
-    main._release_gemini_slot()
-
-
 # --- 03-5: outbound size ------------------------------------------------------------------
 
 
@@ -562,15 +529,3 @@ def test_eviction_notifies_listeners() -> None:
     manager.evict_listeners.append(seen.append)
     manager.cleanup_if_empty(code)
     assert seen == [code]
-
-
-def test_gemini_slots_are_capped_per_room(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "MAX_GEMINI_IN_FLIGHT_PER_ROOM", 1)
-    monkeypatch.setattr(main, "_gemini_in_flight", 0)
-    busy, other = Room(), Room()
-    assert main._take_gemini_slot(busy) is True
-    assert main._take_gemini_slot(busy) is False
-    assert main._take_gemini_slot(other) is True
-    main._release_gemini_slot(busy)
-    main._release_gemini_slot(other)
-    assert busy.gemini_in_flight == 0 and main._gemini_in_flight == 0

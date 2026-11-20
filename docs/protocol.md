@@ -424,7 +424,7 @@ A member's accepted `activity`, broadcast.
 | `timestamp` | number | required | Server time the activity was accepted. |
 | `prompt` | string or `null` | `null` | As sent. |
 | `changes` | [FileChange](#filechange)[] | required | As sent, after the relay's size caps. |
-| `caption` | string or `null` | `null` | One-line AI caption, or a placeholder when the relay has no model configured. |
+| `caption` | string or `null` | `null` | One-line summary of the batch, built by the relay from the message itself. |
 | `agent` | [agent kind](#agent-kinds) | `"unknown"` | The agent behind the member. Labelling only; never used for decisions. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
@@ -493,7 +493,7 @@ anything.
 | `users` | string[] | required | The members involved. |
 | `file_path` | string | required | The file both edited. |
 | `verdict` | `"overlapping"`, `"related"`, `"unrelated"` | required | `overlapping`, `related` or `unrelated`. |
-| `explanation` | string | required | Why, in a sentence (AI-written when the relay has a model, heuristic otherwise). |
+| `explanation` | string | required | Why, in a sentence, built from room state. |
 | `timestamp` | number | now | Unix time in seconds. |
 
 ### room_settings
