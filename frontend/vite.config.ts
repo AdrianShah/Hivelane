@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 /**
  * The path the dashboard is served under. '/' for `npm run dev`, Vercel and the
@@ -16,5 +17,7 @@ function base(): string {
 // https://vite.dev/config/
 export default defineConfig({
   base: base(),
-  plugins: [react()],
+  // Tailwind is compiled into the build (src/index.css @import "tailwindcss"),
+  // not loaded from a CDN at runtime.
+  plugins: [react(), tailwindcss()],
 })

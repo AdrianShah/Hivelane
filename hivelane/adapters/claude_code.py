@@ -237,6 +237,9 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
         return ""
 
     message = _ack_message(ack, decision, event.get("file_path"))
+    # What the person watching sees in the chat: a short card. The agent
+    # reads the full sentence (permissionDecisionReason / additionalContext).
+    card = base.ack_card(ack, decision, event.get("file_path"))
 
     if decision == "block":
         return hook_json.dumps(
@@ -245,7 +248,8 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
                     "hookEventName": "PreToolUse",
                     "permissionDecision": "deny",
                     "permissionDecisionReason": f"Hivelane: {message}",
-                }
+                },
+                "systemMessage": card,
             }
         )
 
@@ -257,7 +261,7 @@ def render_ack(event: dict[str, Any], ack: Any) -> str:
                 "hookEventName": "PreToolUse",
                 "additionalContext": f"Hivelane warning: {message}",
             },
-            "systemMessage": f"Hivelane: {message}",
+            "systemMessage": card,
         }
     )
 

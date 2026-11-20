@@ -397,6 +397,17 @@ class FileTouch:
         return max(times) if times else None
 
 
+# Owner resolve actions (hold_release, queue_order). The member let through
+# passes the other members' touches of that file for this long (or the block
+# window, if longer): long enough for its agent to retry, short enough that
+# the room is back to normal rules on its own.
+OWNER_RELEASE_SECONDS = 60.0
+# Blocks remembered for hold_release, oldest dropped first; and how long one
+# can still be released (older ones have lapsed by themselves).
+MAX_HELD_EDITS = 512
+HOLD_RELEASABLE_SECONDS = 15 * 60.0
+
+
 @dataclass
 class EditVerdict:
     """Room.evaluate_edit's answer: the decision, the peers that justified it
@@ -427,6 +438,33 @@ class QueueOutcome:
     wait: Optional[suggest.WaitHint] = None
     # file_requested frames for the holders, to send after the reply.
     notices: list[QueueNotice] = field(default_factory=list)
+
+
+@dataclass
+class HeldEdit:
+    """A block an owner may release: who was held, on which file, and the
+    e2e blob of the request (so the release can name the file in an
+    encrypted room)."""
+
+    user_id: str
+    repo_id: str
+    file_path: str
+    timestamp: float
+    e2e: str = ""
+
+
+@dataclass
+class GoFirst:
+    """Room.go_first's answer: the queue notices to deliver (file_released
+    to the member let through, file_requested to the others), and the
+    members now waiting behind it with their 1-based places."""
+
+    user_id: str
+    repo_id: str
+    file_path: str
+    notices: list[QueueNotice]
+    waiting: list[tuple[str, int]]
+    e2e: str = ""
 
 
 @dataclass
@@ -601,6 +639,15 @@ class Room:
         self._pending_checks: OrderedDict[tuple[str, str, str], FileTouch] = OrderedDict()
         self._task_sweeper: Optional[asyncio.Task] = None
         self._known_paths: OrderedDict[tuple[str, str], None] = OrderedDict()
+        # When the room was created and when its code stops working
+        # (RoomManager sets both from the store; expires_at 0 = unknown).
+        self.created_at = time.time()
+        self.expires_at = 0.0
+        # Owner resolve actions: decision_id -> the block it recorded, and
+        # (repo_id, file_path, user_id) -> until when that member's edits of
+        # the file pass the other members' touches (see go_first).
+        self._held: OrderedDict[str, HeldEdit] = OrderedDict()
+        self._overrides: dict[tuple[str, str, str], float] = {}
 
     # --- membership ----------------------------------------------------------
 
@@ -679,6 +726,8 @@ class Room:
         for key in [k for k in self.deferred_activity if k[0] == user_id]:
             self.deferred_activity.pop(key, None)
         self._edit_check_quotas.pop(user_id, None)
+        for override in [k for k in self._overrides if k[2] == user_id]:
+            del self._overrides[override]
         # Its places in line and its claims; the files it held are released
         # by the next tick_file_queues().
         self.file_queues.remove_user(user_id)
@@ -706,6 +755,8 @@ class Room:
             history_hours=self._settings.history_hours,
             set_by=self._settings_set_by,
             timestamp=self._settings_updated_at,
+            created_at=self.created_at,
+            expires_at=self.expires_at,
         )
 
     def apply_settings(
@@ -1468,12 +1519,15 @@ class Room:
         ]
         others.sort(key=lambda touch: touch.timestamp, reverse=True)
 
+        # An owner let this member go first on the file: the others' touches
+        # still show (warn), they no longer hold it off.
+        let_through = self.has_override(repo_id, file_path, user_id, now)
         judged = []
         for touch in others:
             decision, scope = self._judge_touch(
                 touch, now, wanted_symbols, wanted_ranges, branch, always_warn, base_version
             )
-            if decision == "block" and touch.user_id.lower() in capped:
+            if decision == "block" and (let_through or touch.user_id.lower() in capped):
                 decision = "warn"
             judged.append((touch, decision, scope))
         blocking = [(touch, scope) for touch, decision, scope in judged if decision == "block"]
@@ -1997,6 +2051,7 @@ class Room:
                 repo_id=repo_id,
                 timestamp=notice.entry.released_at or notice.at,
                 e2e=notice.entry.e2e,
+                reason=notice.entry.released_by,
             )
         return FileRequested(
             file_path=file_path,
@@ -2052,6 +2107,121 @@ class Room:
                 await self.tick_file_queues()
             except Exception:
                 log.exception("File queue sweep failed")
+
+    # --- owner resolve actions ------------------------------------------------
+
+    def record_hold(
+        self,
+        decision_id: str,
+        user_id: str,
+        repo_id: str,
+        file_path: str,
+        now: float,
+        *,
+        e2e: str = "",
+    ) -> None:
+        """Remember a block, so an owner can release it (hold_release)."""
+        if not decision_id:
+            return
+        self._held[decision_id] = HeldEdit(user_id, repo_id, file_path, now, e2e)
+        self._held.move_to_end(decision_id)
+        while len(self._held) > MAX_HELD_EDITS:
+            self._held.popitem(last=False)
+
+    def held_edit(self, decision_id: str, now: float) -> Optional[HeldEdit]:
+        """The block decision_id recorded, while it can still be released."""
+        held = self._held.get(decision_id)
+        if held is None:
+            return None
+        if now - held.timestamp > HOLD_RELEASABLE_SECONDS:
+            del self._held[decision_id]
+            return None
+        return held
+
+    def has_override(self, repo_id: str, file_path: str, user_id: str, now: float) -> bool:
+        """True while an owner's go-first lets user_id's edits of the file
+        through the other members' touches."""
+        key = (repo_id, file_path, user_id)
+        until = self._overrides.get(key)
+        if until is None:
+            return False
+        if now > until:
+            del self._overrides[key]
+            return False
+        return True
+
+    def _file_e2e(self, repo_id: str, file_path: str, prefer: str = "") -> str:
+        """An e2e blob that names this file, for a frame the relay makes up
+        itself (encrypted rooms only carry paths inside members' blobs)."""
+        if prefer:
+            return prefer
+        for entry in self.file_queues.queue((repo_id, file_path)):
+            if entry.e2e:
+                return entry.e2e
+        for (rid, _user), touch in self._file_activity.get(file_path, {}).items():
+            if rid == repo_id and touch.e2e:
+                return touch.e2e
+        return ""
+
+    def go_first(
+        self, repo_id: str, file_path: str, user_id: str, now: float, *, e2e: str = ""
+    ) -> Optional[GoFirst]:
+        """An owner decided user_id edits file_path first.
+
+        user_id moves to the front of the file's line and has the file
+        released to it (OWNER_GRACE_SECONDS to take it), and for
+        OWNER_RELEASE_SECONDS its edits pass the others' touches. Everyone
+        else involved, the members touching the file, already in its line or
+        holding a claim on it, waits behind it: each is put in line (keeping
+        their order) and told that user_id is waiting, unless it already was. Any earlier
+        go-first for another member on this file is withdrawn.
+
+        None when user_id is not a member here (nothing changes).
+        """
+        if not self.is_active(user_id):
+            return None
+        key: QueueKey = (repo_id, file_path)
+        queues = self.file_queues
+        window = self._settings.warn_window_seconds
+        self.remember_path(repo_id, file_path)
+        involved = [
+            touch.user_id
+            for touch in self.recent_other_touches(
+                file_path,
+                user_id,
+                now,
+                repo_id=repo_id,
+                active_only=True,
+                window_seconds=window,
+                include_pending=True,
+            )
+        ]
+        involved.extend(entry.user_id for entry in queues.queue(key))
+        involved.extend(queues.claimers(key))
+        others = [
+            other
+            for other in dict.fromkeys(involved)
+            if other != user_id and self.is_active(other)
+        ]
+        blob = self._file_e2e(repo_id, file_path, e2e)
+        for other in others:
+            self._overrides.pop((repo_id, file_path, other), None)
+        self._overrides[(repo_id, file_path, user_id)] = now + max(
+            OWNER_RELEASE_SECONDS, self._settings.block_window_seconds
+        )
+        queues.drop_claims(key, exclude=user_id)
+        head = queues.prioritize(key, user_id, self.member_agent(user_id), now, e2e=blob)
+        for other in others:
+            queues.enqueue(key, other, self.member_agent(other), now)
+        # Holders already told this member waits are not told twice.
+        notices = [QueueNotice("released", user_id, key, head, now)]
+        notices.extend(self._notify_holders(key, head, others, now))
+        waiting = [
+            (entry.user_id, place)
+            for place, entry in enumerate(queues.queue(key), start=1)
+            if entry.user_id != user_id
+        ]
+        return GoFirst(user_id, repo_id, file_path, notices, waiting, blob)
 
     # --- tasks -----------------------------------------------------------------
 

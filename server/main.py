@@ -16,6 +16,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -58,6 +59,12 @@ try:
         PlanMessage,
         RateLimited,
         RoomPolicy,
+        HoldRelease,
+        HoldReleased,
+        Nudge,
+        Nudged,
+        QueueOrder,
+        QueueReordered,
         TaskReply,
         TaskRequest,
         TaskUpdate,
@@ -72,6 +79,7 @@ try:
         DEFAULT_SETTINGS,
         FileOverlap,
         FileTouch,
+        GoFirst,
         Room,
         add_event_sink,
         fit_e2e,
@@ -133,6 +141,12 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         PlanMessage,
         RateLimited,
         RoomPolicy,
+        HoldRelease,
+        HoldReleased,
+        Nudge,
+        Nudged,
+        QueueOrder,
+        QueueReordered,
         TaskReply,
         TaskRequest,
         TaskUpdate,
@@ -147,6 +161,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         DEFAULT_SETTINGS,
         FileOverlap,
         FileTouch,
+        GoFirst,
         Room,
         add_event_sink,
         fit_e2e,
@@ -1339,6 +1354,11 @@ async def handle_edit_check(
         return
 
     room.register_decision(decision_id, scope)
+    if decision == "block":
+        # An owner may release it from the dashboard (hold_release).
+        room.record_hold(
+            decision_id, user_id, request.repo_id, request.file_path, now, e2e=request.e2e
+        )
     log.debug(
         "edit_check %s (%s) for %s on %s", decision, scope, user_id, request.file_path[:200]
     )
@@ -1424,6 +1444,132 @@ async def handle_room_policy(
         "requires" if update.require_approval else "does not require",
     )
     await room.broadcast(update)
+
+
+# --- owner resolve actions (dashboard) ---------------------------------------
+
+# What a relay-made notice calls the person acting: the dashboard's owner is
+# not a member, so it has no name in the room.
+OWNER_LABEL = "room owner"
+# Control characters (and the zero-width / bidi ones) never reach an agent's
+# chat or a desktop notification.
+_NUDGE_UNSAFE = re.compile(r"[\x00-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069]")
+
+
+def _owner_frame(room: Room, socket: WebSocket, raw: dict, model: type[BaseModel]) -> Optional[BaseModel]:
+    """raw as `model` when it came from an owner's socket and validates;
+    None (and the reason logged) otherwise."""
+    kind = model.model_fields["type"].default
+    if not room.is_owner(socket):
+        log.debug("Ignoring %s from a socket without the owner token", kind)
+        return None
+    try:
+        return model.model_validate(raw)
+    except ValidationError as exc:
+        metrics.messages_dropped_total.inc("invalid")
+        log.debug("Ignoring malformed %s: %s", kind, _validation_summary(exc))
+        return None
+
+
+async def _announce_go_first(room: Room, result: GoFirst, reason: str, now: float) -> None:
+    """Deliver a go-first's notices, then tell the dashboards who waits: each
+    member now in line behind result.user_id gets an edit_decision (block,
+    with its queue_position), which an owner can in turn release."""
+    await room.deliver_queue_notices(result.notices)
+    room.ensure_queue_sweeper()
+    for waiting, place in result.waiting:
+        decision_id = uuid.uuid4().hex
+        room.register_decision(decision_id, "file")
+        room.record_hold(decision_id, waiting, result.repo_id, result.file_path, now, e2e=result.e2e)
+        await room.broadcast(
+            EditDecision(
+                user_id=waiting,
+                agent=room.member_agent(waiting),
+                file_path=result.file_path,
+                decision="block",
+                others=[result.user_id],
+                reason=f"{reason}; {waiting} is #{place} in line",
+                timestamp=now,
+                repo_id=result.repo_id,
+                scope="file",
+                decision_id=decision_id,
+                queue_position=place,
+                e2e=result.e2e,
+            )
+        )
+
+
+async def handle_hold_release(room: Room, socket: WebSocket, raw: dict) -> None:
+    """An owner lets a held edit go ahead: the held member goes first on
+    the file (Room.go_first), and the dashboards hear hold_released."""
+    release = _owner_frame(room, socket, raw, HoldRelease)
+    if not isinstance(release, HoldRelease):
+        return
+    now = time.time()
+    held = room.held_edit(release.decision_id, now)
+    if held is None:
+        log.debug("hold_release for an unknown or lapsed decision %s", release.decision_id[:8])
+        return
+    result = room.go_first(held.repo_id, held.file_path, held.user_id, now, e2e=held.e2e)
+    if result is None:
+        log.debug("hold_release for %s, who is no longer in the room", held.user_id)
+        return
+    log.info("Owner released a hold in room %s", redact_code(room.code))
+    await room.broadcast(
+        HoldReleased(
+            decision_id=release.decision_id,
+            user_id=held.user_id,
+            file_path=held.file_path,
+            repo_id=held.repo_id,
+            by=OWNER_LABEL,
+            timestamp=now,
+            e2e=result.e2e,
+        )
+    )
+    await _announce_go_first(
+        room, result, f"the {OWNER_LABEL} let {held.user_id} go first on {held.file_path}", now
+    )
+
+
+async def handle_queue_order(room: Room, socket: WebSocket, raw: dict) -> None:
+    """An owner settles who edits a contested file first."""
+    order = _owner_frame(room, socket, raw, QueueOrder)
+    if not isinstance(order, QueueOrder):
+        return
+    now = time.time()
+    result = room.go_first(order.repo_id, order.file_path, order.first_user_id, now)
+    if result is None:
+        log.debug("queue_order for %s, who is not in the room", order.first_user_id)
+        return
+    log.info("Owner reordered a file queue in room %s", redact_code(room.code))
+    await room.broadcast(
+        QueueReordered(
+            file_path=order.file_path,
+            repo_id=order.repo_id,
+            first_user_id=order.first_user_id,
+            waiting=[user for user, _place in result.waiting],
+            timestamp=now,
+            e2e=result.e2e,
+        )
+    )
+    await _announce_go_first(
+        room, result, f"the {OWNER_LABEL} let {order.first_user_id} go first on {order.file_path}", now
+    )
+
+
+async def handle_nudge(room: Room, socket: WebSocket, raw: dict) -> None:
+    """An owner pings one member's agent: point to point to that member
+    (its daemon surfaces it), and to the dashboards as a feed event."""
+    nudge = _owner_frame(room, socket, raw, Nudge)
+    if not isinstance(nudge, Nudge):
+        return
+    if not room.is_active(nudge.to_user_id):
+        log.debug("nudge for %s, who is not in the room", nudge.to_user_id)
+        return
+    text = " ".join(_NUDGE_UNSAFE.sub(" ", nudge.text).split())
+    frame = Nudged(user_id=nudge.to_user_id, by=OWNER_LABEL, text=text, timestamp=time.time())
+    frame.delivered = await room.send_to_member(nudge.to_user_id, frame)
+    await room.broadcast(frame, spectators_only=True)
 
 
 async def _answer_throttled_edit_check(room: Room, socket: WebSocket, raw: dict) -> None:
@@ -1611,6 +1757,12 @@ async def serve_spectator(
                 await handle_room_policy(room, room_id, socket, raw)
             elif kind == "history_request":  # server/history.py
                 await history.handle_request(room, socket, raw)
+            elif kind == "hold_release":
+                await handle_hold_release(room, socket, raw)
+            elif kind == "queue_order":
+                await handle_queue_order(room, socket, raw)
+            elif kind == "nudge":
+                await handle_nudge(room, socket, raw)
     except FrameTooLarge:
         metrics.messages_dropped_total.inc("frame_too_large")
         await _close_frame_too_large(socket)

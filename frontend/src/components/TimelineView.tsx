@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import { useId, useMemo, useState, type ReactNode } from 'react';
 import { scopeLabel, type FeedbackMap, type Vote } from '../detection';
 import { isFiltering, matchesTimelineEntry, type DashboardFilters } from '../dashboard/filters';
@@ -184,9 +186,7 @@ function TimelineItem({
       <article className="timeline-card rounded-xl min-w-0">
         <div className="flex flex-wrap items-center gap-1.5 px-3.5 pt-3">
           <span className={`kind-badge is-${entry.kind}`}>
-            <span className="material-symbols-outlined" aria-hidden="true">
-              {meta.icon}
-            </span>
+            <Icon name={fromMaterial(meta.icon)} size={16} />
             {meta.label}
           </span>
           {decision ? (
@@ -200,9 +200,7 @@ function TimelineItem({
           ) : null}
           {outcome ? (
             <span className={`outcome-tag is-${outcome}`} title={OUTCOME_HINT[outcome]}>
-              <span className="material-symbols-outlined" aria-hidden="true">
-                {OUTCOME_ICON[outcome]}
-              </span>
+              <Icon name={fromMaterial(OUTCOME_ICON[outcome])} size={16} />
               {OUTCOME_LABEL[outcome]}
             </span>
           ) : null}
@@ -227,9 +225,7 @@ function TimelineItem({
         ) : null}
         {decision?.suggestion ? (
           <p className="m-0 px-3.5 mt-1 text-[12px] text-on-muted leading-snug break-words flex gap-1.5">
-            <span className="material-symbols-outlined text-[15px] text-primary shrink-0" aria-hidden="true">
-              lightbulb
-            </span>
+            <Icon name="bulb" size={15} className="text-primary shrink-0" />
             <span>{decision.suggestion}</span>
           </p>
         ) : null}
@@ -241,12 +237,7 @@ function TimelineItem({
             aria-controls={panelId}
             onClick={() => setOpen((v) => !v)}
           >
-            <span
-              className={`material-symbols-outlined text-[15px] transition-transform ${open ? 'rotate-90' : ''}`}
-              aria-hidden="true"
-            >
-              chevron_right
-            </span>
+            <Icon name="chevron" size={15} className={`transition-transform ${open ? 'rotate-90' : ''}`} />
             {open ? 'Hide' : 'Compare'} intents and diffs
           </button>
           {decision?.decision_id ? (

@@ -1,94 +1,82 @@
-import { Mark, Mascot } from './brand/BrandArt';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
-import AddTeammate from './components/AddTeammate';
-import ConflictBanner from './components/ConflictBanner';
-import DeployModal from './components/DeployModal';
-import DetectionQuality from './components/DetectionQuality';
+import { useNavigate, useParams } from 'react-router-dom';
 import E2EBanner from './components/E2EBanner';
-import JoinRequestsBanner from './components/JoinRequestsBanner';
-import Lane from './components/Lane';
-import RoomAccessPanel from './components/RoomAccessPanel';
-import SharePanel from './components/SharePanel';
-import Sidebar, { type AppView } from './components/Sidebar';
-// Phase 5 dashboard views (heat map, timeline, filters, theme, shortcuts).
 import FilterBar from './components/FilterBar';
 import HeatMapView from './components/HeatMapView';
+import JoinRequestsBanner from './components/JoinRequestsBanner';
+import Lane from './components/Lane';
 import MobileNav from './components/MobileNav';
-import { PreventedCounter, ShareCardDialog } from './components/PreventedCounter';
+import NotificationsSettings from './components/NotificationsSettings';
+import { ShareCardDialog } from './components/PreventedCounter';
+import ReplayView from './components/ReplayView';
 import ShortcutHelp from './components/ShortcutHelp';
-import ThemeToggle from './components/ThemeToggle';
-import TimelineView from './components/TimelineView';
+import Sidebar, { type AppView } from './components/Sidebar';
 import TasksView from './components/TasksView';
-import { applyTaskEvent, claimedBy } from './dashboard/taskReducer';
+import TimelineView from './components/TimelineView';
+import { closeAction } from './closeCodes';
+import { copyText as copyToClipboard } from './clipboard';
+import { isCommandMenuKey } from './dashboard/commands';
 import { fileMatches, isFiltering, matchesLane } from './dashboard/filters';
 import { deriveLane } from './dashboard/laneFacts';
-import { useDashboardState, viewFromParam } from './dashboard/useDashboardState';
-import { readViewParam } from './dashboard/useUrlState';
-// Phase 5 notifications and replay (notifications.ts, replay.ts).
-import NotificationsSettings from './components/NotificationsSettings';
-import Onboarding, { shouldOnboard } from './components/Onboarding';
-import ReplayView from './components/ReplayView';
-import { notifyFeedEvent } from './notifications';
-import { publishHistoryChunk } from './replay';
-import { relativeTime } from './dashboard/people';
-import { observeServerTimestamp, serverNowSeconds } from './serverClock';
-import { copyText } from './clipboard';
-import { hasSafeKeys, withEntry } from './safeKey';
-import { API_REFERENCE_URL, DOCS_URL } from './links';
-import { closeAction } from './closeCodes';
 import {
   applyLaneEvent,
   conflictKey,
   isActionableConflict,
   replaceConflict,
 } from './dashboard/laneReducer';
+import { laneState } from './dashboard/laneState';
+import { personColor } from './dashboard/people';
+import { lastDecisionFor } from './dashboard/sessionLog';
+import { applyTaskEvent, claimedBy } from './dashboard/taskReducer';
+import { useDashboardState, viewFromParam } from './dashboard/useDashboardState';
+import { useThemePref } from './dashboard/useTheme';
+import { readViewParam } from './dashboard/useUrlState';
 import {
-  E2EDecoder,
-  forgetRoomKey,
-  rememberRoomKey,
-  takeRoomKey,
-  type E2EState,
-} from './e2e';
-import {
-  aggregateQuality,
   applyFeedbackUpdate,
   decisionScope,
   type FeedbackMap,
   type Vote,
 } from './detection';
-import {
-  normalizeRoomCode,
-  roomLink,
-  roomPath,
-  roomWsUrl,
-  upCommand,
-} from './relayUrl';
-import {
-  createRoom,
-  isApprovalRefusal,
-  ownerToken,
-  spectatorJoin,
-} from './roomAccess';
-import {
-  DEFAULT_ROOM_SETTINGS,
-  describeSettingsSource,
-  describeWindows,
-} from './roomSettings';
+import { E2EDecoder, forgetRoomKey, rememberRoomKey, takeRoomKey, type E2EState } from './e2e';
+import { notifyFeedEvent } from './notifications';
+import { normalizeRoomCode, relayHttpOrigin, roomLink, roomPath, roomWsUrl } from './relayUrl';
+import { publishHistoryChunk } from './replay';
+import { createRoom, isApprovalRefusal, ownerToken, spectatorJoin } from './roomAccess';
+import { hasSafeKeys, withEntry } from './safeKey';
+import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import type {
   ConflictAlert,
   DecisionFeedback,
   DecisionScope,
   FeedEvent,
+  HoldRelease,
   JoinDecision,
   JoinRequest,
-  LaneState,
+  LaneState as WireLaneState,
+  Nudge,
   PlanUpdate,
+  QueueOrder,
   RoomPolicy,
   RoomSettingsUpdate,
   ServerMessage,
   Task,
 } from './types';
+import DashboardView from './v3/DashboardView';
+import Header from './v3/Header';
+import {
+  CONN_LABEL,
+  type ActivityItem,
+  type ConnStatus,
+  type HeldEdit,
+  type LaneView,
+  type V3Actions,
+  type V3Model,
+} from './v3/model';
+import { buildCommands } from './v3/menuCommands';
+import { CommandMenu, InviteContent, InviteSheet, Toasts } from './v3/Overlays';
+import { useToasts } from './v3/useToasts';
+import SetupGuide from './v3/SetupGuide';
+import { AnalyticsView, ConflictsView, HistoryView, PageHead, SettingsView } from './v3/Views';
 
 /** Matches server/room.py CONFLICT_WINDOW_SECONDS. */
 const CONFLICT_TTL_SECONDS = 120;
@@ -103,8 +91,16 @@ const CLOCK_TICK_MS = 5_000;
 const MAX_TRACKED_DECISIONS = 500;
 /** With no non-roster frame after it, the catch-up roster ends this long after room_settings. */
 const ROSTER_SETTLE_MS = 2_000;
+/** Relay round trip (GET /readyz) for the Relay number and the sidebar footer. */
+const RTT_INTERVAL_MS = 15_000;
+const RTT_SAMPLES = 24;
+/** Room events kept for the activity rail. */
+const MAX_ACTIVITY = 40;
+/** Paths remembered for e2e raw-path and repo lookups. */
+const MAX_PATHS = 500;
+const DEFAULT_PING = 'Check the Hivelane dashboard: a teammate needs a word about your edit.';
 
-const BLANK_LANE: LaneState = {
+const BLANK_LANE: WireLaneState = {
   caption: null,
   changes: [],
   prompt: null,
@@ -119,7 +115,7 @@ const BLANK_LANE: LaneState = {
  * carries no timestamp), or null while connected. Kept here rather than in
  * LaneState because it is dashboard bookkeeping, not part of the wire format.
  */
-type LaneEntry = LaneState & {
+type LaneEntry = WireLaneState & {
   offlineSince: number | null;
   /** Latest declared plan (dropped once expires_at passes). */
   plan: PlanUpdate | null;
@@ -145,15 +141,19 @@ function capRecord<T>(prev: Record<string, T>, max: number): Record<string, T> {
   return Object.fromEntries(keys.slice(keys.length - max).map((k) => [k, prev[k]]));
 }
 
+function remember<K, V>(map: Map<K, V>, key: K, value: V): void {
+  map.delete(key);
+  map.set(key, value);
+  if (map.size > MAX_PATHS) map.delete(map.keys().next().value as K);
+}
+
 function pruneExpired(prev: ConflictAlert[]): ConflictAlert[] {
   const now = serverNowSeconds();
   const next = prev.filter((c) => !isExpired(c, now));
   return next.length === prev.length ? prev : next;
 }
 
-function pruneLaneDecisions(
-  prev: Record<string, LaneEntry>,
-): Record<string, LaneEntry> {
+function pruneLaneDecisions(prev: Record<string, LaneEntry>): Record<string, LaneEntry> {
   const now = serverNowSeconds();
   let changed = false;
   const next: Record<string, LaneEntry> = {};
@@ -164,19 +164,13 @@ function pruneLaneDecisions(
       next[id] = lane;
     } else {
       changed = true;
-      next[id] = {
-        ...lane,
-        decisions: kept,
-        plan: planExpired ? null : lane.plan,
-      };
+      next[id] = { ...lane, decisions: kept, plan: planExpired ? null : lane.plan };
     }
   }
   return changed ? next : prev;
 }
 
-function pruneOfflineLanes(
-  prev: Record<string, LaneEntry>,
-): Record<string, LaneEntry> {
+function pruneOfflineLanes(prev: Record<string, LaneEntry>): Record<string, LaneEntry> {
   const now = Date.now();
   let changed = false;
   const next: Record<string, LaneEntry> = {};
@@ -190,10 +184,7 @@ function pruneOfflineLanes(
   return changed ? next : prev;
 }
 
-function upsertConflict(
-  prev: ConflictAlert[],
-  next: ConflictAlert,
-): ConflictAlert[] {
+function upsertConflict(prev: ConflictAlert[], next: ConflictAlert): ConflictAlert[] {
   if (isExpired(next, serverNowSeconds())) {
     // Too old to show: it only clears this pair's earlier alert.
     const key = conflictKey(next);
@@ -203,47 +194,6 @@ function upsertConflict(
   const replaced = replaceConflict(prev, next);
   return replaced === prev ? prev : [...replaced].sort((a, b) => b.timestamp - a.timestamp);
 }
-
-const STATUS_LABEL: Record<ConnStatus, string> = {
-  connecting: 'Connecting',
-  connected: 'Live',
-  disconnected: 'Offline',
-  room_missing: 'Room gone',
-  pending: 'Awaiting approval',
-  refused: 'Not admitted',
-};
-
-/** pending: held for an owner's approval; refused: an owner (or the clock) said no. */
-type ConnStatus =
-  | 'connecting'
-  | 'connected'
-  | 'disconnected'
-  | 'room_missing'
-  | 'pending'
-  | 'refused';
-
-const TOP_NAV = ['Cluster', 'Logs', 'Analytics', 'Config'] as const;
-
-const TOP_NAV_TO_VIEW: Record<(typeof TOP_NAV)[number], AppView> = {
-  Cluster: 'dashboard',
-  Logs: 'history',
-  Analytics: 'analytics',
-  Config: 'settings',
-};
-
-const VIEW_TO_TOP_NAV: Partial<Record<AppView, (typeof TOP_NAV)[number]>> = {
-  dashboard: 'Cluster',
-  agents: 'Cluster',
-  tasks: 'Cluster',
-  timeline: 'Logs',
-  heatmap: 'Analytics',
-  invite: 'Cluster',
-  history: 'Logs',
-  conflicts: 'Logs',
-  analytics: 'Analytics',
-  settings: 'Config',
-  docs: 'Config',
-};
 
 export default function App() {
   const navigate = useNavigate();
@@ -257,29 +207,21 @@ export default function App() {
   // The room's task list (task_update frames; read-only here).
   const [tasks, setTasks] = useState<Record<string, Task>>({});
   // Conflict windows the relay enforces here; null until its catch-up arrives.
-  const [roomSettings, setRoomSettings] = useState<RoomSettingsUpdate | null>(
-    null,
-  );
+  const [roomSettings, setRoomSettings] = useState<RoomSettingsUpdate | null>(null);
   const [status, setStatus] = useState<ConnStatus>('connecting');
   // Refreshes time-derived labels when no frames arrive. Deliberately coarse:
   // a 1 s tick here re-rendered the whole dashboard every second.
   const [, setClockMs] = useState(() => Date.now());
   // The open view also lives in ?view= so a filtered view is a shareable link.
   const [view, setView] = useState<AppView>(
-    () => (viewFromParam(readViewParam(window.location.search)) ?? 'agents') as AppView,
+    () => (viewFromParam(readViewParam(window.location.search)) ?? 'dashboard') as AppView,
   );
-  // Derived, so views with no top-nav entry (replay, notifications) clear the underline.
-  const topNav = VIEW_TO_TOP_NAV[view] ?? null;
   const [highlightFile, setHighlightFile] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [deployOpen, setDeployOpen] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toasts, showToast, dismissToast] = useToasts();
   const wsRef = useRef<WebSocket | null>(null);
   // Detection-quality bookkeeping for decisions seen this session.
-  const [decisionScopes, setDecisionScopes] = useState<
-    Record<string, DecisionScope>
-  >({});
+  const [decisionScopes, setDecisionScopes] = useState<Record<string, DecisionScope>>({});
   const [feedback, setFeedback] = useState<FeedbackMap>({});
   const [myVotes, setMyVotes] = useState<Record<string, Vote>>({});
   // End-to-end encrypted rooms: the passphrase (from #k= or pasted; never
@@ -291,18 +233,25 @@ export default function App() {
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
   const [isOwner, setIsOwner] = useState(false);
-  // First-room walkthrough: /start sets `welcome` on the navigation that
-  // follows creating a room; shown once per browser.
-  const location = useLocation();
-  const [touring, setTouring] = useState(
-    () => (location.state as { welcome?: boolean } | null)?.welcome === true && shouldOnboard(),
-  );
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   // The relay's words while waiting for approval, or after being refused.
   const [accessNotice, setAccessNotice] = useState<string | null>(null);
   // Bumped by "Ask again" to reconnect after a refusal.
   const [joinAttempt, setJoinAttempt] = useState(0);
+  // v3: relay round trip, owner resolve actions, room activity, overlays.
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [rttHistory, setRttHistory] = useState<number[]>([]);
+  const [releasedAt, setReleasedAt] = useState<Record<string, number>>({});
+  const [queuedAt, setQueuedAt] = useState<Record<string, number>>({});
+  const [activity, setActivity] = useState<ActivityItem[]>([]);
+  const [commandOpen, setCommandOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  // Displayed path -> the relay's (a hash in e2e rooms), and relay path ->
+  // repo_id: a go-first must name the file exactly as the relay keys it.
+  const rawPaths = useRef(new Map<string, string>());
+  const repoOf = useRef(new Map<string, string>());
+  const [, setThemePref] = useThemePref();
   // Session log, URL filters, prevented-collision stats, overlays, shortcuts.
   const nowSeconds = serverNowSeconds();
   const dash = useDashboardState({
@@ -313,13 +262,42 @@ export default function App() {
   // useReducer's dispatch: stable, so the connection effect never reconnects for it.
   const recordFeedEvent = dash.recordEvent;
 
-  const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
+  const addActivity = useCallback((kind: ActivityItem['kind'], text: string, timestamp: number) => {
+    setActivity((prev) =>
+      [{ id: `${kind}:${timestamp}:${text}`, kind, text, timestamp }, ...prev].slice(0, MAX_ACTIVITY),
+    );
+  }, []);
+
+  const liveSocket = (): WebSocket | null => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       showToast('Not connected, try again');
+      return null;
+    }
+    return ws;
+  };
+
+  const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
+    const ws = liveSocket();
+    if (!ws) return false;
+    ws.send(JSON.stringify(frame));
+    return true;
+  };
+
+  /** Owner resolve actions (hold_release, queue_order, nudge). */
+  const sendOwnerFrame = (frame: HoldRelease | QueueOrder | Nudge, done: string): boolean => {
+    if (!isOwner) {
+      showToast('Only the room owner can do that');
       return false;
     }
+    if (status !== 'connected') {
+      showToast('Not connected, try again');
+      return false;
+    }
+    const ws = liveSocket();
+    if (!ws) return false;
     ws.send(JSON.stringify(frame));
+    showToast(done);
     return true;
   };
 
@@ -330,7 +308,9 @@ export default function App() {
   };
 
   const setApprovalPolicy = (value: boolean) => {
-    sendAccessFrame({ type: 'room_policy', require_approval: value });
+    if (sendAccessFrame({ type: 'room_policy', require_approval: value })) {
+      showToast(value ? 'Joining now needs your approval' : 'Anyone with the code can join');
+    }
   };
 
   const sendVoteNow = (decisionId: string, vote: Vote) => {
@@ -341,11 +321,7 @@ export default function App() {
       showToast(status === 'pending' ? 'Waiting for approval, vote not sent' : 'Not connected, vote not sent');
       return;
     }
-    const frame: DecisionFeedback = {
-      type: 'decision_feedback',
-      decision_id: decisionId,
-      useful: vote === 'useful',
-    };
+    const frame: DecisionFeedback = { type: 'decision_feedback', decision_id: decisionId, useful: vote === 'useful' };
     ws.send(JSON.stringify(frame));
     setMyVotes((prev) => capRecord({ ...prev, [decisionId]: vote }, MAX_TRACKED_DECISIONS));
   };
@@ -356,30 +332,13 @@ export default function App() {
   });
   const sendVote = useCallback((decisionId: string, vote: Vote) => sendVoteRef.current(decisionId, vote), []);
 
-  // One timer per purpose, cleared before it is re-armed (a second toast or
-  // highlight was cut short by the first one's timer).
-  const toastTimer = useRef<number | undefined>(undefined);
-  const copiedTimer = useRef<number | undefined>(undefined);
   const highlightTimer = useRef<number | undefined>(undefined);
-  useEffect(
-    () => () => {
-      window.clearTimeout(toastTimer.current);
-      window.clearTimeout(copiedTimer.current);
-      window.clearTimeout(highlightTimer.current);
-    },
-    [],
-  );
+  useEffect(() => () => window.clearTimeout(highlightTimer.current), []);
 
-  const showToast = useCallback((message: string) => {
-    setToast(message);
-    window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 1800);
-  }, []);
-
-  const navigateTo = (next: AppView) => {
+  function navigateTo(next: AppView) {
     setView(next);
     dash.syncViewParam(next);
-  };
+  }
 
   useEffect(() => {
     // Back/Forward (or a pasted link) changed ?view=: follow it. Views this
@@ -389,12 +348,11 @@ export default function App() {
     setView(fromUrl);
   }, [dash.viewParam]);
 
-  const displayUsers = users;
-  const displayConflicts = conflicts;
-  const displayUserIds = useMemo(() => Object.keys(displayUsers), [displayUsers]);
+  const displayUserIds = useMemo(() => Object.keys(users), [users]);
   // Offline lanes stay on the board but are not "agents" in any count.
-  const onlineUserIds = displayUserIds.filter(
-    (id) => displayUsers[id].offlineSince == null,
+  const onlineUserIds = useMemo(
+    () => displayUserIds.filter((id) => users[id].offlineSince == null),
+    [displayUserIds, users],
   );
 
   useEffect(() => {
@@ -419,6 +377,42 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // Relay round trip: time GET /readyz (cheap, unauthenticated, no room code).
+  useEffect(() => {
+    let cancelled = false;
+    const sample = async () => {
+      const started = performance.now();
+      try {
+        const response = await fetch(`${relayHttpOrigin()}/readyz`, { cache: 'no-store' });
+        if (!response.ok) throw new Error(String(response.status));
+        await response.text();
+        if (cancelled) return;
+        const ms = performance.now() - started;
+        setRttMs(ms);
+        setRttHistory((prev) => [...prev, ms].slice(-RTT_SAMPLES));
+      } catch {
+        if (!cancelled) setRttMs(null);
+      }
+    };
+    void sample();
+    const id = window.setInterval(() => void sample(), RTT_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [wsUrl]);
+
+  // ⌘K / Ctrl+K opens the command menu from anywhere.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (!isCommandMenuKey(event)) return;
+      event.preventDefault();
+      setCommandOpen((open) => !open);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   useEffect(() => {
     // A new room means the previous room's lanes/conflicts no longer apply.
     setUsers({});
@@ -436,6 +430,11 @@ export default function App() {
     setDecisionScopes({});
     setFeedback({});
     setMyVotes({});
+    setReleasedAt({});
+    setQueuedAt({});
+    setActivity([]);
+    rawPaths.current.clear();
+    repoOf.current.clear();
 
     let cancelled = false;
     let roomMissing = false;
@@ -498,6 +497,25 @@ export default function App() {
       return capped * (0.5 + Math.random() * 0.5);
     };
 
+    /** Remember how the relay names a path (and its repo) before e2e decoding. */
+    const notePaths = (raw: FeedEvent, decoded: FeedEvent) => {
+      const pairs: [string, string, string][] = [];
+      const repo = (raw as { repo_id?: string }).repo_id ?? '';
+      if ('file_path' in raw && 'file_path' in decoded) {
+        pairs.push([String(decoded.file_path), String(raw.file_path), repo]);
+      }
+      if (raw.type === 'activity_update' && decoded.type === 'activity_update') {
+        raw.changes.forEach((change, i) => {
+          const shown = decoded.changes[i]?.file_path;
+          if (shown) pairs.push([shown, change.file_path, repo]);
+        });
+      }
+      for (const [shown, relay, repoId] of pairs) {
+        remember(rawPaths.current, shown, relay);
+        if (repoId || !repoOf.current.has(relay)) remember(repoOf.current, relay, repoId);
+      }
+    };
+
     const connect = () => {
       if (cancelled || roomMissing || refused) return;
 
@@ -535,17 +553,20 @@ export default function App() {
           e2eChain = e2eChain
             .then(() => e2e.decode(item))
             .then((decoded) => {
-              if (!cancelled) applyFeedEvent(decoded);
+              if (cancelled) return;
+              notePaths(item, decoded);
+              applyFeedEvent(decoded);
             })
             .catch((err: unknown) => console.warn('e2e: could not read a frame', err));
         };
 
         const applyFeedEvent = (item: FeedEvent) => {
           if (!hasSafeKeys(item as { user_id?: unknown; decision_id?: unknown })) return;
+          const live = rosterPhase === 'done';
           if (rosterPhase === 'collecting') {
             if (item.type === 'user_joined') announced.add(item.user_id);
             else if (item.type !== 'room_settings' && item.type !== 'room_policy_update') finishRoster();
-          } else if (rosterPhase === 'done' && 'timestamp' in item) {
+          } else if (live && 'timestamp' in item) {
             // Live traffic, not stored catch-up: calibrates the relay clock.
             observeServerTimestamp((item as { timestamp?: unknown }).timestamp);
           }
@@ -557,27 +578,21 @@ export default function App() {
           notifyFeedEvent(roomId, item); // browser notifications (notifications.ts)
           switch (item.type) {
             case 'user_joined':
+              if (live) addActivity('join', `${item.user_id} joined`, serverNowSeconds());
               setUsers((prev) => {
                 const prior = prev[item.user_id];
                 if (prior) {
                   // A rejoin restores the greyed-out lane, history intact.
-                  const agent =
-                    item.agent && item.agent !== prior.agent
-                      ? item.agent
-                      : prior.agent;
-                  if (agent === prior.agent && prior.offlineSince == null) {
-                    return prev;
-                  }
+                  const agent = item.agent && item.agent !== prior.agent ? item.agent : prior.agent;
+                  if (agent === prior.agent && prior.offlineSince == null) return prev;
                   return withEntry(prev, item.user_id, { ...prior, agent, offlineSince: null });
                 }
-                return withEntry(prev, item.user_id, {
-                  ...BLANK_ENTRY,
-                  agent: item.agent ?? 'unknown',
-                });
+                return withEntry(prev, item.user_id, { ...BLANK_ENTRY, agent: item.agent ?? 'unknown' });
               });
               break;
 
             case 'user_left':
+              addActivity('leave', `${item.user_id} left`, serverNowSeconds());
               // Keep the lane, greyed out: a lane that silently vanishes reads
               // as "nobody to coordinate with" rather than "their coordination
               // just stopped". pruneOfflineLanes drops it after the TTL.
@@ -586,9 +601,7 @@ export default function App() {
                 if (!prior || prior.offlineSince != null) return prev;
                 return withEntry(prev, item.user_id, { ...prior, offlineSince: Date.now() });
               });
-              setConflicts((prev) =>
-                prev.filter((c) => !c.users.includes(item.user_id)),
-              );
+              setConflicts((prev) => prev.filter((c) => !c.users.includes(item.user_id)));
               break;
 
             case 'decision_feedback_update':
@@ -633,12 +646,37 @@ export default function App() {
               setConflicts((prev) => upsertConflict(prev, item));
               if (isActionableConflict(item)) {
                 setConflictHistory((prev) => {
-                  const without = prev.filter(
-                    (c) => conflictKey(c) !== conflictKey(item),
-                  );
+                  const without = prev.filter((c) => conflictKey(c) !== conflictKey(item));
                   return [item, ...without].slice(0, 20);
                 });
               }
+              break;
+
+            case 'hold_released':
+              setReleasedAt((prev) => withEntry(prev, item.user_id, item.timestamp));
+              addActivity('release', `${item.user_id}'s hold on ${item.file_path} was released`, item.timestamp);
+              break;
+
+            case 'queue_reordered':
+              setReleasedAt((prev) => withEntry(prev, item.first_user_id, item.timestamp));
+              setQueuedAt((prev) => {
+                let next = prev;
+                for (const waiting of item.waiting) next = withEntry(next, waiting, item.timestamp);
+                return next;
+              });
+              addActivity(
+                'reorder',
+                `${item.first_user_id} goes first on ${item.file_path}${item.waiting.length ? `; ${item.waiting.join(', ')} waits` : ''}`,
+                item.timestamp,
+              );
+              break;
+
+            case 'nudged':
+              addActivity(
+                'ping',
+                `${item.user_id} was pinged${item.delivered ? '' : ' (not connected)'}${item.text ? `: ${item.text}` : ''}`,
+                item.timestamp,
+              );
               break;
           }
         };
@@ -660,9 +698,7 @@ export default function App() {
             break;
 
           case 'hivelane_feed':
-            for (const item of msg.events) {
-              applyDecoded(item);
-            }
+            for (const item of msg.events) applyDecoded(item);
             break;
 
           case 'history_chunk':
@@ -689,6 +725,9 @@ export default function App() {
           case 'decision_feedback_update':
           case 'room_policy_update':
           case 'task_update':
+          case 'nudged':
+          case 'hold_released':
+          case 'queue_reordered':
             // Catch-up frames still arrive as individual messages via send().
             applyDecoded(msg);
             break;
@@ -710,9 +749,7 @@ export default function App() {
             break;
 
           case 'join_request':
-            setJoinRequests((prev) =>
-              prev.some((r) => r.request_id === msg.request_id) ? prev : [...prev, msg],
-            );
+            setJoinRequests((prev) => (prev.some((r) => r.request_id === msg.request_id) ? prev : [...prev, msg]));
             break;
 
           case 'rate_limited':
@@ -763,87 +800,47 @@ export default function App() {
       wsRef.current?.close();
       wsRef.current = null;
     };
-  }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent, showToast]);
+  }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent, showToast, addActivity]);
 
-  const copyShareUrl = async () => {
-    if (!(await copyText(roomLink(roomId)))) {
-      showToast('Could not copy link');
-      return;
-    }
-    setCopied(true);
-    showToast('Room link copied');
-    window.clearTimeout(copiedTimer.current);
-    copiedTimer.current = window.setTimeout(() => setCopied(false), 1500);
+  const copyText = (label: string, text: string) => {
+    void copyToClipboard(text).then((ok) => showToast(ok ? `${label} copied` : `Could not copy ${label.toLowerCase()}`));
   };
 
   const createNewRoom = async () => {
-    if (
-      !window.confirm(
-        'Create a new room and leave this session? Teammates will need the new code.',
-      )
-    ) {
-      return;
-    }
     setCreatingRoom(true);
     try {
-      navigate(roomPath(await createRoom()), { state: { welcome: true } });
+      const code = await createRoom();
+      showToast(`Room ${code} created; teammates need the new code`);
+      navigate(roomPath(code));
     } catch {
-      showToast('Could not create room');
+      showToast('Could not create a room');
+    } finally {
       setCreatingRoom(false);
     }
   };
 
-  const conflictedUsers = useMemo(() => {
-    const ids = new Set<string>();
-    for (const c of displayConflicts) {
-      for (const u of c.users) ids.add(u);
-    }
-    return ids;
-  }, [displayConflicts]);
-
-  const totalDiffs = useMemo(
-    () =>
-      Object.values(displayUsers).reduce((sum, u) => sum + u.changes.length, 0),
-    [displayUsers],
-  );
-
-  const hasLanes = displayUserIds.length > 0;
-
-  const serverLabel = `Relay: ${STATUS_LABEL[status].toLowerCase()}`;
-
-  const handleViewOverlap = (filePath: string) => {
+  const showLane = (userId: string) => {
     navigateTo('agents');
-    setHighlightFile(filePath);
-    const conflict = displayConflicts.find((c) => c.file_path === filePath);
-    const firstUser = conflict?.users[0];
+    const file = users[userId]?.changes[0]?.file_path ?? null;
+    setHighlightFile(file);
     window.setTimeout(() => {
-      if (firstUser) {
-        document.getElementById(`lane-${firstUser}`)?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'nearest',
-        });
-      }
+      document.getElementById(`lane-${userId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }, 50);
     window.clearTimeout(highlightTimer.current);
     highlightTimer.current = window.setTimeout(() => setHighlightFile(null), 8000);
   };
 
-  const handleDismiss = (alert: ConflictAlert) => {
-    const key = conflictKey(alert);
-    setConflicts((prev) => prev.filter((c) => conflictKey(c) !== key));
-    showToast('Alert hidden on this dashboard');
-  };
+  const conflictedUsers = useMemo(() => {
+    const ids = new Set<string>();
+    for (const c of conflicts) for (const u of c.users) ids.add(u);
+    return ids;
+  }, [conflicts]);
 
-  const historyRows = conflictHistory;
+  const totalDiffs = useMemo(() => Object.values(users).reduce((sum, u) => sum + u.changes.length, 0), [users]);
 
-  const showAgentGrid = view === 'agents';
-  const activeConflictCount = displayConflicts.length;
-  const historyCount = historyRows.length;
-
-  // Phase 5: per-lane status and history from the session log, then filters
-  // (shared with the timeline and heat map, kept in the URL).
-  // Recomputed when the log, the lanes or the coarse clock move, not on every
-  // unrelated render (toasts, copy state, dialogs). laneNow stands for "now".
+  // Per-lane status and history from the session log, then filters (shared
+  // with the timeline and heat map, kept in the URL). Recomputed when the log,
+  // the lanes or the coarse clock move. laneNow stands for "now".
   const laneNow = Math.floor(nowSeconds / (CLOCK_TICK_MS / 1000)) * (CLOCK_TICK_MS / 1000);
   // Tasks each member holds, for the claimed-task line on its lane card.
   const tasksByClaimer = useMemo(() => {
@@ -856,11 +853,8 @@ export default function App() {
     return out;
   }, [tasks]);
   const laneDerived = useMemo(
-    () =>
-      Object.fromEntries(
-        displayUserIds.map((id) => [id, deriveLane(dash.log, id, displayUsers[id], laneNow)]),
-      ),
-    [dash.log, displayUsers, displayUserIds, laneNow],
+    () => Object.fromEntries(displayUserIds.map((id) => [id, deriveLane(dash.log, id, users[id], laneNow)])),
+    [dash.log, users, displayUserIds, laneNow],
   );
   const visibleLaneIds = useMemo(
     () => displayUserIds.filter((id) => matchesLane(laneDerived[id].facts, dash.filters)),
@@ -871,6 +865,144 @@ export default function App() {
     () => (fileFilterText.trim() ? (path: string) => fileMatches(fileFilterText, path) : undefined),
     [fileFilterText],
   );
+
+  // v3 lane views and the edits Hivelane is holding.
+  const { lanes, held } = useMemo(() => {
+    const touchTimes = new Map<string, number[]>();
+    const lastFile = new Map<string, string>();
+    for (const touch of dash.log.touches) {
+      const list = touchTimes.get(touch.user_id) ?? [];
+      list.push(touch.timestamp);
+      touchTimes.set(touch.user_id, list);
+      lastFile.set(touch.user_id, touch.file_path);
+    }
+    const heldOut: HeldEdit[] = [];
+    const out: LaneView[] = displayUserIds.map((id) => {
+      const entry = users[id];
+      const derived = laneDerived[id];
+      const decision = lastDecisionFor(dash.log, id) ?? entry.decisions[0] ?? null;
+      const state = laneState({
+        status: derived.status,
+        lastDecision: decision,
+        releasedAt: releasedAt[id] ?? null,
+        queuedAt: queuedAt[id] ?? null,
+        inConflict: conflictedUsers.has(id),
+        nowSeconds: laneNow,
+      });
+      if ((state === 'blocked' || state === 'waiting') && decision?.decision === 'block' && decision.decision_id) {
+        heldOut.push({
+          decision_id: decision.decision_id,
+          user_id: id,
+          file_path: decision.file_path,
+          others: decision.others,
+          timestamp: decision.timestamp,
+          queue_position: decision.queue_position ?? 0,
+          reason: decision.reason,
+        });
+      }
+      return {
+        id,
+        agent: entry.agent,
+        state,
+        color: personColor(id),
+        intent: entry.intent,
+        caption: entry.caption,
+        prompt: entry.prompt,
+        changes: entry.changes,
+        decisions: entry.decisions,
+        plan: entry.plan,
+        branch: entry.branch,
+        offlineSince: entry.offlineSince,
+        derived,
+        editTimes: touchTimes.get(id) ?? [],
+        currentFile: lastFile.get(id) ?? entry.changes[0]?.file_path ?? null,
+        inConflict: conflictedUsers.has(id),
+        claimedTasks: tasksByClaimer[id] ?? [],
+      };
+    });
+    return { lanes: out, held: heldOut.sort((a, b) => b.timestamp - a.timestamp) };
+  }, [dash.log, displayUserIds, users, laneDerived, releasedAt, queuedAt, conflictedUsers, laneNow, tasksByClaimer]);
+
+  const actions: V3Actions = {
+    navigate: navigateTo,
+    copyLink: () => copyText('Room link', roomLink(roomId)),
+    copyText,
+    newRoom: () => {
+      if (!creatingRoom) void createNewRoom();
+    },
+    switchRoom: (code) => navigate(roomPath(code)),
+    leaveRoom: () => navigate('/start'),
+    openInvite: () => setInviteOpen(true),
+    openCommand: () => setCommandOpen(true),
+    openShortcuts: () => dash.setHelpOpen(true),
+    openShare: () => dash.setShareOpen(true),
+    releaseHold: (h) => {
+      const sent = sendOwnerFrame(
+        { type: 'hold_release', decision_id: h.decision_id },
+        `Released ${h.user_id}'s hold on ${h.file_path}`,
+      );
+      if (sent) setReleasedAt((prev) => withEntry(prev, h.user_id, serverNowSeconds()));
+      return sent;
+    },
+    goFirst: (filePath, userId) => {
+      const relayPath = rawPaths.current.get(filePath) ?? filePath;
+      return sendOwnerFrame(
+        { type: 'queue_order', file_path: relayPath, repo_id: repoOf.current.get(relayPath) ?? '', first_user_id: userId },
+        `${userId} goes first on ${filePath}`,
+      );
+    },
+    ping: (userId, text) =>
+      sendOwnerFrame({ type: 'nudge', to_user_id: userId, text: text ?? DEFAULT_PING }, `Pinged ${userId}`),
+    dismissConflict: (alert) => {
+      const key = conflictKey(alert);
+      setConflicts((prev) => prev.filter((c) => conflictKey(c) !== key));
+      showToast('Alert hidden on this dashboard');
+    },
+    toast: showToast,
+    showLane,
+    vote: sendVote,
+    retryJoin: () => setJoinAttempt((n) => n + 1),
+  };
+
+  const model: V3Model = {
+    roomId,
+    wsUrl,
+    view,
+    status,
+    rttMs,
+    rttHistory,
+    isOwner,
+    settings: roomSettings,
+    requireApproval,
+    accessNotice,
+    lanes,
+    onlineIds: onlineUserIds,
+    conflicts,
+    conflictHistory,
+    held,
+    log: dash.log,
+    stats: dash.stats,
+    prevention: dash.prevention,
+    feedback,
+    votes: myVotes,
+    activity,
+    totalDiffs,
+    nowSeconds,
+    laneNow,
+    tasks,
+    highlightFile,
+    actions,
+  };
+
+  const commands = buildCommands(actions, {
+    isOwner,
+    toggleTheme: () => {
+      const dark = document.documentElement.dataset.theme === 'dark';
+      setThemePref(dark ? 'light' : 'dark');
+      showToast(dark ? 'Light theme' : 'Dark theme');
+    },
+  });
+
   const filterBar = (
     <FilterBar
       filters={dash.filters}
@@ -885,171 +1017,9 @@ export default function App() {
       }
     />
   );
-  const preventedCounter = (
-    <PreventedCounter
-      prevention={dash.prevention}
-      stats={dash.stats}
-      onShare={() => dash.setShareOpen(true)}
-    />
-  );
 
-  return (
-    <div className="app-shell overflow-hidden flex flex-col bg-background">
-      <header className="glass-header shrink-0 z-50">
-        <div className="flex items-center justify-between gap-2 sm:gap-4 px-3 sm:px-4 h-12">
-          <div className="flex items-center gap-3 min-w-0">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 font-medium text-[13px] tracking-[-0.02em] text-on-surface whitespace-nowrap hover:text-primary transition-colors"
-              onClick={() => navigate('/')}
-              title="Back to Hivelane home"
-            >
-              <Mark size={26} />
-              Hivelane
-            </button>
-            <div
-              className="inline-flex items-center gap-2 status-pill rounded-full px-2.5 py-1 min-h-[22px]"
-              title={wsUrl}
-            >
-              <span
-                aria-hidden="true"
-                className={`w-1.5 h-1.5 rounded-full ${
-                  status === 'connected'
-                    ? 'bg-emerald shadow-live'
-                    : status === 'connecting' || status === 'pending'
-                      ? 'bg-amber animate-pulse-dot'
-                      : 'bg-error'
-                }`}
-              />
-              <span className="sr-only sm:not-sr-only text-[12px] font-medium text-on-muted">
-                {serverLabel}
-              </span>
-              {roomSettings?.e2e ? (
-                <span
-                  className="text-[11px]"
-                  role="img"
-                  title="End-to-end encrypted room: the relay sees only hashes and ciphertext"
-                  aria-label="End-to-end encrypted"
-                >
-                  🔒
-                </span>
-              ) : null}
-            </div>
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-1">
-            {TOP_NAV.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => navigateTo(TOP_NAV_TO_VIEW[item])}
-                aria-current={topNav === item ? 'page' : undefined}
-                className={`relative text-[12px] font-medium transition-colors px-3 py-1.5 rounded-md ${
-                  topNav === item
-                    ? 'text-on-surface'
-                    : 'text-on-muted hover:text-on-surface hover:bg-ink/[0.04]'
-                }`}
-              >
-                {item}
-                {topNav === item ? (
-                  <span className="absolute left-3 right-3 -bottom-[9px] h-px bg-on-surface" />
-                ) : null}
-              </button>
-            ))}
-          </nav>
-
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-            <div className="hidden md:flex items-center gap-2">
-              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
-                <span className="text-[12px] text-on-dim">Agents</span>
-                <span className="font-mono text-[12px] text-on-surface tabular-nums">
-                  {onlineUserIds.length}
-                </span>
-              </div>
-              <div className="stat-chip px-2 py-1 flex items-baseline gap-1.5">
-                <span className="text-[12px] text-on-dim">Diffs</span>
-                <span className="font-mono text-[12px] text-on-surface tabular-nums">
-                  {totalDiffs}
-                </span>
-              </div>
-            </div>
-
-            <div className="hidden sm:flex items-center gap-1">
-              <ThemeToggle />
-              <button
-                type="button"
-                className="icon-btn p-1.5 hidden md:inline-flex"
-                title="Keyboard shortcuts (?)"
-                aria-label="Keyboard shortcuts"
-                onClick={() => dash.setHelpOpen(true)}
-              >
-                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  keyboard
-                </span>
-              </button>
-            </div>
-
-            <div className="hidden sm:flex items-center gap-0.5 ml-0.5">
-              <button
-                type="button"
-                className="icon-btn p-1.5"
-                title={copied ? 'Link copied' : 'Share session'}
-                aria-label={copied ? 'Room link copied' : 'Copy room link'}
-                onClick={() => void copyShareUrl()}
-              >
-                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  {copied ? 'check' : 'link'}
-                </span>
-              </button>
-              <button
-                type="button"
-                className="icon-btn p-1.5 relative"
-                title="Active conflicts"
-                aria-label={
-                  displayConflicts.length > 0
-                    ? `Active conflicts (${displayConflicts.length})`
-                    : 'Active conflicts'
-                }
-                onClick={() => navigateTo('conflicts')}
-              >
-                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  warning
-                </span>
-                {displayConflicts.length > 0 ? (
-                  <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-error rounded-full ring-2 ring-surface" />
-                ) : null}
-              </button>
-              <button
-                type="button"
-                className="icon-btn p-1.5"
-                title="Settings"
-                aria-label="Settings"
-                onClick={() => navigateTo('settings')}
-              >
-                <span className="material-symbols-outlined text-[20px]" aria-hidden="true">
-                  settings
-                </span>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className="deploy-btn mobile-readonly px-3 py-1.5 text-[12px] font-medium ml-1"
-              onClick={() => navigateTo('invite')}
-            >
-              Invite teammates
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <ConflictBanner
-        conflicts={displayConflicts}
-        onDismiss={handleDismiss}
-        onViewOverlap={handleViewOverlap}
-        onShowAll={() => navigateTo('conflicts')}
-      />
-
+  const banners = (
+    <>
       {roomSettings?.e2e || e2eState !== 'off' ? (
         <E2EBanner
           state={e2eState}
@@ -1064,636 +1034,215 @@ export default function App() {
           }}
         />
       ) : null}
-
-      {isOwner ? (
-        <JoinRequestsBanner requests={joinRequests} onDecide={decideJoin} />
-      ) : null}
-
-      {status === 'pending' || status === 'refused' ? (
-        <div
-          className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40"
-          role="status"
-          aria-live="polite"
-        >
+      {isOwner ? <JoinRequestsBanner requests={joinRequests} onDecide={decideJoin} /> : null}
+      {status === 'pending' || status === 'refused' || status === 'room_missing' ? (
+        <section className="v3-section" role="status" aria-live="polite" style={{ borderBottom: '1px solid var(--v3-hairline)' }}>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] text-on-surface m-0">
+            <p className="m-0 text-[13.5px] flex items-center gap-2.5">
+              <span className={`v3-dot ${status === 'pending' ? 'is-wait is-pulse' : 'is-block'}`} aria-hidden="true" />
               {status === 'pending'
-                ? (accessNotice ??
-                  "This room requires an owner's approval. Waiting for an owner to let this dashboard in…")
-                : `This dashboard was not let into room ${roomId}: ${
-                    accessNotice ?? 'an owner did not approve it'
-                  }.`}
+                ? (accessNotice ?? "This room requires an owner's approval. Waiting for an owner to let this dashboard in…")
+                : status === 'refused'
+                  ? `This dashboard was not let into room ${roomId}: ${accessNotice ?? 'an owner did not approve it'}.`
+                  : `Room ${roomId} is gone on the relay (expired or redeployed). Create a new room, then run hivelane up --room <new code> in each repo.`}
             </p>
             {status === 'refused' ? (
-              <button
-                type="button"
-                className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold shrink-0"
-                onClick={() => setJoinAttempt((n) => n + 1)}
-              >
+              <button type="button" className="v3-btn v3-btn--primary v3-btn--sm" onClick={actions.retryJoin}>
                 Ask again
+              </button>
+            ) : status === 'room_missing' ? (
+              <button type="button" className="v3-btn v3-btn--primary v3-btn--sm" onClick={actions.newRoom} disabled={creatingRoom}>
+                {creatingRoom ? 'Creating…' : 'New room'}
               </button>
             ) : null}
           </div>
-        </div>
+        </section>
       ) : null}
+    </>
+  );
 
-      {status === 'room_missing' ? (
-        <div className="px-5 py-3 bg-amber/10 border-b border-amber/30 z-40">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-[13px] text-on-surface m-0">
-              Room <span className="font-mono text-primary">{roomId}</span> is
-              gone on the relay (expired or redeployed). Create a new room,
-              then run{' '}
-              <code className="font-mono">hivelane up --room &lt;new code&gt;</code>{' '}
-              in each repo.
-            </p>
-            <button
-              type="button"
-              className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold shrink-0"
-              onClick={() => void createNewRoom()}
-              disabled={creatingRoom}
-            >
-              {creatingRoom ? 'Creating…' : 'New room'}
-            </button>
-          </div>
-        </div>
-      ) : null}
+  const feedView = (
+    <div className="v3-grid v3-grid--single">
+      <div className="v3-main">
+        <PageHead
+          title={
+            lanes.length
+              ? `${onlineUserIds.length} of ${lanes.length} ${lanes.length === 1 ? 'lane' : 'lanes'} live.`
+              : 'No lanes yet.'
+          }
+          sub="One lane per agent: status, current intent, plan checklist and latest diffs, live."
+        />
+        {lanes.length ? (
+          <section className="v3-section">
+            {filterBar}
+            {visibleLaneIds.length === 0 ? (
+              <div className="v3-empty">
+                <p className="v3-title">No lanes match these filters</p>
+                <p className="v3-label">Clear a filter or widen the search to see everyone again.</p>
+              </div>
+            ) : (
+              <div className="lane-grid">
+                {visibleLaneIds.map((id, index) => (
+                  <Lane
+                    key={id}
+                    userId={id}
+                    state={users[id]}
+                    inConflict={conflictedUsers.has(id)}
+                    highlightFile={highlightFile}
+                    index={index}
+                    offlineSince={users[id].offlineSince}
+                    plan={users[id].plan}
+                    branch={users[id].branch}
+                    feedback={feedback}
+                    votes={myVotes}
+                    onVote={sendVote}
+                    status={laneDerived[id].status}
+                    recentEdits={laneDerived[id].recentEdits}
+                    editedPlanFiles={laneDerived[id].editedPlanFiles}
+                    lastActivity={laneDerived[id].lastActivity}
+                    nowSeconds={laneNow}
+                    fileFilter={laneFileFilter}
+                    claimedTasks={tasksByClaimer[id]}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        ) : (
+          <SetupGuide
+            roomId={roomId}
+            connected={status === 'connected'}
+            anyAgent={false}
+            e2e={roomSettings?.e2e ?? false}
+            actions={actions}
+          />
+        )}
+      </div>
+    </div>
+  );
 
-      <div className="flex-1 flex overflow-hidden">
+  const invitePage = (
+    <div className="v3-grid v3-grid--single">
+      <div className="v3-main">
+        <PageHead
+          title="Bring your team into this room."
+          sub="Each teammate joins once from their repo; their agent then shows up as a lane."
+        />
+        <section className="v3-section" style={{ maxWidth: 720 }}>
+          <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+        </section>
+      </div>
+    </div>
+  );
+
+  let page: React.ReactNode;
+  switch (view) {
+    case 'dashboard':
+      page = <DashboardView model={model} />;
+      break;
+    case 'agents':
+      page = feedView;
+      break;
+    case 'tasks':
+      page = <TasksView tasks={tasks} nowSeconds={laneNow} />;
+      break;
+    case 'timeline':
+      page = (
+        <TimelineView
+          log={dash.log}
+          filters={dash.filters}
+          prevention={dash.prevention}
+          feedback={feedback}
+          votes={myVotes}
+          onVote={sendVote}
+          nowSeconds={nowSeconds}
+          filterBar={filterBar}
+          counter={null}
+        />
+      );
+      break;
+    case 'heatmap':
+      page = (
+        <HeatMapView
+          log={dash.log}
+          filters={dash.filters}
+          nowSeconds={nowSeconds}
+          filterBar={filterBar}
+          onOpenFile={dash.showFileInTimeline}
+        />
+      );
+      break;
+    case 'conflicts':
+      page = <ConflictsView model={model} />;
+      break;
+    case 'history':
+      page = <HistoryView model={model} />;
+      break;
+    case 'replay':
+      page = (
+        <ReplayView
+          roomId={roomId}
+          historyHours={roomSettings?.history_hours ?? 0}
+          settingsKnown={roomSettings != null}
+          connected={status === 'connected'}
+          socketRef={wsRef}
+        />
+      );
+      break;
+    case 'analytics':
+      page = <AnalyticsView model={model} scopes={decisionScopes} />;
+      break;
+    case 'notifications':
+      page = <NotificationsSettings roomId={roomId} e2e={roomSettings?.e2e ?? false} />;
+      break;
+    case 'settings':
+      page = (
+        <SettingsView
+          model={model}
+          joinRequests={joinRequests}
+          onSetRequireApproval={setApprovalPolicy}
+          onDecide={decideJoin}
+        />
+      );
+      break;
+    case 'invite':
+    case 'docs':
+      page = invitePage;
+      break;
+  }
+
+  return (
+    <div className="v3-app">
+      <Header model={model} />
+      <div className="v3-body">
         <Sidebar
           view={view}
           onNavigate={navigateTo}
-          conflictCount={displayConflicts.length}
-          roomId={roomId}
-          onCopyRoom={() => void copyShareUrl()}
-          copied={copied}
-          onInvite={() => navigateTo('invite')}
-          onNewRoom={() => void createNewRoom()}
-          creatingRoom={creatingRoom}
+          conflictCount={conflicts.length + held.length}
+          relayLive={status === 'connected'}
+          relayLabel={CONN_LABEL[status]}
+          rttMs={rttMs}
+          expiresAt={roomSettings?.expires_at ?? null}
+          nowSeconds={nowSeconds}
         />
-
-        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar relative workspace-canvas pb-20 md:pb-0">
-          {view === 'dashboard' ? (
-            <div className="view-page">
-              <h1 className="view-title">
-                Dashboard
-              </h1>
-              <p className="view-sub">
-                Room overview for{' '}
-                <span className="font-mono text-primary">{roomId}</span>
-              </p>
-              {preventedCounter}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-px mb-8 bg-outline rounded-lg overflow-hidden border border-outline">
-                {[
-                  {
-                    label: 'Active agents',
-                    value: String(onlineUserIds.length).padStart(2, '0'),
-                    action: () => navigateTo('agents'),
-                    cta: 'View agents',
-                  },
-                  {
-                    label: 'Total diffs',
-                    value: String(totalDiffs).padStart(2, '0'),
-                    action: () => navigateTo('agents'),
-                    cta: 'Open lanes',
-                  },
-                  {
-                    label: 'Active conflicts',
-                    value: String(activeConflictCount).padStart(2, '0'),
-                    action: () => navigateTo('conflicts'),
-                    cta: 'Review',
-                  },
-                  {
-                    label: 'Relay',
-                    value: STATUS_LABEL[status],
-                    action: () => navigateTo('settings'),
-                    cta: 'Settings',
-                  },
-                ].map((card) => (
-                  <button
-                    key={card.label}
-                    type="button"
-                    onClick={card.action}
-                    className="bg-surface p-5 text-left hover:bg-surface-raised transition-colors"
-                  >
-                    <p className="section-label m-0">{card.label}</p>
-                    <p className="font-mono text-[28px] font-medium tracking-tight text-on-surface mt-3 mb-2 tabular-nums">
-                      {card.value}
-                    </p>
-                    <span className="text-[13px] text-primary">
-                      {card.cta}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  className="deploy-btn px-3.5 py-2 text-[13px] font-medium"
-                  onClick={() => navigateTo('invite')}
-                >
-                  Invite teammates
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
-                  onClick={() => void copyShareUrl()}
-                >
-                  Copy room link
-                </button>
-                <button
-                  type="button"
-                  className="rounded-md border border-outline-soft px-3.5 py-2 text-[13px] font-medium text-on-muted hover:text-on-surface hover:bg-ink/[0.04] transition-colors"
-                  onClick={() => navigateTo('agents')}
-                >
-                  Open Hivelane feed
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          {showAgentGrid ? (
-            <div className="view-page">
-              <div className="flex items-end justify-between gap-4 mb-5">
-                <div>
-                  <h1 className="view-title m-0">
-                    Hivelane feed
-                  </h1>
-                  <p className="view-sub mb-0">
-                    One lane per person: status, current intent, plan checklist and
-                    latest diffs (live, batched every 500 ms).
-                  </p>
-                </div>
-              </div>
-              {hasLanes ? (
-                <>
-                  {filterBar}
-                  {visibleLaneIds.length === 0 ? (
-                    <div className="lane-shell rounded-2xl p-6">
-                      <p className="text-[14px] text-on-surface font-medium m-0">
-                        No lanes match these filters
-                      </p>
-                      <p className="text-[13px] text-on-muted mt-2 mb-0">
-                        Clear a filter or widen the search to see everyone again.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="lane-grid">
-                      {visibleLaneIds.map((id, index) => (
-                        <Lane
-                          key={id}
-                          userId={id}
-                          state={displayUsers[id]}
-                          inConflict={conflictedUsers.has(id)}
-                          highlightFile={
-                            conflictedUsers.has(id) ? highlightFile : null
-                          }
-                          index={index}
-                          offlineSince={displayUsers[id].offlineSince}
-                          plan={displayUsers[id].plan}
-                          branch={displayUsers[id].branch}
-                          feedback={feedback}
-                          votes={myVotes}
-                          onVote={sendVote}
-                          status={laneDerived[id].status}
-                          recentEdits={laneDerived[id].recentEdits}
-                          editedPlanFiles={laneDerived[id].editedPlanFiles}
-                          lastActivity={laneDerived[id].lastActivity}
-                          nowSeconds={laneNow}
-                          fileFilter={laneFileFilter}
-                          claimedTasks={tasksByClaimer[id]}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="max-w-[46rem] space-y-4">
-                  <div className="lane-shell rounded-2xl p-6">
-                    <Mascot pose="clear" size={72} className="mb-3" />
-                    <p className="text-[14px] text-on-surface font-medium m-0">
-                      No agents connected yet
-                    </p>
-                    <p className="text-[13px] text-on-muted mt-2 mb-0">
-                      Share this room. Each teammate runs the setup line in their
-                      repo, and their agent appears here as a lane.{' '}
-                      <button
-                        type="button"
-                        className="text-primary font-semibold hover:text-primary/80 transition-colors"
-                        onClick={() => navigateTo('invite')}
-                      >
-                        Step-by-step setup →
-                      </button>{' '}
-                      <button
-                        type="button"
-                        className="text-primary font-semibold hover:text-primary/80 transition-colors"
-                        onClick={() => setTouring(true)}
-                      >
-                        Take the tour
-                      </button>
-                    </p>
-                  </div>
-                  <SharePanel roomId={roomId} settings={roomSettings} requireApproval={requireApproval} />
-                </div>
-              )}
-            </div>
-          ) : null}
-
-          {view === 'tasks' ? <TasksView tasks={tasks} nowSeconds={laneNow} /> : null}
-          {view === 'timeline' ? (
-            <TimelineView
-              log={dash.log}
-              filters={dash.filters}
-              prevention={dash.prevention}
-              feedback={feedback}
-              votes={myVotes}
-              onVote={sendVote}
-              nowSeconds={nowSeconds}
-              filterBar={filterBar}
-              counter={preventedCounter}
-            />
-          ) : null}
-
-          {view === 'heatmap' ? (
-            <HeatMapView
-              log={dash.log}
-              filters={dash.filters}
-              nowSeconds={nowSeconds}
-              filterBar={filterBar}
-              onOpenFile={dash.showFileInTimeline}
-            />
-          ) : null}
-
-          {view === 'analytics' ? (
-            <div className="view-page animate-fade-up">
-              <h1 className="view-title">Analytics</h1>
-              <p className="view-sub">
-                Session metrics for this room.
-              </p>
-              <DetectionQuality
-                rows={aggregateQuality(decisionScopes, feedback)}
-              />
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div className="lane-shell rounded-2xl p-5">
-                  <p className="section-label m-0">Agents online</p>
-                  <p className="font-mono text-3xl font-bold mt-3 mb-0 text-primary">
-                    {onlineUserIds.length}
-                  </p>
-                </div>
-                <div className="lane-shell rounded-2xl p-5">
-                  <p className="section-label m-0">Files changed</p>
-                  <p className="font-mono text-3xl font-bold mt-3 mb-0">
-                    {totalDiffs}
-                  </p>
-                </div>
-                <div className="lane-shell rounded-2xl p-5">
-                  <p className="section-label m-0">Conflicts logged</p>
-                  <p className="font-mono text-3xl font-bold mt-3 mb-0 text-error">
-                    {historyCount}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl border border-outline-soft px-4 py-2.5 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                onClick={() => navigateTo('history')}
-              >
-                Open conflict history
-              </button>
-            </div>
-          ) : null}
-
-          {view === 'docs' ? (
-            <div className="view-page animate-fade-up">
-              <h1 className="view-title">Docs</h1>
-              <p className="view-sub">
-                How to connect agents to Hivelane.
-              </p>
-              <div className="lane-shell rounded-2xl p-5 space-y-4 text-[13px] text-on-muted leading-relaxed">
-                <p className="m-0">
-                  1. Share this room&apos;s link or code{' '}
-                  <code className="text-primary font-mono">{roomId}</code> with
-                  teammates.
-                </p>
-                <p className="m-0">
-                  2. On each machine, install the CLI once (see the{' '}
-                  <a className="text-primary underline underline-offset-2" href={`${DOCS_URL}quick-start/`} target="_blank" rel="noopener noreferrer">
-                    setup guide
-                  </a>
-                  ), then run{' '}
-                  <code className="text-primary font-mono">{upCommand(roomId)}</code>{' '}
-                  in the repo the agent works in. It sets up the agent hooks and the
-                  Hivelane daemon.
-                </p>
-                <p className="m-0">
-                  3. Let the agents work, activity and conflicts appear on this
-                  board. {describeWindows(roomSettings ?? DEFAULT_ROOM_SETTINGS)}.
-                </p>
-                <div className="flex flex-wrap gap-2 pt-2">
-                  <button
-                    type="button"
-                    className="deploy-btn rounded-xl px-4 py-2 text-[11px] font-bold"
-                    onClick={() => navigateTo('invite')}
-                  >
-                    Invite teammates
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-outline-soft px-4 py-2 text-[13px] font-semibold text-on-muted hover:text-on-surface transition-colors"
-                    onClick={() => setDeployOpen(true)}
-                  >
-                    Setup commands
-                  </button>
-                  <a
-                    href={DOCS_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className=""
-                  >
-                    Full documentation
-                  </a>
-                  <a
-                    href={API_REFERENCE_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className=""
-                  >
-                    API reference
-                  </a>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {view === 'invite' ? (
-            <AddTeammate roomId={roomId} settings={roomSettings} requireApproval={requireApproval} />
-          ) : null}
-
-          {view === 'replay' ? (
-            <ReplayView
-              roomId={roomId}
-              historyHours={roomSettings?.history_hours ?? 0}
-              settingsKnown={roomSettings != null}
-              connected={status === 'connected'}
-              socketRef={wsRef}
-            />
-          ) : null}
-
-          {view === 'notifications' ? (
-            <NotificationsSettings roomId={roomId} e2e={roomSettings?.e2e ?? false} />
-          ) : null}
-
-          {view === 'conflicts' || view === 'history' ? (
-            <div className="view-page animate-fade-up">
-              <h1 className="view-title">
-                {view === 'conflicts' ? 'Active Conflicts' : 'Conflict History'}
-              </h1>
-              <p className="view-sub">
-                Overlaps across the agent cluster for this session.
-              </p>
-              <div className="lane-shell rounded-2xl overflow-x-auto custom-scrollbar">
-                <table className="w-full min-w-[36rem] text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-outline-soft bg-shade/15">
-                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
-                        When
-                      </th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
-                        Agents
-                      </th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
-                        File
-                      </th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim">
-                        Verdict
-                      </th>
-                      <th className="px-5 py-3.5 text-[10px] font-bold uppercase tracking-[0.12em] text-on-dim text-right">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-outline-soft/50">
-                    {(view === 'conflicts' ? displayConflicts : historyRows)
-                      .length === 0 ? (
-                      <tr>
-                        <td
-                          colSpan={5}
-                          className="px-5 py-12 text-center text-sm text-on-muted"
-                        >
-                          No conflicts recorded yet.
-                        </td>
-                      </tr>
-                    ) : (
-                      (view === 'conflicts'
-                        ? displayConflicts
-                        : historyRows
-                      ).map((c) => (
-                        <tr
-                          key={`${conflictKey(c)}-${c.timestamp}`}
-                          className="hover:bg-ink/[0.03] transition-colors"
-                        >
-                          <td className="px-5 py-4 text-[13px] text-on-muted tabular-nums">
-                            {relativeTime(c.timestamp, nowSeconds)}
-                          </td>
-                          <td className="px-5 py-4 text-[13px] font-medium text-on-surface">
-                            {c.users.join(' · ')}
-                          </td>
-                          <td className="px-5 py-4">
-                            <code className="font-mono text-[12px] text-primary bg-primary/5 border border-primary/15 px-2 py-0.5 rounded-md">
-                              {c.file_path}
-                            </code>
-                          </td>
-                          <td className="px-5 py-4">
-                            <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-lavender bg-lavender/10 border border-lavender/20 px-2 py-0.5 rounded-md">
-                              {c.verdict}
-                            </span>
-                          </td>
-                          <td className="px-5 py-4 text-right">
-                            <button
-                              type="button"
-                              className="text-[10px] font-bold uppercase tracking-[0.1em] text-primary hover:text-primary/80 transition-colors"
-                              onClick={() => handleViewOverlap(c.file_path)}
-                            >
-                              View
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
-
-          {view === 'settings' ? (
-            <div className="view-page animate-fade-up">
-              <h1 className="view-title">Settings</h1>
-              <p className="view-sub">
-                Spectator relay connection for this dashboard.
-              </p>
-              <div className="lane-shell settings-list rounded-2xl p-5 lg:p-6 space-y-4">
-                <div>
-                  <label className="section-label">Room</label>
-                  <p className="font-mono text-[13px] text-primary mt-2 mb-0">
-                    {roomId || '-'}
-                  </p>
-                </div>
-                <div className="h-px bg-outline-soft" />
-                <div>
-                  <label className="section-label">WebSocket URL</label>
-                  <p className="font-mono text-[13px] text-primary mt-2 break-all mb-0">
-                    {wsUrl}
-                  </p>
-                </div>
-                <div className="h-px bg-outline-soft" />
-                <div>
-                  <label className="section-label">Status</label>
-                  <p className="text-[13px] text-on-surface mt-2 mb-0">
-                    {serverLabel}
-                  </p>
-                </div>
-                <div className="h-px bg-outline-soft" />
-                <div>
-                  <label className="section-label">Conflict windows</label>
-                  <p className="text-[13px] text-on-surface mt-2 mb-0">
-                    {describeWindows(roomSettings ?? DEFAULT_ROOM_SETTINGS)}
-                  </p>
-                  <p className="text-[12px] text-on-muted mt-1 mb-0">
-                    {describeSettingsSource(roomSettings)}
-                  </p>
-                </div>
-                <div className="h-px bg-outline-soft" />
-                <div>
-                  <span className="section-label" id="appearance-label">
-                    Appearance
-                  </span>
-                  <div className="mt-2 flex flex-wrap items-center gap-3">
-                    <ThemeToggle showLabels />
-                    <span className="hidden md:inline-flex">
-                      <button
-                        type="button"
-                        className="filter-chip"
-                        onClick={() => dash.setHelpOpen(true)}
-                      >
-                        <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
-                          keyboard
-                        </span>
-                        Keyboard shortcuts <kbd>?</kbd>
-                      </button>
-                    </span>
-                  </div>
-                </div>
-                <div className="h-px bg-outline-soft md:hidden" />
-                {/* Phones: the bottom bar's "More" lands here, so list the rest. */}
-                <nav className="md:hidden" aria-label="More views">
-                  <span className="section-label">More views</span>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {(
-                      [
-                        ['dashboard', 'Dashboard'],
-                        ['analytics', 'Analytics'],
-                        ['history', 'History'],
-                        ['replay', 'Replay'],
-                        ['notifications', 'Notifications'],
-                        ['invite', 'Invite'],
-                        ['docs', 'Docs'],
-                      ] as const
-                    ).map(([id, label]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        className="filter-chip"
-                        onClick={() => navigateTo(id)}
-                      >
-                        {label}
-                      </button>
-                    ))}
-                  </div>
-                </nav>
-                <div className="h-px bg-outline-soft" />
-                <RoomAccessPanel
-                  isOwner={isOwner}
-                  requireApproval={requireApproval}
-                  requests={joinRequests}
-                  connected={status === 'connected'}
-                  onSetRequireApproval={setApprovalPolicy}
-                  onDecide={decideJoin}
-                />
-                <div className="h-px bg-outline-soft" />
-                <div className="settings-actions flex flex-wrap gap-2 pt-1">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => void copyShareUrl()}
-                  >
-                    Copy room link
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => navigateTo('invite')}
-                  >
-                    Invite teammates
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => void createNewRoom()}
-                    disabled={creatingRoom}
-                  >
-                    {creatingRoom ? 'Creating…' : 'New room'}
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-outline-soft px-3 py-2 text-[13px] font-semibold text-on-muted hover:text-primary hover:border-primary/40 transition-colors"
-                    onClick={() => navigate('/start')}
-                  >
-                    Leave room
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          <button
-            type="button"
-            className="fab fixed bottom-6 right-6 w-12 h-12 rounded-full hidden md:flex items-center justify-center z-50"
-            title="Invite teammates"
-            aria-label="Invite teammates"
-            onClick={() => navigateTo('invite')}
-          >
-            <span className="material-symbols-outlined text-[26px]" aria-hidden="true">
-              person_add
-            </span>
-          </button>
+        <main className="v3-sheet custom-scrollbar" id="main" key={view}>
+          {banners}
+          {page}
         </main>
       </div>
 
-      <MobileNav view={view} onNavigate={navigateTo} conflictCount={displayConflicts.length} />
-      <ShareCardDialog
-        open={dash.shareOpen}
-        stats={dash.stats}
-        onClose={() => dash.setShareOpen(false)}
-        onNotice={showToast}
-      />
+      <MobileNav view={view} onNavigate={navigateTo} conflictCount={conflicts.length + held.length} />
+      <CommandMenu open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
+      <InviteSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
+        <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+      </InviteSheet>
+      <ShareCardDialog open={dash.shareOpen} stats={dash.stats} onClose={() => dash.setShareOpen(false)} onNotice={showToast} />
       <ShortcutHelp open={dash.helpOpen} onClose={() => dash.setHelpOpen(false)} />
-
-      <Onboarding open={touring} roomId={roomId} onClose={() => setTouring(false)} />
-      <DeployModal
-        open={deployOpen}
-        roomId={roomId}
-        onClose={() => setDeployOpen(false)}
-        onCopied={(label) => showToast(`${label} copied`)}
-      />
-
-      {toast ? (
-        <div
-          role="status"
-          className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 z-[110] rounded-full bg-surface-raised border border-outline-soft px-4 py-2 text-[12px] font-semibold text-on-surface shadow-card animate-fade-up">
-          {toast}
-        </div>
-      ) : null}
+      <Toasts toasts={toasts} onDismiss={dismissToast} />
+      {/* Kept for screen readers: what the notch shows visually. */}
+      <span className="sr-only" aria-live="polite">
+        {held.length ? `${held.length} edits held` : conflicts.length ? `${conflicts.length} overlaps` : ''}
+      </span>
     </div>
   );
 }

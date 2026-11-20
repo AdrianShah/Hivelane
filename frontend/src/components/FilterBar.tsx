@@ -1,3 +1,5 @@
+import Icon from './Icon';
+import { fromMaterial } from './iconNames';
 import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { copyText } from '../clipboard';
 import { SCOPE_LABEL } from '../detection';
@@ -96,9 +98,7 @@ function Chip({
   return (
     <button type="button" className="filter-chip" aria-pressed={pressed} onClick={onClick} title={title}>
       {pressed ? (
-        <span className="material-symbols-outlined chip-check" aria-hidden="true">
-          check
-        </span>
+        <Icon name="check" size={16} className="chip-check" />
       ) : null}
       {children}
     </button>
@@ -139,9 +139,7 @@ export default function FilterBar({
     <section className="filter-bar rounded-2xl p-3 mb-5" aria-label="Filters and search">
       <div className="flex flex-wrap items-center gap-2">
         <label className="filter-input flex-1 min-w-[min(100%,14rem)]">
-          <span className="material-symbols-outlined text-[18px] text-on-dim" aria-hidden="true">
-            search
-          </span>
+          <Icon name="search" size={18} className="text-on-dim" />
           <span className="sr-only">Search intents, captions and reasons</span>
           <input
             ref={searchRef}
@@ -163,9 +161,7 @@ export default function FilterBar({
           </span>
         </label>
         <label className="filter-input w-full sm:w-60">
-          <span className="material-symbols-outlined text-[18px] text-on-dim" aria-hidden="true">
-            folder_open
-          </span>
+          <Icon name="folder-open" size={18} className="text-on-dim" />
           <span className="sr-only">File path contains</span>
           <input
             type="search"
@@ -185,9 +181,7 @@ export default function FilterBar({
             aria-controls={facetsId}
             onClick={() => setOpen((v) => !v)}
           >
-            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
-              tune
-            </span>
+            <Icon name="sliders" size={15} />
             Filters{count ? ` (${count})` : ''}
           </button>
         </span>
@@ -201,9 +195,7 @@ export default function FilterBar({
               onChange({ people: [], file: '', agents: [], types: [], scopes: [], q: '' });
             }}
           >
-            <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
-              filter_alt_off
-            </span>
+            <Icon name="filter-off" size={15} />
             Clear all
           </button>
         ) : null}
@@ -213,9 +205,7 @@ export default function FilterBar({
           onClick={() => void copyLink()}
           title="Copy a link to this view with these filters"
         >
-          <span className="material-symbols-outlined text-[15px]" aria-hidden="true">
-            {copied === 'ok' ? 'check' : 'link'}
-          </span>
+          <Icon name={fromMaterial(copied === 'ok' ? 'check' : 'link')} size={15} />
           {copied === 'ok' ? 'Link copied' : copied === 'fail' ? 'Copy failed' : 'Copy view link'}
         </button>
       </div>
@@ -255,9 +245,7 @@ export default function FilterBar({
               pressed={filters.types.includes(kind)}
               onClick={() => onChange((prev) => ({ ...prev, types: toggleValue(prev.types, kind) }))}
             >
-              <span className="material-symbols-outlined text-[14px]" aria-hidden="true">
-                {KIND_LABEL[kind].icon}
-              </span>
+              <Icon name={fromMaterial(KIND_LABEL[kind].icon)} size={14} />
               {KIND_LABEL[kind].label}
             </Chip>
           ))}
