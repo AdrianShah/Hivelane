@@ -90,3 +90,6 @@ class EventAck(BaseModel):
     # wait queue (1 = next; 0 = not queued) and something to do meanwhile.
     queue_position: int = 0
     suggestion: str = ""
+    # The relay's decision scope ("task": the file is reserved by a claimed
+    # room task, so there is no line to wait in).
+    scope: str = ""

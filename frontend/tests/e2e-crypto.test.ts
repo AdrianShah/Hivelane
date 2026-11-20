@@ -225,3 +225,42 @@ test('the decoder reads a v2 activity frame end to end', async () => {
   assert.equal(out.prompt, 'fix the login bug');
   assert.equal(out.branch, 'main');
 });
+
+test('the decoder opens a task and its notes, and locks them without a key', async () => {
+  const vector = VECTORS.vectors_v2[1];
+  const key = await deriveRoomKey(vector.passphrase, vector.room);
+  const hashed = await hashName(key, 'server/api.py');
+  const frame = {
+    type: 'task_update',
+    task: {
+      task_id: 'T1',
+      title: '',
+      files: [hashed],
+      depends_on: [],
+      status: 'done',
+      created_by: 'sam',
+      created_at: 1,
+      updated_at: 2,
+      e2e: await sealEnvelope(key, 'task', { v: 1, title: 'Add rate limiting', body: 'per user', text: '', files: ['server/api.py'] }),
+      notes: [
+        {
+          user_id: 'ada',
+          text: '',
+          timestamp: 2,
+          kind: 'done',
+          e2e: await sealEnvelope(key, 'task', { v: 1, title: '', body: '', text: 'PR #12', files: [] }),
+        },
+      ],
+    },
+  };
+  const out = await new E2EDecoder(vector.passphrase, vector.room).decode(frame);
+  assert.equal(out.task.title, 'Add rate limiting');
+  assert.equal(out.task.body, 'per user');
+  assert.deepEqual(out.task.files, ['server/api.py']);
+  assert.equal(out.task.notes[0].text, 'PR #12');
+
+  const locked = await new E2EDecoder(null, vector.room).decode(frame);
+  assert.equal(locked.task.title, LOCKED_TEXT);
+  assert.equal(locked.task.notes[0].text, LOCKED_TEXT);
+  assert.notEqual(locked.task.files[0], 'server/api.py');
+});

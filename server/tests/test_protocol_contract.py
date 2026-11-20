@@ -44,6 +44,7 @@ NOT_SENT_TO_DASHBOARD = {
     "version_rejected": "spectators are exempt from the version check",
     "file_requested": "sent only to the member(s) holding the requested file",
     "file_released": "sent only to the queued member first in line for the file",
+    "task_reply": "point-to-point reply to a member's task request",
 }
 
 

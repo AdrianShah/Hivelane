@@ -162,6 +162,12 @@ class DaemonClient:
         response.raise_for_status()
         return response.json()
 
+    def call(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST any daemon endpoint (e.g. /tasks) as a hook or the CLI would."""
+        response = self._http.post(f"{self.base}{path}", json=body, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
 
 class Spectator:
     """A dashboard-style observer of the room: the only outside view of when

@@ -17,6 +17,7 @@ export const DEFAULT_URL_VIEW = 'agents';
 export const URL_VIEWS = new Set([
   'dashboard',
   'agents',
+  'tasks',
   'timeline',
   'heatmap',
   'invite',

@@ -30,9 +30,9 @@ except ImportError:  # Render rootDir=server
 
 if TYPE_CHECKING:
     try:
-        from .models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage
+        from .models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage, TaskRequest
     except ImportError:  # Render rootDir=server
-        from models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage
+        from models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage, TaskRequest
 
 # Best-effort layer only. The charset strip below is the real safety mechanism.
 BLOCKLIST = {
@@ -143,3 +143,23 @@ def cap_edit_check(message: EditCheckRequest) -> None:
     _trim(message.line_ranges, MAX_LINE_RANGES)
     _trim(message.same_chat, MAX_SAME_CHAT)
     _trim(message.siblings, MAX_SAME_CHAT)
+    _trim(message.own_names, MAX_SAME_CHAT)
+
+
+# Room tasks (server/tasks.py).
+MAX_TASK_TITLE_BYTES = 200
+MAX_TASK_BODY_BYTES = 2000
+MAX_TASK_TEXT_BYTES = 500
+MAX_TASK_FILES = 50
+MAX_TASK_DEPENDS = 10
+MAX_TASK_PATH_CHARS = 1024
+
+
+def cap_task(message: TaskRequest) -> None:
+    message.title = truncate_utf8(message.title, MAX_TASK_TITLE_BYTES)
+    message.body = truncate_utf8(message.body, MAX_TASK_BODY_BYTES)
+    message.text = truncate_utf8(message.text, MAX_TASK_TEXT_BYTES)
+    message.files = [f for f in message.files if f and len(f) <= MAX_TASK_PATH_CHARS]
+    _trim(message.files, MAX_TASK_FILES)
+    _trim(message.depends_on, MAX_TASK_DEPENDS)
+    message.depends_on = [d[:16] for d in message.depends_on]

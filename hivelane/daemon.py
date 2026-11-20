@@ -75,6 +75,9 @@ from hivelane.protocol import (
     PlanMessage,
     RoomPolicy,
     RoomSettings,
+    Task,
+    TaskReply,
+    TaskRequest,
 )
 
 from hivelane.constants import DEFAULT_SERVER
@@ -84,6 +87,12 @@ DEFAULT_PORT = 4600
 
 BATCH_SECONDS = 1.5
 EDIT_CHECK_TIMEOUT = 1.5
+# How long `hivelane task ...` waits for the relay's task_reply.
+TASK_REPLY_TIMEOUT = 5.0
+# The relay takes one task change per member every 0.2 s: a burst (a script
+# adding several tasks) is paced here instead of refused.
+TASK_RATE_RETRIES = 8
+TASK_RATE_RETRY_SECONDS = 0.25
 MAX_BACKOFF = 30.0
 SHUTDOWN_GRACE = 5.0
 # How long a stopping connection waits for its outbox to reach the relay
@@ -1024,6 +1033,10 @@ class RoomConnection:
         # hold) to surface on that session's next pre_edit ack. "*:<repo_id>"
         # holds notes for whichever session in that repo comes first.
         self._session_notes: dict[str, str] = {}
+        # Task requests (`hivelane task ...`) waiting for their task_reply.
+        self._task_waiters: dict[str, asyncio.Future[TaskReply]] = {}
+        # One task request at a time per connection, so a burst is paced.
+        self._task_lock = asyncio.Lock()
         # Wait queues (server/file_queue.py). (repo_id, path key) -> our place
         # in line for a teammate's file: {"position", "sessions", "since"}.
         self._queued: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
@@ -1120,8 +1133,9 @@ class RoomConnection:
         return opened
 
     def _seal(
-        self, message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest
-    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest:
+        self,
+        message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest,
+    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest:
         """The e2e form of message: names hashed, content emptied, the real
         values in its blob. The relay still matches overlaps (equal names hash
         equal) but can read nothing."""
@@ -1135,6 +1149,34 @@ class RoomConnection:
             blob = key.seal("edit_check", {"v": 1, "file_path": rel, "symbols": [], "branch": ""})
             return message.model_copy(
                 update={"file_path": self._hash(rel), "e2e": blob, "repo_id": self._wire_repo_id(message.repo_id)}
+            )
+        if isinstance(message, TaskRequest):
+            # Title, body and note text only in the blob; files hashed so the
+            # relay can still match reservations against edit_checks.
+            content = message.title or message.body or message.text or message.files
+            blob = (
+                key.seal(
+                    "task",
+                    {
+                        "v": 1,
+                        "title": message.title,
+                        "body": message.body,
+                        "text": message.text,
+                        "files": list(message.files),
+                    },
+                )
+                if content
+                else ""
+            )
+            return message.model_copy(
+                update={
+                    "title": "",
+                    "body": "",
+                    "text": "",
+                    "files": [self._hash(f) for f in message.files],
+                    "e2e": blob,
+                    "repo_id": self._wire_repo_id(message.repo_id),
+                }
             )
         if isinstance(message, IntentMessage):
             blob = key.seal("intent", {"v": 1, "prompt": message.prompt})
@@ -1310,10 +1352,12 @@ class RoomConnection:
         *,
         same_chat: Sequence[str] = (),
         siblings: Sequence[str] = (),
+        own_names: Sequence[str] = (),
     ) -> EventAck:
         """same_chat / siblings: the lanes of this event's own chat, sent on
         an edit_check so the relay leaves a hand-off out of the verdict (see
-        Daemon._family_names)."""
+        Daemon._family_names). own_names: every name this machine speaks
+        under in the room, whose task reservations never block it."""
         repo_id = await self.repo_id_for_cwd(event.cwd, binding)
         if event.kind == "intent":
             return self._handle_intent(event, repo_id, binding.redactor)
@@ -1329,7 +1373,8 @@ class RoomConnection:
         if event.kind == "pre_edit":
             branch = (head.branch or "") if head else ""
             ack = await self._handle_pre_edit(
-                event, rel, repo_id, branch=branch, same_chat=same_chat, siblings=siblings
+                event, rel, repo_id, branch=branch, same_chat=same_chat, siblings=siblings,
+                own_names=own_names,
             )
             for note in (
                 self._release_note(repo_id, rel, event.session_id, ack),
@@ -1416,6 +1461,7 @@ class RoomConnection:
         *,
         same_chat: Sequence[str] = (),
         siblings: Sequence[str] = (),
+        own_names: Sequence[str] = (),
     ) -> EventAck:
         if event.old_content is not None:
             self._remember_old(event.session_id, rel, event.old_content)
@@ -1442,6 +1488,7 @@ class RoomConnection:
                 branch=branch,
                 same_chat=list(same_chat),
                 siblings=list(siblings),
+                own_names=list(own_names),
             )
         )
         if not sent:
@@ -1467,13 +1514,18 @@ class RoomConnection:
             # `hivelane wait` on it can stop.
             self._queued.pop(key, None)
             self._resolve_file_waiters(key, "allowed")
+        suggestion = response.suggestion
+        if response.scope == "task" and response.decision == "block":
+            # Reserved by a claimed task: no line to wait in.
+            suggestion = "pick other work: `hivelane task list` shows open tasks"
         return EventAck(
             decision=response.decision,
-            reason=response.reason,
+            reason=self.reveal(response.reason) or "",
             file_path=response.file_path or rel,
             others=response.others,
             queue_position=response.queue_position,
-            suggestion=response.suggestion,
+            suggestion=suggestion,
+            scope=response.scope,
         )
 
     # --- wait queues -----------------------------------------------------------
@@ -1564,6 +1616,67 @@ class RoomConnection:
             f"{by}'s agent is waiting for {rel}, finish up or hand it off",
         )
         print(f"hivelane: room {self.room}: {by} ({agent}) is waiting for {rel}")
+
+    # --- room tasks ----------------------------------------------------------------
+
+    async def task_request(self, op: str, repo_id: str, **fields: Any) -> dict[str, Any]:
+        """Send one task operation (server/tasks.py) and wait for its
+        task_reply. The answer as plain JSON, with e2e blobs opened. A
+        rate-limited request is retried a few times before giving up."""
+        async with self._task_lock:
+            for _ in range(TASK_RATE_RETRIES):
+                answer = await self._task_request_once(op, repo_id, **fields)
+                if answer.get("reason") != "rate_limited":
+                    return answer
+                await asyncio.sleep(TASK_RATE_RETRY_SECONDS)
+            return answer
+
+    async def _task_request_once(self, op: str, repo_id: str, **fields: Any) -> dict[str, Any]:
+        if not self.live:
+            return {"ok": False, "reason": "offline"}
+        request_id = uuid.uuid4().hex
+        try:
+            request = TaskRequest(request_id=request_id, op=op, repo_id=repo_id, **fields)  # type: ignore[arg-type]
+        except ValueError as exc:
+            return {"ok": False, "reason": "invalid", "detail": str(exc)}
+        future: asyncio.Future[TaskReply] = asyncio.get_running_loop().create_future()
+        self._task_waiters[request_id] = future
+        if not self._send(request):
+            self._task_waiters.pop(request_id, None)
+            return {"ok": False, "reason": "not_sent"}
+        try:
+            reply = await asyncio.wait_for(future, timeout=TASK_REPLY_TIMEOUT)
+        except asyncio.TimeoutError:
+            self._task_waiters.pop(request_id, None)
+            return {"ok": False, "reason": "timeout"}
+        except RelayGone:
+            return {"ok": False, "reason": "offline"}
+        answer: dict[str, Any] = {"ok": reply.ok, "reason": reply.reason, "me": self.name}
+        if reply.task is not None:
+            answer["task"] = self._open_task(reply.task).model_dump()
+        answer["tasks"] = [self._open_task(task).model_dump() for task in reply.tasks]
+        return answer
+
+    def _open_task(self, task: Task) -> Task:
+        """task readable: in an e2e room its title, body, files and note text
+        come out of their blobs (hashes we cannot open stay as they are)."""
+        if self.e2e_key is None:
+            return task
+        update: dict[str, Any] = {"repo_id": self._repo_tokens.get(task.repo_id, task.repo_id)}
+        opened = self.open_blob(task.e2e) if task.e2e else None
+        if opened is not None:
+            envelope = opened[1]
+            update["title"] = str(envelope.get("title") or "")
+            update["body"] = str(envelope.get("body") or "")
+        update["files"] = [self._names.get(f, f) for f in task.files]
+        notes = []
+        for note in task.notes:
+            opened_note = self.open_blob(note.e2e) if note.e2e else None
+            text = str(opened_note[1].get("text") or "") if opened_note is not None else note.text
+            notes.append(note.model_copy(update={"text": text, "e2e": ""}))
+        update["notes"] = notes
+        update["e2e"] = ""
+        return task.model_copy(update=update)
 
     async def wait_for_file(self, rel: str, repo_id: str, timeout: float) -> dict[str, Any]:
         """One slice of `hivelane wait`: ask the relay for the file (it answers
@@ -1722,12 +1835,13 @@ class RoomConnection:
         | PlanMessage
         | FileRequest
         | JoinDecision
-        | RoomPolicy,
+        | RoomPolicy
+        | TaskRequest,
     ) -> bool:
         """Queue message for the relay; False when it cannot go (an e2e room
         without a key, or a message that cannot be encoded or made to fit a
         frame). Never raises: a caller's batch must not die with one message."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
         if self.e2e_required and self.e2e_key is None and isinstance(message, sealable):
             # An e2e room without a key: never fall back to cleartext.
             return False
@@ -1749,7 +1863,7 @@ class RoomConnection:
         # A plan ack, like an edit_check, has an agent hook waiting on it; an
         # owner's decision has a teammate waiting at the door; a file_request
         # has `hivelane wait` (and so an agent) waiting on it.
-        if isinstance(message, (EditCheckRequest, PlanMessage, FileRequest, JoinDecision, RoomPolicy)):
+        if isinstance(message, (EditCheckRequest, PlanMessage, FileRequest, JoinDecision, RoomPolicy, TaskRequest)):
             self._priority_outbox.put_nowait(payload)
         else:
             if OUTBOX_LIMIT > 0 and self._outbox.qsize() >= OUTBOX_LIMIT:
@@ -1761,7 +1875,7 @@ class RoomConnection:
     def _encode(self, message: Any) -> Optional[str]:
         """message as the JSON frame to send (sealed in an e2e room), or None
         when even its slimmest form is over MAX_FRAME_BYTES."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
         sealed = self._seal(message) if self.e2e_key is not None and isinstance(message, sealable) else message
         payload = sealed.model_dump_json()
         if len(payload) <= MAX_FRAME_BYTES // 4 or len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
@@ -1886,6 +2000,10 @@ class RoomConnection:
             if not plan_future.done():
                 plan_future.set_exception(RelayGone())
         self._plan_waiters.clear()
+        for task_future in self._task_waiters.values():
+            if not task_future.done():
+                task_future.set_exception(RelayGone())
+        self._task_waiters.clear()
 
     async def _relay_loop(self) -> None:
         problem = self._e2e_problem()
@@ -2267,6 +2385,13 @@ class RoomConnection:
                 future.set_result(response)
             return
 
+        if kind == "task_reply":
+            reply = TaskReply.model_validate(data)
+            waiter = self._task_waiters.pop(reply.request_id, None)
+            if waiter is not None and not waiter.done():
+                waiter.set_result(reply)
+            return
+
         if kind == "plan_conflicts":
             echoed = data.get("request_id")
             self._on_plan_conflicts(
@@ -2488,6 +2613,23 @@ class PolicyChange(BaseModel):
 
     root: str
     require_approval: bool
+
+
+class TaskOp(BaseModel):
+    """POST /tasks body (`hivelane task ...`, the MCP task tools): one
+    operation on the task list of the repo `cwd` belongs to."""
+
+    cwd: str
+    op: str
+    task_id: str = ""
+    next: bool = False
+    title: str = ""
+    body: str = ""
+    files: list[str] = []
+    depends_on: list[str] = []
+    lease_seconds: float = Field(default=1800.0, ge=60, le=28800)
+    text: str = ""
+    include_closed: bool = False
 
 
 class WaitRequest(BaseModel):
@@ -2872,6 +3014,11 @@ class Daemon:
             conn.set_policy(body.require_approval)
             return {"sent": True, "room": conn.room, "require_approval": body.require_approval}
 
+        @app.post("/tasks")
+        async def tasks(body: TaskOp, request: Request) -> dict[str, Any]:
+            _reject_cross_origin(request)
+            return await self.task_op(body)
+
         @app.post("/wait")
         async def wait(body: WaitRequest, request: Request) -> dict[str, Any]:
             _reject_cross_origin(request)
@@ -2904,6 +3051,36 @@ class Daemon:
                     return relative_path(str(local), cwd)
                 candidate = root / candidate
         return repo_relative_path(str(candidate), cwd, binding.root)
+
+    async def task_op(self, body: TaskOp) -> dict[str, Any]:
+        """A task operation for the repo body.cwd is in, sent on that repo's
+        main connection (tasks are claimed under the person's main name)."""
+        binding = await self.binding_for(body.cwd)
+        if binding is None:
+            return {"ok": False, "reason": "uncoordinated"}
+        conn = binding.connection
+        repo_id = await conn.repo_id_for_cwd(body.cwd, binding)
+        files: list[str] = []
+        ignored: list[str] = []
+        for raw in body.files:
+            rel = self._wait_path(raw, body.cwd, binding)
+            (ignored if binding.ignore.matches(rel) else files).append(rel)
+        answer = await conn.task_request(
+            body.op,
+            repo_id,
+            task_id=body.task_id,
+            next=body.next,
+            title=body.title,
+            body=body.body,
+            files=files,
+            depends_on=body.depends_on,
+            lease_seconds=body.lease_seconds,
+            text=body.text,
+            include_closed=body.include_closed,
+        )
+        if ignored:
+            answer["ignored_files"] = ignored
+        return answer
 
     async def wait_for_file(self, cwd: str, file_path: str, timeout: float) -> dict[str, Any]:
         binding = await self.binding_for(cwd)
@@ -3359,13 +3536,16 @@ class Daemon:
             await conn.handle_event(held, binding)
         if event.kind == "subagent_start":
             return EventAck()
+        own_names = self._own_names(binding.connection) if event.kind == "pre_edit" else []
         if lane is not None and event.kind == "pre_edit":
             same_chat, siblings = self._family_names(lane)
-            ack = await conn.handle_event(event, binding, same_chat=same_chat, siblings=siblings)
+            ack = await conn.handle_event(
+                event, binding, same_chat=same_chat, siblings=siblings, own_names=own_names
+            )
             # Still applied: a relay older than same_chat ignores the lists,
             # and then only this ack (not the room's feed) reflects them.
             return self._family_ack(lane, ack)
-        return await conn.handle_event(event, binding)
+        return await conn.handle_event(event, binding, own_names=own_names)
 
     # --- routing beyond the cwd ------------------------------------------------
 
@@ -3590,6 +3770,17 @@ class Daemon:
         while True:
             await asyncio.sleep(LANE_SWEEP_SECONDS)
             self._sweep_lanes()
+
+    def _own_names(self, primary: RoomConnection) -> list[str]:
+        """Every relay name this machine speaks under on primary's repo
+        connection: the connection's own name and each lane's. Room tasks
+        are claimed under the primary name, and a task this machine claimed
+        never reserves its files against these."""
+        names = [relay_user_id(primary.name)]
+        for lane in self._lanes_of(primary):
+            if lane.owned:
+                names.append(relay_user_id(lane.conn.name))
+        return list(dict.fromkeys(name for name in names if name))
 
     def _chat_lanes(self, lane: Lane) -> dict[str, Lane]:
         """Relay name -> lane, for every lane on lane's repo connection that

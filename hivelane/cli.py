@@ -1901,7 +1901,7 @@ def cmd_key(args: argparse.Namespace) -> int:
     return 0
 
 
-def _daemon_call(port: int, path: str, body: dict[str, Any]) -> dict[str, Any]:
+def _daemon_call(port: int, path: str, body: dict[str, Any], timeout: Optional[float] = None) -> dict[str, Any]:
     import urllib.error
 
     svc = load_service()
@@ -1909,7 +1909,7 @@ def _daemon_call(port: int, path: str, body: dict[str, Any]) -> dict[str, Any]:
         raise CommandFailed(f"no daemon running on port {port}; run `hivelane up` first")
     with service_errors(svc, "the daemon refused"):
         try:
-            reply = svc._request(port, "POST", path, body, timeout=svc.REGISTER_TIMEOUT)
+            reply = svc._request(port, "POST", path, body, timeout=timeout or svc.REGISTER_TIMEOUT)
         except urllib.error.HTTPError as exc:
             raise CommandFailed(svc._error_detail(exc)) from None
         except OSError as exc:
@@ -1933,6 +1933,18 @@ def cmd_room(args: argparse.Namespace) -> int:
     else:
         say(f"hivelane: room {reply.get('room', '?')} lets anyone with the code join again")
     return 0
+
+
+def cmd_task(args: argparse.Namespace) -> int:
+    """`hivelane task ...`: the room's shared task list (hivelane/tasks_cli.py)."""
+    from hivelane import tasks_cli
+
+    port = resolve_port(args.port)
+    return tasks_cli.cmd_task(
+        args,
+        call=lambda body: _daemon_call(port, "/tasks", body, timeout=tasks_cli.REQUEST_TIMEOUT),
+        say=say,
+    )
 
 
 def cmd_wait(args: argparse.Namespace) -> int:
@@ -2066,6 +2078,13 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=float, default=WAIT_TIMEOUT, metavar="S", help=f"give up after S seconds (default {WAIT_TIMEOUT:g})")
     wait.add_argument("--port", type=int, default=None, help=port_help)
     wait.set_defaults(func=cmd_wait)
+
+    # `hivelane task ...` (hivelane/tasks_cli.py): imported here, at parse
+    # time, but it has no heavy imports of its own. It never imports this
+    # module back: cmd_task hands it what it needs.
+    from hivelane import tasks_cli
+
+    tasks_cli.register(sub, port_help, cmd_task)
 
     doctor = sub.add_parser("doctor", help="check the setup and say how to fix what is wrong")
     doctor.add_argument("--root", default=None, metavar="PATH", help=root_help)
