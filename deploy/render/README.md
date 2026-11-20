@@ -8,8 +8,7 @@ from the repo's `Dockerfile` (the relay plus the bundled dashboard), with a
 
 1. In the Render dashboard: **New → Blueprint**, connect this repository, and
    set **Blueprint Path** to `deploy/render/render.yaml`.
-2. Render prompts for `GEMINI_API_KEY` (optional): it turns on AI captions
-   and conflict summaries. `CORS_ORIGINS` is preset to the GitHub Pages
+2. `CORS_ORIGINS` is preset to the GitHub Pages
    dashboard (`https://adrianshah.github.io`); add any other dashboard origin
    there, comma-separated.
 3. Apply. When the deploy finishes, check

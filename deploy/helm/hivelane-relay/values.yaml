@@ -42,7 +42,7 @@ relay:
   # URL carries a password.
   redisUrl: ""
   # Name of an existing Secret whose keys become environment variables, e.g.
-  # HIVELANE_REDIS_URL and GEMINI_API_KEY (AI captions, optional).
+  # HIVELANE_REDIS_URL.
   existingSecret: ""
 
 # Extra environment variables for the relay container, e.g.

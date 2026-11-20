@@ -30,7 +30,6 @@ services:
       # Safe here: Caddy discards any X-Forwarded-For a client sends and sets
       # the real address, so the relay sees each user's own IP.
       TRUST_PROXY_HEADER: "true"
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       # Empty keeps room codes and rate limits in this container; see the
       # redis profile below.
       HIVELANE_REDIS_URL: ${HIVELANE_REDIS_URL:-}

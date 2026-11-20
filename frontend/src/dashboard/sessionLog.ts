@@ -42,7 +42,7 @@ export interface Touch {
   timestamp: number;
   symbols: string[];
   diff: string;
-  /** The update's AI caption, if any. */
+  /** The update's caption, if any. */
   caption: string | null;
   /** The person's declared intent when this edit arrived. */
   intent: string | null;

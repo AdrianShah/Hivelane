@@ -26,8 +26,6 @@ fly volumes create hivelane_data --region iad --size 1 --yes \
 #    one, list the app's own URL. --stage applies them on the next deploy.
 fly secrets set --stage --config deploy/fly/fly.toml \
   CORS_ORIGINS=https://my-hivelane-relay.fly.dev
-# Optional AI captions and conflict summaries:
-fly secrets set --stage --config deploy/fly/fly.toml GEMINI_API_KEY=...
 
 # 4. Deploy.
 fly deploy --config deploy/fly/fly.toml

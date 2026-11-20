@@ -47,6 +47,3 @@ services:
         value: "25"
       - key: HIVELANE_MAX_ROOMS
         value: "500"
-      # Optional AI captions and conflict summaries.
-      - key: GEMINI_API_KEY
-        sync: false

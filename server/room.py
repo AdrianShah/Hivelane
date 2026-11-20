@@ -179,8 +179,8 @@ OUTBOUND_FRAME_BUDGET = int(_env_number("HIVELANE_OUTBOUND_FRAME_BYTES", 768 * 1
 # at most this many bytes of retained diffs and e2e blobs. 0 = unlimited.
 MAX_TOUCHES_PER_ROOM = int(_env_number("HIVELANE_MAX_TOUCHES_PER_ROOM", 5000))
 MAX_TOUCH_BYTES_PER_ROOM = int(_env_number("HIVELANE_MAX_TOUCH_BYTES_PER_ROOM", 64 * 1024 * 1024))
-# A touch keeps only this much of its diff: the diff is only read for Gemini
-# conflict classification, which uses the first 2,500 characters anyway.
+# A touch keeps only this much of its diff, bounding a room's memory: no
+# decision reads past the first few kilobytes.
 STORED_DIFF_BYTES = 4 * 1024
 # Paths longer than this are not tracked at all (real paths are far shorter;
 # an e2e hash is 34 characters). HIVELANE_MAX_PATH_CHARS.
@@ -542,11 +542,6 @@ class Room:
         # Coalesced activity broadcasts held back by the rate limit, per
         # (user, repo), and the tasks that will publish them (server/main.py).
         self.deferred_activity: dict[tuple[str, str], ActivityMessage] = {}
-        # Background caption tasks, chained per (user, repo) so captioned
-        # updates go out in the order their activity arrived.
-        self.caption_tail: dict[tuple[str, str], asyncio.Task] = {}
-        # Gemini calls running for this room (server/main.py caps them).
-        self.gemini_in_flight = 0
         # --- access control (see the "access" section) ---
         # SHA-256 of the owner token POST /rooms returned; None for rooms
         # created before owner tokens, which therefore have no owners.
@@ -1174,8 +1169,8 @@ class Room:
                 message.timestamp,
                 repo_id=message.repo_id,
             )
-            # Same file but provably different functions: not worth a Gemini
-            # call or an alert. Config files are always judged whole.
+            # Same file but provably different functions: not worth an
+            # alert. Config files are always judged whole.
             if change.symbols and not is_always_warn_file(change.file_path):
                 others = [
                     touch
