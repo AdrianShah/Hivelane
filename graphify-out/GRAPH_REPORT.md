@@ -1,7 +1,7 @@
 # Graph Report - Synergo  (2026-11-21)
 
 ## Corpus Check
-- 396 files · ~363,423 words
+- 396 files · ~363,453 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 27 file(s) not represented in the graph (top: (none) 14, .css 5, .csv 3)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e7dd657c`
+- Built from commit: `ad6cfed7`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1338,11 +1338,11 @@ Nodes (15): test_conflict_alerts_and_join_requests_have_notices_but_unrelated_on
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentKind` connect `types.ts` to `sessionLog.ts`, `TimelineView.tsx`, `filters.ts`, `The contract`, `detect.py`?**
-  _High betweenness centrality (0.153) - this node is a cross-community bridge._
+  _High betweenness centrality (0.149) - this node is a cross-community bridge._
 - **Why does `The contract` connect `The contract` to `Relay to client`, `types.ts`, `base.py`, `detect.py`, `claude_code.py`?**
-  _High betweenness centrality (0.137) - this node is a cross-community bridge._
+  _High betweenness centrality (0.133) - this node is a cross-community bridge._
 - **Why does `Room` connect `Room` to `profile_relay.py`, `test_relay_core_fixes.py`, `test_history.py`, `JoinRequest`, `pathlib`, `room.py`, `tests/test_tasks.py`, `Relay`, `tests/test_file_queue.py`, `test_check_edit.py`, `RoomPolicyUpdate`, `test_webhooks.py`, `normalize_room_code`, `main.py`, `test_resolve_actions.py`, `test_access_control.py`, `make_room`, `test_room_settings.py`, `test_payload_limits.py`, `RoomReplayBudget`, `RoomManager`, `Conflict detection`, `ActivityMessage`, `test_e2e_relay.py`, `FileQueues`, `suggest.py`, `FileTouch`?**
-  _High betweenness centrality (0.111) - this node is a cross-community bridge._
+  _High betweenness centrality (0.110) - this node is a cross-community bridge._
 - **Are the 99 inferred relationships involving `Room` (e.g. with `Benchmark (`scripts/benchmark_decisions.py`)` and `admit_joiner()`) actually correct?**
   _`Room` has 99 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 104 inferred relationships involving `RoomManager` (e.g. with `RoomDirectory` and `RoomRoute`) actually correct?**

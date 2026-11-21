@@ -25365,7 +25365,7 @@
       "file_type": "code",
       "norm_label": "run_edge()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L281"
+      "source_location": "L280"
     },
     {
       "id": "hivelane_bee_run_edge_draw",
@@ -25377,7 +25377,7 @@
       "file_type": "code",
       "norm_label": "draw()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L308"
+      "source_location": "L307"
     },
     {
       "id": "hivelane_bee_run_edge_enter",
@@ -25389,7 +25389,7 @@
       "file_type": "code",
       "norm_label": "enter()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L337"
+      "source_location": "L336"
     },
     {
       "id": "hivelane_bee_run_edge_leave",
@@ -25401,7 +25401,7 @@
       "file_type": "code",
       "norm_label": "leave()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L342"
+      "source_location": "L341"
     },
     {
       "id": "hivelane_bee_run_edge_motion",
@@ -25413,7 +25413,7 @@
       "file_type": "code",
       "norm_label": "motion()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L352"
+      "source_location": "L351"
     },
     {
       "id": "hivelane_bee_run_edge_place",
@@ -25425,7 +25425,7 @@
       "file_type": "code",
       "norm_label": "place()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L304"
+      "source_location": "L303"
     },
     {
       "id": "hivelane_bee_run_edge_poll",
@@ -25437,7 +25437,7 @@
       "file_type": "code",
       "norm_label": "poll()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L319"
+      "source_location": "L318"
     },
     {
       "id": "hivelane_bee_run_edge_press",
@@ -25449,7 +25449,7 @@
       "file_type": "code",
       "norm_label": "press()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L348"
+      "source_location": "L347"
     },
     {
       "id": "hivelane_bee_run_edge_release",
@@ -25461,7 +25461,7 @@
       "file_type": "code",
       "norm_label": "release()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L357"
+      "source_location": "L356"
     },
     {
       "id": "hivelane_bee_running_pid",
@@ -25485,7 +25485,7 @@
       "file_type": "code",
       "norm_label": "start()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L206"
+      "source_location": "L207"
     },
     {
       "id": "hivelane_bee_stop",
@@ -25497,7 +25497,7 @@
       "file_type": "code",
       "norm_label": "stop()",
       "source_file": "hivelane/bee.py",
-      "source_location": "L244"
+      "source_location": "L245"
     },
     {
       "id": "hivelane_bee_style",
@@ -66196,7 +66196,7 @@
       "source_location": "L167"
     },
     {
-      "id": "hivelane_bee_rationale_207",
+      "id": "hivelane_bee_rationale_208",
       "label": "Start the bee unless it runs already. Returns one short line for the CLI.\u2026",
       "_origin": "ast",
       "community": 22,
@@ -66204,10 +66204,10 @@
       "file_type": "rationale",
       "norm_label": "start the bee unless it runs already. returns one short line for the cli....",
       "source_file": "hivelane/bee.py",
-      "source_location": "L207"
+      "source_location": "L208"
     },
     {
-      "id": "hivelane_bee_rationale_245",
+      "id": "hivelane_bee_rationale_246",
       "label": "Stop the bee; hide also keeps `hivelane up` from starting it again.",
       "_origin": "ast",
       "community": 22,
@@ -66215,10 +66215,10 @@
       "file_type": "rationale",
       "norm_label": "stop the bee; hide also keeps `hivelane up` from starting it again.",
       "source_file": "hivelane/bee.py",
-      "source_location": "L245"
+      "source_location": "L246"
     },
     {
-      "id": "hivelane_bee_rationale_282",
+      "id": "hivelane_bee_rationale_281",
       "label": "A colour tab tucked against the right edge of the screen: only a EDGE_PEEK-px\u2026",
       "_origin": "ast",
       "community": 22,
@@ -66226,7 +66226,7 @@
       "file_type": "rationale",
       "norm_label": "a colour tab tucked against the right edge of the screen: only a edge_peek-px...",
       "source_file": "hivelane/bee.py",
-      "source_location": "L282"
+      "source_location": "L281"
     },
     {
       "id": "hivelane_bee_rationale_52",
@@ -90801,7 +90801,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L339",
+      "source_location": "L338",
       "weight": 1.0
     },
     {
@@ -90813,7 +90813,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L340",
+      "source_location": "L339",
       "weight": 1.0
     },
     {
@@ -90825,7 +90825,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L345",
+      "source_location": "L344",
       "weight": 1.0
     },
     {
@@ -90837,7 +90837,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L346",
+      "source_location": "L345",
       "weight": 1.0
     },
     {
@@ -90849,7 +90849,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L355",
+      "source_location": "L354",
       "weight": 1.0
     },
     {
@@ -90861,7 +90861,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L334",
+      "source_location": "L333",
       "weight": 1.0
     },
     {
@@ -90885,7 +90885,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L210",
+      "source_location": "L211",
       "weight": 1.0
     },
     {
@@ -90897,7 +90897,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L212",
+      "source_location": "L213",
       "weight": 1.0
     },
     {
@@ -90909,7 +90909,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L216",
+      "source_location": "L217",
       "weight": 1.0
     },
     {
@@ -90921,7 +90921,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L219",
+      "source_location": "L220",
       "weight": 1.0
     },
     {
@@ -90933,7 +90933,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L220",
+      "source_location": "L221",
       "weight": 1.0
     },
     {
@@ -90945,7 +90945,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L222",
+      "source_location": "L223",
       "weight": 1.0
     },
     {
@@ -90957,7 +90957,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L239",
+      "source_location": "L240",
       "weight": 1.0
     },
     {
@@ -90969,7 +90969,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L247",
+      "source_location": "L248",
       "weight": 1.0
     },
     {
@@ -90981,7 +90981,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L249",
+      "source_location": "L250",
       "weight": 1.0
     },
     {
@@ -90993,7 +90993,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L251",
+      "source_location": "L252",
       "weight": 1.0
     },
     {
@@ -137577,7 +137577,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L304",
+      "source_location": "L303",
       "weight": 1.0
     },
     {
@@ -137589,7 +137589,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L308",
+      "source_location": "L307",
       "weight": 1.0
     },
     {
@@ -137601,7 +137601,7 @@
       "confidence_score": 1.0,
       "context": "call",
       "source_file": "hivelane/bee.py",
-      "source_location": "L319",
+      "source_location": "L318",
       "weight": 1.0
     },
     {
@@ -215922,7 +215922,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L206",
+      "source_location": "L207",
       "weight": 1.0
     },
     {
@@ -215933,7 +215933,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L244",
+      "source_location": "L245",
       "weight": 1.0
     },
     {
@@ -215944,7 +215944,7 @@
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L281",
+      "source_location": "L280",
       "weight": 1.0
     },
     {
@@ -257262,36 +257262,36 @@
       "weight": 1.0
     },
     {
-      "source": "hivelane_bee_rationale_207",
+      "source": "hivelane_bee_rationale_208",
       "target": "hivelane_bee_start",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L207",
+      "source_location": "L208",
       "weight": 1.0
     },
     {
-      "source": "hivelane_bee_rationale_245",
+      "source": "hivelane_bee_rationale_246",
       "target": "hivelane_bee_stop",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L245",
+      "source_location": "L246",
       "weight": 1.0
     },
     {
-      "source": "hivelane_bee_rationale_282",
+      "source": "hivelane_bee_rationale_281",
       "target": "hivelane_bee_run_edge",
       "relation": "rationale_for",
       "_origin": "ast",
       "confidence": "EXTRACTED",
       "confidence_score": 1.0,
       "source_file": "hivelane/bee.py",
-      "source_location": "L282",
+      "source_location": "L281",
       "weight": 1.0
     },
     {
@@ -278852,5 +278852,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "e7dd657c8bc0c0fbe5304b4bb1bade92f1e11b5a"
+  "built_at_commit": "ad6cfed7e9b5ea2dcbf1c5e8448b6a30606c7a71"
 }
