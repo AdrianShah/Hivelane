@@ -18,13 +18,9 @@ import sys
 from hivelane import hook_fast
 from hivelane.hook_fast import DEFAULT_PORT
 
-# Dashboard links live in links.py (the desktop bee needs them without importing
-# the CLI); the constants are re-exported for the CLI's callers and tests.
+# Dashboard links live in links.py, so the desktop bee can build them without
+# importing the CLI.
 from hivelane.links import DASHBOARD_ENV, room_url
-from hivelane.links import DEFAULT_DASHBOARD as DEFAULT_DASHBOARD
-from hivelane.links import DEFAULT_DASHBOARD_LOCAL as DEFAULT_DASHBOARD_LOCAL
-from hivelane.links import dashboard_base as dashboard_base
-from hivelane.links import relay_is_local as relay_is_local
 
 # Type checkers treat any name TYPE_CHECKING as True.
 TYPE_CHECKING = False
