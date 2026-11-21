@@ -65,9 +65,30 @@ through the background daemon. Safe to re-run.
 | `-y`, `--yes` | Answer yes to every question (scripts, CI). |
 | `--no-hooks` | Do not install agent hooks. |
 | `--status-line` / `--no-status-line` | Show Hivelane in Claude Code's status line (the project's `.claude/settings.json`). Without either flag `up` asks on a terminal (default no) and never replaces a status line you set; `--yes` alone does not turn it on. |
+| `--bee` / `--no-bee` | Show the desktop bee (default on), a small always-on-top room badge; see [`bee`](#hivelane-bee). |
 | `--foreground` | Run the daemon in this terminal instead of the background (debugging, CI). |
 | `--insecure` | Allow a plaintext `ws://` relay on another machine. Without it, `up` refuses `ws://` to anything but this machine. Also settable as `insecure = true` in `.hivelane.toml`. |
 | `--e2e` | Turn on end-to-end encryption for this repo's room: writes `e2e = true` to `.hivelane.toml` and, if you have no key yet, generates one and prints it once. Share the key out of band; it is never written to the repo. |
+
+## hivelane bee
+
+```bash
+hivelane bee [on|off|status]
+```
+
+The desktop bee is a 40px badge in the top-right corner of the screen, above
+whatever app the agent runs in, for people who never open the dashboard. Its
+ring is green when the room is clear, amber when someone is nearby or you
+were pinged, and red when an edit of yours is held; the last two add a short
+label (`overlap`, `2 held`). Hover for details, click to open the dashboard,
+drag to move it (the spot is remembered).
+
+`hivelane up` starts it; `hivelane down` stops it. It costs no tokens: it is
+a separate process that reads the local daemon every 2 seconds and never
+writes into an agent's context. It needs no extra installs: macOS draws it
+with AppKit (`osascript`), Windows with WinForms (PowerShell), Linux with
+tkinter when that is installed. It stays off in CI, over SSH, on a machine
+without a display, and when `HIVELANE_BEE=0`.
 
 ## hivelane down
 
@@ -335,6 +356,7 @@ from flags or the project file.
 | `HIVELANE_DASHBOARD` | see [`open`](#hivelane-open) | Dashboard base for room links. |
 | `HIVELANE_NAME` | git `user.name`, else the OS user | Display name. |
 | `HIVELANE_PORT` | `4600` | Daemon loopback port. |
+| `HIVELANE_BEE` | on | `0` keeps the desktop bee off (`hivelane up` starts it otherwise). |
 | `HIVELANE_HOME` | `~/.hivelane` | Personal config, daemon state, logs (`logs/daemon.log`). |
 
 ## Exit codes

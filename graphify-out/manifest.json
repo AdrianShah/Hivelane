@@ -1128,9 +1128,9 @@
     "semantic_hash": ""
   },
   "tests/e2e/conftest.py": {
-    "mtime": 1795281698.1600354,
-    "seen": 1795281833.450007,
-    "ast_hash": "c3acfcdecce495b2b8f18e04fdd61e2a",
+    "mtime": 1795282238.714032,
+    "seen": 1795282258.6852548,
+    "ast_hash": "5c90226a2c60c1173c982846dac07825",
     "semantic_hash": ""
   },
   "tests/e2e/test_e2e_encryption.py": {
@@ -1278,9 +1278,9 @@
     "semantic_hash": ""
   },
   "docs/cli.md": {
-    "mtime": 1795281698.1468277,
-    "seen": 1795281833.4500248,
-    "ast_hash": "d3fe3810e1c5b3d11b6092067eccb16a",
+    "mtime": 1795282254.0794961,
+    "seen": 1795282258.685272,
+    "ast_hash": "4bf050d25f4d8e9fb23e423abb97c0fd",
     "semantic_hash": ""
   },
   "docs/comparison.md": {
@@ -1650,9 +1650,9 @@
     "semantic_hash": ""
   },
   "hivelane/cli.py": {
-    "mtime": 1795281698.1571503,
-    "seen": 1795281833.4499469,
-    "ast_hash": "896be8bf44270f01360d629f9ac2cb81",
+    "mtime": 1795282238.7134807,
+    "seen": 1795282258.685196,
+    "ast_hash": "083b686bd8cbbc57349da7bbebdca20b",
     "semantic_hash": ""
   },
   "hivelane/config.py": {
@@ -1674,9 +1674,9 @@
     "semantic_hash": ""
   },
   "hivelane/daemon.py": {
-    "mtime": 1795281698.1575816,
-    "seen": 1795281833.4499478,
-    "ast_hash": "ca51f3b8e5a6c766b6ffb68c021df844",
+    "mtime": 1795282238.7138064,
+    "seen": 1795282258.685198,
+    "ast_hash": "01c2d99b4f54e9885d61e503381f0cab",
     "semantic_hash": ""
   },
   "hivelane/depgraph.py": {
@@ -1764,9 +1764,9 @@
     "semantic_hash": ""
   },
   "hivelane/tests/conftest.py": {
-    "mtime": 1795281698.1579754,
-    "seen": 1795281833.449954,
-    "ast_hash": "84545b71ee8437704206f2521c207f4e",
+    "mtime": 1795282238.7139058,
+    "seen": 1795282258.685204,
+    "ast_hash": "3c7019f4cb81112bede3d8b9581a02e0",
     "semantic_hash": ""
   },
   "hivelane/tests/fixtures/adapters/claude-code/irrelevant_tool.json": {
@@ -2673,6 +2673,18 @@
     "mtime": 1795281818.983492,
     "seen": 1795281833.450002,
     "ast_hash": "a6417e7000864748eb2f266cf78cf7e8",
+    "semantic_hash": ""
+  },
+  "hivelane/bee.py": {
+    "mtime": 1795282207.9441054,
+    "seen": 1795282258.685196,
+    "ast_hash": "2e14cf740cd3f63c09f0e0dfc2d454be",
+    "semantic_hash": ""
+  },
+  "hivelane/tests/test_bee.py": {
+    "mtime": 1795282191.1468694,
+    "seen": 1795282258.6852129,
+    "ast_hash": "efda46ea2630149cf4661acec1546338",
     "semantic_hash": ""
   }
 }

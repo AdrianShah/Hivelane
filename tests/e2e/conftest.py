@@ -36,6 +36,8 @@ SHUTDOWN_TIMEOUT = 10.0
 def _no_desktop_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pings between in-process daemons must not reach the real desktop."""
     monkeypatch.setenv("HIVELANE_DESKTOP_NOTIFY", "0")
+    # Nor may a `hivelane up` start a real desktop bee (hivelane/bee.py).
+    monkeypatch.setenv("HIVELANE_BEE", "0")
 
 
 def free_port() -> int:

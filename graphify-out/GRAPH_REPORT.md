@@ -1,104 +1,104 @@
 # Graph Report - Synergo  (2026-11-21)
 
 ## Corpus Check
-- 395 files · ~358,800 words
+- 397 files · ~362,872 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 27 file(s) not represented in the graph (top: (none) 14, .css 5, .csv 3)
 
 ## Summary
-- 6944 nodes · 16752 edges · 298 communities (267 shown, 31 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 858 edges (avg confidence: 0.93)
+- 6996 nodes · 16878 edges · 293 communities (260 shown, 33 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 866 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `95919da2`
+- Built from commit: `34ec5cae`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- relayUrl.ts
+- main.tsx
 - App.tsx
-- handle_request
+- replay.ts
 - README.md
 - frontend/package.json
 - sessionLog.ts
-- Views.tsx
-- EventAck
+- TimelineView.tsx
+- ._handle_plan
 - hello.py
-- bench
+- ActivityMessage
 - compilerOptions
 - compilerOptions
 - react
-- protocol.py
+- daemon.py
 - RoomConnection
 - smoke.sh
 - test_relay_core_fixes.py
 - configure
-- useDashboardState.ts
+- PreventedCounter.tsx
 - test_history.py
 - .oxlintrc.json
 - e2e.ts
-- audit_gate.py
+- bee.py
 - rate_key
 - React + TypeScript + Vite
 - test_rate_limits.py
 - tsconfig.json
 - notifications.ts
 - tests/test_tasks.py
-- dumps
-- MemberRelay
+- claude_code.py
+- test_agent_lanes.py
 - setup.sh script
 - make_repo
 - MonkeyPatch
 - deploy_hook.sh
-- cli.py
+- transport_problem
 - Room
 - graphify
 - FileQueues
-- model.ts
+- Views.tsx
 - FakeRedis
 - RedisRoomStore
 - post_deploy_check.sh
 - test_edit_check_roundtrip.py
-- RoomStore
+- create_room
 - test_webhooks.py
 - benchmark_decisions.py
-- QueueRelay
+- wait_for
 - service.py
-- test_detect.py
+- detect.py
 - test_symbols.py
 - extension.ts
 - MemoryRoomStore
 - test_directory.py
 - RepoBinding
-- test_decision_engine.py
+- readyz
 - FakeNet
 - bench_hook.py
 - normalize_room_code
 - watchdog_events
 - watchdog_observers
-- Path
-- post_event
+- test_adapter_hardening.py
+- test_hook_fast.py
 - Daemon
-- test_resolve_actions.py
-- taskReducer.ts
+- _next
+- RoomRoute
 - daemonClient.ts
-- NormalizedEvent
-- WebSocket
-- test_redact.py
-- MemoryRoomDirectory
-- Charts.tsx
+- .handle_event
+- .__init__
+- test_dashboard.py
+- RoomDirectory
+- shutil
 - test_access_control.py
 - vscode/package.json
 - hivelane/config.py
 - Machine
-- daemon.py
+- NormalizedEvent
 - main
 - x-relay-to-client
-- redact.py
-- hivelane/tests/test_config.py
+- test_redact.py
+- load_config
 - tests/test_file_queue.py
-- test_join_with_settings_updates_the_room_and_broadcasts_them
+- test_room_settings.py
 - hivelane/tests/test_repo_identity.py
 - test_payload_limits.py
 - crypto.py
@@ -107,7 +107,7 @@
 - say
 - properties
 - event
-- test_check_edit.py
+- systemd_unit
 - test_adapter_hook_path.py
 - EditCheckRequest
 - test_adapter_conformance.py
@@ -119,10 +119,10 @@
 - status-shortcuts-theme.test.ts
 - QueueEntry
 - sync-docs.mjs
-- cmd_up
+- cli.py
 - FixedWindowLimiter
 - ConfigError
-- Path
+- test_lazy_start.py
 - base.py
 - codex.py
 - activity.ts
@@ -130,28 +130,28 @@
 - RedisCounterStore
 - test_protocol_contract.py
 - HookOutput
-- .go_first
+- generate.py
 - FakeService
-- cmd_relay
+- test_lan_address_is_never_loopback
 - FileTouch
 - test_metrics.py
 - dev_fake_relay.py
 - ._replay
 - npm/package.json
-- HivelaneConfig
+- Clock
 - type
 - FakeRedis
 - test_fail_open.py
-- edit_symbols
+- client
 - x-client-to-relay
 - FAQ
 - properties
-- DaemonClient
+- semantic.py
 - properties
-- daemon_proof
+- hook_fast.py
 - test_cli_security.py
-- install_autostart
-- heuristic_only
+- test_service.py
+- Counter
 - StubRelay
 - DaemonClient
 - test_status_line.py
@@ -161,27 +161,27 @@
 - properties
 - .__call__
 - Watcher
-- DepTracker
+- depgraph.py
 - Self-hosting the relay
 - Relay
 - E2EDecoder
 - test_multi_repo.py
 - relay_load.py
-- outline_for
+- symbols.py
 - Any
-- test_hook_install.py
-- typing
-- relay_process
+- test_resolve_actions.py
+- room.py
+- test_a_failing_sink_never_breaks_the_broadcast
 - properties
-- McpServer
-- cmd_task
+- test_fallbacks.py
+- tasks_cli.py
 - deploy
 - compilerOptions
 - Contributing to Hivelane
 - Relay
-- posted
-- semantic.py
-- captured_daemon
+- test_run_command.py
+- test_semantic.py
+- pytest
 - test_daemon_status.py
 - maintain_leases
 - Backend
@@ -191,61 +191,61 @@
 - properties
 - $defs
 - properties
-- mascot.ts
+- relayUrl.ts
 - decision_id
 - _ts_outline
-- personal_config_path
+- _models
 - Contributor Covenant Code of Conduct
 - RoomPolicyUpdate
 - JoinRequest
-- Conflict detection
-- e2e/test_tasks.py
-- test_two_daemons_with_one_key_still_block_each_other
-- port
+- Webhooks (Slack, Discord, generic)
+- Cluster
+- subprocess
+- Hivelane
 - DecryptError
-- scenario
+- pathlib
 - properties
 - visit
 - main.py
 - Phases
-- ensure_token
+- auth.py
 - Configuration
 - Relay on Fly.io
 - Speed by process
-- Cluster
+- Installing Hivelane
 - capabilities
 - Strengths and limits of each
 - Hivelane
 - hivelane.js
 - The contract
 - DaemonPool
-- visit
+- Gauge
 - contributes
 - is_public_address
 - devDependencies
 - test_cli_wait.py
 - hivelane.port
 - scripts
-- server
+- _one_event_loop_per_test
 - utils.py
 - RoomReplayBudget
 - WebhookService
-- test_hivelane_wait_hands_the_file_over_in_turn
-- PlanRelay
+- e2e/test_file_queue.py
+- MemoryRoomDirectory
 - schema.json
-- RoomManager
-- load_config
-- _edit
+- SqliteRoomStore
+- test_config_history.py
+- e2e/test_same_file.py
 - _LogStream
-- _imports_module
-- test_plan_adapters.py
+- Developing the Hivelane extension
+- main
 - test_cli_task.py
-- test_room_settings.py
-- ._next_payload
+- RoomManager
+- run_hook_fast_path
 - gitinfo.py
 - Security policy
-- _BraceScanner
-- _event
+- normalize_room
+- HeldEdit
 - suggest.py
 - _Bomb
 - Relay on Render
@@ -257,49 +257,44 @@
 - repository
 - .deliver
 - others
-- Installing Hivelane
+- install.md
 - hivelane-relay Helm chart
 - Relay on Railway
 - Hivelane brand assets
 - galleryBanner
 - vite-env.d.ts
-- FakeRelay
-- await_approval
+- cli_fakes.py
+- JoinRefused
 - AllowHandler
 - .sweep
 - demo_proj/README.md
 - pre-commit
 - Install-Hivelane
-- Any
+- cursor.py
 - hivelane/tests/conftest.py
 - docs-site/tsconfig.json
 - PULL_REQUEST_TEMPLATE.md
 - google
 - google_genai
-- test_security_headers.py
+- test_capacity_limits.py
 - test_redis_client_cannot_stall_the_event_loop
 - synergo
 - synergo_adapters
-- cmd_hook_install
+- Benchmarks
 - ._capture_signals
 - base_version
-- symbols.py
-- Notifications and replay
-- .__call__
-- .record_activity
-- test_prompts_and_diffs_never_reach_the_log
+- signatures
+- E2EBanner.tsx
+- FakeSocket
+- ProcSampler
+- test_test_files_across_ecosystems
 - Room tasks
-- _encodable
-- test_status_line_command_prints_and_exits_zero_without_a_daemon
-- Security
-- pad_plaintext
-- is_secret_name
+- EventAck
 - Getting started
-- validate_patterns
 - EditVerdict
 - .handler
 - Client to relay
-- Counter
+- Histogram
 - format_discord
 - docker-entrypoint.sh
 - build_pages.sh
@@ -319,6 +314,8 @@
 10. `load_config()` - 50 edges
 
 ## Surprising Connections (you probably didn't know these)
+- `1. The module` --references--> `Adapter`  [INFERRED]
+  docs/adapters.md → hivelane/adapters/base.py
 - `4. CLI` --references--> `build_parser()`  [INFERRED]
   docs/performance.md → hivelane/cli.py
 - `End-to-end encryption` --references--> `passphrase_problem()`  [INFERRED]
@@ -327,25 +324,23 @@
   benchmarks/README.md → hivelane/daemon.py
 - `Capacity (load test)` --references--> `Daemon`  [INFERRED]
   docs/performance.md → hivelane/daemon.py
-- `Agent kinds` --references--> `agent()`  [INFERRED]
-  docs/protocol.md → scripts/loadtest/many_daemons.py
 
 ## Import Cycles
 - 3-file cycle: `hivelane/adapters/__init__.py -> hivelane/adapters/base.py -> hivelane/detect.py -> hivelane/adapters/__init__.py`
 
-## Communities (298 total, 31 thin omitted)
+## Communities (293 total, 33 thin omitted)
 
-### Community 0 - "relayUrl.ts"
+### Community 0 - "main.tsx"
 Cohesion: 0.06
-Nodes (65): copyText(), frontend_src_index, API_REFERENCE_URL, DOCS_URL, REPO_URL, frontend_src_pages_home, LegacyRoomRedirect(), RoomRoute() (+57 more)
+Nodes (54): out, poses, root, tile, BeeAvatar(), Mark(), Mascot(), AVATAR_STATES (+46 more)
 
 ### Community 1 - "App.tsx"
-Cohesion: 0.03
-Nodes (99): App(), BLANK_ENTRY, BLANK_LANE, capRecord(), isExpired(), LaneEntry, pruneExpired(), pruneLaneDecisions() (+91 more)
+Cohesion: 0.04
+Nodes (83): App(), BLANK_ENTRY, BLANK_LANE, capRecord(), isExpired(), LaneEntry, pruneExpired(), pruneLaneDecisions() (+75 more)
 
-### Community 2 - "handle_request"
-Cohesion: 0.67
-Nodes (4): handle_request(), _ip_key(), Any, Answer a history_request from a member or dashboard socket. Point-to-point and…
+### Community 2 - "replay.ts"
+Cohesion: 0.08
+Nodes (41): LoadState, ReplayView(), ReplayViewProps, LaneLike, applyLaneEvent(), known(), LaneEvent, LaneFields (+33 more)
 
 ### Community 3 - "README.md"
 Cohesion: 0.17
@@ -357,23 +352,23 @@ Nodes (37): dependencies, react, react-dom, react-router-dom, devDependencies, o
 
 ### Community 5 - "sessionLog.ts"
 Cohesion: 0.05
-Nodes (90): FilterBar(), FilterBarProps, KIND_LABEL, useDraft(), DirStrip(), HeatCell(), HeatMapView(), HeatMapViewProps (+82 more)
+Nodes (82): Data map: what each piece of the mockup reads, aggregate(), buildFileTree(), collectFileStats(), compactTree(), FileStatInput, HEAT_WINDOW_SECONDS, sortTree() (+74 more)
 
-### Community 6 - "Views.tsx"
-Cohesion: 0.07
-Nodes (56): DecisionFeedbackButtons(), Props, DetectionQuality(), DiffLines(), KIND_CLASS, describe(), Tooltip(), fromMaterial() (+48 more)
+### Community 6 - "TimelineView.tsx"
+Cohesion: 0.05
+Nodes (85): DecisionFeedbackButtons(), Props, DiffLines(), KIND_CLASS, FilterBar(), FilterBarProps, KIND_LABEL, useDraft() (+77 more)
 
-### Community 7 - "EventAck"
+### Community 7 - "._handle_plan"
 Cohesion: 0.09
-Nodes (28): capped_diff(), change_symbols(), clean_text(), _post_edit_work(), Send the agent's plan; the relay answers with the planned files teammates are…, Forget plans whose reply is long overdue (the relay sends none for a rate-…, text cut to at most limit UTF-8 bytes (marker included), on a character…, text with lone surrogates (a JS agent's half-cut emoji) replaced, so it can be… (+20 more)
+Nodes (22): capped_diff(), clean_text(), plan_conflict_note(), _post_edit_work(), Send the agent's plan; the relay answers with the planned files teammates are…, One line naming who is editing / planning which of the plan's files., text cut to at most limit UTF-8 bytes (marker included), on a character…, text with lone surrogates (a JS agent's half-cut emoji) replaced, so it can be… (+14 more)
 
 ### Community 8 - "hello.py"
 Cohesion: 0.17
 Nodes (9): datetime, fib(), glass_theme(), lane_status(), Any, Hivelane demo project, edit these files to light up agent lanes., Conflict radar sketch, agents × overlapping files., Obvious numeric diff bait for the board. (+1 more)
 
-### Community 9 - "bench"
-Cohesion: 0.10
-Nodes (16): EventSink, bench(), acts(), many(), sinks(), cprofile_edit_check(), many(), FakeSocket (+8 more)
+### Community 9 - "ActivityMessage"
+Cohesion: 0.07
+Nodes (39): bench(), acts(), many(), cprofile_edit_check(), many(), FakeSocket, main_(), per_call_us() (+31 more)
 
 ### Community 10 - "compilerOptions"
 Cohesion: 0.10
@@ -385,31 +380,31 @@ Nodes (16): compilerOptions, allowImportingTsExtensions, erasableSyntaxOnly, lib
 
 ### Community 12 - "react"
 Cohesion: 0.09
-Nodes (37): Icon(), IconName, IconProps, PATHS, MobileNav(), TABS, ShortcutHelp(), AppView (+29 more)
+Nodes (31): IconName, IconProps, PATHS, MobileNav(), TABS, ShortcutHelp(), AppView, SidebarProps (+23 more)
 
-### Community 13 - "protocol.py"
-Cohesion: 0.04
-Nodes (79): available(), True when AES-GCM can be used (the e2e extra is installed)., is_always_warn_file(), The e2e form of message: names hashed, content emptied, the real values in its…, Queue message for the relay; False when it cannot go (an e2e room without a…, message as the JSON frame to send (sealed in an e2e room), or None when even…, ActivityUpdate, ConflictAlert (+71 more)
+### Community 13 - "daemon.py"
+Cohesion: 0.03
+Nodes (106): getpass, Constants the CLI needs before it knows which command runs. Kept free of…, _delegate(), edit_symbols(), is_always_warn_file(), JoinAnswer, PolicyChange, BaseModel (+98 more)
 
 ### Community 14 - "RoomConnection"
 Cohesion: 0.03
-Nodes (58): _close_quietly(), LocalGuard, _plain_reply(), Any, Joined and admitted: worth asking the relay before an edit., value's h:-token (remembered, to turn relay reasons back into names)., A fingerprint of one version of a file, sent with line numbers so the relay…, repo_id as sent: in an e2e room a keyed token (equality kept, so clones still… (+50 more)
+Nodes (57): HIVELANE_ROOM_KEY_<ROOM>: the room code upper-cased, - as _., room_key_env_name(), _chunk_changes(), _close_quietly(), LocalGuard, _payload_kind(), _peek(), _plain_reply() (+49 more)
 
 ### Community 15 - "smoke.sh"
 Cohesion: 0.42
 Nodes (7): daemon_status(), fail(), HIVELANE_HOME, hook_event(), smoke.sh script, start_daemon(), wait_for()
 
 ### Community 16 - "test_relay_core_fixes.py"
-Cohesion: 0.07
-Nodes (43): Steady-rate budget with bursts: `rate_per_minute` tokens refill evenly over…, Spend one token if there is one. False means: drop the message., TokenBucket, FileChange, _merged_ranges(), ranges_near(), True when any range of a overlaps or lies within proximity lines of b. Sorted…, RuntimeError (+35 more)
+Cohesion: 0.06
+Nodes (51): FileChange, PlanMessage, Team-wide conflict windows from the repo's .hivelane.toml. Sent on join so the…, RoomSettings, feed_frames(), _merged_ranges(), ranges_near(), The hivelane_feed frame(s) for a batch of events, serialized once. Split so… (+43 more)
 
 ### Community 17 - "configure"
 Cohesion: 0.08
 Nodes (24): Formatter, LogRecord, configure(), escape_controls(), JsonFormatter, mask_code(), Any, For uvicorn's own loggers, whose handlers and formatters uvicorn installs:… (+16 more)
 
-### Community 18 - "useDashboardState.ts"
-Cohesion: 0.07
-Nodes (43): Data map: what each piece of the mockup reads, describeCard(), PreventedCounterProps, ShareCardDialog(), ShareCardDialogProps, episodeOutcome(), firstAfter(), groupEpisodes() (+35 more)
+### Community 18 - "PreventedCounter.tsx"
+Cohesion: 0.21
+Nodes (17): describeCard(), PreventedCounterProps, ShareCardDialog(), ShareCardDialogProps, canCopyImage(), canvasToPng(), CARD_HEIGHT, CARD_WIDTH (+9 more)
 
 ### Community 19 - "test_history.py"
 Cohesion: 0.05
@@ -423,9 +418,13 @@ Nodes (5): plugins, rules, react/only-export-components, react/rules-of-hooks, $
 Cohesion: 0.08
 Nodes (39): b64urlDecode(), b64urlEncode(), BLOB_V2_PREFIX, decoder, decryptBlob(), DecryptError, deriveRoomKey(), E2EUnsupportedError (+31 more)
 
+### Community 22 - "bee.py"
+Cohesion: 0.08
+Nodes (40): bee_state(), command(), _ellipse(), enabled(), headless_reason(), _home(), main(), pid_path() (+32 more)
+
 ### Community 23 - "rate_key"
-Cohesion: 0.13
-Nodes (19): check_async(), check_room_creation(), check_room_creation_async(), check_ws_attempt(), check_ws_attempt_async(), HTTPConnection, Protocol, rate_key() (+11 more)
+Cohesion: 0.16
+Nodes (18): handle_request(), _ip_key(), Any, Answer a history_request from a member or dashboard socket. Point-to-point and…, check_async(), check_room_creation(), check_room_creation_async(), check_ws_attempt() (+10 more)
 
 ### Community 24 - "React + TypeScript + Vite"
 Cohesion: 0.50
@@ -433,23 +432,23 @@ Nodes (3): Expanding the Oxlint configuration, React Compiler, React + TypeScrip
 
 ### Community 25 - "test_rate_limits.py"
 Cohesion: 0.12
-Nodes (32): fnmatch, client_ip(), _forwarded_client(), The X-Forwarded-For entry written by the outermost proxy we trust. Each proxy…, `value` as a canonical IP address, or "" if it is not one. A proxy header can…, Best-known client IP for a request or WebSocket. In order: - Fly-Client-IP when…, _valid_ip(), _connection() (+24 more)
+Nodes (33): fnmatch, client_ip(), _forwarded_client(), The X-Forwarded-For entry written by the outermost proxy we trust. Each proxy…, `value` as a canonical IP address, or "" if it is not one. A proxy header can…, Best-known client IP for a request or WebSocket. In order: - Fly-Client-IP when…, _valid_ip(), _connection() (+25 more)
 
 ### Community 27 - "notifications.ts"
-Cohesion: 0.08
-Nodes (43): CLOSE_JOIN_TIMEOUT, CLOSE_NOT_ADMITTED, CLOSE_ROOM_NOT_FOUND, CLOSE_SLOW_SOCKET, closeAction, BrowserNotifications(), EVENT_LABELS, KIND_LABELS (+35 more)
+Cohesion: 0.09
+Nodes (42): CLOSE_JOIN_TIMEOUT, CLOSE_NOT_ADMITTED, CLOSE_ROOM_NOT_FOUND, CLOSE_SLOW_SOCKET, BrowserNotifications(), EVENT_LABELS, KIND_LABELS, NotificationsSettings() (+34 more)
 
 ### Community 28 - "tests/test_tasks.py"
 Cohesion: 0.07
-Nodes (43): task, task_update, Task, TaskNote, _clamp(), normalize_id(), Exception, Room tasks: a shared task list that members claim under a lease. A member… (+35 more)
+Nodes (41): task, task_update, Task, _clamp(), normalize_id(), Exception, The live claimed task reserving path for someone other than the requester (or…, The claimer edited one of its task's files: extend the lease. Returns the tasks… (+33 more)
 
-### Community 29 - "dumps"
-Cohesion: 0.07
-Nodes (36): [{"write": content}] for a tool that replaces the whole file, so the daemon can…, write_hints(), ClaudeCodeAdapter, _delegate_event(), _edit_hints(), _event(), _file_path(), normalize_payload() (+28 more)
+### Community 29 - "claude_code.py"
+Cohesion: 0.10
+Nodes (35): ack_decision(), The decision an ack really carries; anything malformed is allow., ClaudeCodeAdapter, _delegate_event(), _edit_hints(), _event(), _file_path(), normalize() (+27 more)
 
-### Community 30 - "MemberRelay"
-Cohesion: 0.09
-Nodes (33): find_nested_project_file(), A .hivelane.toml up to NESTED_SEARCH_DEPTH folders *below* cwd, when exactly…, event(), isolated(), make_repo(), MemberRelay, Any, fixture (+25 more)
+### Community 30 - "test_agent_lanes.py"
+Cohesion: 0.11
+Nodes (32): event(), isolated(), make_repo(), MemberRelay, Any, fixture, MonkeyPatch, Path (+24 more)
 
 ### Community 32 - "make_repo"
 Cohesion: 0.13
@@ -459,13 +458,13 @@ Nodes (18): make_repo(), MonkeyPatch, Path, The relay admits a name once per roo
 Cohesion: 0.19
 Nodes (15): _edit_check_reply(), _join(), Any, fixture, MonkeyPatch, relay(), _spectate(), test_a_configured_member_cap_turns_the_next_joiner_away() (+7 more)
 
-### Community 36 - "cli.py"
-Cohesion: 0.06
-Nodes (51): Check, check_transport(), create_room(), create_room_with_owner(), dashboard_base(), _e2e_check(), git_user_name(), has_hivelane_hooks() (+43 more)
+### Community 36 - "transport_problem"
+Cohesion: 0.12
+Nodes (18): check_transport(), dashboard_base(), print_summary(), The line teammates run to use this relay. A ws:// relay on another machine is…, Refuse a plaintext relay on another machine unless explicitly allowed., The dashboard link for room. A non-local relay rides along as ?relay=<url-…, What a teammate runs to join. Never carries an e2e room key: that goes to them…, relay_is_local() (+10 more)
 
 ### Community 37 - "Room"
-Cohesion: 0.04
-Nodes (31): _DecisionVotes, Return True if this user sent this kind of message too recently. On acceptance,…, Expire, release and notify (the notices are returned, not sent)., Sweep the wait queues and deliver what that produced. Called on every member…, Run the once-a-second sweep while any line or claim exists. The task ends by…, Reopen tasks whose lease lapsed and tell the dashboards., Sweep leases while any task is claimed; ends with the last claim., Track a broadcast warn/block so dashboards can vote on it. (+23 more)
+Cohesion: 0.03
+Nodes (108): Capacity (load test), Machine, Performance and capacity, Recommended speedups, in priority order, Top bottlenecks, _close_stalled(), _DecisionVotes, _dumps() (+100 more)
 
 ### Community 38 - "graphify"
 Cohesion: 0.50
@@ -475,25 +474,25 @@ Nodes (3): uvx, graphify, graphify-mcp
 Cohesion: 0.11
 Nodes (19): FileQueues, True while any line or claim needs sweeping., A member left: its places in line and its claims go with it., test_a_zero_queue_length_holds_every_member(), QueueKey, Crossed lines (each holds the file the other wants), claims and unused releases…, Run a sweep with fixed holders; notices as (kind, to, requester)., _sweep() (+11 more)
 
-### Community 40 - "model.ts"
-Cohesion: 0.09
-Nodes (50): LaneProps, TimelineViewProps, FileStatInput, LaneFacts, deriveLane(), LANE_DIFFS, LaneDerived, LaneLike (+42 more)
+### Community 40 - "Views.tsx"
+Cohesion: 0.06
+Nodes (71): Phase 2: Dashboard view, LaneProps, Sidebar(), TasksViewProps, TimelineViewProps, barHeights(), ChartDot, ChartRange (+63 more)
 
 ### Community 41 - "FakeRedis"
-Cohesion: 0.08
-Nodes (14): hook_settings(), entry(), The hooks block hivelane merges into `.gemini/settings.json`., _bound(), FakePipeline, FakeRedis, command(), _in_range() (+6 more)
+Cohesion: 0.09
+Nodes (12): _bound(), FakePipeline, FakeRedis, command(), _in_range(), Any, ConnectionError, FakePipeline (+4 more)
 
 ### Community 42 - "RedisRoomStore"
-Cohesion: 0.08
-Nodes (15): _decode_record(), Room codes in Redis, so every relay instance accepts every code. Layout, under…, One pipeline for the code, its settings and its access record, so Redis failing…, RedisRoomStore, call(), call(), call(), call() (+7 more)
+Cohesion: 0.04
+Nodes (29): Connection, Outage bookkeeping for one Redis-backed component. Runs a call against Redis,…, RedisGuard, _decode_record(), _LockedConnection, Any, Replace a known room's access record; a no-op for an unknown code., The room's webhooks record, or None if it has none. (+21 more)
 
 ### Community 44 - "test_edit_check_roundtrip.py"
 Cohesion: 0.30
 Nodes (11): _join(), _next_feed_event(), _next_frame(), Any, edit_check over a real WebSocket: the reply must arrive immediately, ahead of…, A daemon that connects second must still learn its peers; without this catch-up…, Next top-level frame of this type, skipping debounced feed batches., Neither join nor activity carries a repo_id (an old client): they validate,… (+3 more)
 
-### Community 45 - "RoomStore"
-Cohesion: 0.08
-Nodes (13): Protocol, Replace a known room's access record; a no-op for an unknown code., The room's webhooks record, or None if it has none., Replace a known room's webhooks record; a no-op for an unknown code., The code's creation time, settings and access record in one read, or None if…, Number of unexpired codes., Drop codes older than the TTL. Returns how many were dropped., Set of currently valid room codes with their creation times and settings. (+5 more)
+### Community 45 - "create_room"
+Cohesion: 0.09
+Nodes (20): model_validator, create_room(), CreateRoomRequest, BaseModel, post, Request, Optional POST /rooms body: start the room with these conflict windows. HTTP-…, Generate a fresh room code. The room code is the shared secret: whoever has it… (+12 more)
 
 ### Community 46 - "test_webhooks.py"
 Cohesion: 0.16
@@ -503,213 +502,213 @@ Nodes (26): _add(), _member(), Any, parametrize, Path, TestClient, Owner-configu
 Cohesion: 0.11
 Nodes (18): _accepts(), _decision_of(), _ev(), _FakeSocket, _filter(), generate(), load_sessions(), metrics() (+10 more)
 
-### Community 48 - "QueueRelay"
+### Community 48 - "wait_for"
 Cohesion: 0.17
-Nodes (16): Any, CaptureFixture, Path, ServerConnection, QueueRelay, Answers edit_check with `reply` (block by default, #1 in line) and file_request…, session_event(), started() (+8 more)
+Nodes (19): wait_for(), Any, CaptureFixture, Path, ServerConnection, QueueRelay, Answers edit_check with `reply` (block by default, #1 in line) and file_request…, session_event() (+11 more)
 
 ### Community 49 - "service.py"
-Cohesion: 0.11
-Nodes (43): disconnect_repo(), health(), is_running(), _kill(), log_path(), log_tail(), _log_to_file(), _looks_like_daemon() (+35 more)
+Cohesion: 0.09
+Nodes (50): connect_repo(), DaemonAuthError, disconnect_repo(), _error_detail(), health(), is_running(), _kill(), log_path() (+42 more)
 
-### Community 50 - "test_detect.py"
+### Community 50 - "detect.py"
 Cohesion: 0.07
-Nodes (36): 2. Register it, AgentSpec, detect(), detect_agents(), DetectedAgent, get_agent(), home(), HookAdapter (+28 more)
+Nodes (37): 2. Register it, AgentSpec, detect(), detect_agents(), DetectedAgent, get_agent(), home(), HookAdapter (+29 more)
 
 ### Community 51 - "test_symbols.py"
-Cohesion: 0.19
-Nodes (19): Qualified names of the innermost definitions enclosing each range (1-based…, symbols_for_ranges(), lines_of(), hivelane.symbols: exact Python outlines, heuristic outlines for the other…, Finding 27: a UTF-8 BOM made ast.parse fail., test_assignments_are_named_at_top_level_and_in_classes_only(), test_ast_sees_defs_and_imports_inside_compound_statements(), test_bare_call_in_semicolon_free_js_is_not_a_definition() (+11 more)
+Cohesion: 0.12
+Nodes (29): change_symbols(), Symbols and new-file line ranges a finished edit changed., changed_line_ranges(), predict_ranges(), Qualified names of the innermost definitions enclosing each range (1-based…, Ranges of lines (1-based inclusive, in `new`) that differ from `old`. A pure…, Where an Edit's `old_string` sits in the current file (every occurrence, for…, symbols_for_ranges() (+21 more)
 
 ### Community 52 - "extension.ts"
 Cohesion: 0.10
 Nodes (22): repoForPath(), resolvePort(), validPort(), EditGate, KeyedDebounce, activate(), activeRepo(), cfg() (+14 more)
 
 ### Community 53 - "MemoryRoomStore"
-Cohesion: 0.05
-Nodes (25): _build_local_store(), MemoryRoomStore, Default store: codes live as long as the process does., SQLite when HIVELANE_STATE_PATH points at a usable file, memory otherwise., fixture, MonkeyPatch, relay(), MonkeyPatch (+17 more)
+Cohesion: 0.06
+Nodes (20): MemoryRoomStore, Default store: codes live as long as the process does., The room's stored settings, or None if it has none (or is unknown)., Replace a known room's settings; a no-op for an unknown code., MonkeyPatch, relay(), test_a_room_in_use_when_the_timer_fires_is_kept(), test_cleanup_grace_runs_from_the_latest_departure() (+12 more)
 
 ### Community 54 - "test_directory.py"
-Cohesion: 0.07
-Nodes (52): Where a connection for `code` should be served., RoomRoute, sign_replay_state(), Clock, _app(), clock(), Cluster, _directory() (+44 more)
+Cohesion: 0.11
+Nodes (26): instance_id(), This process's name in the directory: Fly's machine id, an explicit…, _app(), FakeRouter, _free_port(), FastAPI, Several relay instances: room leases, routing upgrades to a room's owner, and…, The middleware under a real uvicorn, which is what Fly's proxy talks to. (+18 more)
 
 ### Community 55 - "RepoBinding"
-Cohesion: 0.05
-Nodes (33): add_repo(), decide(), events(), policy(), remove_repo(), shutdown(), status(), tasks() (+25 more)
+Cohesion: 0.03
+Nodes (61): cached_repo_id(), add_repo(), decide(), events(), policy(), remove_repo(), shutdown(), status() (+53 more)
 
-### Community 56 - "test_decision_engine.py"
-Cohesion: 0.10
-Nodes (48): render(), is_always_warn_file(), True for imports/config files that are never judged by symbol., FakeSocket, _feed(), _frame(), _join(), _plan() (+40 more)
+### Community 56 - "readyz"
+Cohesion: 0.17
+Nodes (12): get(), PlainTextResponse, health(), client_ip_source(), Where client_ip looks first, for /readyz and the startup log., health(), prometheus_metrics(), Prometheus text exposition of this process's counters and gauges.… (+4 more)
 
 ### Community 57 - "FakeNet"
 Cohesion: 0.13
 Nodes (28): _block(), Clock, FakeNet, _hook(), net(), _notice(), fixture, LogCaptureFixture (+20 more)
 
 ### Community 58 - "bench_hook.py"
-Cohesion: 0.11
-Nodes (25): default_command(), main(), payload(), percentile(), Path, Measure the wall time of one `hivelane hook claude-code` invocation. Claude…, The console script Claude Code actually runs, falling back to -m. The installed…, report() (+17 more)
+Cohesion: 0.22
+Nodes (15): http_server, default_command(), main(), payload(), percentile(), Path, Measure the wall time of one `hivelane hook claude-code` invocation. Claude…, The console script Claude Code actually runs, falling back to -m. The installed… (+7 more)
 
 ### Community 59 - "normalize_room_code"
+Cohesion: 0.08
+Nodes (22): is_plausible_code(), normalize_room_code(), Any, Canonical form of a typed or pasted code: upper case, no separators., Cheap shape check before touching the store. Deliberately not restricted to…, Look up a room by code, reviving a known code whose Room is gone. Still strict…, The live Room for a code, without reviving one., (Re)arm the room's single cleanup timer to fire `delay` from now. When it… (+14 more)
+
+### Community 62 - "test_adapter_hardening.py"
 Cohesion: 0.07
-Nodes (26): _generate_code(), is_plausible_code(), normalize_room_code(), Any, Canonical form of a typed or pasted code: upper case, no separators., Cheap shape check before touching the store. Deliberately not restricted to…, A room code works for ROOM_TTL_SECONDS from its creation (the store forgets it…, Generate a fresh room code and register an empty Room under it. settings, when… (+18 more)
+Nodes (45): hook_settings(), The hooks block hivelane wants merged into a Claude Code settings.json.…, fake_home(), CaptureFixture, fixture, MonkeyPatch, Path, Regression tests for the hook/adapter review (findings/01-hook-adapters.md):… (+37 more)
 
-### Community 62 - "Path"
-Cohesion: 0.06
-Nodes (44): hook_settings(), The hooks block hivelane wants merged into a Claude Code settings.json.…, claim_spawn(), daemon_command(), hivelane_home(), maybe_start_daemon(), pid_path(), True if this hook may start the daemon, recording that it is doing so. At most… (+36 more)
-
-### Community 63 - "post_event"
-Cohesion: 0.05
-Nodes (59): Stdout for Claude Code. Empty string means "no output, proceed"., render_response(), BadResponse, DaemonUnreachable, _dechunk(), _exchange(), _expected_length(), _parse_response() (+51 more)
+### Community 63 - "test_hook_fast.py"
+Cohesion: 0.07
+Nodes (45): Stdout for Claude Code. Empty string means "no output, proceed"., render_response(), daemon_proof(), HMAC-SHA256 of the client's nonce under the install token, as hex., legacy_normalize(), legacy_render_response(), live_daemon(), payload_matrix() (+37 more)
 
 ### Community 64 - "Daemon"
-Cohesion: 0.04
-Nodes (85): Daemon, health(), plan_conflict_note(), One line naming who is editing / planning which of the plan's files., The loopback HTTP endpoint for agent hooks, routing each event by its cwd to…, Host header values LocalGuard accepts (lowercase)., The token to prove: the one on disk, so a token regenerated while the daemon…, Constant-time check of a request's X-Hivelane-Token. (+77 more)
+Cohesion: 0.05
+Nodes (81): Daemon, health(), The loopback HTTP endpoint for agent hooks, routing each event by its cwd to…, Host header values LocalGuard accepts (lowercase)., The token to prove: the one on disk, so a token regenerated while the daemon…, Constant-time check of a request's X-Hivelane-Token., FileChange, _conn() (+73 more)
 
-### Community 65 - "test_resolve_actions.py"
-Cohesion: 0.12
-Nodes (33): HeldEdit, Remember a block, so an owner can release it (hold_release)., The block decision_id recorded, while it can still be released., A block an owner may release: who was held, on which file, and the e2e blob of…, check(), _check(), _edit(), FakeSocket (+25 more)
+### Community 65 - "_next"
+Cohesion: 0.33
+Nodes (16): _check(), _edit(), _held_room(), _join(), _next(), Any, TestClient, A room where ana holds FILE and ben's edit of it was just blocked. (+8 more)
 
-### Community 66 - "taskReducer.ts"
-Cohesion: 0.17
-Nodes (19): COLUMNS, TaskCard(), TasksView(), TasksViewProps, applyTaskEvent(), byNumber(), claimedBy(), groupTasks() (+11 more)
+### Community 66 - "RoomRoute"
+Cohesion: 0.15
+Nodes (19): Where a connection for `code` should be served., RoomRoute, Cluster, _join(), Any, LogCaptureFixture, parametrize, Relay instances sharing one Redis, each with its own manager. (+11 more)
 
 ### Community 67 - "daemonClient.ts"
 Cohesion: 0.11
 Nodes (26): daemonProof(), DaemonStatus, DaemonUnverifiedError, EventAck, EventKind, InspectedNumber, norm(), NormalizedEvent (+18 more)
 
-### Community 68 - "NormalizedEvent"
-Cohesion: 0.06
-Nodes (44): _bounded_put(), Lane, lane_name(), lane_suffix(), A held intent of this session, replayed before its first routed event (a newer…, Keep a subagent's task until that subagent shows up., The oldest pending task of this session for this subagent type (any type when…, The lane an event goes out on, opening one if need be; None means the repo's… (+36 more)
+### Community 68 - ".handle_event"
+Cohesion: 0.08
+Nodes (19): _bounded_put(), Lane, lane_name(), lane_suffix(), A held intent of this session, replayed before its first routed event (a newer…, Keep a subagent's task until that subagent shows up., The oldest pending task of this session for this subagent type (any type when…, The lane an event goes out on, opening one if need be; None means the repo's… (+11 more)
 
-### Community 69 - "WebSocket"
-Cohesion: 0.07
-Nodes (16): _close_stalled(), _dumps(), feed_frames(), BaseModel, WebSocket, Queue a room-wide event and flush as a Hivelane feed batch (~500ms). Never…, Send one serialized frame to every member and spectator at once. Serialized…, Send to every socket at once (one slow socket costs at most… (+8 more)
+### Community 69 - ".__init__"
+Cohesion: 0.12
+Nodes (11): OwnerProbe, fly_owner_probe(), fly_replay_enabled(), LeaseHolder, ASGIApp, Protocol, What the middleware needs from the room manager., The key replay states are signed with, shared by every instance:… (+3 more)
 
-### Community 70 - "test_redact.py"
-Cohesion: 0.11
-Nodes (23): is_sensitive_file(), True for files whose diffs are never sent (see module docstring)., parametrize, hivelane.redact: what may leave the machine. Realistic secrets are caught,…, Typically ~3 ms. The budget is a guard against catastrophic slowdowns (regex…, The daemon's diff format (hivelane.daemon.unified_diff), without importing the…, Regression (finding 14): an added `++ b/...` line is `+++ b/...` in the diff…, Regression (finding 19): `A=` + 20k spaces + `#` took 3.4 s. (+15 more)
+### Community 70 - "test_dashboard.py"
+Cohesion: 0.20
+Nodes (17): parametrize, TestClient, The relay serving the bundled dashboard: static files, the single-page-app…, test_a_missing_file_is_a_404_not_the_dashboard(), test_api_paths_never_get_the_dashboard(), test_client_routes_fall_back_to_index_html(), test_files_outside_the_build_are_not_reachable(), test_fingerprinted_assets_are_cached_for_good() (+9 more)
 
-### Community 71 - "MemoryRoomDirectory"
-Cohesion: 0.07
-Nodes (20): build_room_directory(), instance_id(), MemoryRoomDirectory, This process's name in the directory: Fly's machine id, an explicit…, Who owns each room. Codes passed in are already normalized., True when other instances consult the same directory., Take the lease if nobody holds it; return the owner's instance id, which is…, Extend this instance's lease, or retake it if it lapsed and nobody else took… (+12 more)
+### Community 71 - "RoomDirectory"
+Cohesion: 0.12
+Nodes (10): build_room_directory(), Who owns each room. Codes passed in are already normalized., True when other instances consult the same directory., Take the lease if nobody holds it; return the owner's instance id, which is…, Extend this instance's lease, or retake it if it lapsed and nobody else took…, Replace `stale_owner`'s lease with ours (it is known to be unreachable). False…, Drop the lease if this instance holds it; a no-op otherwise., The current owner, or None when the room is unclaimed. (+2 more)
 
-### Community 72 - "Charts.tsx"
+### Community 72 - "shutil"
 Cohesion: 0.15
-Nodes (20): Phase 2: Dashboard view, barHeights(), ChartDot, ChartRange, CLOCK_SLACK_SECONDS, DotKind, laneBuckets(), LineRange (+12 more)
+Nodes (14): command_for(), enabled(), notify(), Best-effort desktop notifications from the daemon. Used for things a person…, The argv that shows (title, body) on this platform, or None., Show a desktop notification; True when one was handed to the OS., fixture, MonkeyPatch (+6 more)
 
 ### Community 73 - "test_access_control.py"
-Cohesion: 0.14
-Nodes (48): new_owner_token(), A fresh owner secret: 32 random bytes, URL-safe base64 (43 characters)., _admitted(), _create(), _frames(), _fresh_counters(), _join(), _let_in() (+40 more)
+Cohesion: 0.11
+Nodes (56): hash_owner_token(), new_owner_token(), A fresh owner secret: 32 random bytes, URL-safe base64 (43 characters)., What the relay keeps instead of the token: its SHA-256, hex. Unsalted on…, True if token is this room's owner token. Compared as hashes in constant time,…, _admitted(), _create(), _frames() (+48 more)
 
 ### Community 74 - "vscode/package.json"
 Cohesion: 0.07
 Nodes (27): activationEvents, bugs, url, categories, dependencies, ws, description, displayName (+19 more)
 
 ### Community 75 - "hivelane/config.py"
-Cohesion: 0.13
-Nodes (35): _apply(), _bool(), _check_relay(), ConfigFileError, find_project_config(), _float(), is_loopback_host(), _parses() (+27 more)
+Cohesion: 0.09
+Nodes (48): _apply(), _bool(), canonical_room(), _check_relay(), ConfigFileError, find_project_config(), _float(), HivelaneConfig (+40 more)
 
 ### Community 76 - "Machine"
 Cohesion: 0.10
 Nodes (47): Machine, fixture, MonkeyPatch, hivelane_events(), project_values(), CaptureFixture, MonkeyPatch, parametrize (+39 more)
 
-### Community 77 - "daemon.py"
-Cohesion: 0.04
-Nodes (62): getpass, HIVELANE_ROOM_KEY_<ROOM>: the room code upper-cased, - as _., room_key_env_name(), Constants the CLI needs before it knows which command runs. Kept free of…, cached_repo_id(), _chunk_changes(), default_name(), _existing_dir() (+54 more)
+### Community 77 - "NormalizedEvent"
+Cohesion: 0.14
+Nodes (30): relative_path(), NormalizedEvent, BaseModel, drain(), flushed(), make_daemon(), Path, Daemon translation: post_edit debouncing, diffing and the pre_edit cache. (+22 more)
 
 ### Community 78 - "main"
-Cohesion: 0.13
-Nodes (44): BytesIO, main(), cp1252_stdout(), doctor_lines(), CaptureFixture, MonkeyPatch, parametrize, down / leave / doctor / status / open / serve / service / --version, and… (+36 more)
+Cohesion: 0.14
+Nodes (42): BytesIO, main(), cp1252_stdout(), doctor_lines(), CaptureFixture, MonkeyPatch, parametrize, down / leave / doctor / status / open / serve / service / --version, and… (+34 more)
 
 ### Community 79 - "x-relay-to-client"
 Cohesion: 0.07
 Nodes (29): x-relay-to-client, activity_update, conflict_alert, decision_feedback_update, edit_check_response, edit_decision, file_released, file_requested (+21 more)
 
-### Community 80 - "redact.py"
-Cohesion: 0.11
-Nodes (25): bisect, _allows_spaces(), _assignment_spans(), _basename(), _conn_string_password(), _header_spans(), _is_config_file(), _is_env_file() (+17 more)
+### Community 80 - "test_redact.py"
+Cohesion: 0.05
+Nodes (55): bisect, difflib, _allows_spaces(), _assignment_spans(), _basename(), _conn_string_password(), _header_spans(), _is_config_file() (+47 more)
 
-### Community 81 - "hivelane/tests/test_config.py"
-Cohesion: 0.13
-Nodes (42): Create or update `<root>/.hivelane.toml`, preserving unknown keys and comments.…, write_project_config(), isolated(), parsed(), personal(), fixture, MonkeyPatch, parametrize (+34 more)
+### Community 81 - "load_config"
+Cohesion: 0.12
+Nodes (47): load_config(), Resolve the effective config for the repo containing `start`. `overrides` are…, Create or update `<root>/.hivelane.toml`, preserving unknown keys and comments.…, write_project_config(), isolated(), parsed(), personal(), fixture (+39 more)
 
 ### Community 82 - "tests/test_file_queue.py"
 Cohesion: 0.27
 Nodes (23): check(), make_room(), Per-file wait queues (server/file_queue.py) and how the relay works them:…, What handle_edit_check does: sweep, decide, queue, suggest., e2e rooms: the relay queues on the hash, copies the requester's blob onto the…, test_a_blocked_check_queues_and_tells_the_holder(), test_a_requester_leaving_gives_up_its_place(), test_a_returning_holder_blocks_the_released_head_again() (+15 more)
 
-### Community 83 - "test_join_with_settings_updates_the_room_and_broadcasts_them"
-Cohesion: 0.11
-Nodes (28): run_worker_async(), connect(), member(), reader(), spectator(), _admitted(), _join(), _next_feed_event() (+20 more)
+### Community 83 - "test_room_settings.py"
+Cohesion: 0.08
+Nodes (48): run_worker_async(), connect(), member(), reader(), spectator(), _activity(), _admitted(), FakeSocket (+40 more)
 
 ### Community 84 - "hivelane/tests/test_repo_identity.py"
 Cohesion: 0.10
-Nodes (40): compute_repo_id(), normalize_remote_url(), Reduce a git remote URL to host/path so every way of spelling one repository…, Identity of the repository at root, shared by every clone of it. The normalized…, _drain(), _fake_repo(), _fresh_caches(), _git() (+32 more)
+Nodes (38): compute_repo_id(), normalize_remote_url(), Reduce a git remote URL to host/path so every way of spelling one repository…, Identity of the repository at root, shared by every clone of it. The normalized…, compute_repo_id, once per root until its git identity files change. The…, repo_id_for(), _fake_repo(), _fresh_caches() (+30 more)
 
 ### Community 85 - "test_payload_limits.py"
-Cohesion: 0.12
-Nodes (30): text if it fits in `limit` UTF-8 bytes, else a prefix that does once…, truncate_utf8(), _fresh_counters(), _join(), _next_event(), Any, fixture, MonkeyPatch (+22 more)
+Cohesion: 0.10
+Nodes (32): Steady-rate budget with bursts: `rate_per_minute` tokens refill evenly over…, Spend one token if there is one. False means: drop the message., TokenBucket, Spend one unit of user_id's own edit-check budget (the room's message limit,…, _fresh_counters(), _join(), _next_event(), Any (+24 more)
 
 ### Community 86 - "crypto.py"
-Cohesion: 0.13
-Nodes (20): base64, functools, _derive_cached(), hkdf_sha256(), _legacy_room(), normalize_passphrase(), normalize_room(), End-to-end encryption for rooms whose `.hivelane.toml` says `e2e = true`. The… (+12 more)
+Cohesion: 0.18
+Nodes (16): base64, _derive_cached(), hkdf_sha256(), _legacy_room(), normalize_passphrase(), End-to-end encryption for rooms whose `.hivelane.toml` says `e2e = true`. The…, RFC 5869 HKDF with SHA-256 (extract then expand)., v1's room rule (strip and upper case only), kept to open v1 blobs. (+8 more)
 
 ### Community 87 - "test_room_store_redis.py"
-Cohesion: 0.16
-Nodes (27): build_room_store(), Pick a store from the environment. - HIVELANE_REDIS_URL set: RedisRoomStore,…, fake_connect(), make_store(), fixture, FixtureRequest, LogCaptureFixture, MonkeyPatch (+19 more)
+Cohesion: 0.17
+Nodes (24): fake_connect(), make_store(), fixture, FixtureRequest, LogCaptureFixture, MonkeyPatch, Path, The Redis room store: the same contract as the SQLite and memory stores (run… (+16 more)
 
 ### Community 88 - "feed.test.ts"
 Cohesion: 0.11
 Nodes (23): dashboardBase(), DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_LOCAL, feedPlan(), httpUrl(), relayIsLocal(), roomLink(), dashboardUrl() (+15 more)
 
 ### Community 89 - "say"
-Cohesion: 0.13
-Nodes (41): ArgumentParser, build_parser(), cmd_doctor(), cmd_down(), cmd_githook(), cmd_hook_agent(), cmd_join(), cmd_key() (+33 more)
+Cohesion: 0.10
+Nodes (50): ArgumentParser, build_parser(), cmd_bee(), cmd_doctor(), cmd_down(), cmd_githook(), cmd_hook_agent(), cmd_join() (+42 more)
 
 ### Community 90 - "properties"
 Cohesion: 0.10
 Nodes (21): enum, title, type, properties, decision, queue_position, request_id, scope (+13 more)
 
 ### Community 91 - "event"
-Cohesion: 0.28
-Nodes (18): unified_diff(), event(), wait_for(), make_git_repo(), MonkeyPatch, Path, A repo whose .git is hand-written: no git subprocess needed., started() (+10 more)
+Cohesion: 0.19
+Nodes (20): unified_diff(), event(), make_git_repo(), PlanRelay, Any, MonkeyPatch, Path, ServerConnection (+12 more)
 
-### Community 92 - "test_check_edit.py"
-Cohesion: 0.17
-Nodes (22): FakeSocket, _join(), Room.check_edit policy: the pre-edit decision an agent's hook depends on., A prompt is followed by edits within milliseconds; the intent must not cause…, An intent has to expire: otherwise one morning prompt naming a file warns about…, A long-lived room must not keep an entry for every file ever touched., Stand-in member socket: Room only stores it and calls send_json on broadcast,…, The sweep must not reach a touch a comparison can still see. (+14 more)
+### Community 92 - "systemd_unit"
+Cohesion: 0.13
+Nodes (17): autostart_command(), _home_override(), launchd_plist(), log_tail(), output_path(), The last lines of the daemon's log and raw output, for error messages., HIVELANE_HOME as it is now, so the login-started daemon uses the same state…, A path for a systemd path setting (WorkingDirectory=). systemd does not unquote… (+9 more)
 
 ### Community 93 - "test_adapter_hook_path.py"
-Cohesion: 0.13
-Nodes (30): ids(), Handle one hook invocation for any registered adapter: stdin payload in,…, run_agent(), _codex_patch_payload(), Any, CaptureFixture, MonkeyPatch, parametrize (+22 more)
+Cohesion: 0.14
+Nodes (28): ids(), _codex_patch_payload(), Any, CaptureFixture, MonkeyPatch, parametrize, Path, `hivelane hook <agent>` for every registered adapter runs through the stdlib-… (+20 more)
 
 ### Community 94 - "EditCheckRequest"
-Cohesion: 0.14
-Nodes (22): RoomKey, The activity blob, cut down until it fits the relay's blob limit: whole diffs,…, _seal_activity(), ActivityMessage, EditCheckRequest, FileChange, test_a_huge_prompt_is_capped_and_activity_frames_fit(), scenario() (+14 more)
+Cohesion: 0.24
+Nodes (13): EditCheckRequest, test_an_abandoned_edit_check_is_not_sent_late(), scenario(), _activity(), _daemon(), Outbox ordering and retention: edit_check is on a blocking hook, and a payload…, test_edit_check_overtakes_a_backlog_of_activity(), scenario() (+5 more)
 
 ### Community 95 - "test_adapter_conformance.py"
 Cohesion: 0.11
-Nodes (39): 4. Run the suite, load(), The adapter for `agent_id`; KeyError if there is none., _approves(), _denies(), fake_home(), _is_allow(), load_fixture() (+31 more)
+Nodes (40): 4. Run the suite, load(), Per-agent hook adapters. Each one translates a native hook payload into…, The adapter for `agent_id`; KeyError if there is none., _approves(), _denies(), fake_home(), _is_allow() (+32 more)
 
 ### Community 96 - "Relay to client"
-Cohesion: 0.11
-Nodes (26): activity_update, conflict_alert, decision_feedback_update, edit_check_response, edit_decision, file_released, file_requested, history_chunk (+18 more)
+Cohesion: 0.08
+Nodes (35): Conflict detection, Dashboard, Decision table, Feedback loop, Scopes, Semantic matching (`server/semantic.py`), Several agents per person, activity_update (+27 more)
 
 ### Community 97 - "server/tests/test_repo_identity.py"
-Cohesion: 0.17
-Nodes (24): _edit_check(), FakeSocket, _join(), _next_feed_event(), _next_frame(), Any, Repo identity on the relay: the same relative path in two different repos is…, Room only stores member sockets; these tests never broadcast. (+16 more)
+Cohesion: 0.16
+Nodes (25): _edit_check(), FakeSocket, _join(), _next_feed_event(), _next_frame(), Any, Repo identity on the relay: the same relative path in two different repos is…, Room only stores member sockets; these tests never broadcast. (+17 more)
 
 ### Community 98 - "test_crypto.py"
 Cohesion: 0.15
-Nodes (21): builtins, derive(), is_hashed(), The room key, v2 unless asked otherwise. Slow (~0.5 s) the first time for a…, hivelane.crypto: the e2e key schedule, blobs and hashes, pinned by the test…, Regression (finding 2): `k7q2-xm9p` and the dashboard's `K7Q2XM9P` were…, Regression (finding 13): `$$\\n` inside a blob used to be skipped., test_derive_is_cached() (+13 more)
+Nodes (21): builtins, derive(), pad_plaintext(), `data` + spaces up to the next bucket: powers of two from 256 bytes to 16 KiB,…, The room key, v2 unless asked otherwise. Slow (~0.5 s) the first time for a…, hivelane.crypto: the e2e key schedule, blobs and hashes, pinned by the test…, Regression (finding 13): `$$\\n` inside a blob used to be skipped., test_derive_is_cached() (+13 more)
 
 ### Community 99 - "RoomKey"
 Cohesion: 0.13
 Nodes (11): _aesgcm(), b64url_encode(), Any, The keys derived from a room's passphrase, and what they do., `h:` + 32 hex of HMAC-SHA256(mac_key, value). "" stays "" (an empty branch…, What to send as `repo_id` in an e2e room: keyed, so the relay can still tell…, [`2.`] base64url(nonce || ciphertext || tag), message_type as associated data.…, encrypt() of the envelope's compact JSON, padded (v2) with trailing spaces,… (+3 more)
 
 ### Community 100 - "RedisRoomDirectory"
-Cohesion: 0.09
-Nodes (14): Connection, Any, Outage bookkeeping for one Redis-backed component. Runs a call against Redis,…, Room leases in Redis, shared by every relay instance., RedisGuard, RedisRoomDirectory, call(), _text() (+6 more)
+Cohesion: 0.22
+Nodes (6): Any, Room leases in Redis, shared by every relay instance., RedisRoomDirectory, call(), _text(), T
 
 ### Community 101 - "status-shortcuts-theme.test.ts"
-Cohesion: 0.22
-Nodes (16): isStatusHue(), applyTheme(), initialTheme(), parseThemePref(), readThemePref(), ResolvedTheme, resolveTheme(), storeThemePref() (+8 more)
+Cohesion: 0.14
+Nodes (24): META, ThemeToggle(), BLOCKED_FOR_SECONDS, IDLE_AFTER_SECONDS, LaneStatusInput, STATUS_HINT, STATUS_LABEL, isStatusHue() (+16 more)
 
 ### Community 102 - "QueueEntry"
 Cohesion: 0.12
@@ -719,29 +718,29 @@ Nodes (9): QueueKey, QueueEntry, 1-based place of user_id in key's line; 0 when 
 Cohesion: 0.05
 Nodes (60): dependencies, astro, @astrojs/starlight, sharp, description, engines, node, license (+52 more)
 
-### Community 104 - "cmd_up"
-Cohesion: 0.09
-Nodes (40): _ago(), can_encode(), cmd_up(), confirm(), display_path(), ensure_room_key(), find_repo_entry(), _format_repo() (+32 more)
+### Community 104 - "cli.py"
+Cohesion: 0.05
+Nodes (89): hivelane_on_path(), hook_command_for(), Whether a bare `hivelane` resolves on this PATH (a seam for tests). The agent's…, `hivelane hook <id>` when hivelane is on PATH, else the same through an…, _ago(), can_encode(), Check, cmd_hook_install() (+81 more)
 
 ### Community 105 - "FixedWindowLimiter"
-Cohesion: 0.09
-Nodes (16): FixedWindowLimiter, ip_rate_key(), Count one attempt against `key` and say whether it is allowed., FixedWindowLimiter semantics with the counters held in Redis. While Redis is…, Count one attempt against `key` and say whether it is allowed. `now` only…, The rate-limit key for an address: IPv4 as is, IPv6 by its /64 (an IPv4-mapped…, In-process fixed-window counter per key, with a bounded key set. The key set is…, RedisFixedWindowLimiter (+8 more)
+Cohesion: 0.13
+Nodes (9): FixedWindowLimiter, FixedWindowLimiter semantics with the counters held in Redis. While Redis is…, Count one attempt against `key` and say whether it is allowed. `now` only…, In-process fixed-window counter per key, with a bounded key set. The key set is…, RedisFixedWindowLimiter, test_a_zero_rate_limit_allows_everything(), test_zero_tracked_ips_does_not_evict(), In-process only: Redis bounds its key set with expiries instead. (+1 more)
 
 ### Community 106 - "ConfigError"
-Cohesion: 0.13
-Nodes (22): ConfigError, load_settings(), merge_hooks(), normalize_relay(), normalize_room(), Check --root up front: a typo would otherwise key every path against a…, ROOM from the command line, else the current repo's configured room., A relay WebSocket base from what a person is likely to paste: ws(s):// or… (+14 more)
+Cohesion: 0.20
+Nodes (16): ConfigError, load_settings(), normalize_room(), Exception, ROOM from the command line, else the current repo's configured room., Bad local configuration: report it, never guess around it., Parse an existing settings file, or raise ConfigError (never {} for content it…, _room_for() (+8 more)
 
-### Community 107 - "Path"
-Cohesion: 0.15
-Nodes (25): find_project_file(), Nearest .hivelane.toml at or above cwd, by plain os.path walking (no pathlib,…, edit_payload(), lazy_port(), project(), Any, CaptureFixture, fixture (+17 more)
+### Community 107 - "test_lazy_start.py"
+Cohesion: 0.17
+Nodes (25): edit_payload(), lazy_port(), project(), Any, CaptureFixture, fixture, MonkeyPatch, Path (+17 more)
 
 ### Community 108 - "base.py"
 Cohesion: 0.05
-Nodes (77): absolute_hivelane(), ack_card(), ack_message(), _basename(), clean_text(), _entries(), _existing_command(), has_hivelane() (+69 more)
+Nodes (77): absolute_hivelane(), ack_card(), ack_message(), Adapter, _basename(), clean_text(), _entries(), _existing_command() (+69 more)
 
 ### Community 109 - "codex.py"
 Cohesion: 0.13
-Nodes (19): CodexAdapter, _edit_hints(), hook_settings(), normalize_payload(), patch_hints(), patch_paths(), Any, OpenAI Codex CLI hook adapter. Schema per… (+11 more)
+Nodes (20): hivelane_adapters, CodexAdapter, _edit_hints(), hook_settings(), normalize_payload(), patch_hints(), patch_paths(), Any (+12 more)
 
 ### Community 110 - "activity.ts"
 Cohesion: 0.17
@@ -749,55 +748,55 @@ Nodes (9): ActivityTracker, initials(), normalizeRel(), relOf(), tooltip(), Touc
 
 ### Community 111 - "`hivelane` command reference"
 Cohesion: 0.10
-Nodes (20): Environment variables, Exit codes, `hivelane` command reference, hivelane doctor, hivelane down, hivelane githook, hivelane hook, hivelane join / hivelane daemon (+12 more)
+Nodes (21): Environment variables, Exit codes, hivelane bee, `hivelane` command reference, hivelane doctor, hivelane down, hivelane githook, hivelane hook (+13 more)
 
 ### Community 112 - "RedisCounterStore"
 Cohesion: 0.12
 Nodes (21): build_limiter(), Exception, Window counters in Redis, shared by every relay instance. Holds the one client…, Count one attempt against `key`. Returns (attempts in the current window, ms…, Drop every counter under `namespace`. For tests and operators: on a shared…, RedisCounterStore, Clock, LogCaptureFixture (+13 more)
 
 ### Community 113 - "test_protocol_contract.py"
-Cohesion: 0.05
-Nodes (62): hivelane watch, importlib_util, inspect, install(), Any, Why `directory` cannot be served as the dashboard, or None if it can., Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as `app`'s…, static_dir_problem() (+54 more)
+Cohesion: 0.14
+Nodes (19): importlib_util, inspect, _load_generator(), _messages(), ModuleType, The wire contract is written down three times, server/models.py (relay),…, A message only one side knows is one the other silently drops., The allowlist must not outlive its reason, or quietly hide a new one. (+11 more)
 
 ### Community 114 - "HookOutput"
-Cohesion: 0.08
-Nodes (14): 1. The module, 3. Golden fixtures, 5. Try it for real, Before you start, How a hook call flows, Worked example, Writing an agent adapter, Adapter (+6 more)
+Cohesion: 0.13
+Nodes (12): absolute(), HookOutput, `path` made absolute against the agent's cwd, normalised., What one hook invocation prints to stdout and exits with., GeminiCliAdapter, hook_settings(), entry(), normalize_payload() (+4 more)
 
-### Community 115 - ".go_first"
-Cohesion: 0.12
-Nodes (10): QueueKey, Remember what a passed edit_check is about to change, until the member's…, Remember a path this room has seen, for edit-check suggestions. Hashed (e2e)…, Who keeps entry's member out of the file right now: peers whose touches block…, True once a claimer's own touch of the file has arrived (it then blocks like…, file_requested for each holder not yet told that entry waits., Put an edit check's verdict through the file's wait queue. Call…, An explicit ask for a file: join its line and tell the holders, or, when… (+2 more)
+### Community 115 - "generate.py"
+Cohesion: 0.17
+Nodes (15): argparse, build_schema(), refs(), is_current(), main(), message_type(), Any, BaseModel (+7 more)
 
 ### Community 116 - "FakeService"
 Cohesion: 0.10
 Nodes (6): FakeService, Any, Exception, Path, In-memory stand-in for hivelane.service., ServiceError
 
-### Community 117 - "cmd_relay"
-Cohesion: 0.12
-Nodes (13): cmd_relay(), find_dashboard_build(), lan_address(), The first module `hivelane relay` needs but cannot import, or None. `server`…, This machine's address on the local network, or None if it has none. Connecting…, The host teammates should dial for a relay bound to `bind_host`., A built dashboard to serve: --dashboard, $HIVELANE_STATIC_DIR, a build bundled…, relay_missing_module() (+5 more)
+### Community 117 - "test_lan_address_is_never_loopback"
+Cohesion: 0.17
+Nodes (8): lan_address(), This machine's address on the local network, or None if it has none. Connecting…, The host teammates should dial for a relay bound to `bind_host`., relay_public_host(), parametrize, The probe socket is faked, so this checks the filtering rather than whatever…, test_lan_address_is_never_loopback(), test_relay_public_host()
 
 ### Community 118 - "FileTouch"
-Cohesion: 0.05
-Nodes (31): Collection, Benchmark (`scripts/benchmark_decisions.py`), Inputs, Symbol names, Pattern, _edit_check_reason(), Decision, One human-readable sentence about the peer that drove the decision. (+23 more)
+Cohesion: 0.03
+Nodes (58): Collection, Benchmark (`scripts/benchmark_decisions.py`), Inputs, Symbol names, 3. Relay, Delivery, plan, Pattern (+50 more)
 
 ### Community 119 - "test_metrics.py"
-Cohesion: 0.10
-Nodes (25): fastapi_testclient, main, _fresh_counters(), _join(), Any, fixture, MonkeyPatch, real_feed_debounce (+17 more)
+Cohesion: 0.15
+Nodes (20): _fresh_counters(), _join(), Any, fixture, MonkeyPatch, real_feed_debounce, TestClient, GET /metrics: Prometheus text exposition, hand-written so the relay image needs… (+12 more)
 
 ### Community 120 - "dev_fake_relay.py"
-Cohesion: 0.10
-Nodes (28): fastapi_middleware_cors, _delegate(), get(), itertools, PlainTextResponse, property, activity(), conflict() (+20 more)
+Cohesion: 0.16
+Nodes (21): fastapi_middleware_cors, itertools, random, activity(), conflict(), create_room(), decision(), diff_for() (+13 more)
 
 ### Community 121 - "._replay"
-Cohesion: 0.08
-Nodes (24): OwnerProbe, fly_owner_probe(), fly_replay_enabled(), _header(), LeaseHolder, parse_fly_fields(), ASGIApp, Protocol (+16 more)
+Cohesion: 0.17
+Nodes (13): _header(), parse_fly_fields(), Receive, Scope, Send, a=1;b=2" (fly-replay-src, fly-replay-failed) as a dict; {} for anything else., Sends each room's WebSocket upgrades to the instance that owns the room. Pure…, Answer with fly-replay when another instance should serve this connection.… (+5 more)
 
 ### Community 122 - "npm/package.json"
 Cohesion: 0.11
 Nodes (17): bin, hivelane, bugs, url, description, engines, node, files (+9 more)
 
-### Community 123 - "HivelaneConfig"
-Cohesion: 0.15
-Nodes (13): HivelaneConfig, The e2e passphrase for room (default: this config's room):…, connect_repo(), DaemonAuthError, _error_detail(), Exception, POST /repos body for root under config. Team settings are sent only when a…, Register root with the running daemon (replacing any earlier registration) and… (+5 more)
+### Community 123 - "Clock"
+Cohesion: 0.30
+Nodes (12): Clock, clock(), _directory(), fixture, redis(), test_first_claim_wins_and_others_see_the_owner(), test_lease_expires_without_renewal_and_another_instance_takes_it(), test_redis_outage_serves_locally_and_logs_once() (+4 more)
 
 ### Community 124 - "type"
 Cohesion: 0.12
@@ -811,9 +810,9 @@ Nodes (8): FakePipeline, FakeRedis, Any, ConnectionError, FakePipeline, What Fak
 Cohesion: 0.26
 Nodes (21): edit_payload(), no_daemon(), CaptureFixture, fixture, MonkeyPatch, parametrize, Path, With no daemon listening the hook must exit 0 and never decide anything. It is… (+13 more)
 
-### Community 127 - "edit_symbols"
-Cohesion: 0.15
-Nodes (16): edit_symbols(), Symbols and line ranges a pending edit is predicted to touch, from its old/new…, What a whole-file write is about to change: the definitions whose lines it…, write_symbols(), changed_line_ranges(), merge_ranges(), predict_ranges(), source split on "\\n" only (a trailing "\\r" dropped), the way ast, tree-… (+8 more)
+### Community 127 - "client"
+Cohesion: 0.20
+Nodes (14): hivelane watch, install(), Any, Why `directory` cannot be served as the dashboard, or None if it can., Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as `app`'s…, static_dir_problem(), build(), client() (+6 more)
 
 ### Community 128 - "x-client-to-relay"
 Cohesion: 0.13
@@ -827,29 +826,29 @@ Nodes (18): Can one daemon serve several repositories?, Do I need to run a serve
 Cohesion: 0.13
 Nodes (15): properties, title, configuration, default, description, type, default, description (+7 more)
 
-### Community 131 - "DaemonClient"
-Cohesion: 0.19
-Nodes (7): Client, DaemonClient, Any, What an agent hook sees: the daemon's loopback HTTP port., POST any daemon endpoint (e.g. /tasks) as a hook or the CLI would., Start one daemon per spec (Daemon keyword arguments plus `name`) and wait until…, Start already-built daemons (any mode) and wait for their HTTP side; what…
+### Community 131 - "semantic.py"
+Cohesion: 0.21
+Nodes (13): functools, _cosine(), files_mentioned(), lexical_similarity(), Lightweight semantic matching for agent intents (pure, stdlib-only). Two entry…, Blend of trigram cosine and stemmed-token Jaccard, in [0, 1]., Known paths the prompt refers to, strongest evidence first. Evidence, strongest…, Lowercase, split camelCase/snake_case/paths, drop stopwords, stem. (+5 more)
 
 ### Community 132 - "properties"
 Cohesion: 0.10
 Nodes (21): FileChange, title, type, properties, required, title, type, maxItems (+13 more)
 
-### Community 133 - "daemon_proof"
-Cohesion: 0.29
-Nodes (7): daemon_proof(), proof_matches(), HMAC-SHA256 of the client's nonce under the install token, as hex., Whether `proof` is the daemon's answer to `nonce` for this token., daemon_proof(), Same as hivelane.auth.daemon_proof (kept here for import cost)., test_proof_matches_the_daemon()
+### Community 133 - "hook_fast.py"
+Cohesion: 0.06
+Nodes (56): BadResponse, claim_offline_notice(), claim_spawn(), daemon_command(), daemon_proof(), DaemonUnreachable, _dechunk(), _exchange() (+48 more)
 
 ### Community 134 - "test_cli_security.py"
-Cohesion: 0.18
-Nodes (20): personal(), CaptureFixture, MonkeyPatch, parametrize, The CLI side of Phase 4 security: plaintext relays need an explicit opt-in,…, test_a_teammate_sets_the_key_they_were_given(), test_creating_a_room_keeps_its_owner_token_privately(), test_doctor_checks_token_transport_and_key() (+12 more)
+Cohesion: 0.19
+Nodes (19): personal(), CaptureFixture, MonkeyPatch, The CLI side of Phase 4 security: plaintext relays need an explicit opt-in,…, test_a_teammate_sets_the_key_they_were_given(), test_creating_a_room_keeps_its_owner_token_privately(), test_doctor_checks_token_transport_and_key(), test_first_e2e_up_generates_the_key_and_shows_it_once() (+11 more)
 
-### Community 135 - "install_autostart"
-Cohesion: 0.09
-Nodes (39): hivelane_home(), Per-user state directory (logs, pid files, personal config)., autostart_command(), _home_override(), install_autostart(), launchd_plist(), launchd_plist_path(), output_path() (+31 more)
+### Community 135 - "test_service.py"
+Cohesion: 0.14
+Nodes (27): install_autostart(), launchd_plist_path(), Path, Run a service-manager command; (succeeded, its output)., Start the daemon at login for this user (no admin rights anywhere). Returns…, Remove the login item install_autostart created. Leaves a running daemon alone…, _run(), systemd_unit_path() (+19 more)
 
-### Community 136 - "heuristic_only"
-Cohesion: 0.50
-Nodes (4): heuristic_only(), fixture, MonkeyPatch, Pin the dependency-free tier so results do not depend on whether the optional…
+### Community 136 - "Counter"
+Cohesion: 0.19
+Nodes (7): LabelValue, Counter, _escape_label(), _format_value(), _labels(), Monotonic counter, pre-seeded with known label values. `label` is one label…, test_label_values_are_escaped()
 
 ### Community 137 - "StubRelay"
 Cohesion: 0.15
@@ -860,16 +859,16 @@ Cohesion: 0.24
 Nodes (5): DaemonAuthError, DaemonClient, defaultTokenPath(), isValidToken(), readToken()
 
 ### Community 139 - "test_status_line.py"
-Cohesion: 0.32
-Nodes (11): format_status_line(), One line: mark, state dot, room, how many agents are in it, and how many of our…, Path, `hivelane status --line` (the bee in agent apps: Claude Code's status line, a…, repo(), settings(), test_the_line_names_the_room_its_agents_and_held_edits(), test_the_line_never_fails() (+3 more)
+Cohesion: 0.21
+Nodes (14): format_status_line(), One line: mark, state dot, room, how many agents are in it, and how many of our…, CaptureFixture, MonkeyPatch, Path, `hivelane status --line` (the bee in agent apps: Claude Code's status line, a…, repo(), settings() (+6 more)
 
 ### Community 140 - "test_frame_handling.py"
 Cohesion: 0.22
 Nodes (13): _daemon(), Relay frames are a network boundary: a bad one must not kill the daemon., A garbage reply must not resolve the check waiting on that request id (the hook…, Join catch-up arrives unbatched, not inside a hivelane_feed frame., Throttling is the relay asking us to wait, not refusing us: the daemon must…, test_bare_user_joined_frame_records_the_peer(), test_malformed_known_frame_is_ignored(), scenario() (+5 more)
 
 ### Community 141 - "passphrase_problem"
-Cohesion: 0.18
-Nodes (12): generate_passphrase(), passphrase_bits(), passphrase_problem(), A fresh room passphrase: 256 random bits, url-safe (pastes cleanly into a…, A rough strength estimate: effective length times log2 of the pool of character…, None when `passphrase` is strong enough to be a room key, else a one-line…, parametrize, test_generated_keys_are_256_bit_and_pass_the_check() (+4 more)
+Cohesion: 0.17
+Nodes (13): generate_passphrase(), is_hashed(), passphrase_bits(), passphrase_problem(), A fresh room passphrase: 256 random bits, url-safe (pastes cleanly into a…, A rough strength estimate: effective length times log2 of the pool of character…, None when `passphrase` is strong enough to be a room key, else a one-line…, parametrize (+5 more)
 
 ### Community 142 - "Webhook"
 Cohesion: 0.30
@@ -880,16 +879,16 @@ Cohesion: 0.09
 Nodes (26): properties, type, default, items, title, type, own_names, same_chat (+18 more)
 
 ### Community 144 - ".__call__"
-Cohesion: 0.12
-Nodes (15): DashboardApp, inline_script_hashes(), _is_api_path(), _looks_like_file(), ASGIApp, Path, Receive, Scope (+7 more)
+Cohesion: 0.15
+Nodes (11): DashboardApp, _is_api_path(), _looks_like_file(), ASGIApp, Path, Receive, Scope, Send (+3 more)
 
 ### Community 145 - "Watcher"
-Cohesion: 0.12
-Nodes (13): test_watch_create_modify_delete(), Any, Path, The file's text; None for binary or oversized; _UNREADABLE when it could not be…, Take the tree as it is now without reporting anything., One scan; posts and returns the events for what changed., Run `argv` as a child inheriting the terminal while `watcher` polls in a…, mtime/size + cached text of every watched file. (+5 more)
+Cohesion: 0.11
+Nodes (15): test_message_arg(), message_arg(), Any, Path, The file's text; None for binary or oversized; _UNREADABLE when it could not be…, Take the tree as it is now without reporting anything., One scan; posts and returns the events for what changed., The value of `-m/--message` in an aider-style argv, if any. (+7 more)
 
-### Community 146 - "DepTracker"
-Cohesion: 0.17
-Nodes (15): difflib, _bare(), changed_signatures(), DepTracker, diff_signature_changes(), Names whose parameter text differs between old and new (both defined)., Function names a unified diff removes and re-adds with other params., SignatureChange (+7 more)
+### Community 146 - "depgraph.py"
+Cohesion: 0.14
+Nodes (20): _bare(), changed_signatures(), DepTracker, diff_signature_changes(), _imports_module(), Best-effort dependency-aware warnings: "you're editing a caller of `foo`, whose…, Warn text if `content` (the file at rel) calls a recently changed function from…, Names whose parameter text differs between old and new (both defined). (+12 more)
 
 ### Community 147 - "Self-hosting the relay"
 Cohesion: 0.11
@@ -904,44 +903,44 @@ Cohesion: 0.29
 Nodes (5): Configuration files, Join approval, asStrings(), E2EDecoder, isHashed()
 
 ### Community 150 - "test_multi_repo.py"
-Cohesion: 0.32
-Nodes (11): free_port(), wait_until(), _entry(), _event(), Any, MonkeyPatch, Path, One daemon per machine, many repos, against the real relay: a developer's… (+3 more)
+Cohesion: 0.13
+Nodes (18): Client, DaemonClient, free_port(), Any, What an agent hook sees: the daemon's loopback HTTP port., POST any daemon endpoint (e.g. /tasks) as a hook or the CLI would., Start one daemon per spec (Daemon keyword arguments plus `name`) and wait until…, Start already-built daemons (any mode) and wait for their HTTP side; what… (+10 more)
 
 ### Community 151 - "relay_load.py"
-Cohesion: 0.07
-Nodes (46): argparse, cprofile, csv, multiprocessing, platform, build_schema(), refs(), is_current() (+38 more)
+Cohesion: 0.13
+Nodes (27): cprofile, csv, multiprocessing, platform, pstats, main(), Many real `Daemon` instances in one process against one relay. Starts a relay…, run() (+19 more)
 
-### Community 152 - "outline_for"
-Cohesion: 0.25
-Nodes (10): Definition, _heuristic_outline(), _heuristic_python(), close(), Outline, outline_for(), The file's definitions and import block, or None for an unknown language /…, Indentation-based outline for Python that does not parse (mid-edit): decorators… (+2 more)
+### Community 152 - "symbols.py"
+Cohesion: 0.10
+Nodes (28): AST, _brace_end(), _BraceScanner, Definition, _heuristic_outline(), _heuristic_python(), close(), _load_ts() (+20 more)
 
 ### Community 153 - "Any"
 Cohesion: 0.24
 Nodes (10): FakeSocket, Any, Next top-level frame of this kind (queue frames are never batched)., Real sockets: ben's blocked check is answered with its place in line and a…, test_file_request_over_the_wire_and_release_when_the_holder_leaves(), test_the_relay_works_the_line_on_its_own(), _ws_feed_event(), _ws_join() (+2 more)
 
-### Community 154 - "test_hook_install.py"
-Cohesion: 0.36
-Nodes (7): hivelane_hooks(), CaptureFixture, MonkeyPatch, Path, `hivelane hook install claude-code` must merge, not clobber, and be idempotent., test_install_merges_and_is_idempotent(), write_existing()
+### Community 154 - "test_resolve_actions.py"
+Cohesion: 0.38
+Nodes (12): check(), go_first(), make_room(), Owner resolve actions from the dashboard: release a held edit, let one member…, test_a_go_first_lapses_on_its_own(), test_a_second_go_first_on_the_file_withdraws_the_first(), test_go_first_for_someone_not_in_the_room_changes_nothing(), test_held_edits_are_remembered_for_a_while_and_bounded() (+4 more)
 
-### Community 155 - "typing"
-Cohesion: 0.04
-Nodes (103): asyncio, collections, collections_abc, dataclasses, email_utils, hashlib, hivelane, hivelane_adapters (+95 more)
+### Community 155 - "room.py"
+Cohesion: 0.03
+Nodes (104): anyio_from_thread, asyncio, collections, collections_abc, config, contextlib, dataclasses, dotenv (+96 more)
 
-### Community 156 - "relay_process"
-Cohesion: 0.15
-Nodes (13): _free_port(), CaptureFixture, fixture, MonkeyPatch, Path, relay_process(), RelayProcess, test_relay_help_lists_its_options() (+5 more)
+### Community 156 - "test_a_failing_sink_never_breaks_the_broadcast"
+Cohesion: 0.09
+Nodes (20): EventSink, _free_port(), CaptureFixture, fixture, MonkeyPatch, Path, relay_process(), RelayProcess (+12 more)
 
 ### Community 157 - "properties"
 Cohesion: 0.12
 Nodes (16): properties, required, title, type, ConflictAlert, title, type, explanation (+8 more)
 
-### Community 158 - "McpServer"
+### Community 158 - "test_fallbacks.py"
 Cohesion: 0.06
-Nodes (49): hivelane mcp, From an agent, _git(), hook_script(), hooks_dir(), install(), is_ours(), Path (+41 more)
+Nodes (53): hivelane mcp, From an agent, _git(), hook_script(), hooks_dir(), install(), is_ours(), Path (+45 more)
 
-### Community 159 - "cmd_task"
-Cohesion: 0.20
-Nodes (15): cmd_task(), _csv(), _details(), duration(), _left(), Any, Namespace, Run one `hivelane task` command. call(body) POSTs body to the daemon's /tasks… (+7 more)
+### Community 159 - "tasks_cli.py"
+Cohesion: 0.22
+Nodes (16): cmd_task(), _csv(), _details(), duration(), _left(), Any, Namespace, `hivelane task ...`: the room's shared task list from a shell. People and… (+8 more)
 
 ### Community 160 - "deploy"
 Cohesion: 0.17
@@ -956,36 +955,36 @@ Cohesion: 0.14
 Nodes (14): Changing the wire protocol, Comments say why, Commits and pull requests, Contributing to Hivelane, Conventions, Docs, Dual imports in `server/`, Python style (+6 more)
 
 ### Community 163 - "Relay"
-Cohesion: 0.10
-Nodes (17): HTTP endpoints, join, Names, room_policy, room_policy_update, RoomSettings, Client IPs behind a proxy, History and webhooks (+9 more)
-
-### Community 164 - "posted"
-Cohesion: 0.24
-Nodes (9): posted(), fake_poster(), Any, fixture, MonkeyPatch, Path, test_run_generic_agent_without_message(), test_run_missing_command() (+1 more)
-
-### Community 165 - "semantic.py"
 Cohesion: 0.11
-Nodes (27): _cosine(), _embedding_scorer(), files_mentioned(), lexical_similarity(), Lightweight semantic matching for agent intents (pure, stdlib-only). Two entry…, Blend of trigram cosine and stemmed-token Jaccard, in [0, 1]., Score two intents. Returns (score, used_embeddings)., Peers whose intent text is similar to ``text``, best match first. ``threshold``… (+19 more)
+Nodes (17): HTTP endpoints, join, Names, RoomSettings, Client IPs behind a proxy, Daemon and hooks, End-to-end encryption, History and webhooks (+9 more)
 
-### Community 166 - "captured_daemon"
+### Community 164 - "test_run_command.py"
+Cohesion: 0.24
+Nodes (10): posted(), fake_poster(), Any, fixture, MonkeyPatch, Path, `hivelane run`: wraps a hookless agent's process with the observe-only watcher., test_run_generic_agent_without_message() (+2 more)
+
+### Community 165 - "test_semantic.py"
 Cohesion: 0.15
-Nodes (13): captured_daemon(), Any, CaptureFixture, fixture, MonkeyPatch, parametrize, Path, Replace the Daemon with a recorder whose run() returns at once. (+5 more)
+Nodes (15): _embedding_scorer(), Score two intents. Returns (score, used_embeddings)., Peers whose intent text is similar to ``text``, best match first. ``threshold``…, similar_intents(), similarity(), _lexical_only(), _precision_recall(), fixture (+7 more)
+
+### Community 166 - "pytest"
+Cohesion: 0.10
+Nodes (24): hivelane, captured_daemon(), Any, CaptureFixture, fixture, MonkeyPatch, parametrize, Path (+16 more)
 
 ### Community 167 - "test_daemon_status.py"
 Cohesion: 0.24
 Nodes (14): _daemon(), CaptureFixture, MonkeyPatch, Path, Daemon liveness reporting and the non-git warning. `connected` alone cannot…, test_a_successful_send_counts_as_contact(), scenario(), test_any_relay_frame_counts_as_contact() (+6 more)
 
 ### Community 168 - "maintain_leases"
-Cohesion: 0.19
-Nodes (10): maintain_leases(), For the app's lifespan: renew this instance's room leases every `interval`…, FakeHolder, MonkeyPatch, test_maintain_leases_does_nothing_for_a_single_instance(), run(), test_maintain_leases_renews_until_shutdown_then_releases(), run() (+2 more)
+Cohesion: 0.17
+Nodes (11): maintain_leases(), For the app's lifespan: renew this instance's room leases every `interval`…, FakeHolder, MonkeyPatch, test_build_room_directory_falls_back_when_redis_is_unusable(), test_maintain_leases_does_nothing_for_a_single_instance(), run(), test_maintain_leases_renews_until_shutdown_then_releases() (+3 more)
 
 ### Community 169 - "Backend"
-Cohesion: 0.18
-Nodes (12): Backend, no_platform_headers(), fixture, FixtureRequest, Builds limiters on one store and steps time for both of them. The in-process…, Puts the relay's own limiters on the given store for one test., client_ip as on a plain host: not on Fly, not trusting Cloudflare, one proxy…, relay_backend() (+4 more)
+Cohesion: 0.12
+Nodes (15): Protocol, RateLimiter, What the relay needs from a limiter, whichever store holds the counts., Backend, no_platform_headers(), fixture, FixtureRequest, Builds limiters on one store and steps time for both of them. The in-process… (+7 more)
 
 ### Community 171 - "discover_repo"
-Cohesion: 0.27
-Nodes (12): Protections the committed project file turns off on its own. `insecure = true`…, unconfirmed_project_optouts(), discover_repo(), The project config and display name for an unregistered cwd, or None when…, CaptureFixture, parametrize, Path, A repo the daemon adopts on its own cannot turn off transport security or… (+4 more)
+Cohesion: 0.35
+Nodes (10): discover_repo(), The project config and display name for an unregistered cwd, or None when…, CaptureFixture, parametrize, Path, A repo the daemon adopts on its own cannot turn off transport security or…, _repo(), test_a_plain_project_file_is_adopted() (+2 more)
 
 ### Community 172 - "Alpha testing"
 Cohesion: 0.25
@@ -1003,9 +1002,9 @@ Nodes (22): required, title, type, required, title, type, $defs, ActivityMessage
 Cohesion: 0.15
 Nodes (13): properties, required, title, type, DecisionFeedbackUpdate, default, title, type (+5 more)
 
-### Community 176 - "mascot.ts"
-Cohesion: 0.09
-Nodes (36): out, poses, root, tile, BeeAvatar(), Mark(), Mascot(), AVATAR_STATES (+28 more)
+### Community 176 - "relayUrl.ts"
+Cohesion: 0.10
+Nodes (40): Bee(), ownedRoomCodes(), LegacyRoomRedirect(), RoomRoute(), FLOW, Start(), basePath(), chosenRelay() (+32 more)
 
 ### Community 177 - "decision_id"
 Cohesion: 0.17
@@ -1015,12 +1014,12 @@ Nodes (12): default, title, type, properties, required, title, type, DecisionFee
 Cohesion: 0.27
 Nodes (9): _ts_outline(), check_tree_sitter(), defs_of(), Shared fixtures for the two symbol tiers: tree-sitter and the regex/brace…, Assert tree-sitter's outline equals CONFORMANCE for every case., parametrize, Findings 21-25: bare JS calls, Rust generics, Ruby one-line/endless defs, Go…, test_heuristic_conformance() (+1 more)
 
-### Community 179 - "personal_config_path"
-Cohesion: 0.24
-Nodes (11): canonical_room(), _lookup(), personal_config_path(), `k7q2-xm9p`, ` K7Q2 XM9P ` and `K7Q2XM9P` are one relay room, so they must find…, Create or update the personal `config.toml`, with the same preservation rules…, Set (or with None remove) `table`.ROOM in the personal file, keeping the…, set_personal_secret(), write_personal_config() (+3 more)
+### Community 179 - "_models"
+Cohesion: 0.21
+Nodes (12): _comparable_schema(), _models(), _normalize(), Any, BaseModel, parametrize, Nested models too (FileChange, PeerTouch): they are on the wire., Every pydantic model defined in (not imported into) module, by name. (+4 more)
 
 ### Community 180 - "Contributor Covenant Code of Conduct"
-Cohesion: 0.17
+Cohesion: 0.15
 Nodes (12): 1. Correction, 2. Warning, 3. Temporary Ban, 4. Permanent Ban, Attribution, Contributor Covenant Code of Conduct, Enforcement, Enforcement Guidelines (+4 more)
 
 ### Community 181 - "RoomPolicyUpdate"
@@ -1031,29 +1030,29 @@ Nodes (6): Future, The room's join policy, broadcast when an owner changes it an
 Cohesion: 0.25
 Nodes (6): JoinRequest, Sent to every owner socket when someone waits for approval. name is "dashboard…, PendingJoin, Someone held at the door of an approval-required room. `decision` resolves True…, Queue a joiner for approval, or None when MAX_PENDING_JOINS wait (or…, Unanswered requests, oldest first (an owner's catch-up).
 
-### Community 183 - "Conflict detection"
-Cohesion: 0.12
-Nodes (18): Conflict detection, Dashboard, Decision table, Feedback loop, Scopes, Semantic matching (`server/semantic.py`), Several agents per person, Discord (+10 more)
+### Community 183 - "Webhooks (Slack, Discord, generic)"
+Cohesion: 0.17
+Nodes (12): Browser notifications, Discord, End-to-end encrypted rooms, From the dashboard, Generic JSON, Limits and delivery, Notifications and replay, Replay (+4 more)
 
-### Community 184 - "e2e/test_tasks.py"
-Cohesion: 0.50
-Nodes (8): _pre_edit(), Any, Path, Room tasks end to end: a real relay, two daemons and a dashboard. A task's…, _repo(), _task(), test_a_burst_of_task_commands_is_paced_not_refused(), test_a_claimed_task_reserves_its_files_for_the_claimer()
+### Community 184 - "Cluster"
+Cohesion: 0.20
+Nodes (15): Cluster, _no_desktop_notifications(), fixture, MonkeyPatch, TempPathFactory, A relay plus any number of daemons, torn down in the only order that lets each…, Pings between in-process daemons must not reach the real desktop., _pre_edit() (+7 more)
 
-### Community 185 - "test_two_daemons_with_one_key_still_block_each_other"
-Cohesion: 0.38
-Nodes (6): _event(), Any, Path, _repo(), test_two_daemons_with_one_key_still_block_each_other(), record()
+### Community 185 - "subprocess"
+Cohesion: 0.16
+Nodes (15): subprocess, _event(), Any, Path, End-to-end encrypted rooms through the real relay: two daemons holding the same…, _repo(), test_two_daemons_with_one_key_still_block_each_other(), record() (+7 more)
 
-### Community 186 - "port"
-Cohesion: 0.11
-Nodes (16): Build and test, Developing the Hivelane extension, Icon, Install from a .vsix, Publishing (a human has to do this), Settings details, Commands, Features (+8 more)
+### Community 186 - "Hivelane"
+Cohesion: 0.25
+Nodes (7): Commands, Features, Getting started, Hivelane, Links, Privacy, Settings
 
 ### Community 187 - "DecryptError"
 Cohesion: 0.22
 Nodes (8): b64url_decode(), DecryptError, E2EUnavailable, Exception, Strict base64url without padding: the inputs the dashboard's decoder accepts,…, (message type, envelope) of a blob made for any of `types`. The relay copies…, e2e is configured but the `cryptography` package is not installed., A blob that this key cannot open (wrong key, wrong type, tampered).
 
-### Community 188 - "scenario"
-Cohesion: 0.22
-Nodes (10): free_port(), AsyncClient, CaptureFixture, test_admin_endpoints_register_remove_and_shut_down(), scenario(), test_single_room_mode_still_exits_on_a_fatal_rejection(), scenario(), test_stop_is_safe_from_another_thread() (+2 more)
+### Community 188 - "pathlib"
+Cohesion: 0.10
+Nodes (24): free_port(), isolated(), AsyncClient, CaptureFixture, fixture, parametrize, One daemon, many repos: routing by cwd, adoption from .hivelane.toml, ignore…, No personal config, no environment overrides, no git subprocesses. (+16 more)
 
 ### Community 189 - "properties"
 Cohesion: 0.22
@@ -1064,16 +1063,16 @@ Cohesion: 0.29
 Nodes (8): canonical_name(), Any, `const x = require('y')` (JS) or `require 'y'` (Ruby) at top level., One spelling of a definition name for both tiers: generic arguments (`Foo<T>`,…, _ts_is_require(), _ts_name(), visit(), test_canonical_name()
 
 ### Community 191 - "main.py"
-Cohesion: 0.02
-Nodes (202): config, fastapi, fastapi_responses, hmac, pydantic, secrets, QueueNotice, Per-file wait queues: who gets a file next once its holder lets go. A blocked… (+194 more)
+Cohesion: 0.03
+Nodes (152): fastapi_responses, Admission, admit_joiner(), _announce_go_first(), _answer_plan(), _answer_task(), _answer_throttled_edit_check(), apply_member_settings() (+144 more)
 
 ### Community 192 - "Phases"
 Cohesion: 0.13
 Nodes (14): Checks before each merge, Dashboard v3: implementation plan, Decisions already made, Look and feel rules (from the canvas), Phase 0: Foundations (no visible change), Phase 1: Page frame, Phase 2.5: Server: resolve actions and room expiry, Phase 3: Other views, restyled with their logic unchanged (+6 more)
 
-### Community 193 - "ensure_token"
-Cohesion: 0.13
-Nodes (23): auth_headers(), ensure_token(), _is_empty(), Any, Path, The token on disk, or None when it is missing, unreadable or malformed., Owner read/write only where the OS has POSIX modes. On Windows the file…, Replace path's contents with text, owner-only (0600) from the first byte: the… (+15 more)
+### Community 193 - "auth.py"
+Cohesion: 0.14
+Nodes (25): auth_headers(), ensure_token(), _is_empty(), proof_matches(), Any, Path, The local daemon's per-install secret. Anything on the machine can open a…, The token on disk, or None when it is missing, unreadable or malformed. (+17 more)
 
 ### Community 194 - "Configuration"
 Cohesion: 0.50
@@ -1084,12 +1083,12 @@ Cohesion: 0.29
 Nodes (7): Custom domain, Deploying from CI, One-time setup, Point clients at it, Relay on Fly.io, Scaling out, Things to know
 
 ### Community 196 - "Speed by process"
-Cohesion: 0.09
-Nodes (18): Benchmarks, How the load test works, Results on file, 1. Hook (`hivelane hook claude-code`, a fresh process per edit), 2. Daemon, 3. Relay, 4. CLI, 5. Dashboard (+10 more)
+Cohesion: 0.29
+Nodes (7): 1. Hook (`hivelane hook claude-code`, a fresh process per edit), 2. Daemon, 4. CLI, 5. Dashboard, 6. Tests and CI, 7. Docker and docs, Speed by process
 
-### Community 197 - "Cluster"
-Cohesion: 0.25
-Nodes (7): Cluster, _no_desktop_notifications(), fixture, MonkeyPatch, TempPathFactory, A relay plus any number of daemons, torn down in the only order that lets each…, Pings between in-process daemons must not reach the real desktop.
+### Community 197 - "Installing Hivelane"
+Cohesion: 0.18
+Nodes (11): From a checkout, Homebrew, Install scripts, Installing Hivelane, npm / npx, pipx, Scoop, Uninstall (+3 more)
 
 ### Community 198 - "capabilities"
 Cohesion: 0.29
@@ -1100,7 +1099,7 @@ Cohesion: 0.20
 Nodes (10): Approaches compared, Combining them, File watchers, Git-only workflows, Hook-based pre-edit checks, Side by side, Standalone multiplayer IDEs, Strengths and limits of each (+2 more)
 
 ### Community 200 - "Hivelane"
-Cohesion: 0.22
+Cohesion: 0.25
 Nodes (5): Deploying and releasing, Environments, Releasing the CLI, Formula, Hivelane
 
 ### Community 201 - "hivelane.js"
@@ -1109,15 +1108,15 @@ Nodes (6): args, pin, run(), RUNNERS, { spawn }, ref_node_child_process
 
 ### Community 202 - "The contract"
 Cohesion: 0.11
-Nodes (21): The contract, Two rules that override everything else, absolute(), ack_decision(), [{"old", "new"}] from string-replacement edits (dicts carrying old/new…, A file's text, or None when it is missing, binary, oversized or not UTF-8.…, `path` made absolute against the agent's cwd, normalised., The decision an ack really carries; anything malformed is allow. (+13 more)
+Nodes (18): 1. The module, 3. Golden fixtures, 5. Try it for real, Before you start, How a hook call flows, The contract, Two rules that override everything else, Worked example (+10 more)
 
 ### Community 203 - "DaemonPool"
 Cohesion: 0.33
 Nodes (3): DaemonPool, Daemons sharing one event loop on a background thread., Ask every daemon to wind down through its normal shutdown path (flush, close…
 
-### Community 204 - "visit"
-Cohesion: 0.33
-Nodes (7): AST, _py_assign_name(), _py_branches(), _python_outline(), visit(), `LIMIT = 1`, `LIMIT: int = 1`, `LIMIT += 1` -> "LIMIT". None for anything else…, stmt
+### Community 204 - "Gauge"
+Cohesion: 0.20
+Nodes (6): Gauge, Gauge read from a callback at scrape time, so it can never go stale. With…, Forget the cached value (tests only)., Add (or replace) a scrape-time gauge. Replacing keeps re-imports and test…, register_gauge(), test_slow_gauges_can_be_cached()
 
 ### Community 205 - "contributes"
 Cohesion: 0.33
@@ -1143,9 +1142,9 @@ Nodes (6): default, description, maximum, minimum, type, hivelane.port
 Cohesion: 0.33
 Nodes (6): scripts, compile, package, test, vscode:prepublish, watch
 
-### Community 211 - "server"
-Cohesion: 0.15
-Nodes (15): anyio_from_thread, contextlib, server, _fast_feed_debounce(), _isolate_environment(), _one_event_loop_per_test(), fixture, FixtureRequest (+7 more)
+### Community 211 - "_one_event_loop_per_test"
+Cohesion: 0.20
+Nodes (10): _fast_feed_debounce(), _isolate_environment(), _one_event_loop_per_test(), fixture, FixtureRequest, MonkeyPatch, Restore os.environ afterwards so config-related env edits cannot leak into the…, The limiters are process-global, so every test starts with a full budget and… (+2 more)
 
 ### Community 212 - "utils.py"
 Cohesion: 0.33
@@ -1159,53 +1158,53 @@ Nodes (4): Replay bytes per room per minute (a token bucket per room, keyed weak
 Cohesion: 0.08
 Nodes (23): Resolver, test_conflict_alerts_and_join_requests_have_notices_but_unrelated_ones_do_not(), test_generic_payload_carries_who_what_file_decision_scope(), test_mask_url_shows_nothing_from_the_path(), build_notice(), event_kind(), format_generic(), mask_url() (+15 more)
 
-### Community 215 - "test_hivelane_wait_hands_the_file_over_in_turn"
-Cohesion: 0.50
-Nodes (9): _edit(), _event(), Any, CaptureFixture, MonkeyPatch, Path, _repo(), test_hivelane_wait_hands_the_file_over_in_turn() (+1 more)
+### Community 215 - "e2e/test_file_queue.py"
+Cohesion: 0.44
+Nodes (10): _edit(), _event(), Any, CaptureFixture, MonkeyPatch, Path, The wait queue end to end: a blocked agent is told its place in line, `hivelane…, _repo() (+2 more)
 
-### Community 216 - "PlanRelay"
-Cohesion: 0.29
-Nodes (4): PlanRelay, Any, ServerConnection, StubRelay that also answers plan frames with `plan_reply` (held until…
+### Community 216 - "MemoryRoomDirectory"
+Cohesion: 0.20
+Nodes (4): MemoryRoomDirectory, Single instance: every room is this instance's., test_memory_directory_owns_every_room(), test_single_instance_routes_everything_locally_without_redis()
 
 ### Community 217 - "schema.json"
 Cohesion: 0.29
 Nodes (6): description, oneOf, $schema, title, x-min-supported-protocol, x-protocol-version
 
-### Community 218 - "RoomManager"
-Cohesion: 0.05
-Nodes (49): Live Room instances plus the durable set of valid room codes. Room contents…, True when other relay instances may own some of the rooms., Hold a lease exactly while this instance has sockets in the room. Run every…, Give up every lease, so the rooms move as soon as members reconnect (at…, Rooms live in this process (what /health reports)., Valid room codes, including those with no live Room yet., Named agents connected across every live room (for /metrics)., Dashboards connected across every live room (for /metrics). (+41 more)
+### Community 218 - "SqliteRoomStore"
+Cohesion: 0.07
+Nodes (33): Room codes in one sqlite file, so they outlive the process. Writes are tiny and…, Bring a file written by an older relay up to the current schema. Files from…, SqliteRoomStore, _assert_usable(), _NoLookups, fixture, MonkeyPatch, parametrize (+25 more)
 
-### Community 219 - "load_config"
-Cohesion: 0.21
-Nodes (19): load_config(), Resolve the effective config for the repo containing `start`. `overrides` are…, _home(), _join(), fixture, MonkeyPatch, parametrize, Path (+11 more)
+### Community 219 - "test_config_history.py"
+Cohesion: 0.25
+Nodes (15): _home(), _join(), fixture, MonkeyPatch, parametrize, Path, history_hours in .hivelane.toml: the team's choice (project file only), 0..24,…, test_absent_history_hours_is_not_sent() (+7 more)
 
-### Community 220 - "_edit"
-Cohesion: 0.48
-Nodes (7): _edit(), Any, parametrize, Path, _repo(), test_same_file_matrix(), test_two_agents_asking_at_once_about_one_function()
+### Community 220 - "e2e/test_same_file.py"
+Cohesion: 0.42
+Nodes (8): _edit(), Any, parametrize, Path, Two agents in one file at once, end to end (real relay, real daemons, the real…, _repo(), test_same_file_matrix(), test_two_agents_asking_at_once_about_one_function()
 
 ### Community 221 - "_LogStream"
+Cohesion: 0.22
+Nodes (5): _LogStream, Any, POST /repos body for root under config. Team settings are sent only when a…, sys.stdout/stderr for a console-less daemon: whole lines into logging. The…, registration()
+
+### Community 222 - "Developing the Hivelane extension"
 Cohesion: 0.29
-Nodes (3): _LogStream, Any, sys.stdout/stderr for a console-less daemon: whole lines into logging. The…
+Nodes (6): Build and test, Developing the Hivelane extension, Icon, Install from a .vsix, Publishing (a human has to do this), Settings details
 
-### Community 222 - "_imports_module"
-Cohesion: 0.33
-Nodes (5): _imports_module(), Warn text if `content` (the file at rel) calls a recently changed function from…, _stem(), Finding 29: `from other import util` matched pkg/util.py by bare word., test_from_import_of_a_same_named_module_elsewhere_is_not_an_import()
-
-### Community 223 - "test_plan_adapters.py"
-Cohesion: 0.37
-Nodes (12): normalize(), Translate one hook stdin payload, or None if hivelane does not care., payload(), Path, Phase 3 adapter behaviour: Claude Code TodoWrite / ExitPlanMode become plan…, test_claude_code_multiedit_hints(), test_codex_patch_hints(), test_exit_plan_mode_becomes_a_plan() (+4 more)
+### Community 223 - "main"
+Cohesion: 0.29
+Nodes (4): main, Version negotiation. An old daemon connects happily and simply never sends…, The dashboard only consumes broadcasts, so it cannot under-report., test_spectator_is_exempt()
 
 ### Community 224 - "test_cli_task.py"
 Cohesion: 0.27
 Nodes (11): Any, CaptureFixture, MonkeyPatch, `hivelane task ...`: each command becomes one POST /tasks to the daemon,…, scripted(), _task(), test_add_sends_files_and_dependencies(), test_claim_next_waits_until_one_is_ready() (+3 more)
 
-### Community 225 - "test_room_settings.py"
+### Community 225 - "RoomManager"
 Cohesion: 0.08
-Nodes (43): model_validator, apply_member_settings(), CreateRoomRequest, BaseModel, Optional POST /rooms body: start the room with these conflict windows. HTTP-…, Adopt a joining member's committed windows room-wide and announce them. Last…, Team-wide conflict windows from the repo's .hivelane.toml. Sent on join so the…, RoomSettings (+35 more)
+Nodes (29): Live Room instances plus the durable set of valid room codes. Room contents…, True when other relay instances may own some of the rooms., Hold a lease exactly while this instance has sockets in the room. Run every…, Give up every lease, so the rooms move as soon as members reconnect (at…, Rooms live in this process (what /health reports)., Valid room codes, including those with no live Room yet., Named agents connected across every live room (for /metrics)., Dashboards connected across every live room (for /metrics). (+21 more)
 
-### Community 226 - "._next_payload"
-Cohesion: 0.20
-Nodes (8): _payload_kind(), _peek(), Monotonic time payload may go out: the relay silently drops an activity, intent…, An edit_check whose hook already gave up: sending it late would still queue us…, Next payload to send: any retained in-flight one, then priority, then bulk. A…, The "type" of a frame we serialised (pydantic writes it first)., The next item of queue without taking it (None if it cannot tell)., Queue
+### Community 226 - "run_hook_fast_path"
+Cohesion: 0.33
+Nodes (6): parse_hook_args(), The hook's only flag, `--port N` / `--port=N`, parsed by hand. Raises…, `hivelane hook <agent> [--port N]` without building the full parser, whose…, `hivelane hook ...` routing, before argparse ever sees it. An agent invocation…, route_hook(), run_hook_fast_path()
 
 ### Community 227 - "gitinfo.py"
 Cohesion: 0.17
@@ -1215,17 +1214,17 @@ Nodes (28): clear_cache(), common_dir(), _Entry, _git_cli_head(), git_dir(), Git
 Cohesion: 0.40
 Nodes (5): Reporting a vulnerability, Scope, Security policy, Supported versions, What to expect
 
-### Community 229 - "_BraceScanner"
+### Community 229 - "normalize_room"
 Cohesion: 0.33
-Nodes (4): _brace_end(), _BraceScanner, Counts braces line by line, skipping strings, `//` and `/* */` comments (across…, 0-based last line of a block opening at or just after `start`; `start` itself…
+Nodes (5): normalize_room(), The canonical room code keys are derived from, identical to the relay's…, Regression (finding 2): `k7q2-xm9p` and the dashboard's `K7Q2XM9P` were…, test_room_code_with_separators_derives_the_relays_room_key(), test_room_normalisation_matches_the_relay()
 
-### Community 230 - "_event"
-Cohesion: 0.47
-Nodes (6): _event(), Any, Path, A NormalizedEvent as the Claude Code adapter posts it: absolute paths, plus the…, _repo(), test_teammates_are_kept_out_of_each_others_files()
+### Community 230 - "HeldEdit"
+Cohesion: 0.33
+Nodes (4): HeldEdit, Remember a block, so an owner can release it (hold_release)., The block decision_id recorded, while it can still be released., A block an owner may release: who was held, on which file, and the e2e blob of…
 
 ### Community 231 - "suggest.py"
-Cohesion: 0.17
-Nodes (16): AlwaysWarn, posixpath, build_suggestion(), is_test_path(), pick_alternative(), The `suggestion` on a blocked or warned edit_check: one short, actionable…, (path, why) of a file to work on instead, or None. why is "tests", "plan" or…, The suggestion for a block or warn ("" for allow, or nothing to say). (+8 more)
+Cohesion: 0.20
+Nodes (14): AlwaysWarn, posixpath, build_suggestion(), is_test_path(), pick_alternative(), The `suggestion` on a blocked or warned edit_check: one short, actionable…, (path, why) of a file to work on instead, or None. why is "tests", "plan" or…, The suggestion for a block or warn ("" for allow, or nothing to say). (+6 more)
 
 ### Community 233 - "Relay on Render"
 Cohesion: 0.50
@@ -1263,9 +1262,9 @@ Nodes (5): MockTransport, _Breaker, Post one notice to one webhook, with retries
 Cohesion: 0.20
 Nodes (10): items, title, type, $ref, default, items, title, type (+2 more)
 
-### Community 243 - "Installing Hivelane"
-Cohesion: 0.07
-Nodes (23): From a checkout, Homebrew, Install scripts, Installing Hivelane, npm / npx, pipx, Scoop, Uninstall (+15 more)
+### Community 243 - "install.md"
+Cohesion: 0.12
+Nodes (12): Bumping by hand, Homebrew tap, Notes, One-time setup, What a release does, For everyday use, install Hivelane itself, hivelane-cli, How it works (+4 more)
 
 ### Community 244 - "hivelane-relay Helm chart"
 Cohesion: 0.67
@@ -1279,13 +1278,13 @@ Nodes (3): Relay on Railway, Setup, Things to know
 Cohesion: 0.67
 Nodes (3): galleryBanner, color, theme
 
-### Community 249 - "FakeRelay"
-Cohesion: 0.33
-Nodes (4): FakeRelay, Request, Response, Answers POST /rooms, GET /health and GET /readyz like server/main.py.
+### Community 249 - "cli_fakes.py"
+Cohesion: 0.20
+Nodes (7): email_utils, FakeRelay, Request, Response, Fakes and fixtures for the `hivelane up/down/leave/doctor/...` tests: a fake…, Answers POST /rooms, GET /health and GET /readyz like server/main.py., io
 
-### Community 250 - "await_approval"
-Cohesion: 0.13
-Nodes (14): await_approval(), FrameTooLarge, HandshakeTimeout, JoinRefused, _pending_reason(), Exception, Raised by the handshake so the caller closes with the right code., Raised while waiting for approval: the joiner may not come in. `reason` goes to… (+6 more)
+### Community 250 - "JoinRefused"
+Cohesion: 0.20
+Nodes (9): FrameTooLarge, HandshakeTimeout, JoinRefused, Exception, Raised by the handshake so the caller closes with the right code., Raised while waiting for approval: the joiner may not come in. `reason` goes to…, A frame over MAX_FRAME_BYTES arrived; the socket is closed with 1009., No valid join in HANDSHAKE_TIMEOUT_SECONDS, or too many invalid ones. (+1 more)
 
 ### Community 251 - "AllowHandler"
 Cohesion: 0.40
@@ -1299,13 +1298,13 @@ Nodes (3): BlockersFn, Expire what has lapsed, then release or keep each line's 
 Cohesion: 0.70
 Nodes (4): Install-Hivelane(), Invoke-Step(), Say(), Test-Command()
 
-### Community 257 - "Any"
-Cohesion: 0.11
-Nodes (20): CursorAdapter, _cwd(), _deny(), hook_settings(), normalize_payload(), passthrough_for(), Any, The payload's cwd, else the workspace root holding `file_path` (the longest… (+12 more)
+### Community 257 - "cursor.py"
+Cohesion: 0.13
+Nodes (19): CursorAdapter, _cwd(), _deny(), hook_settings(), normalize_payload(), passthrough_for(), Any, Cursor (agent / Cmd+K / cursor-agent CLI) hook adapter. Schema per… (+11 more)
 
 ### Community 258 - "hivelane/tests/conftest.py"
-Cohesion: 0.23
-Nodes (12): _hivelane_on_path(), _isolated_hivelane_home(), _no_ambient_room_key(), _no_desktop_notifications(), fixture, MonkeyPatch, TempPathFactory, Shared test isolation for the client package. (+4 more)
+Cohesion: 0.21
+Nodes (14): _hivelane_on_path(), _isolated_hivelane_home(), _no_ambient_room_key(), _no_desktop_bee(), _no_desktop_notifications(), fixture, MonkeyPatch, TempPathFactory (+6 more)
 
 ### Community 261 - "docs-site/tsconfig.json"
 Cohesion: 0.40
@@ -1315,17 +1314,17 @@ Nodes (4): exclude, extends, include, astro/tsconfigs/strict
 Cohesion: 0.50
 Nodes (3): Checklist, How it was tested, What and why
 
-### Community 265 - "test_security_headers.py"
-Cohesion: 0.04
-Nodes (72): dotenv, _bool(), ConfigError, _cors_wildcard_problem(), _csv(), _limit(), limits_summary(), load_settings() (+64 more)
+### Community 265 - "test_capacity_limits.py"
+Cohesion: 0.03
+Nodes (82): fastapi_testclient, MutableHeaders, _bool(), ConfigError, _csv(), _limit(), limits_summary(), load_settings() (+74 more)
 
 ### Community 266 - "test_redis_client_cannot_stall_the_event_loop"
 Cohesion: 0.20
 Nodes (7): Any, A Redis client for `url`, or None to keep the limiters in process. Opens no…, redis_client(), redis is optional: setting the URL without installing it must not take the…, The client is blocking and runs on the event loop: it must time out quickly and…, test_missing_redis_package_keeps_limits_in_process(), test_redis_client_cannot_stall_the_event_loop()
 
-### Community 273 - "cmd_hook_install"
-Cohesion: 0.15
-Nodes (15): hivelane_on_path(), hook_command_for(), Whether a bare `hivelane` resolves on this PATH (a seam for tests). The agent's…, `hivelane hook <id>` when hivelane is on PATH, else the same through an…, cmd_hook_install(), cmd_hook_uninstall(), find_git_root(), hook_scope() (+7 more)
+### Community 273 - "Benchmarks"
+Cohesion: 0.40
+Nodes (3): Benchmarks, How the load test works, Results on file
 
 ### Community 274 - "._capture_signals"
 Cohesion: 0.40
@@ -1335,88 +1334,56 @@ Nodes (3): handler(), Ask run() to shut down gracefully. Safe from any thread., 
 Cohesion: 0.40
 Nodes (5): default, maxLength, title, type, base_version
 
-### Community 276 - "symbols.py"
-Cohesion: 0.17
-Nodes (15): _js_sig_iter(), language_for(), _load_ts(), _python_signatures(), Which definitions (functions, methods, classes) an edit touches. Runs in the…, Top-level functions and methods -> their parameter list text., A ready tree-sitter parser for lang, or None (starting a background load the…, UTF-8 size of source (the limits are in bytes, not characters). (+7 more)
+### Community 276 - "signatures"
+Cohesion: 0.13
+Nodes (15): _js_sig_iter(), language_for(), _python_signatures(), Top-level functions and methods -> their parameter list text., UTF-8 size of source (the limits are in bytes, not characters)., Top-level function/method name -> parameter text (Python exact; other languages…, signatures(), _source_bytes() (+7 more)
 
-### Community 277 - "Notifications and replay"
+### Community 277 - "E2EBanner.tsx"
 Cohesion: 0.50
-Nodes (3): Browser notifications, Notifications and replay, Replay
-
-### Community 278 - ".__call__"
-Cohesion: 0.33
-Nodes (5): MutableHeaders, Receive, Scope, Send, send_with_headers()
-
-### Community 279 - ".record_activity"
-Cohesion: 0.33
-Nodes (3): Drop touches that can no longer affect a comparison. Measured against the…, Evict least recently updated touches past the per-room bounds., Merge a batch into each file's touch from this sender. A touch is the union of…
-
-### Community 280 - "test_prompts_and_diffs_never_reach_the_log"
-Cohesion: 0.43
-Nodes (8): _await_events(), _join(), _next_event(), Any, LogCaptureFixture, Read frames until one event of each type has arrived, in any order. The relay…, test_intents_are_not_logged_at_info(), test_prompts_and_diffs_never_reach_the_log()
+Nodes (4): E2EBanner(), E2EBannerProps, MESSAGES, E2EState
 
 ### Community 281 - "Room tasks"
 Cohesion: 0.40
 Nodes (5): Encrypted rooms, From the shell, On the dashboard, Room tasks, Rules
 
-### Community 282 - "_encodable"
-Cohesion: 0.50
-Nodes (4): _encodable(), Any, field_validator, value with lone surrogates replaced, in strings nested in lists and dicts too.…
-
-### Community 283 - "test_status_line_command_prints_and_exits_zero_without_a_daemon"
-Cohesion: 0.50
-Nodes (3): CaptureFixture, MonkeyPatch, test_status_line_command_prints_and_exits_zero_without_a_daemon()
-
-### Community 284 - "Security"
-Cohesion: 0.67
-Nodes (3): Daemon and hooks, End-to-end encryption, Security
-
-### Community 285 - "pad_plaintext"
-Cohesion: 0.67
-Nodes (3): pad_plaintext(), `data` + spaces up to the next bucket: powers of two from 256 bytes to 16 KiB,…, test_padding_hides_exact_lengths()
-
-### Community 286 - "is_secret_name"
-Cohesion: 0.67
-Nodes (3): is_secret_name(), Whether an identifier (or mapping key) names a secret, word by word:…, test_is_secret_name_words()
+### Community 282 - "EventAck"
+Cohesion: 0.13
+Nodes (25): ack with a local warn-level note: allow becomes warn, an existing warn/block…, with_note(), _encodable(), EventAck, Any, field_validator, Adapter-agnostic event schema spoken over the daemon's local HTTP port. Every…, value with lone surrogates replaced, in strings nested in lists and dicts too.… (+17 more)
 
 ### Community 287 - "Getting started"
 Cohesion: 0.50
 Nodes (4): Getting started, Install, Requirements, Set up a repository
-
-### Community 288 - "validate_patterns"
-Cohesion: 0.67
-Nodes (3): None if every pattern compiles, else a message naming the bad one., validate_patterns(), test_custom_patterns_and_validation()
 
 ### Community 289 - "EditVerdict"
 Cohesion: 0.67
 Nodes (3): EditVerdict, Room.evaluate_edit's answer: the decision, the peers that justified it (most…, test_the_verdict_type_is_unchanged_for_rooms_without_lines()
 
 ### Community 312 - "Client to relay"
-Cohesion: 0.09
-Nodes (26): activity, Agent kinds, Client to relay, Close codes, Connection lifecycle, decision_feedback, Delivery, edit_check (+18 more)
+Cohesion: 0.08
+Nodes (26): activity, Agent kinds, Client to relay, Close codes, Connection lifecycle, decision_feedback, edit_check, End-to-end encrypted rooms (+18 more)
 
-### Community 315 - "Counter"
-Cohesion: 0.06
-Nodes (18): LabelValue, Counter, _escape_label(), _format_value(), Gauge, Histogram, _labels(), Gauge read from a callback at scrape time, so it can never go stale. With… (+10 more)
+### Community 315 - "Histogram"
+Cohesion: 0.15
+Nodes (5): Histogram, Cumulative-bucket histogram; +Inf is implicit and always present., Zero every counter and histogram, and drop cached gauge values. Tests only: a…, Registry, test_histogram_buckets_are_cumulative_and_end_in_inf()
 
 ### Community 317 - "format_discord"
 Cohesion: 0.17
 Nodes (16): test_discord_payload_is_an_embed_that_never_pings(), test_member_text_cannot_plant_links_in_slack_or_discord(), test_slack_payload_has_blocks_and_escapes_control_sequences(), _clip(), _code(), _defang(), _detail_pairs(), _discord_escape() (+8 more)
 
 ## Knowledge Gaps
-- **764 isolated node(s):** `uvx`, `graphify-mcp`, `docker-entrypoint.sh script`, `$schema`, `builder` (+759 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2412 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **31 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **765 isolated node(s):** `uvx`, `graphify-mcp`, `docker-entrypoint.sh script`, `$schema`, `builder` (+760 more)
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 2426 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **33 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AgentKind` connect `model.ts` to `App.tsx`, `sessionLog.ts`, `Views.tsx`, `The contract`, `test_detect.py`?**
-  _High betweenness centrality (0.155) - this node is a cross-community bridge._
-- **Why does `The contract` connect `The contract` to `Relay to client`, `model.ts`, `base.py`, `test_detect.py`, `HookOutput`?**
-  _High betweenness centrality (0.140) - this node is a cross-community bridge._
-- **Why does `Room` connect `Room` to `bench`, `test_relay_core_fixes.py`, `test_history.py`, `.record_activity`, `typing`, `tests/test_tasks.py`, `MonkeyPatch`, `Relay`, `FileQueues`, `test_webhooks.py`, `benchmark_decisions.py`, `RoomPolicyUpdate`, `JoinRequest`, `Client to relay`, `test_decision_engine.py`, `normalize_room_code`, `main.py`, `test_resolve_actions.py`, `Speed by process`, `WebSocket`, `test_access_control.py`, `tests/test_file_queue.py`, `test_payload_limits.py`, `RoomReplayBudget`, `RoomManager`, `test_check_edit.py`, `test_room_settings.py`, `server/tests/test_repo_identity.py`, `QueueEntry`, `.go_first`, `FileTouch`, `await_approval`?**
-  _High betweenness centrality (0.118) - this node is a cross-community bridge._
+- **Why does `AgentKind` connect `Views.tsx` to `App.tsx`, `replay.ts`, `sessionLog.ts`, `TimelineView.tsx`, `The contract`, `detect.py`?**
+  _High betweenness centrality (0.149) - this node is a cross-community bridge._
+- **Why does `The contract` connect `The contract` to `Relay to client`, `Views.tsx`, `base.py`, `detect.py`, `claude_code.py`?**
+  _High betweenness centrality (0.131) - this node is a cross-community bridge._
+- **Why does `Room` connect `Room` to `ActivityMessage`, `test_capacity_limits.py`, `test_relay_core_fixes.py`, `test_history.py`, `test_resolve_actions.py`, `room.py`, `tests/test_tasks.py`, `test_a_failing_sink_never_breaks_the_broadcast`, `MonkeyPatch`, `FileQueues`, `create_room`, `test_webhooks.py`, `benchmark_decisions.py`, `RoomPolicyUpdate`, `JoinRequest`, `Client to relay`, `normalize_room_code`, `main.py`, `test_access_control.py`, `tests/test_file_queue.py`, `test_room_settings.py`, `test_payload_limits.py`, `RoomReplayBudget`, `RoomManager`, `server/tests/test_repo_identity.py`, `QueueEntry`, `HeldEdit`, `FileTouch`?**
+  _High betweenness centrality (0.112) - this node is a cross-community bridge._
 - **Are the 99 inferred relationships involving `Room` (e.g. with `Benchmark (`scripts/benchmark_decisions.py`)` and `admit_joiner()`) actually correct?**
   _`Room` has 99 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 104 inferred relationships involving `RoomManager` (e.g. with `RoomDirectory` and `RoomRoute`) actually correct?**
