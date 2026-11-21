@@ -29,20 +29,29 @@
 
 /* ---- nav ---------------------------------------------------------------- */
 
+/* A floating pill, not a full-width bar. */
 .site__nav {
   position: sticky;
   top: 0;
   z-index: 20;
-  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgb(var(--c-outline) / 0.6);
+  padding: 0.75rem 1rem 0;
 }
 
 .site__bar {
   display: flex;
   align-items: center;
   gap: 2rem;
-  height: 4rem;
+  height: 3.5rem;
+  max-width: 1080px;
+  padding-left: 1.1rem;
+  padding-right: 0.5rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-bg) 78%, transparent);
+  backdrop-filter: saturate(1.4) blur(14px);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px);
+  box-shadow:
+    0 0 0 1px var(--panel-border),
+    0 10px 30px -18px rgb(14 15 18 / 0.35);
 }
 
 .site__brand {
@@ -852,4 +861,9 @@
     animation: none;
     opacity: 0;
   }
+}
+
+.site__end .site-btn,
+.site__end .theme-toggle {
+  border-radius: 999px;
 }
