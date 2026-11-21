@@ -2346,15 +2346,9 @@
     "semantic_hash": ""
   },
   "frontend/src/site/Landing.tsx": {
-    "mtime": 1795151730.3904777,
-    "seen": 1795202633.140005,
-    "ast_hash": "5af8940b57c55074ac84a4f5dae59b2a",
-    "semantic_hash": ""
-  },
-  "frontend/src/site/LanePreview.tsx": {
-    "mtime": 1794672817.363935,
-    "seen": 1795150629.6690218,
-    "ast_hash": "ff1dde3644f5134850e79cbe4e7207ee",
+    "mtime": 1795282486.318167,
+    "seen": 1795282513.173737,
+    "ast_hash": "51cdc3c25f20101d808ed4cc47549cf5",
     "semantic_hash": ""
   },
   "frontend/src/site/Legal.tsx": {
