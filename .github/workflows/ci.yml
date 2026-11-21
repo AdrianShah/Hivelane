@@ -405,11 +405,34 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+  commits:
+    # Project rule: no co-author or AI attribution trailers in commit messages.
+    name: commit messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: No Co-Authored-By or "Generated with" lines
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bad=$(git log --format='%h %s%n%b' "$BASE..$HEAD" | grep -inE '^(co-authored-by:|.*generated with \[?claude)' || true)
+          if [ -n "$bad" ]; then
+            echo "::error title=Attribution trailer::remove these lines from the commit messages (git rebase -i, reword)"
+            echo "$bad"
+            exit 1
+          fi
+
   ci-ok:
     # The one check to require in branch protection: green when every job
     # above passed or was skipped as not affected.
     name: ci passed
-    needs: [changes, lint, python, dashboard, extension, docs, smoke]
+    needs: [changes, lint, python, dashboard, extension, docs, smoke, commits]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -217,7 +217,10 @@ Commit messages follow the existing history (`git log`):
 - A body, wrapped at about 72 columns, that says why, and for larger changes a
   bullet per area, led by the file or component: `- hivelane/symbols.py:
   function/class extraction ...`.
-- Credit co-authors, human or AI, with a `Co-Authored-By:` trailer.
+- No `Co-Authored-By:` trailers and no "Generated with …" lines, for people or
+  AI tools. CI rejects pull requests whose commits carry them. Turn off your
+  agent's commit attribution (Claude Code: `"includeCoAuthoredBy": false` in
+  `~/.claude/settings.json`).
 
 Pull requests:
 
