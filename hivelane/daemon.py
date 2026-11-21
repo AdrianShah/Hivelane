@@ -768,6 +768,17 @@ def _bounded_put(table: OrderedDict, key: Any, value: Any, limit: int) -> None:
         table.popitem(last=False)
 
 
+# How long a warn/block/ping keeps the desktop bee amber or red.
+ALERT_FRESH_SECONDS = 90.0
+
+
+def fresh_alert(alert: Optional[dict[str, Any]], now: float) -> Optional[dict[str, Any]]:
+    """alert while it is younger than ALERT_FRESH_SECONDS, else None."""
+    if not alert or now - float(alert.get("at", 0)) > ALERT_FRESH_SECONDS:
+        return None
+    return alert
+
+
 def lane_suffix(agent: str, subagent_id: Optional[str], subagent_type: Optional[str]) -> str:
     """The part after the person's name in a lane's relay name: the agent for
     a main session (`cursor`), type plus a short id for a subagent
@@ -1079,6 +1090,10 @@ class RoomConnection:
         # Wait queues (server/file_queue.py). (repo_id, path key) -> our place
         # in line for a teammate's file: {"position", "sessions", "since"}.
         self._queued: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+        # The newest warn/block about this connection's own edits, or a ping
+        # from the owner, for the desktop bee and the status line (status()
+        # drops it once it is ALERT_FRESH_SECONDS old).
+        self.last_alert: Optional[dict[str, Any]] = None
         # (repo_id, path key) -> a file_released not yet used: {"at", "sessions"}.
         self._released: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
         # (repo_id, path key) -> the session that last edited it through us,
@@ -1684,6 +1699,7 @@ class RoomConnection:
         by = str(data.get("by") or "room owner")[:64]
         note = f"the {by} pinged you" + (f": {text}" if text else "")
         self._add_session_note(ANY_SESSION, note)
+        self.last_alert = {"kind": "nudge", "text": note, "at": time.time()}
         print(f"hivelane: room {self.room}: {note}")
         desktop.notify(f"Hivelane · {self.room}", note[0].upper() + note[1:])
 
@@ -2456,6 +2472,13 @@ class RoomConnection:
             if self.e2e_key is not None and rel is not None:
                 response = self._open_response(response, rel)
             self._peers.update(other.user_id for other in response.others)
+            if response.decision in ("warn", "block"):
+                self.last_alert = {
+                    "kind": response.decision,
+                    "file_path": rel or response.file_path,
+                    "others": [other.user_id for other in response.others][:8],
+                    "at": time.time(),
+                }
             future = self._pending.pop(response.request_id, None)
             if future is not None and not future.done():
                 future.set_result(response)
@@ -3027,6 +3050,14 @@ class Daemon:
         async def status() -> dict[str, Any]:
             return self.status()
 
+        @app.get("/bee")
+        async def bee() -> dict[str, Any]:
+            # The desktop bee's whole view (hivelane/bee.py): small, so the
+            # badge can poll it every couple of seconds.
+            from hivelane.bee import bee_state
+
+            return bee_state(self.status())
+
         @app.post("/events")
         async def events(event: NormalizedEvent) -> EventAck:
             return await self.handle_event(event)
@@ -3206,6 +3237,8 @@ class Daemon:
             "queued_events": conn.queued_events,
             # Files this connection is waiting in line for (held edits).
             "held": len(conn._queued),
+            # The newest warn/block/ping, while it is fresh (the desktop bee).
+            "alert": fresh_alert(conn.last_alert, time.time()),
             "repo_id": self._binding_repo_id(binding),
             "fatal": conn.fatal,
             # What the team's file set (history_hours only when it says so).

@@ -40,3 +40,10 @@ def _no_desktop_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     """A ping in a test must never pop a real notification on the
     developer's desktop (hivelane/desktop.py)."""
     monkeypatch.setenv("HIVELANE_DESKTOP_NOTIFY", "0")
+
+
+@pytest.fixture(autouse=True)
+def _no_desktop_bee(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`hivelane up` in a test must never start a real desktop bee
+    (hivelane/bee.py); test_bee turns it back on with fakes."""
+    monkeypatch.setenv("HIVELANE_BEE", "0")

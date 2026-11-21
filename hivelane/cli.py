@@ -1067,7 +1067,27 @@ def cmd_up(args: argparse.Namespace) -> int:
     ok = report_connection(entry, name, str(svc.log_path()))
     if not ok:
         return 1
+    # 4. the desktop bee: one line, started detached (never holds this command open).
+    if args.bee:
+        from hivelane import bee
+
+        shown = bee.start(port)
+        say(f"  {mark('ok' if shown == 'on' else 'info')} desktop bee {shown}" + ("  (`hivelane bee off` hides it)" if shown == "on" else ""))
     print_summary(config, name_source)
+    return 0
+
+
+def cmd_bee(args: argparse.Namespace) -> int:
+    from hivelane import bee
+
+    if args.action == "on":
+        shown = bee.start(resolve_port(args.port))
+        say(f"hivelane: desktop bee {shown}")
+        return 0 if shown == "on" else 1
+    if args.action == "off":
+        say("hivelane: desktop bee off" if bee.stop() else "hivelane: the desktop bee was not running")
+        return 0
+    say(f"hivelane: desktop bee {'on' if bee.running_pid() else 'off'}")
     return 0
 
 
@@ -1204,6 +1224,9 @@ def cmd_down(args: argparse.Namespace) -> int:
         stopped = svc.stop(port)
     if not stopped:
         raise CommandFailed(f"the daemon on port {port} did not stop in time")
+    from hivelane import bee
+
+    bee.stop()
     if was_running:
         say("hivelane: daemon stopped. Hooks stay installed; agents run uncoordinated until `hivelane up`.")
     else:
@@ -2189,6 +2212,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="show Hivelane in Claude Code's status line (default: ask; never replaces your own)",
     )
+    up.add_argument(
+        "--bee",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="show the desktop bee, a small always-on-top room badge (default: on; HIVELANE_BEE=0 also turns it off)",
+    )
     up.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
     up.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
     up.add_argument(
@@ -2197,6 +2226,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="turn on end-to-end encryption for this repo's room (writes e2e = true to .hivelane.toml)",
     )
     up.set_defaults(func=cmd_up)
+
+    bee_cmd = sub.add_parser("bee", help="show or hide the desktop bee (the always-on-top room badge)")
+    bee_cmd.add_argument("action", choices=["on", "off", "status"], nargs="?", default="status")
+    bee_cmd.add_argument("--port", type=int, default=None, help=port_help)
+    bee_cmd.set_defaults(func=cmd_bee)
 
     down = sub.add_parser("down", help="stop the background daemon (hooks stay installed)")
     down.add_argument("--port", type=int, default=None, help=port_help)
