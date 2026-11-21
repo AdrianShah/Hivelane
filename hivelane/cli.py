@@ -1072,7 +1072,8 @@ def cmd_up(args: argparse.Namespace) -> int:
         from hivelane import bee
 
         shown = bee.start(port)
-        say(f"  {mark('ok' if shown == 'on' else 'info')} desktop bee {shown}" + ("  (`hivelane bee off` hides it)" if shown == "on" else ""))
+        on = shown.startswith("on")
+        say(f"  {mark('ok' if on else 'info')} desktop bee {shown}" + ("  (`hivelane bee off` hides it)" if on else ""))
     print_summary(config, name_source)
     return 0
 
@@ -1081,11 +1082,12 @@ def cmd_bee(args: argparse.Namespace) -> int:
     from hivelane import bee
 
     if args.action == "on":
-        shown = bee.start(resolve_port(args.port))
+        shown = bee.start(resolve_port(args.port), force=True)
         say(f"hivelane: desktop bee {shown}")
-        return 0 if shown == "on" else 1
+        return 0 if shown.startswith("on") else 1
     if args.action == "off":
-        say("hivelane: desktop bee off" if bee.stop() else "hivelane: the desktop bee was not running")
+        bee.stop(hide=True)
+        say("hivelane: desktop bee off (`hivelane up` leaves it off until `hivelane bee on`)")
         return 0
     say(f"hivelane: desktop bee {'on' if bee.running_pid() else 'off'}")
     return 0
@@ -2216,7 +2218,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--bee",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="show the desktop bee, a small always-on-top room badge (default: on; HIVELANE_BEE=0 also turns it off)",
+        help="show the desktop bee: room status in the menu bar, system tray or screen edge (default: on; HIVELANE_BEE=0 also turns it off)",
     )
     up.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
     up.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
@@ -2227,7 +2229,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     up.set_defaults(func=cmd_up)
 
-    bee_cmd = sub.add_parser("bee", help="show or hide the desktop bee (the always-on-top room badge)")
+    bee_cmd = sub.add_parser("bee", help="show or hide the desktop bee (menu bar, system tray or screen-edge room status)")
     bee_cmd.add_argument("action", choices=["on", "off", "status"], nargs="?", default="status")
     bee_cmd.add_argument("--port", type=int, default=None, help=port_help)
     bee_cmd.set_defaults(func=cmd_bee)

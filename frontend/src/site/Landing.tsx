@@ -66,6 +66,9 @@ const STEPS = [
   },
 ];
 
+/** The bee's stripe takes the state's colour, like the desktop bee's body. */
+const TONE_COLOR = { clear: '#2FA36B', warn: '#F5A524', block: '#E5484D' } as const;
+
 /** The notch cycles through what a room looks like over a few seconds. */
 const NOTCH_STATES: { bee: AvatarState; chip: string; tone: 'clear' | 'warn' | 'block'; line: string }[] = [
   { bee: 'editing', chip: 'all clear', tone: 'clear', line: 'Four agents, four lanes. Nobody is in anybody’s way.' },
@@ -123,7 +126,7 @@ function HeroNotch() {
   return (
     <div className="lp2-notch" tabIndex={0} aria-label={`Example room: ${state.chip}. ${state.line}`}>
       <div className="lp2-notch__bar">
-        <Bee state={state.bee} accent="#3B95FF" size={28} ring={false} />
+        <Bee state={state.bee} accent={TONE_COLOR[state.tone]} size={28} />
         <span className="lp2-notch__room">billing-api</span>
         <span className="lp2-notch__live">4 live</span>
         <span className={`lp2-notch__chip is-${state.tone}`}>
@@ -165,7 +168,7 @@ function ProductFrame() {
             <rect x="5" y="11" width="14" height="10" rx="2" />
             <path d="M8 11V8a4 4 0 0 1 8 0v3" />
           </svg>
-          hivelane.app/r/K7M2PQ2X
+          hivelane.app/r/roomcode
         </span>
         <span className="lp2-frame__meta">4 live</span>
       </div>
@@ -342,21 +345,31 @@ export default function Landing() {
               </div>
               <figcaption>Terminal agents: Hivelane in the status line, a short card when something needs you.</figcaption>
             </figure>
-            <figure className="lp2-desk" data-reveal style={{ transitionDelay: '90ms' }} aria-label="The desktop bee over an editor">
+            <figure className="lp2-desk" data-reveal style={{ transitionDelay: '90ms' }} aria-label="The bee in the system bar, with its menu open">
               <div className="lp2-desk__screen">
-                <div className="lp2-desk__editor" aria-hidden="true">
-                  <span />
-                  <span />
-                  <span />
-                  <span />
-                  <span />
+                <div className="lp2-desk__bar" aria-hidden="true">
+                  <span className="lp2-desk__glyph" />
+                  <span className="lp2-desk__glyph" />
+                  <span className="lp2-desk__glyph is-round" />
+                  <span className="lp2-desk__bee">
+                    <Bee state="blocked" accent="#E5484D" size={20} ring={false} />
+                    1 held
+                  </span>
+                  <span className="lp2-desk__clock">9:41</span>
                 </div>
-                <div className="lp2-desk__bee">
-                  <Bee state="blocked" accent="#3B95FF" size={26} ring={false} />
-                  <span>1 held</span>
+                <div className="lp2-desk__menu" aria-hidden="true">
+                  <strong>Hivelane · billing-api · 4 agents</strong>
+                  <span>An edit is held on server/routes.py (Maya).</span>
+                  <hr />
+                  <span className="is-action">Open the dashboard</span>
+                  <span className="is-action">Hide the bee</span>
                 </div>
+                <span className="lp2-desk__edge" aria-hidden="true" />
               </div>
-              <figcaption>Everywhere else: the desktop bee, a small badge above whatever app your agent runs in. Green, amber, red.</figcaption>
+              <figcaption>
+                Everywhere else: the bee sits in your menu bar or system tray beside your other background apps, or as a
+                colour tab on the edge of the screen. Green, amber, red.
+              </figcaption>
             </figure>
           </div>
         </section>
