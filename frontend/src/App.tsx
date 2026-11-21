@@ -232,7 +232,7 @@ export default function App() {
   const [e2eState, setE2EState] = useState<E2EState>('off');
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
-  const [isOwner, setIsOwner] = useState(false);
+  const [isOwner, setIsOwner] = useState(() => ownerToken(roomId) != null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   // The relay's words while waiting for approval, or after being refused.
@@ -340,13 +340,15 @@ export default function App() {
     dash.syncViewParam(next);
   }
 
-  useEffect(() => {
-    // Back/Forward (or a pasted link) changed ?view=: follow it. Views this
-    // build does not list in URL_VIEWS are left alone.
+  // Back/Forward (or a pasted link) changed ?view=: follow it. Views this
+  // build does not list in URL_VIEWS are left alone. Adjusted during render
+  // (React's pattern for state that follows a changing value), not in an effect.
+  const [seenViewParam, setSeenViewParam] = useState(dash.viewParam);
+  if (dash.viewParam !== seenViewParam) {
+    setSeenViewParam(dash.viewParam);
     const fromUrl = viewFromParam(dash.viewParam) as AppView | null;
-    if (!fromUrl) return;
-    setView(fromUrl);
-  }, [dash.viewParam]);
+    if (fromUrl) setView(fromUrl);
+  }
 
   const displayUserIds = useMemo(() => Object.keys(users), [users]);
   // Offline lanes stay on the board but are not "agents" in any count.
@@ -414,27 +416,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    // A new room means the previous room's lanes/conflicts no longer apply.
-    setUsers({});
-    setConflicts([]);
-    setConflictHistory([]);
-    setTasks({});
-    recordFeedEvent({ type: 'reset' });
-    setRoomSettings(null);
-    setStatus('connecting');
-    setIsOwner(ownerToken(roomId) != null);
-    setRequireApproval(null);
-    setJoinRequests([]);
-    setAccessNotice(null);
-    // Per-room detection bookkeeping (votes, scopes) must not leak across rooms.
-    setDecisionScopes({});
-    setFeedback({});
-    setMyVotes({});
-    setReleasedAt({});
-    setQueuedAt({});
-    setActivity([]);
-    rawPaths.current.clear();
-    repoOf.current.clear();
+    // State starts empty for this connection: App mounts once per room
+    // (RoomRoute keys it by code), and the cleanup below clears everything
+    // before a reconnect (new key, "Ask again") opens the next one.
 
     let cancelled = false;
     let roomMissing = false;
@@ -442,7 +426,8 @@ export default function App() {
     // reconnecting would just queue another request for the owners).
     let awaitingApproval = false;
     let refused = false;
-    setE2EState('off');
+    const paths = rawPaths.current;
+    const repos = repoOf.current;
     // A new key reconnects: the relay's catch-up is then decrypted with it.
     const e2e = new E2EDecoder(e2eKey, roomId, (state) => {
       if (!cancelled) setE2EState(state);
@@ -799,6 +784,28 @@ export default function App() {
       if (rosterTimer) clearTimeout(rosterTimer);
       wsRef.current?.close();
       wsRef.current = null;
+      // The next connection replays the room, so nothing from this one may
+      // leak into it (lanes, conflicts, votes, scopes, owner state).
+      setUsers({});
+      setConflicts([]);
+      setConflictHistory([]);
+      setTasks({});
+      recordFeedEvent({ type: 'reset' });
+      setRoomSettings(null);
+      setStatus('connecting');
+      setIsOwner(ownerToken(roomId) != null);
+      setRequireApproval(null);
+      setJoinRequests([]);
+      setAccessNotice(null);
+      setDecisionScopes({});
+      setFeedback({});
+      setMyVotes({});
+      setReleasedAt({});
+      setQueuedAt({});
+      setActivity([]);
+      setE2EState('off');
+      paths.clear();
+      repos.clear();
     };
   }, [wsUrl, e2eKey, roomId, joinAttempt, recordFeedEvent, showToast, addActivity]);
 
@@ -951,8 +958,13 @@ export default function App() {
         `${userId} goes first on ${filePath}`,
       );
     },
+    // Ping text is not end-to-end encrypted, so an e2e room sends none (it
+    // can name a file); the agent's daemon words the notice itself.
     ping: (userId, text) =>
-      sendOwnerFrame({ type: 'nudge', to_user_id: userId, text: text ?? DEFAULT_PING }, `Pinged ${userId}`),
+      sendOwnerFrame(
+        { type: 'nudge', to_user_id: userId, text: roomSettings?.e2e ? '' : (text ?? DEFAULT_PING) },
+        `Pinged ${userId}`,
+      ),
     dismissConflict: (alert) => {
       const key = conflictKey(alert);
       setConflicts((prev) => prev.filter((c) => conflictKey(c) !== key));
@@ -994,7 +1006,9 @@ export default function App() {
     actions,
   };
 
-  const commands = buildCommands(actions, {
+  // Built when the menu asks for it, not during this render (the actions
+  // close over refs).
+  const getCommands = () => buildCommands(actions, {
     isOwner,
     toggleTheme: () => {
       const dark = document.documentElement.dataset.theme === 'dark';
@@ -1232,7 +1246,7 @@ export default function App() {
       </div>
 
       <MobileNav view={view} onNavigate={navigateTo} conflictCount={conflicts.length + held.length} />
-      <CommandMenu open={commandOpen} commands={commands} onClose={() => setCommandOpen(false)} />
+      <CommandMenu open={commandOpen} getCommands={getCommands} onClose={() => setCommandOpen(false)} />
       <InviteSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
         <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
       </InviteSheet>
