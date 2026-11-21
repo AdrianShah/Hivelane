@@ -18,14 +18,16 @@ cached.
 from __future__ import annotations
 
 import ctypes
+import ctypes.wintypes
 import json
 import math
 import os
 import socket
 import sys
 import time
-from ctypes import wintypes as w
 from typing import Any
+
+w = ctypes.wintypes
 
 POLL_MS = 2000
 GIVE_UP_SECONDS = 300
@@ -292,7 +294,10 @@ if sys.platform == "win32":  # pragma: no branch - this file only runs on Window
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 LRESULT = ctypes.c_ssize_t
-WNDPROC = ctypes.WINFUNCTYPE(LRESULT, w.HWND, ctypes.c_uint, w.WPARAM, w.LPARAM)
+# WINFUNCTYPE (stdcall) exists only on Windows; elsewhere this module is
+# imported just for its drawing code (the tests), so any type will do.
+_FUNCTYPE = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+WNDPROC = _FUNCTYPE(LRESULT, w.HWND, ctypes.c_uint, w.WPARAM, w.LPARAM)
 
 WM_DESTROY, WM_COMMAND, WM_TIMER, WM_APP = 0x0002, 0x0111, 0x0113, 0x8000
 WM_SETTINGCHANGE = 0x001A
