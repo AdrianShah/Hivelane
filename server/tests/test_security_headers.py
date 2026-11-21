@@ -204,13 +204,27 @@ def _join(socket: Any, name: str) -> None:
 
 
 def _next_event(socket: Any, type_name: str) -> dict:
+    return _await_events(socket, type_name)[type_name]
+
+
+def _await_events(socket: Any, *type_names: str) -> dict[str, dict]:
+    """Read frames until one event of each type has arrived, in any order.
+
+    The relay may deliver these in either order (feed batching), so waiting
+    for them one at a time can drop the second while looking for the first.
+    """
+    found: dict[str, dict] = {}
     for _ in range(20):
         frame = socket.receive_json()
         events = frame["events"] if frame.get("type") == "hivelane_feed" else [frame]
         for event in events:
-            if event.get("type") == type_name:
-                return event
-    raise AssertionError(f"never received {type_name}")
+            name = event.get("type")
+            if name in type_names and name not in found:
+                found[name] = event
+        if len(found) == len(type_names):
+            return found
+    missing = ", ".join(t for t in type_names if t not in found)
+    raise AssertionError(f"never received {missing}")
 
 
 def test_prompts_and_diffs_never_reach_the_log(
@@ -234,8 +248,7 @@ def test_prompts_and_diffs_never_reach_the_log(
         sam.send_json(
             {"type": "plan", "user_id": "sam", "summary": "SECRET-PLAN-4", "files": ["a.py"]}
         )
-        _next_event(sam, "plan_conflicts")
-        _next_event(sam, "activity_update")
+        _await_events(sam, "plan_conflicts", "activity_update")
         # Malformed: pydantic's own message would echo the input.
         sam.send_json({"type": "activity", "user_id": "sam", "prompt": "SECRET-BAD-5"})
         sam.send_json({"type": "intent", "prompt": ["SECRET-BAD-6"]})
