@@ -1566,7 +1566,9 @@ async def handle_nudge(room: Room, socket: WebSocket, raw: dict) -> None:
     if not room.is_active(nudge.to_user_id):
         log.debug("nudge for %s, who is not in the room", nudge.to_user_id)
         return
-    text = " ".join(_NUDGE_UNSAFE.sub(" ", nudge.text).split())
+    # Ping text is not end-to-end encrypted, so an e2e room carries none:
+    # the dashboard sends none there, and the relay drops any it is sent.
+    text = "" if room.settings.e2e else " ".join(_NUDGE_UNSAFE.sub(" ", nudge.text).split())
     frame = Nudged(user_id=nudge.to_user_id, by=OWNER_LABEL, text=text, timestamp=time.time())
     frame.delivered = await room.send_to_member(nudge.to_user_id, frame)
     await room.broadcast(frame, spectators_only=True)

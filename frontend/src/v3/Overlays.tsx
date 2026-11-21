@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode } from 'react';
 import Icon from '../components/Icon';
 import { matchCommands } from '../dashboard/commands';
 import { useDialogFocus } from '../dashboard/useDialogFocus';
@@ -27,7 +27,15 @@ export function Toasts({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id:
 // --- command menu ---------------------------------------------------------------
 
 /** ⌘K / Ctrl+K: jump to a view or run an action. */
-export function CommandMenu({ open, commands, onClose }: { open: boolean; commands: MenuCommand[]; onClose: () => void }) {
+export function CommandMenu({
+  open,
+  getCommands,
+  onClose,
+}: {
+  open: boolean;
+  getCommands: () => MenuCommand[];
+  onClose: () => void;
+}) {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const panel = useRef<HTMLDivElement>(null);
@@ -38,8 +46,8 @@ export function CommandMenu({ open, commands, onClose }: { open: boolean; comman
     onClose();
   }, [onClose]);
   useDialogFocus(open, close, panel, input);
-  const results = useMemo(() => matchCommands(commands, query), [commands, query]);
   if (!open) return null;
+  const results = matchCommands(getCommands(), query);
 
   const run = (command: MenuCommand | undefined) => {
     if (!command) return;
