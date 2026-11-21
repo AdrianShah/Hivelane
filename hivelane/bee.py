@@ -2,8 +2,9 @@
 who never open the dashboard.
 
 - macOS: an item in the menu bar, beside the other background apps.
-- Windows: an icon in the system tray (with a quiet heads-up when it turns
-  amber or red).
+- Windows: the logo bee in the system tray, wings beating; an amber or red
+  dot in its corner instead of a coloured body (with a quiet heads-up when it
+  turns amber or red).
 - Linux: a thin colour tab tucked against the right edge of the screen that
   slides out on hover.
 
@@ -15,9 +16,10 @@ Design constraints:
 - Zero tokens. Nothing here reaches an agent's context; the bee is a separate
   process that reads the local daemon.
 - Lightweight. No new dependencies and no browser engine: AppKit through
-  `osascript -l JavaScript` on macOS, WinForms through PowerShell on Windows,
-  tkinter on Linux. It polls the daemon's GET /bee every BEE_POLL_SECONDS and
-  redraws only on change.
+  `osascript -l JavaScript` on macOS, the Win32 tray through ctypes on Windows
+  (hivelane/bee_win.py, a few MB), tkinter on Linux. It polls the daemon's
+  GET /bee every BEE_POLL_SECONDS and redraws only on change (on Windows the
+  wings also flap, from frames drawn once and cached).
 - Never in the way of an agent. `hivelane up` may be run by an agent in a tool
   call: the bee is started detached with every stdio stream on /dev/null, so
   the agent's command returns at once.
@@ -33,6 +35,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any, Optional
 
@@ -52,10 +55,11 @@ def bee_state(status: dict[str, Any]) -> dict[str, Any]:
     """What the bee shows, from the daemon's status(): the worst state across
     its repos. Keys: state (off|connecting|live|warn|block|error), label (short
     text beside the bee, "" for none), tip (hover text), root (the repo a
-    click opens, or None)."""
+    click opens, or None), room (its code, or None) and url (its dashboard,
+    or None)."""
     raw = status.get("repos")
     repos: list[Any] = raw if isinstance(raw, list) else []
-    best: dict[str, Any] = {"state": "off", "label": "", "tip": "Hivelane: no room on this machine", "root": None}
+    best: dict[str, Any] = {"state": "off", "label": "", "tip": "Hivelane: no room on this machine", "root": None, "room": None, "url": None}
     for repo in repos:
         if not isinstance(repo, dict):
             continue
@@ -66,6 +70,19 @@ def bee_state(status: dict[str, Any]) -> dict[str, Any]:
 
 
 def _repo_view(repo: dict[str, Any]) -> dict[str, Any]:
+    view = _repo_state(repo)
+    # What a click on the bee needs: the room's code and its dashboard link.
+    room, relay = repo.get("room"), repo.get("relay")
+    view["room"] = str(room) if room else None
+    view["url"] = None
+    if room and isinstance(relay, str):
+        from hivelane.links import room_url
+
+        view["url"] = room_url(relay, str(room))
+    return view
+
+
+def _repo_state(repo: dict[str, Any]) -> dict[str, Any]:
     room = str(repo.get("room") or "?")
     root = repo.get("root")
     peers = repo.get("peers")
@@ -144,13 +161,34 @@ def running_pid() -> Optional[int]:
         return None
     if pid <= 0:
         return None
+    return pid if _alive(pid) else None
+
+
+def _alive(pid: int) -> bool:
+    """Whether process `pid` is still running."""
+    if sys.platform == "win32":
+        # os.kill(pid, 0) is no liveness probe on Windows: signal 0 is
+        # CTRL_C_EVENT there, and it fails (WinError 87) for a live process.
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: it exists, just not ours
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except PermissionError:
-        return pid
+        return True
     except OSError:
-        return None
-    return pid
+        return False
+    return True
 
 
 def style() -> str:
@@ -168,7 +206,7 @@ def command(port: int) -> Optional[list[str]]:
     way to draw one."""
     from hivelane.auth import token_path
 
-    hivelane = shutil.which("hivelane") or ""
+    hivelane = shutil.which("hivelane") or _beside_python("hivelane.exe") or ""
     args = [str(port), str(token_path()), hivelane, str(_home())]
     if sys.platform == "darwin":
         if shutil.which("osascript") is None:
@@ -177,17 +215,31 @@ def command(port: int) -> Optional[list[str]]:
         _write_if_changed(script, MAC_SCRIPT)
         return ["osascript", "-l", "JavaScript", str(script), *args]
     if sys.platform == "win32":
-        shell = shutil.which("powershell") or shutil.which("pwsh")
-        if shell is None:
-            return None
-        script = _home() / "bee.ps1"
-        _write_if_changed(script, WINDOWS_SCRIPT)
-        return [shell, "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", str(script), *args]
+        return [_windowless_python(), "-I", "-S", str(Path(__file__).with_name("bee_win.py")), *args]
     try:
         import tkinter  # noqa: F401
     except ImportError:
         return None
     return [sys.executable, "-m", "hivelane.bee", *args]
+
+
+def _beside_python(name: str) -> Optional[str]:
+    """`name` in this interpreter's Scripts folder (a venv install whose
+    Scripts folder is not on PATH), or None."""
+    path = Path(sys.executable).with_name(name)
+    return str(path) if path.is_file() else None
+
+
+def _windowless_python() -> str:
+    """pythonw.exe of the base interpreter. Not the venv's: that one is a
+    launcher that starts the real interpreter as a second process, which
+    doubles the bee's memory and leaves the pid file pointing at the launcher.
+    The bee only needs the standard library, so the base one will do."""
+    base = Path(getattr(sys, "_base_executable", "") or sys.executable)
+    for candidate in (base.with_name("pythonw.exe"), Path(sys.executable).with_name("pythonw.exe")):
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
 
 
 def _write_if_changed(path: Path, text: str) -> None:
@@ -254,6 +306,14 @@ def stop(*, hide: bool = False) -> bool:
         return False
     try:
         if sys.platform == "win32":
+            # Ask first (WM_CLOSE), so the bee removes its own tray icon; a
+            # forced kill leaves a dead icon in the tray until the mouse
+            # passes over it.
+            subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True, check=False)  # noqa: S603,S607
+            for _ in range(20):
+                if not _alive(pid):
+                    return True
+                time.sleep(0.1)
             subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, check=False)  # noqa: S603,S607
         else:
             os.kill(pid, signal.SIGTERM)
@@ -526,75 +586,10 @@ function run(argv) {
 """
 
 
-# --- Windows: a system tray icon (WinForms through PowerShell) ---------------------
-
-WINDOWS_SCRIPT = r"""
-# Hivelane bee (Windows): an icon in the system tray beside the other
-# background apps. Written by hivelane/bee.py; run by
-# powershell -File bee.ps1 PORT TOKEN_FILE HIVELANE HOME
-param([string]$Port, [string]$TokenFile, [string]$Hivelane, [string]$HomeDir)
-Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-$tone = @{ live = '#2FA36B'; warn = '#F5A524'; block = '#E5484D'; error = '#E5484D'; connecting = '#8A8D93'; off = '#8A8D93' }
-$script:view = @{ state = 'starting'; label = ''; tip = 'Hivelane is starting'; root = $null }
-$script:failsSince = $null
-
-function Make-Icon([string]$state) {
-  $bmp = New-Object Drawing.Bitmap 32, 32
-  $g = [Drawing.Graphics]::FromImage($bmp); $g.SmoothingMode = 'AntiAlias'
-  $k = 30 / 152; $g.TranslateTransform(1 - 4 * $k, (32 - 128 * $k) / 2 - 18 * $k); $g.ScaleTransform($k, $k)
-  $ink = [Drawing.ColorTranslator]::FromHtml('#18181B'); $pen = New-Object Drawing.Pen($ink, 9)
-  foreach ($w in @(@(34, -32), @(126, 32))) {
-    $st = $g.Save(); $g.TranslateTransform($w[0], 68); $g.RotateTransform($w[1])
-    $g.FillEllipse([Drawing.Brushes]::White, -27, -12, 54, 24); $g.DrawEllipse($pen, -27, -12, 54, 24); $g.Restore($st)
-  }
-  $g.DrawLine($pen, 72, 57, 58, 30); $g.DrawLine($pen, 88, 57, 102, 30)
-  $hex = [Drawing.PointF[]]@((New-Object Drawing.PointF(80, 50)), (New-Object Drawing.PointF(119, 73)), (New-Object Drawing.PointF(119, 119)), (New-Object Drawing.PointF(80, 142)), (New-Object Drawing.PointF(41, 119)), (New-Object Drawing.PointF(41, 73)))
-  $color = if ($tone.ContainsKey($state)) { $tone[$state] } else { '#8A8D93' }
-  $g.FillPolygon((New-Object Drawing.SolidBrush([Drawing.ColorTranslator]::FromHtml($color))), $hex)
-  $pen.Width = 11; $g.DrawPolygon($pen, $hex)
-  $g.FillEllipse((New-Object Drawing.SolidBrush($ink)), 58, 78, 15, 15); $g.FillEllipse((New-Object Drawing.SolidBrush($ink)), 87, 78, 15, 15)
-  $g.Dispose()
-  return [Drawing.Icon]::FromHandle($bmp.GetHicon())
-}
-
-$tray = New-Object Windows.Forms.NotifyIcon
-$menu = New-Object Windows.Forms.ContextMenuStrip
-$head = $menu.Items.Add('Hivelane'); $head.Enabled = $false
-[void]$menu.Items.Add('-')
-$open = $menu.Items.Add('Open the dashboard')
-$open.Add_Click({ if ($Hivelane -and $script:view.root) { Start-Process -WindowStyle Hidden -FilePath $Hivelane -ArgumentList @('open', '--root', $script:view.root) } })
-$hide = $menu.Items.Add('Hide the bee')
-$hide.Add_Click({ New-Item -ItemType File -Force -Path (Join-Path $HomeDir 'bee-hidden') | Out-Null; $tray.Visible = $false; [Windows.Forms.Application]::Exit() })
-$tray.ContextMenuStrip = $menu
-$tray.Add_MouseClick({ param($s, $e) if ($e.Button -eq 'Left' -and $Hivelane -and $script:view.root) { Start-Process -WindowStyle Hidden -FilePath $Hivelane -ArgumentList @('open', '--root', $script:view.root) } })
-$tray.Icon = Make-Icon 'off'; $tray.Text = 'Hivelane'; $tray.Visible = $true
-
-$timer = New-Object Windows.Forms.Timer; $timer.Interval = 2000
-$timer.Add_Tick({
-  try {
-    $token = (Get-Content $TokenFile -Raw).Trim()
-    $next = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/bee" -Headers @{ 'X-Hivelane-Token' = $token } -TimeoutSec 1
-    $script:failsSince = $null
-  } catch {
-    if (-not $script:failsSince) { $script:failsSince = Get-Date }
-    if (((Get-Date) - $script:failsSince).TotalSeconds -gt 300) { $tray.Visible = $false; [Windows.Forms.Application]::Exit(); return }
-    $next = @{ state = 'off'; label = ''; tip = 'Hivelane is not running'; root = $null }
-  }
-  if (($next.state -ne $script:view.state) -or ($next.label -ne $script:view.label) -or ($next.tip -ne $script:view.tip)) {
-    $worse = ($next.state -in 'warn', 'block') -and ($next.state -ne $script:view.state)
-    $script:view = @{ state = $next.state; label = $next.label; tip = $next.tip; root = $next.root }
-    $old = $tray.Icon; $tray.Icon = Make-Icon $next.state; if ($old) { $old.Dispose() }
-    $first = ($next.tip -split "`n")[0]
-    $text = if ($next.label) { "$first · $($next.label)" } else { $first }
-    $tray.Text = $text.Substring(0, [Math]::Min(63, $text.Length))
-    $head.Text = $first
-    # A quiet heads-up when things turn amber or red; nothing for green.
-    if ($worse) { $tray.ShowBalloonTip(4000, 'Hivelane', ($next.tip -replace "`n", ' · '), 'Warning') }
-  }
-})
-$timer.Start()
-[Windows.Forms.Application]::Run((New-Object Windows.Forms.ApplicationContext))
-"""
+# --- Windows: a system tray icon (hivelane/bee_win.py, ctypes) -------------------
+#
+# Kept in its own file: it runs as `pythonw -I -S bee_win.py ...`, standard
+# library only, so it stays a few MB.
 
 
 def main(argv: Optional[list[str]] = None) -> int:  # pragma: no cover - needs a display

@@ -18,31 +18,10 @@
   --lp-notch: #000;
 }
 
-:root[data-theme='dark'] .lp2-glow {
-  display: none;
-}
-
 :root[data-theme='dark'] .lp2-notch {
   box-shadow:
     0 18px 40px -14px rgb(0 0 0 / 0.7),
     inset 0 0 0 1px rgb(255 255 255 / 0.14);
-}
-
-.lp2-glow {
-  position: absolute;
-  inset: -12rem 0 auto;
-  height: 52rem;
-  pointer-events: none;
-  background:
-    radial-gradient(38rem 22rem at 30% 18%, rgb(var(--c-primary) / 0.1), transparent 70%),
-    radial-gradient(32rem 24rem at 78% 46%, rgb(245 165 36 / 0.08), transparent 70%);
-  animation: lp2-drift 22s ease-in-out infinite alternate;
-}
-
-@keyframes lp2-drift {
-  to {
-    transform: translate3d(2.5rem, -1rem, 0);
-  }
 }
 
 /* ---- hero ------------------------------------------------------------------ */
