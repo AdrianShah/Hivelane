@@ -355,6 +355,18 @@ def test_an_owner_pings_an_agent(relay: RoomManager) -> None:
         assert seen["delivered"] is True and seen["text"] == got["text"]
 
 
+def test_a_ping_in_an_e2e_room_carries_no_text(relay: RoomManager) -> None:
+    client = TestClient(app)
+    body = client.post("/rooms", json={"settings": {"e2e": True}}).json()
+    code, token = body["room_id"], body["owner_token"]
+    with client.websocket_connect(f"/ws/{code}") as owner, client.websocket_connect(f"/ws/{code}") as ben:
+        _spectate(owner, token)
+        _join(ben, "ben")
+        owner.send_json({"type": "nudge", "to_user_id": "ben", "text": "src/secret_plan.py is contested"})
+        assert _next(ben, "nudged")["text"] == ""
+        assert _next(owner, "nudged")["text"] == ""
+
+
 def test_a_ping_for_someone_not_in_the_room_is_dropped(relay: RoomManager) -> None:
     client = TestClient(app)
     code, token = _held_room(client)
