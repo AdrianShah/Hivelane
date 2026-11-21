@@ -80,8 +80,10 @@ The desktop bee shows the room's state where you already look, for people
 who never open the dashboard:
 
 - **macOS**: an item in the menu bar, beside your other background apps.
-- **Windows**: an icon in the system tray, with a quiet heads-up when it
-  turns amber or red.
+- **Windows**: the logo bee in the system tray, its wings beating while the
+  room is connected (faster when amber or red). Instead of a coloured body it
+  gets an amber or red dot in the corner, and a face to match, with a quiet
+  heads-up when that happens. It follows the taskbar's light or dark mode.
 - **Linux**: a thin colour tab tucked against the right edge of the screen;
   hover to slide it out, drag to move it up or down.
 
@@ -94,8 +96,8 @@ dashboard.
 menu, or `hivelane bee off`, keeps it off until `hivelane bee on`. It costs no
 tokens: it is a separate process that reads the local daemon every 2 seconds
 and never writes into an agent's context. It needs no extra installs (AppKit
-through `osascript` on macOS, WinForms through PowerShell on Windows, tkinter on
-Linux) and stays off in CI, over SSH, without a display, and when
+through `osascript` on macOS, the Win32 tray through Python's own `ctypes` on
+Windows, at a few MB, tkinter on Linux) and stays off in CI, over SSH, without a display, and when
 `HIVELANE_BEE=0`.
 
 ## hivelane down

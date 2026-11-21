@@ -474,4 +474,6 @@ def test_http_origin(relay: str, origin: str) -> None:
     ],
 )
 def test_relay_is_local(relay: str, local: bool) -> None:
-    assert cli.relay_is_local(relay) is local
+    from hivelane.links import relay_is_local
+
+    assert relay_is_local(relay) is local
