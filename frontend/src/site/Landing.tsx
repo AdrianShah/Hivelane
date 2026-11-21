@@ -249,8 +249,6 @@ export default function Landing() {
   return (
     <SiteLayout>
       <div ref={root} className="lp2">
-        <div className="lp2-glow" aria-hidden="true" />
-
         <section className="lp2-hero site__wrap">
           <HeroNotch />
           <h1 className="lp2-h1 lp2-rise">
