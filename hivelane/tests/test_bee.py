@@ -85,8 +85,25 @@ def test_start_is_detached_and_silent(monkeypatch: pytest.MonkeyPatch, tmp_path:
         return FakeProc()
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
-    assert bee.start(4601) == "on"
+    assert bee.start(4601).startswith("on, ")
     assert seen["argv"] == ["fake-bee", "4601"]
     for stream in ("stdin", "stdout", "stderr"):
         assert seen[stream] is subprocess.DEVNULL
     assert (tmp_path / "bee.pid").read_text() == "4242"
+
+
+def test_hide_survives_up_until_bee_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    monkeypatch.setenv("HIVELANE_HOME", str(tmp_path))
+    for var in ("CI", "SSH_CONNECTION", "SSH_TTY", "HIVELANE_BEE"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setattr(bee, "command", lambda port: ["fake-bee"])
+
+    class FakeProc:
+        pid = 4243
+
+    monkeypatch.setattr(subprocess, "Popen", lambda argv, **kwargs: FakeProc())
+    bee.stop(hide=True)
+    assert bee.start(4600).startswith("off (you hid it")
+    assert bee.start(4600, force=True).startswith("on, ")
+    assert not bee.hidden_path().exists()
