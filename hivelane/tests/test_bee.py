@@ -132,6 +132,8 @@ def test_windows_runs_the_ctypes_bee_with_the_stdlib_only(monkeypatch: pytest.Mo
     from pathlib import Path
 
     monkeypatch.setenv("HIVELANE_HOME", str(tmp_path))
+    # Off Windows, shutil.which itself breaks under a faked platform.
+    monkeypatch.setattr(bee.shutil, "which", lambda name: None)
     monkeypatch.setattr(sys, "platform", "win32")
     argv = bee.command(4600)
     assert argv is not None

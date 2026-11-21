@@ -76,7 +76,7 @@ def _repo_view(repo: dict[str, Any]) -> dict[str, Any]:
     view["room"] = str(room) if room else None
     view["url"] = None
     if room and isinstance(relay, str):
-        from hivelane.cli import room_url
+        from hivelane.links import room_url
 
         view["url"] = room_url(relay, str(room))
     return view
