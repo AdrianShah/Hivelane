@@ -421,7 +421,7 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          bad=$(git log --format='%h %s%n%b' "$BASE..$HEAD" | grep -inE '^(co-authored-by:|.*generated with \[?claude)' || true)
+          bad=$(git log --format='%h %s%n%b' "$BASE..$HEAD" | grep -inE '^[[:space:]]*(co-authored-by:|(🤖[[:space:]]*)?generated with \[?claude)' || true)
           if [ -n "$bad" ]; then
             echo "::error title=Attribution trailer::remove these lines from the commit messages (git rebase -i, reword)"
             echo "$bad"

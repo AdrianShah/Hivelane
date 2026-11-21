@@ -195,6 +195,7 @@ def _write_if_changed(path: Path, text: str) -> None:
         if path.read_text(encoding="utf-8") == text:
             return
     except OSError:
+        # No copy yet (or an unreadable one): write it below.
         pass
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
@@ -247,10 +248,8 @@ def stop(*, hide: bool = False) -> bool:
         hidden_path().parent.mkdir(parents=True, exist_ok=True)
         hidden_path().touch()
     pid = running_pid()
-    try:
-        pid_path().unlink()
-    except OSError:
-        pass
+    # The pid file goes either way; a missing one just means nothing ran.
+    pid_path().unlink(missing_ok=True)
     if pid is None:
         return False
     try:
@@ -360,6 +359,7 @@ def run_edge(port: int, token_file: str, hivelane: str, home: str) -> None:  # p
             try:
                 spot.write_text(str(state["y"]))
             except OSError:
+                # Not remembered across restarts; the tab still moved.
                 pass
         elif hivelane and state["view"].get("root"):
             subprocess.Popen([hivelane, "open", "--root", state["view"]["root"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # noqa: S603
