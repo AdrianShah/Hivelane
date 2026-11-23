@@ -14,6 +14,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from typing import Any
 
 import httpx
@@ -182,7 +183,12 @@ class Spectator:
     the relay has actually recorded something, rather than merely been sent it."""
 
     def __init__(self, relay: Relay, room: str) -> None:
-        self._socket: ClientConnection = ws_connect(f"{relay.ws_url}/{room}")
+        # websockets 17 wants connect() used as a context manager; the stack
+        # holds it open across wait_for() calls until close().
+        self._stack = ExitStack()
+        self._socket: ClientConnection = self._stack.enter_context(
+            ws_connect(f"{relay.ws_url}/{room}")
+        )
         self._socket.send(
             json.dumps({"type": "join", "name": None, "role": "spectator"})
         )
@@ -209,7 +215,7 @@ class Spectator:
                     return event
 
     def close(self) -> None:
-        self._socket.close()
+        self._stack.close()
 
 
 class Cluster:
