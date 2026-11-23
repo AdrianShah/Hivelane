@@ -150,7 +150,9 @@ export default function ReplayView({
     [],
   );
 
-  const request = useCallback(() => {
+  // Named so the retry below calls this function itself, not the `request`
+  // const that is still being initialised.
+  const request = useCallback(function requestHistory() {
     const ws = socketRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const wait = lastHistoryRequestAt + REQUEST_INTERVAL_MS - Date.now();
@@ -159,7 +161,7 @@ export default function ReplayView({
       // Inside the relay's budget: ask as soon as it allows instead of
       // sending a request it would drop.
       setLoad('loading');
-      timers.current.retry = window.setTimeout(() => request(), wait + 50);
+      timers.current.retry = window.setTimeout(requestHistory, wait + 50);
       return;
     }
     lastHistoryRequestAt = Date.now();
@@ -193,7 +195,10 @@ export default function ReplayView({
   );
 
   // Ask on open and after every reconnect (a new room key decodes afresh).
+  // This effect syncs with the socket, the case effects are for: request()
+  // sends the frame and marks the load in flight in the same step.
   useEffect(() => {
+    // eslint-disable-next-line react/set-state-in-effect
     if (connected && enabled) request();
   }, [connected, enabled, roomId, request]);
 
@@ -204,9 +209,13 @@ export default function ReplayView({
   }, [load]);
 
   const bounds = useMemo(() => timeBounds(events), [events]);
+  // Reaching the end stops playback. Derived here rather than reset in an
+  // effect, so it costs no extra render.
+  const finished = bounds != null && at != null && at >= bounds.end;
+  const isPlaying = playing && !finished;
 
   useEffect(() => {
-    if (!playing || !bounds) return;
+    if (!isPlaying || !bounds) return;
     let last = Date.now();
     const id = window.setInterval(() => {
       const now = Date.now();
@@ -215,11 +224,7 @@ export default function ReplayView({
       setAt((prev) => advance(prev ?? bounds.start, elapsed, speed, bounds.end));
     }, TICK_MS);
     return () => window.clearInterval(id);
-  }, [playing, speed, bounds]);
-
-  useEffect(() => {
-    if (playing && bounds && at != null && at >= bounds.end) setPlaying(false);
-  }, [playing, bounds, at]);
+  }, [isPlaying, speed, bounds]);
 
   const state = useMemo(
     () => (at == null ? null : foldUntil(events, at)),
@@ -300,12 +305,12 @@ export default function ReplayView({
                 type="button"
                 className="deploy-btn rounded-xl px-4 py-1.5 text-[11px] font-bold"
                 onClick={() => {
-                  if (!playing && state.at >= bounds.end) setAt(bounds.start);
-                  setPlaying((p) => !p);
+                  if (!isPlaying && state.at >= bounds.end) setAt(bounds.start);
+                  setPlaying(!isPlaying);
                 }}
-                aria-label={playing ? 'Pause' : 'Play'}
+                aria-label={isPlaying ? 'Pause' : 'Play'}
               >
-                {playing ? 'Pause' : 'Play'}
+                {isPlaying ? 'Pause' : 'Play'}
               </button>
               <div className="flex items-center gap-1" role="group" aria-label="Playback speed">
                 {SPEEDS.map((s) => (
