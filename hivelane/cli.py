@@ -391,11 +391,12 @@ class service_errors:
     def __enter__(self) -> service_errors:
         return self
 
-    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        # Typed None, not bool: this never swallows an exception, and saying
+        # so lets mypy see that code after a `with service_errors(...)` runs.
         error_type = getattr(self.svc, "ServiceError", None)
         if exc is not None and error_type is not None and isinstance(exc, error_type):
             raise CommandFailed(f"{self.doing}: {exc}") from exc
-        return False
 
 
 def http_client(timeout: float = HTTP_TIMEOUT) -> Any:

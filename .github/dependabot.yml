@@ -91,6 +91,10 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+    ignore:
+      # Node's major stays in step with CI's node-version; bump both by hand.
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
 
   # Images pinned in the self-hosting compose file (caddy, redis).
   - package-ecosystem: docker-compose
