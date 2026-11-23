@@ -95,6 +95,10 @@ updates:
       # Node's major stays in step with CI's node-version; bump both by hand.
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+      # Same for Python: the relay image runs a version the CI matrix tests
+      # (3.12 and 3.13), so 3.x jumps are a hand-made change to both.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # Images pinned in the self-hosting compose file (caddy, redis).
   - package-ecosystem: docker-compose
