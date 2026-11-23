@@ -18,6 +18,7 @@ Room supplies `now` and broadcasts the tasks each call returns.
 
 from __future__ import annotations
 
+import builtins
 from collections.abc import Iterable
 from typing import Optional
 
@@ -242,7 +243,7 @@ class TaskBoard:
         task.updated_at = now
         return task
 
-    def renew_on_edit(self, names: Iterable[str], repo_id: str, path: str, now: float) -> list[Task]:
+    def renew_on_edit(self, names: Iterable[str], repo_id: str, path: str, now: float) -> builtins.list[Task]:
         """The claimer edited one of its task's files: extend the lease.
         Returns the tasks whose new lease is worth announcing."""
         mine = {name.lower() for name in names}
@@ -263,7 +264,7 @@ class TaskBoard:
                     announce.append(task)
         return announce
 
-    def sweep(self, now: float) -> list[Task]:
+    def sweep(self, now: float) -> builtins.list[Task]:
         """Claims whose lease lapsed go back to open; returns them."""
         expired = [
             task
