@@ -7,7 +7,9 @@
 # --- dashboard ---------------------------------------------------------------
 # A static build, identical on every architecture, so it runs on the build
 # host's own platform even when the image is cross-built for arm64.
-FROM --platform=$BUILDPLATFORM node:26-slim AS dashboard
+# Node's major matches the one CI builds and tests the dashboard on
+# (node-version in .github/workflows/*.yml); move them together.
+FROM --platform=$BUILDPLATFORM node:22-slim AS dashboard
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
