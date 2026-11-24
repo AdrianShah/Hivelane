@@ -49,6 +49,34 @@ MAX_CODE_LENGTH = CODE_LENGTH
 # What people paste: "abcd-efgh", "ABCD EFGH". Separators are cosmetic.
 _CODE_SEPARATORS = re.compile(r"[\s\-]+")
 _PLAUSIBLE_CODE = re.compile(rf"[A-Z0-9]{{{MIN_CODE_LENGTH},{MAX_CODE_LENGTH}}}")
+# Repo lookup keys are SHA-256 hex digests derived from the repo id so the raw
+# remote URL never leaves the client.
+REPO_KEY_RE = re.compile(r"^[0-9a-f]{64}$")
+
+
+class RepoAlreadyBoundError(RuntimeError):
+    """Another active room is already bound to this repo lookup key."""
+
+    def __init__(self, existing_room_id: str) -> None:
+        super().__init__("Another active room is already bound to this repository.")
+        self.existing_room_id = existing_room_id
+
+
+def normalize_repo_key(raw: Optional[str]) -> Optional[str]:
+    """Validate and normalize a repo lookup key (64 hex chars), or None."""
+    if raw is None:
+        return None
+    key = raw.strip().lower()
+    if not key:
+        return None
+    if not REPO_KEY_RE.fullmatch(key):
+        raise ValueError("repo_key must be a 64-character lowercase SHA-256 hex digest")
+    return key
+
+
+def is_plausible_repo_key(raw: str) -> Optional[str]:
+    key = raw.strip().lower()
+    return key if REPO_KEY_RE.fullmatch(key) else None
 
 # Named members per room (HIVELANE_MAX_MEMBERS) and valid room codes on this
 # relay (HIVELANE_MAX_ROOMS). 0, the default, is unlimited; a public relay sets
@@ -171,7 +199,12 @@ class RoomManager:
         # registers the webhook cache's forget()). One that raises is logged.
         self.evict_listeners: list[Callable[[str], None]] = []
 
-    def create_room(self, settings: Optional[RoomSettings] = None) -> str:
+    def create_room(
+        self,
+        settings: Optional[RoomSettings] = None,
+        *,
+        repo_key: Optional[str] = None,
+    ) -> str:
         """Generate a fresh room code and register an empty Room under it.
 
         settings, when given, must already be valid (see settings_problem);
@@ -180,7 +213,12 @@ class RoomManager:
         problem = None if settings is None else settings_problem(settings)
         if problem is not None:
             raise ValueError(problem)
+        normalized_key = normalize_repo_key(repo_key)
         self._store.purge_expired(time.time())
+        if normalized_key is not None:
+            existing = self._store.find_by_repo_key(normalized_key)
+            if existing is not None:
+                raise RepoAlreadyBoundError(existing)
         # The durable count is the one that matters: after a restart, live rooms
         # start at zero and would otherwise let the registry grow past the cap.
         # The live count still bounds memory if the store is degraded. With no
@@ -191,14 +229,21 @@ class RoomManager:
             room_id = _generate_code()
             if room_id not in self._rooms and not self._store.exists(room_id):
                 created_at = time.time()
-                self._rooms[room_id] = Room(settings=settings)
-                self._rooms[room_id].code = room_id
-                _set_lifetime(self._rooms[room_id], created_at)
+                room = Room(settings=settings)
+                room.code = room_id
+                _set_lifetime(room, created_at)
                 self._store.add(
                     room_id,
                     created_at,
                     None if settings is None else settings.model_dump(),
                 )
+                if normalized_key is not None:
+                    if not self._store.set_repo_key(room_id, normalized_key):
+                        self._store.remove(room_id)
+                        existing = self._store.find_by_repo_key(normalized_key) or ""
+                        raise RepoAlreadyBoundError(existing)
+                    room.set_repo_key(normalized_key)
+                self._rooms[room_id] = room
                 log.info(
                     "Room %s created (%d room(s) live)", redact_code(room_id), len(self._rooms)
                 )
@@ -236,6 +281,8 @@ class RoomManager:
         # Who owns the room and whether joins need approval are not live
         # activity either.
         room.load_access(record.get("access"))
+        repo_key = record.get("repo_key")
+        room.set_repo_key(repo_key if isinstance(repo_key, str) and repo_key else None)
         room.code = normalized
         created_at = record.get("created_at")
         if isinstance(created_at, (int, float)) and not isinstance(created_at, bool):
@@ -291,6 +338,31 @@ class RoomManager:
     def save_access(self, room_id: str, room: Room) -> None:
         """Persist a room's owner-token hash and join policy (never the token)."""
         self._store.set_access(normalize_room_code(room_id), room.access_record())
+
+    def find_by_repo_key(self, raw_key: str) -> Optional[str]:
+        """Look up the unexpired room bound to `raw_key`, or None."""
+        key = is_plausible_repo_key(raw_key)
+        if key is None:
+            return None
+        return self._store.find_by_repo_key(key)
+
+    def bind_repo(self, room_id: str, repo_key: Optional[str]) -> bool:
+        """Bind (or with None clear) a repo lookup key on an existing room.
+        Returns False if the room does not exist; raises RepoAlreadyBoundError
+        if another active room holds that key."""
+        normalized = normalize_room_code(room_id)
+        if not is_plausible_code(normalized) or not self._store.exists(normalized):
+            return False
+        key = normalize_repo_key(repo_key)
+        if not self._store.set_repo_key(normalized, key):
+            existing = self._store.find_by_repo_key(key) if key is not None else None
+            if existing is not None and existing != normalized:
+                raise RepoAlreadyBoundError(existing)
+            return False
+        room = self._rooms.get(normalized)
+        if room is not None:
+            room.set_repo_key(key)
+        return True
 
     # --- webhooks (server/webhooks.py) ----------------------------------------
 

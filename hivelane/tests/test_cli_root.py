@@ -26,7 +26,7 @@ def captured_daemon(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return calls
 
 
-@pytest.mark.parametrize("verb", ["join", "daemon"])
+@pytest.mark.parametrize("verb", ["daemon"])
 def test_root_is_passed_to_the_daemon(
     verb: str, tmp_path: Path, captured_daemon: list[dict[str, Any]]
 ) -> None:
@@ -36,7 +36,7 @@ def test_root_is_passed_to_the_daemon(
 
 
 def test_root_defaults_to_none(captured_daemon: list[dict[str, Any]]) -> None:
-    assert cli.main(["join", "TEAM42", "--name", "Ada"]) == 0
+    assert cli.main(["daemon", "TEAM42", "--name", "Ada"]) == 0
     assert captured_daemon[-1]["root"] is None
 
 
@@ -44,7 +44,7 @@ def test_missing_root_is_a_config_error(
     tmp_path: Path, captured_daemon: list[dict[str, Any]], capsys: pytest.CaptureFixture[str]
 ) -> None:
     missing = tmp_path / "nope"
-    assert cli.main(["join", "TEAM42", "--name", "Ada", "--root", str(missing)]) == 2
+    assert cli.main(["daemon", "TEAM42", "--name", "Ada", "--root", str(missing)]) == 2
     assert "does not exist" in capsys.readouterr().err
     assert captured_daemon == []
 

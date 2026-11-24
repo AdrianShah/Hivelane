@@ -126,6 +126,10 @@ class JoinMessage(BaseModel):
     # token marks that socket as a room owner (may approve joins and set
     # the room policy). A wrong token is treated as no token.
     owner_token: Optional[str] = None
+    # True when the client discovered this room code by querying GET /rooms/by-repo.
+    # The relay enforces approval for any repo-bound room regardless of this flag so
+    # a client cannot bypass approval by omitting it.
+    via_repo_lookup: bool = False
 
     @property
     def is_spectator(self) -> bool:

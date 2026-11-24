@@ -322,28 +322,42 @@ export async function openEnvelope(
 
 // --- the passphrase in the browser ---------------------------------------------------
 
-/** `k` from a URL fragment like `#k=abc` or `#view=x&k=abc`, else null. */
+/** `key` or `k` from a URL fragment like `#key=abc`, `#k=abc`, `#view=x&key=abc`, or bare `#abc`, else null. */
 export function parseKeyFragment(hash: string): string | null {
   const body = hash.startsWith('#') ? hash.slice(1) : hash;
   if (!body) return null;
-  for (const part of body.split('&')) {
-    const [name, ...rest] = part.split('=');
-    if (name === 'k' && rest.length) {
-      try {
-        const value = decodeURIComponent(rest.join('='));
-        return value.trim() || null;
-      } catch {
-        return null;
+  if (!body.includes('=')) {
+    try {
+      const value = decodeURIComponent(body);
+      return value.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+  const parts = body.split('&');
+  for (const target of ['key', 'k']) {
+    for (const part of parts) {
+      const [name, ...rest] = part.split('=');
+      if (name === target && rest.length) {
+        try {
+          const value = decodeURIComponent(rest.join('='));
+          if (value.trim()) return value.trim();
+        } catch {
+          return null;
+        }
       }
     }
   }
   return null;
 }
 
-/** The fragment with `k` removed ("" when nothing else was there). */
+/** The fragment with `key`, `k`, or a bare key removed ("" when nothing else was there). */
 export function stripKeyFragment(hash: string): string {
   const body = hash.startsWith('#') ? hash.slice(1) : hash;
-  const kept = body.split('&').filter((part) => part && !part.startsWith('k='));
+  if (!body || !body.includes('=')) return '';
+  const kept = body
+    .split('&')
+    .filter((part) => part && !part.startsWith('k=') && !part.startsWith('key='));
   return kept.length ? `#${kept.join('&')}` : '';
 }
 

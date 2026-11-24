@@ -1793,6 +1793,54 @@
   font-size: 14px;
 }
 
+.v3-invite__badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.v3-invite__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--v3-ink-2);
+  background: var(--v3-sheet);
+  box-shadow: 0 0 0 1px var(--v3-hairline-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v3-invite__badge--e2e {
+  color: var(--v3-live);
+}
+
+.v3-invite__panel {
+  width: 100%;
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: var(--v3-sheet);
+  box-shadow: var(--v3-shadow-sheet);
+  text-align: left;
+}
+
+.v3-invite__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 640px) {
   .v3-start {
     padding-top: 40px;

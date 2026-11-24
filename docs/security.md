@@ -93,6 +93,37 @@ Limits and edge cases:
 Refusals are counted in `hivelane_ws_rejections_total{reason}` as
 `approval_declined`, `approval_timeout` and `approval_queue_full`.
 
+### Repo-bound discovery and forced approval
+
+When `hivelane up` creates a room (without `--no-repo-lookup`), it computes the
+repository's truncated `repo_id` from the normalized `origin` remote URL (or
+root commit) and binds the room on `POST /rooms` to a domain-separated lookup
+key: `sha256("hivelane-lookup:" + repo_id)` (never the raw remote URL, and
+separate from the daemon's per-room `e2e` wire `repo_id`). Teammates cloning
+the repo without `.hivelane.toml` query `GET /rooms/by-repo/<key>` (rate-limited
+like WebSocket handshakes, default 30/min per IP) and ask to join with
+`via_repo_lookup = true`.
+
+Because knowing a git remote URL only proves awareness of the remote — not team
+membership (for example, any user who can read or guess a public or forked
+remote URL can compute the same lookup key) — the relay enforces approval
+**server-side**:
+
+- Any non-owner join to a room with a repo binding (or with
+  `via_repo_lookup = true`) is held for owner approval even when
+  `require_approval` is off, and even if a modified client omits
+  `via_repo_lookup`.
+- **Residual risks**: without user accounts or per-member credentials, anyone
+  who knows or guesses a repository's remote URL can discover its bound room code
+  on the public relay (subject to lookup rate limits) and queue up to the 10-slot
+  pending-approval limit; if a human owner clicks **Let in** without verifying
+  who asked, an attacker is admitted. Additionally, binding a room to a repo key
+  holds *all* non-owner joins on that room (including teammates who hold the
+  `.hivelane.toml` room code) because the relay cannot cryptographically
+  distinguish a client holding a committed code from one who looked it up.
+  Teams using a public repository URL who do not want repo-based discovery should
+  pass `--no-repo-lookup`.
+
 ### Payload caps and quotas
 
 Everything a member sends is kept in memory and fanned out to every socket in
@@ -600,20 +631,22 @@ with that instruction rather than falling back to cleartext.
 line and never sent to the relay. It comes from `HIVELANE_ROOM_KEY` or the
 personal config's `room_keys = { CODE = "…" }` (mode `0600`).
 
-1. The first teammate runs `hivelane up --e2e` (or adds `e2e = true` and runs
-   `hivelane up`). With no key configured, it generates one (256 random bits),
-   saves it and prints it once.
-2. Send it to each teammate over a different channel than the room code (a
-   password manager share, a DM): `hivelane key show` prints it again.
-3. Teammates run `hivelane key set CODE` and paste it (input hidden), then
-   `hivelane up`.
-4. Dashboard viewers open the room link with `#k=<key>` appended, or paste the
-   key when the dashboard asks. Browsers never send the fragment to a server,
-   and the dashboard removes it from the address bar and keeps the key in
-   that tab's sessionStorage for that room only. The browser's own history
-   (and history sync) may still record the URL as first opened, key
-   included, so pasting the key is safer than a `#k=` link. Sharing the link
-   *with* the fragment shares the key: send them separately.
+1. The first teammate runs `hivelane up --e2e`. With no key configured, it
+   generates one (256 random bits), saves it to `~/.hivelane/config.toml`
+   (`room_keys`) and prints it once.
+2. Share an invite link with `hivelane invite` (which places the key in the
+   `#key=` URL fragment, never sent to any server), or send the key over a
+   separate channel (`hivelane key show` prints it again).
+3. Teammates run `hivelane join "<invite-link>"` (or `hivelane key set CODE` and
+   paste it, then `hivelane up`).
+4. Dashboard viewers open the `/j/<ROOM>` invite link or `/r/<ROOM>` room link
+   with `#key=<key>` / `#k=<key>`, or paste the key when the dashboard asks.
+   Browsers never send the fragment to a server, and the dashboard removes it
+   from the address bar on `/r/<ROOM>` and keeps the key in that tab's
+   sessionStorage for that room only. The browser's own history (and history
+   sync) may still record the URL as first opened, key included, so pasting the
+   key or sharing it out of band is safer when browser history sync is a
+   concern. Sharing a room link *with* the fragment shares the key.
 
 **Daemon behaviour.** Outgoing messages are rewritten as above (the real
 values, already redacted, go into the blob; a blob that would exceed the

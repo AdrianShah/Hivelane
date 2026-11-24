@@ -40,6 +40,16 @@ except ImportError:  # Render rootDir=server
 
 log = logging.getLogger(__name__)
 
+
+def _loggable(value: str) -> str:
+    """A caller-supplied value fit for a log line: control characters
+    (newlines above all, which could forge a log entry) dropped. The
+    explicit newline replacements come last so static analysis (CodeQL's
+    log-injection check) sees the value as cleaned."""
+    printable = "".join(ch for ch in value if ch.isprintable())[:64]
+    return printable.replace("\r", "").replace("\n", "")
+
+
 # A room code stops being valid after this long, so the table cannot grow
 # forever. This is an upper bound: RoomManager also removes a code once its
 # room has been empty for the eviction grace period, so a code stays valid
@@ -109,6 +119,16 @@ class RoomStore(Protocol):
         """Replace a known room's webhooks record; a no-op for an unknown code."""
         ...
 
+    def get_repo_key(self, room_id: str) -> Optional[str]:
+        """The repo lookup key bound to room_id, or None if unbound."""
+
+    def set_repo_key(self, room_id: str, repo_key: Optional[str]) -> bool:
+        """Bind (or with None clear) a repo lookup key on room_id.
+        Returns False if another unexpired room already holds repo_key."""
+
+    def find_by_repo_key(self, repo_key: str) -> Optional[str]:
+        """The unexpired room_id bound to repo_key, or None."""
+
     def get_record(self, room_id: str) -> Optional[StoredRoom]:
         """The code's creation time, settings and access record in one read,
         or None if the code is unknown or expired. Raises StoreReadError when
@@ -134,6 +154,7 @@ class MemoryRoomStore:
         self._settings: dict[str, StoredSettings] = {}
         self._access: dict[str, StoredAccess] = {}
         self._webhooks: dict[str, StoredWebhooks] = {}
+        self._repo_keys: dict[str, str] = {}
 
     def add(
         self,
@@ -146,6 +167,7 @@ class MemoryRoomStore:
         # starts over, with no owner and no webhooks.
         self._access.pop(room_id, None)
         self._webhooks.pop(room_id, None)
+        self._repo_keys.pop(room_id, None)
         if settings is None:
             self._settings.pop(room_id, None)
         else:
@@ -179,6 +201,28 @@ class MemoryRoomStore:
         if room_id in self._created_at:
             self._webhooks[room_id] = json.loads(json.dumps(webhooks))
 
+    def get_repo_key(self, room_id: str) -> Optional[str]:
+        return self._repo_keys.get(room_id)
+
+    def set_repo_key(self, room_id: str, repo_key: Optional[str]) -> bool:
+        if room_id not in self._created_at:
+            return False
+        if repo_key is None:
+            self._repo_keys.pop(room_id, None)
+            return True
+        for other_id, existing_key in self._repo_keys.items():
+            if existing_key == repo_key and other_id != room_id and self.exists(other_id):
+                return False
+        self._repo_keys[room_id] = repo_key
+        return True
+
+    def find_by_repo_key(self, repo_key: str) -> Optional[str]:
+        cutoff = time.time() - ROOM_TTL_SECONDS
+        for room_id, bound_key in self._repo_keys.items():
+            if bound_key == repo_key and self._created_at.get(room_id, 0.0) > cutoff:
+                return room_id
+        return None
+
     def get_record(self, room_id: str) -> Optional[StoredRoom]:
         if not self.exists(room_id):
             return None
@@ -186,6 +230,7 @@ class MemoryRoomStore:
             "created_at": self._created_at[room_id],
             "settings": self.get_settings(room_id),
             "access": self.get_access(room_id),
+            "repo_key": self.get_repo_key(room_id),
         }
 
     def remove(self, room_id: str) -> None:
@@ -193,6 +238,7 @@ class MemoryRoomStore:
         self._settings.pop(room_id, None)
         self._access.pop(room_id, None)
         self._webhooks.pop(room_id, None)
+        self._repo_keys.pop(room_id, None)
 
     def count(self) -> int:
         cutoff = time.time() - ROOM_TTL_SECONDS
@@ -210,6 +256,7 @@ class MemoryRoomStore:
             self._settings.pop(room_id, None)
             self._access.pop(room_id, None)
             self._webhooks.pop(room_id, None)
+            self._repo_keys.pop(room_id, None)
         return len(expired)
 
 
@@ -240,7 +287,8 @@ class SqliteRoomStore:
             "  created_at REAL NOT NULL,"
             "  settings TEXT,"
             "  access TEXT,"
-            "  webhooks TEXT"
+            "  webhooks TEXT,"
+            "  repo_key TEXT"
             ")"
         )
         self._migrate()
@@ -265,6 +313,12 @@ class SqliteRoomStore:
         if "webhooks" not in columns:
             self._conn.execute("ALTER TABLE rooms ADD COLUMN webhooks TEXT")
             log.info("Migrated room registry at %s: added webhooks column", self._path)
+        if "repo_key" not in columns:
+            self._conn.execute("ALTER TABLE rooms ADD COLUMN repo_key TEXT")
+            log.info("Migrated room registry at %s: added repo_key column", self._path)
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_rooms_repo_key ON rooms(repo_key)"
+        )
 
     def add(
         self,
@@ -391,10 +445,61 @@ class SqliteRoomStore:
                 "Could not persist webhooks for room %s at %s", room_id, self._path
             )
 
+    def get_repo_key(self, room_id: str) -> Optional[str]:
+        try:
+            row = self._conn.execute(
+                "SELECT repo_key FROM rooms WHERE room_id = ?", (room_id,)
+            ).fetchone()
+        except sqlite3.Error:
+            log.exception("Could not read repo_key for room %s from %s", _loggable(room_id), self._path)
+            return None
+        if row is None or not isinstance(row[0], str) or not row[0]:
+            return None
+        return row[0]
+
+    def set_repo_key(self, room_id: str, repo_key: Optional[str]) -> bool:
+        try:
+            with self._lock:
+                if repo_key is None:
+                    self._conn.execute(
+                        "UPDATE rooms SET repo_key = NULL WHERE room_id = ?", (room_id,)
+                    )
+                    self._conn.commit()
+                    return True
+                conflict = self._conn.execute(
+                    "SELECT room_id FROM rooms WHERE repo_key = ? AND room_id != ? AND created_at > ?",
+                    (repo_key, room_id, time.time() - ROOM_TTL_SECONDS),
+                ).fetchone()
+                if conflict is not None:
+                    return False
+                cursor = self._conn.execute(
+                    "UPDATE rooms SET repo_key = ? WHERE room_id = ?",
+                    (repo_key, room_id),
+                )
+                self._conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error:
+            log.exception(
+                "Could not persist repo_key for room %s at %s", _loggable(room_id), self._path
+            )
+            return False
+
+    def find_by_repo_key(self, repo_key: str) -> Optional[str]:
+        try:
+            row = self._conn.execute(
+                "SELECT room_id FROM rooms WHERE repo_key = ? AND created_at > ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (repo_key, time.time() - ROOM_TTL_SECONDS),
+            ).fetchone()
+        except sqlite3.Error:
+            log.exception("Could not look up repo_key in %s", self._path)
+            return None
+        return str(row[0]) if row is not None and row[0] else None
+
     def get_record(self, room_id: str) -> Optional[StoredRoom]:
         try:
             row = self._conn.execute(
-                "SELECT created_at, settings, access FROM rooms "
+                "SELECT created_at, settings, access, repo_key FROM rooms "
                 "WHERE room_id = ? AND created_at > ?",
                 (room_id, time.time() - ROOM_TTL_SECONDS),
             ).fetchone()
@@ -407,6 +512,7 @@ class SqliteRoomStore:
             "created_at": float(row[0]),
             "settings": _decode_record(row[1], "settings", room_id),
             "access": _decode_record(row[2], "access", room_id),
+            "repo_key": row[3] if isinstance(row[3], str) and row[3] else None,
         }
 
     def remove(self, room_id: str) -> None:
@@ -511,7 +617,7 @@ class RedisRoomStore:
     instances are unknown here until Redis is back.
     """
 
-    RECORDS = ("settings", "access", "webhooks")
+    RECORDS = ("settings", "access", "webhooks", "repo_key")
 
     def __init__(
         self,
@@ -526,6 +632,7 @@ class RedisRoomStore:
         self.local: RoomStore = MemoryRoomStore() if local is None else local
         self._index = prefix
         self._record_keys = {kind: f"{prefix}:{kind}" for kind in self.RECORDS}
+        self._by_repo = f"{prefix}:by_repo"
         self._guard = RedisGuard(
             "room store",
             degraded="room codes fall back to the ones this instance has seen",
@@ -551,6 +658,7 @@ class RedisRoomStore:
             # Like SQLite's INSERT OR REPLACE: a re-added code starts over.
             pipe.hdel(self._record_keys["access"], room_id)
             pipe.hdel(self._record_keys["webhooks"], room_id)
+            pipe.hdel(self._record_keys["repo_key"], room_id)
             if settings is None:
                 pipe.hdel(self._record_keys["settings"], room_id)
             else:
@@ -602,6 +710,58 @@ class RedisRoomStore:
         self.local.set_webhooks(room_id, webhooks)
         self._set("webhooks", room_id, webhooks)
 
+    @staticmethod
+    def _decode_str(raw: Any) -> Optional[str]:
+        if raw is None:
+            return None
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8", "replace")
+        return raw if isinstance(raw, str) and raw else None
+
+    def get_repo_key(self, room_id: str) -> Optional[str]:
+        return self._guard.run(
+            lambda: self._decode_str(self.client.hget(self._record_keys["repo_key"], room_id)),
+            lambda: self.local.get_repo_key(room_id),
+        )
+
+    def set_repo_key(self, room_id: str, repo_key: Optional[str]) -> bool:
+        if not self.local.set_repo_key(room_id, repo_key):
+            return False
+
+        def call() -> bool:
+            if self.client.zscore(self._index, room_id) is None:
+                return False
+            old_key = self._decode_str(self.client.hget(self._record_keys["repo_key"], room_id))
+            if repo_key is None:
+                pipe = self.client.pipeline(transaction=True)
+                pipe.hdel(self._record_keys["repo_key"], room_id)
+                if old_key:
+                    pipe.hdel(self._by_repo, old_key)
+                pipe.execute()
+                return True
+            existing = self._decode_str(self.client.hget(self._by_repo, repo_key))
+            if existing and existing != room_id and self.exists(existing):
+                self.local.set_repo_key(room_id, old_key)
+                return False
+            pipe = self.client.pipeline(transaction=True)
+            if old_key and old_key != repo_key:
+                pipe.hdel(self._by_repo, old_key)
+            pipe.hset(self._record_keys["repo_key"], room_id, repo_key)
+            pipe.hset(self._by_repo, repo_key, room_id)
+            pipe.execute()
+            return True
+
+        return self._guard.run(call, lambda: True)
+
+    def find_by_repo_key(self, repo_key: str) -> Optional[str]:
+        def call() -> Optional[str]:
+            room_id = self._decode_str(self.client.hget(self._by_repo, repo_key))
+            if not room_id:
+                return None
+            return room_id if self.exists(room_id) else None
+
+        return self._guard.run(call, lambda: self.local.find_by_repo_key(repo_key))
+
     def get_record(self, room_id: str) -> Optional[StoredRoom]:
         """One pipeline for the code, its settings and its access record, so
         Redis failing between the reads cannot revive a room with the access
@@ -614,13 +774,15 @@ class RedisRoomStore:
             pipe.zscore(self._index, room_id)
             pipe.hget(self._record_keys["settings"], room_id)
             pipe.hget(self._record_keys["access"], room_id)
-            score, settings, access = pipe.execute()
+            pipe.hget(self._record_keys["repo_key"], room_id)
+            score, settings, access, repo_key = pipe.execute()
             if score is None or float(score) <= time.time() - ROOM_TTL_SECONDS:
                 return None
             return {
                 "created_at": float(score),
                 "settings": _decode_record(settings, "settings", room_id),
                 "access": _decode_record(access, "access", room_id),
+                "repo_key": self._decode_str(repo_key),
             }
 
         return self._guard.run(call, lambda: self.local.get_record(room_id))
@@ -629,10 +791,13 @@ class RedisRoomStore:
         self.local.remove(room_id)
 
         def call() -> None:
+            old_key = self._decode_str(self.client.hget(self._record_keys["repo_key"], room_id))
             pipe = self.client.pipeline(transaction=True)
             pipe.zrem(self._index, room_id)
             for key in self._record_keys.values():
                 pipe.hdel(key, room_id)
+            if old_key:
+                pipe.hdel(self._by_repo, old_key)
             pipe.execute()
 
         self._guard.run(call, lambda: None)
@@ -655,9 +820,16 @@ class RedisRoomStore:
             pipe.zremrangebyscore(self._index, "-inf", cutoff)
             expired, removed = pipe.execute()
             if expired:
+                lookup_pipe = self.client.pipeline(transaction=False)
+                for room_id in expired:
+                    lookup_pipe.hget(self._record_keys["repo_key"], room_id)
+                old_keys = [self._decode_str(k) for k in lookup_pipe.execute()]
                 pipe = self.client.pipeline(transaction=True)
                 for key in self._record_keys.values():
                     pipe.hdel(key, *expired)
+                for repo_key in old_keys:
+                    if repo_key:
+                        pipe.hdel(self._by_repo, repo_key)
                 pipe.execute()
             return int(removed)
 

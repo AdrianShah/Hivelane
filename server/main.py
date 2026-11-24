@@ -22,7 +22,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ValidationError, model_validator
@@ -32,7 +32,12 @@ try:
     from . import dashboard, directory
     from . import history, webhooks
     from .headers import SecurityHeadersMiddleware
-    from .limits import check_room_creation_async, check_ws_attempt_async, client_ip
+    from .limits import (
+        check_repo_lookup_async,
+        check_room_creation_async,
+        check_ws_attempt_async,
+        client_ip,
+    )
     from .models import (
         MIN_SUPPORTED_PROTOCOL,
         PROTOCOL_VERSION,
@@ -87,7 +92,15 @@ try:
         new_owner_token,
         settings_problem,
     )
-    from .room_manager import RoomManager, room_is_full, spectators_full
+    from .room_manager import (
+        RepoAlreadyBoundError,
+        RoomManager,
+        is_plausible_code,
+        is_plausible_repo_key,
+        normalize_room_code,
+        room_is_full,
+        spectators_full,
+    )
     from .store import StoreReadError, store_kind
     from .tasks import TaskError
     from .sanitize import (
@@ -114,7 +127,12 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     import metrics  # type: ignore[no-redef]
     import webhooks  # type: ignore[no-redef]
     from headers import SecurityHeadersMiddleware  # type: ignore[no-redef]
-    from limits import check_room_creation_async, check_ws_attempt_async, client_ip
+    from limits import (
+        check_repo_lookup_async,
+        check_room_creation_async,
+        check_ws_attempt_async,
+        client_ip,
+    )
     from models import (
         MIN_SUPPORTED_PROTOCOL,
         PROTOCOL_VERSION,
@@ -169,7 +187,15 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         new_owner_token,
         settings_problem,
     )
-    from room_manager import RoomManager, room_is_full, spectators_full  # type: ignore[no-redef]
+    from room_manager import (  # type: ignore[no-redef]
+        RepoAlreadyBoundError,
+        RoomManager,
+        is_plausible_code,
+        is_plausible_repo_key,
+        normalize_room_code,
+        room_is_full,
+        spectators_full,
+    )
     from store import StoreReadError, store_kind  # type: ignore[no-redef]
     from tasks import TaskError  # type: ignore[no-redef]
     from sanitize import (  # type: ignore[no-redef]
@@ -487,6 +513,7 @@ class CreateRoomRequest(BaseModel):
     """
 
     settings: Optional[RoomSettings] = None
+    repo_key: Optional[str] = None
 
     @model_validator(mode="after")
     def _settings_are_enforceable(self) -> CreateRoomRequest:
@@ -494,6 +521,24 @@ class CreateRoomRequest(BaseModel):
             problem = settings_problem(self.settings)
             if problem is not None:
                 raise ValueError(problem)
+        if self.repo_key is not None and not is_plausible_repo_key(
+            self.repo_key.strip().lower()
+        ):
+            raise ValueError("Invalid repo_key: expected 64-character sha256 hex digest")
+        return self
+
+
+class BindRepoRequest(BaseModel):
+    """POST /rooms/{code}/repo body: bind (or with None unbind) a hashed repo key."""
+
+    repo_key: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _repo_key_is_valid(self) -> BindRepoRequest:
+        if self.repo_key is not None and not is_plausible_repo_key(
+            self.repo_key.strip().lower()
+        ):
+            raise ValueError("Invalid repo_key: expected 64-character sha256 hex digest")
         return self
 
 
@@ -503,7 +548,7 @@ async def create_room(
 ) -> dict[str, object]:
     """Generate a fresh room code. The room code is the shared secret:
     whoever has it can join, same trust model as a Google Docs share link,
-    unless an owner turns on join approval.
+    unless an owner turns on join approval or binds the room to a repo.
 
     The body is optional: no body creates a room on the default windows,
     exactly as before settings existed. The response echoes the windows in
@@ -530,8 +575,14 @@ async def create_room(
         )
 
     settings = body.settings if body is not None else None
+    repo_key = body.repo_key if body is not None else None
     try:
-        room_id = room_manager.create_room(settings)
+        room_id = room_manager.create_room(settings, repo_key=repo_key)
+    except RepoAlreadyBoundError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="This repository already has a room on this relay.",
+        ) from exc
     except RuntimeError as exc:
         # 503 means the relay itself is full, not that this caller is throttled;
         # the dashboard shows different copy for each.
@@ -542,10 +593,80 @@ async def create_room(
         room.set_owner_hash(hash_owner_token(owner_token))
         room_manager.save_access(room_id, room)
     effective = settings if settings is not None else DEFAULT_SETTINGS
-    return {
+    reply: dict[str, object] = {
         "room_id": room_id,
         "settings": effective.model_dump(),
         "owner_token": owner_token,
+    }
+    if room is not None and room.repo_key is not None:
+        reply["repo_key"] = room.repo_key
+    return reply
+
+
+@app.get("/rooms/by-repo/{repo_key}")
+async def lookup_room_by_repo(repo_key: str, request: Request) -> dict[str, str]:
+    """Find a room bound to a hashed repository lookup key.
+
+    Rate-limited like room creation and WebSocket handshakes so public callers
+    cannot probe arbitrary repository hashes faster than normal client startup.
+    """
+    allowance = await check_repo_lookup_async(request)
+    if not allowance.allowed:
+        log.warning("Repo lookup rate-limited for %s", client_ip(request))
+        raise HTTPException(
+            status_code=429,
+            detail="Too many repository lookups from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+    normalized = repo_key.strip().lower()
+    if not is_plausible_repo_key(normalized):
+        raise HTTPException(status_code=422, detail="Invalid repository lookup key")
+    try:
+        room_id = room_manager.find_by_repo_key(normalized)
+    except StoreReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if room_id is None:
+        raise HTTPException(status_code=404, detail="No room found for this repository")
+    return {"room_id": room_id}
+
+
+@app.post("/rooms/{code}/repo")
+async def bind_room_repo(
+    code: str,
+    body: BindRepoRequest,
+    request: Request,
+    x_hivelane_owner_token: Optional[str] = Header(default=None),
+) -> dict[str, object]:
+    """Bind or unbind a room's hashed repository lookup key (owner only)."""
+    allowance = await check_repo_lookup_async(request)
+    if not allowance.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many room requests from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+    normalized = normalize_room_code(code)
+    # Turn garbage away before it reaches the store (or its log lines).
+    if not is_plausible_code(normalized):
+        raise HTTPException(status_code=404, detail="Room not found")
+    try:
+        room = room_manager.get(normalized)
+    except StoreReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if room is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    if not room.verify_owner_token(x_hivelane_owner_token):
+        raise HTTPException(status_code=403, detail="Owner token required")
+    try:
+        room_manager.bind_repo(normalized, body.repo_key)
+    except RepoAlreadyBoundError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="This repository already has a room on this relay.",
+        ) from exc
+    return {
+        "room_id": normalized,
+        "repo_key": room.repo_key,
     }
 
 
@@ -759,13 +880,19 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             continue
 
         is_owner = room.verify_owner_token(join.owner_token)
+        # Knowing a repository's remote URL only proves read/clone awareness, not
+        # team membership. Any room bound to a repo key (as well as any join
+        # explicitly marked via_repo_lookup) forces owner approval for non-owners
+        # even if require_approval is off — and even if a modified client omits
+        # via_repo_lookup.
+        needs_approval = room.require_approval or room.has_repo_binding or join.via_repo_lookup
 
         if join.is_spectator:
             # An owner always gets in, so a full room can still be managed.
             if not is_owner and spectators_full(room):
                 await reject("Room full")
                 continue
-            if room.require_approval and not is_owner and approved is None:
+            if needs_approval and not is_owner and approved is None:
                 approved = await await_approval(
                     socket, room, SPECTATOR_DISPLAY_NAME, join.agent, ip=ip
                 )
@@ -805,7 +932,7 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             await reject("Room full")
             continue
 
-        if room.require_approval and not is_owner and approved is None:
+        if needs_approval and not is_owner and approved is None:
             approved = await await_approval(socket, room, user_id, join.agent, ip=ip)
             deadline = time.monotonic() + HANDSHAKE_TIMEOUT_SECONDS
             # Waiting took time: the name or the last seat may be gone since.

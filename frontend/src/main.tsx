@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import './index.css'
 import './v3/v3.css'
+import InviteJoin from './pages/InviteJoin.tsx'
 import LegacyRoomRedirect from './pages/LegacyRoomRedirect.tsx'
 import RoomRoute from './pages/RoomRoute.tsx'
 import Start from './pages/Start.tsx'
@@ -26,6 +27,7 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/terms" element={<Terms />} />
         <Route path="/security" element={<Security />} />
         <Route path="/r/:code" element={<RoomRoute />} />
+        <Route path="/j/:code" element={<InviteJoin />} />
         <Route path="/room/:code" element={<LegacyRoomRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
