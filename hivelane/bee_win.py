@@ -22,10 +22,11 @@ import ctypes.wintypes
 import json
 import math
 import os
+import shutil
 import socket
 import sys
 import time
-from typing import Any
+from typing import Any, Optional
 
 w = ctypes.wintypes
 
@@ -460,6 +461,76 @@ def make_icon(size: int, data: bytes) -> int:
     return icon
 
 
+class STARTUPINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cb", w.DWORD),
+        ("lpReserved", w.LPCWSTR),
+        ("lpDesktop", w.LPCWSTR),
+        ("lpTitle", w.LPCWSTR),
+        ("dwX", w.DWORD),
+        ("dwY", w.DWORD),
+        ("dwXSize", w.DWORD),
+        ("dwYSize", w.DWORD),
+        ("dwXCountChars", w.DWORD),
+        ("dwYCountChars", w.DWORD),
+        ("dwFillAttribute", w.DWORD),
+        ("dwFlags", w.DWORD),
+        ("wShowWindow", w.WORD),
+        ("cbReserved2", w.WORD),
+        ("lpReserved2", ctypes.c_char_p),
+        ("hStdInput", w.HANDLE),
+        ("hStdOutput", w.HANDLE),
+        ("hStdError", w.HANDLE),
+    ]
+
+
+class PROCESS_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("hProcess", w.HANDLE),
+        ("hThread", w.HANDLE),
+        ("dwProcessId", w.DWORD),
+        ("dwThreadId", w.DWORD),
+    ]
+
+
+def _find_chrome() -> Optional[str]:
+    candidates = [
+        shutil.which("chrome"),
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), r"Google\Chrome\Application\chrome.exe"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), r"Google\Chrome\Application\chrome.exe"),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"),
+    ]
+    for p in candidates:
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+def _open_url(url: str) -> None:
+    """Open a URL in Google Chrome (if found) or default browser on the interactive desktop."""
+    chrome = _find_chrome()
+    if chrome:
+        cmd = f'"{chrome}" "{url}"'
+    else:
+        cmd = f'rundll32.exe url.dll,FileProtocolHandler "{url}"'
+
+    si = STARTUPINFOW()
+    si.cb = ctypes.sizeof(STARTUPINFOW)
+    si.lpDesktop = "WinSta0\\Default"
+    pi = PROCESS_INFORMATION()
+    if kernel32.CreateProcessW(None, cmd, None, None, False, 0, None, None, ctypes.byref(si), ctypes.byref(pi)):
+        kernel32.CloseHandle(pi.hProcess)
+        kernel32.CloseHandle(pi.hThread)
+        return
+    try:
+        os.startfile(url)
+        return
+    except (OSError, AttributeError):
+        # Best-effort launch: fall back to ShellExecute if os.startfile fails.
+        pass
+    shell32.ShellExecuteW(None, "open", url, None, None, 1)
+
+
 class Bee:
     def __init__(self, port: int, token_file: str, hivelane: str, home: str) -> None:
         self.port, self.token_file, self.hivelane, self.home = port, token_file, hivelane, home
@@ -602,11 +673,14 @@ class Bee:
     # actions
 
     def _open(self) -> None:
-        url, root = self.view.get("url"), self.view.get("root")
-        if url:  # straight to the browser: no CLI to start first
-            shell32.ShellExecuteW(None, "open", url, None, None, 1)  # SW_SHOWNORMAL
-        elif self.hivelane and root:
-            shell32.ShellExecuteW(None, "open", self.hivelane, f'open --root "{root}"', None, 0)
+        url = self.view.get("url")
+        room = self.view.get("room")
+        if not url or url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+            if room:
+                url = f"https://adrianshah.github.io/Hivelane/r/{room}"
+            else:
+                url = "https://adrianshah.github.io/Hivelane"
+        _open_url(url)
 
     def _copy(self, text: str) -> None:
         """Put text on the clipboard (CF_UNICODETEXT)."""
@@ -691,9 +765,27 @@ class Bee:
             user32.DispatchMessageW(ctypes.byref(msg))
 
 
+def _attach_desktop() -> None:
+    """If started from a virtual or sandbox desktop (e.g. IDE agents, exebox),
+    switch this thread to the interactive 'Default' desktop so the system tray
+    icon attaches to explorer.exe's taskbar."""
+    try:
+        user32.OpenDesktopW.argtypes = [w.LPCWSTR, w.DWORD, w.BOOL, w.DWORD]
+        user32.OpenDesktopW.restype = w.HANDLE
+        user32.SetThreadDesktop.argtypes = [w.HANDLE]
+        user32.SetThreadDesktop.restype = w.BOOL
+        hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)  # GENERIC_ALL
+        if hdesk:
+            user32.SetThreadDesktop(hdesk)
+    except Exception:
+        # Best-effort attachment: if the interactive desktop is unreachable, stay on current.
+        pass
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 4:
         return 2
+    _attach_desktop()
     _bind()
     Bee(int(argv[0]), argv[1], argv[2], argv[3]).run()
     return 0
