@@ -95,6 +95,7 @@ try:
     from .room_manager import (
         RepoAlreadyBoundError,
         RoomManager,
+        is_plausible_code,
         is_plausible_repo_key,
         normalize_room_code,
         room_is_full,
@@ -189,6 +190,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
     from room_manager import (  # type: ignore[no-redef]
         RepoAlreadyBoundError,
         RoomManager,
+        is_plausible_code,
         is_plausible_repo_key,
         normalize_room_code,
         room_is_full,
@@ -644,6 +646,9 @@ async def bind_room_repo(
             headers={"Retry-After": str(allowance.retry_after_seconds)},
         )
     normalized = normalize_room_code(code)
+    # Turn garbage away before it reaches the store (or its log lines).
+    if not is_plausible_code(normalized):
+        raise HTTPException(status_code=404, detail="Room not found")
     try:
         room = room_manager.get(normalized)
     except StoreReadError as exc:

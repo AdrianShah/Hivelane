@@ -115,7 +115,9 @@ hivelane doctor      Check the setup and suggest fixes
 hivelane open        Open this repo's room in the dashboard
 hivelane serve       Run the multi-repo daemon in the foreground
 hivelane service     Install or uninstall the daemon as a login service
-hivelane join ROOM   Run a single-room daemon in the foreground
+hivelane invite      Print an invite link for this repo's room
+hivelane join LINK   Join a teammate's room from an invite link
+hivelane daemon ROOM Run a single-room daemon in the foreground
 hivelane hook ...    Agent hook entry point
 hivelane task ...    The room's shared task list (add, claim, done)
 hivelane --version   Print the version

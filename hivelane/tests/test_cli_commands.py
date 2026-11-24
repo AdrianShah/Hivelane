@@ -439,3 +439,12 @@ def test_help_works(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None
         cli.main(argv)
     assert exc.value.code == 0
     assert "usage: hivelane" in capsys.readouterr().out
+
+
+def test_join_with_the_old_daemon_flags_points_at_hivelane_daemon(
+    machine: Machine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`join` used to be another name for the single-room daemon; scripts
+    still calling it that way get told where it went, not an argparse error."""
+    assert cli.main(["join", "TEAM42", "--name", "ada", "--server", "ws://127.0.0.1:8000/ws", "--agent", "cursor"]) == 2
+    assert "hivelane daemon TEAM42" in capsys.readouterr().err

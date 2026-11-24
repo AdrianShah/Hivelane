@@ -1298,6 +1298,12 @@ def cmd_invite(args: argparse.Namespace) -> int:
 def cmd_join(args: argparse.Namespace) -> int:
     from hivelane import config as cfg
 
+    if args.server is not None or args.agent is not None:
+        raise ConfigError(
+            "`hivelane join` now joins from an invite link; the single-room foreground daemon "
+            f"is `hivelane daemon {args.target} --name NAME --server URL --agent AGENT`"
+        )
+
     try:
         target = parse_invite_link(args.target)
     except ValueError as exc:
@@ -2625,6 +2631,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     join_cmd.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
     join_cmd.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
+    # The single-room foreground daemon used to answer to `join` too; it is
+    # `hivelane daemon` now. Its flags are kept (hidden) to say so.
+    join_cmd.add_argument("--server", default=None, help=argparse.SUPPRESS)
+    join_cmd.add_argument("--agent", default=None, help=argparse.SUPPRESS)
     join_cmd.set_defaults(func=cmd_join)
 
     bee_cmd = sub.add_parser("bee", help="show or hide the desktop bee (menu bar, system tray or screen-edge room status)")

@@ -40,6 +40,12 @@ except ImportError:  # Render rootDir=server
 
 log = logging.getLogger(__name__)
 
+
+def _loggable(value: str) -> str:
+    """A caller-supplied value fit for a log line: control characters
+    (newlines above all, which could forge a log entry) dropped."""
+    return "".join(ch for ch in value if ch.isprintable())[:64]
+
 # A room code stops being valid after this long, so the table cannot grow
 # forever. This is an upper bound: RoomManager also removes a code once its
 # room has been empty for the eviction grace period, so a code stays valid
@@ -111,16 +117,13 @@ class RoomStore(Protocol):
 
     def get_repo_key(self, room_id: str) -> Optional[str]:
         """The repo lookup key bound to room_id, or None if unbound."""
-        ...
 
     def set_repo_key(self, room_id: str, repo_key: Optional[str]) -> bool:
         """Bind (or with None clear) a repo lookup key on room_id.
         Returns False if another unexpired room already holds repo_key."""
-        ...
 
     def find_by_repo_key(self, repo_key: str) -> Optional[str]:
         """The unexpired room_id bound to repo_key, or None."""
-        ...
 
     def get_record(self, room_id: str) -> Optional[StoredRoom]:
         """The code's creation time, settings and access record in one read,
@@ -444,7 +447,7 @@ class SqliteRoomStore:
                 "SELECT repo_key FROM rooms WHERE room_id = ?", (room_id,)
             ).fetchone()
         except sqlite3.Error:
-            log.exception("Could not read repo_key for room %s from %s", room_id, self._path)
+            log.exception("Could not read repo_key for room %s from %s", _loggable(room_id), self._path)
             return None
         if row is None or not isinstance(row[0], str) or not row[0]:
             return None
@@ -473,7 +476,7 @@ class SqliteRoomStore:
                 return cursor.rowcount > 0
         except sqlite3.Error:
             log.exception(
-                "Could not persist repo_key for room %s at %s", room_id, self._path
+                "Could not persist repo_key for room %s at %s", _loggable(room_id), self._path
             )
             return False
 

@@ -174,6 +174,7 @@ class FakeRelay:
                     if isinstance(loaded, dict):
                         payload = loaded
                 except ValueError:
+                    # Not JSON: record it as an empty body, like a create with none.
                     pass
             self.created_bodies.append(payload)
             repo_key = payload.get("repo_key")

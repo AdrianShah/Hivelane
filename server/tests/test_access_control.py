@@ -758,3 +758,12 @@ def test_repo_binding_and_forced_approval_survive_relay_restart(
     with client.websocket_connect(f"/ws/{room_id}") as bob:
         _join(bob, "bob")
         assert _next(bob, "join_pending")["request_id"]
+
+
+def test_binding_a_repo_to_a_garbage_code_is_not_found(relay: RoomManager) -> None:
+    response = TestClient(app).post(
+        "/rooms/" + "x" * 200 + "/repo",
+        json={"repo_key": "a" * 64},
+        headers={"X-Hivelane-Owner-Token": "t"},
+    )
+    assert response.status_code == 404
