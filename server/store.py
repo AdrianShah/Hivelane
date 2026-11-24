@@ -43,8 +43,12 @@ log = logging.getLogger(__name__)
 
 def _loggable(value: str) -> str:
     """A caller-supplied value fit for a log line: control characters
-    (newlines above all, which could forge a log entry) dropped."""
-    return "".join(ch for ch in value if ch.isprintable())[:64]
+    (newlines above all, which could forge a log entry) dropped. The
+    explicit newline replacements come last so static analysis (CodeQL's
+    log-injection check) sees the value as cleaned."""
+    printable = "".join(ch for ch in value if ch.isprintable())[:64]
+    return printable.replace("\r", "").replace("\n", "")
+
 
 # A room code stops being valid after this long, so the table cannot grow
 # forever. This is an upper bound: RoomManager also removes a code once its

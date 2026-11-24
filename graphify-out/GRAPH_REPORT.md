@@ -1,17 +1,17 @@
 # Graph Report - Synergo  (2026-11-24)
 
 ## Corpus Check
-- 402 files · ~381,509 words
+- 402 files · ~381,531 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 27 file(s) not represented in the graph (top: (none) 14, .css 5, .csv 3)
 
 ## Summary
-- 7306 nodes · 17728 edges · 304 communities (270 shown, 34 thin omitted)
+- 7306 nodes · 17728 edges · 303 communities (269 shown, 34 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 909 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7ba86309`
+- Built from commit: `52642e32`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -59,7 +59,7 @@
 - FakeRedis
 - test_daemon_queue.py
 - post_deploy_check.sh
-- test_check_edit.py
+- test_decision_engine.py
 - RoomPolicyUpdate
 - test_webhooks.py
 - test_room_store_redis.py
@@ -101,7 +101,7 @@
 - test_room_settings.py
 - NormalizedEvent
 - test_payload_limits.py
-- .plan_conflicts
+- RoomStore
 - test_dashboard.py
 - feed.test.ts
 - cli.py
@@ -138,8 +138,8 @@
 - dev_fake_relay.py
 - ._replay
 - npm/package.json
-- .check_edit
-- properties
+- FileTouch
+- type
 - FakeRedis
 - test_fail_open.py
 - edit_symbols
@@ -150,15 +150,15 @@
 - properties
 - hook_fast.py
 - test_cli_security.py
-- client
+- test_capacity_limits.py
 - Counter
-- bench
+- test_a_failing_sink_never_breaks_the_broadcast
 - DaemonClient
 - test_status_line.py
 - test_frame_handling.py
 - test_daemon_robustness.py
 - merge_hooks
-- type
+- properties
 - sync-docs.mjs
 - Watcher
 - depgraph.py
@@ -172,7 +172,7 @@
 - Client to relay
 - dashboard.py
 - test_lan_address_is_never_loopback
-- type
+- properties
 - McpServer
 - tasks_cli.py
 - deploy
@@ -184,7 +184,7 @@
 - Any
 - test_daemon_status.py
 - maintain_leases
-- WebSocket
+- others
 - RelayFeed
 - Backend
 - Alpha testing
@@ -196,15 +196,15 @@
 - _BraceScanner
 - WebhookService
 - Contributor Covenant Code of Conduct
-- SecurityHeadersMiddleware
+- .__call__
 - The contract
 - Webhooks (Slack, Discord, generic)
-- Settings
+- hash_owner_token
 - command
 - Hivelane
 - Any
 - test_links.py
-- repo_id
+- properties
 - transport_problem
 - main.py
 - generate.py
@@ -219,7 +219,7 @@
 - hivelane.js
 - Any
 - DaemonPool
-- metrics.py
+- Gauge
 - contributes
 - is_public_address
 - devDependencies
@@ -251,11 +251,11 @@
 - Relay on Render
 - Changelog
 - install.sh script
-- ConfigError
+- schema.json
 - hivelane.tokenPath
 - WebhookCreate
 - repository
-- test_prompts_and_diffs_never_reach_the_log
+- base_version
 - captured_daemon
 - Homebrew tap
 - hivelane-relay Helm chart
@@ -290,7 +290,6 @@
 - .sweep
 - stub_daemon
 - EventAck
-- RoomSettingsUpdate
 - frontend_src_pages_home
 - InviteTarget
 - _event
@@ -305,7 +304,7 @@
 - menu_lines
 - Any
 - .handler
-- Histogram
+- metrics.py
 - format_discord
 - docker-entrypoint.sh
 - build_pages.sh
@@ -339,11 +338,11 @@
 ## Import Cycles
 - 3-file cycle: `hivelane/adapters/__init__.py -> hivelane/adapters/base.py -> hivelane/detect.py -> hivelane/adapters/__init__.py`
 
-## Communities (304 total, 34 thin omitted)
+## Communities (303 total, 34 thin omitted)
 
 ### Community 0 - "RedisRoomStore"
-Cohesion: 0.06
-Nodes (23): Owner tokens, Outage bookkeeping for one Redis-backed component. Runs a call against Redis,…, RedisGuard, _decode_record(), Any, Rows already fetched under the lock, with the cursor API this module uses., Room codes in Redis, so every relay instance accepts every code. Layout, under…, One pipeline for the code, its settings and its access record, so Redis failing… (+15 more)
+Cohesion: 0.07
+Nodes (19): Owner tokens, _decode_record(), Room codes in Redis, so every relay instance accepts every code. Layout, under…, One pipeline for the code, its settings and its access record, so Redis failing…, RedisRoomStore, call(), call(), call() (+11 more)
 
 ### Community 1 - "App.tsx"
 Cohesion: 0.08
@@ -379,7 +378,7 @@ Nodes (9): datetime, fib(), glass_theme(), lane_status(), Any, Hivelane demo pro
 
 ### Community 9 - "sanitize.py"
 Cohesion: 0.16
-Nodes (20): EditCheckRequest, PlanMessage, Pre-edit permission probe. request_id correlates the response on an agent's…, One operation on the room's task list. Every request gets exactly one…, TaskRequest, cap_activity(), cap_edit_check(), _cap_optional() (+12 more)
+Nodes (20): EditCheckRequest, IntentMessage, What the agent is currently trying to do, derived from the user's prompt.…, Pre-edit permission probe. request_id correlates the response on an agent's…, One operation on the room's task list. Every request gets exactly one…, TaskRequest, cap_activity(), cap_edit_check() (+12 more)
 
 ### Community 10 - "compilerOptions"
 Cohesion: 0.10
@@ -406,12 +405,12 @@ Cohesion: 0.42
 Nodes (7): daemon_status(), fail(), HIVELANE_HOME, hook_event(), smoke.sh script, start_daemon(), wait_for()
 
 ### Community 16 - "test_relay_core_fixes.py"
-Cohesion: 0.04
-Nodes (65): Steady-rate budget with bursts: `rate_per_minute` tokens refill evenly over…, Spend one token if there is one. False means: drop the message., TokenBucket, _edit_check_reason(), _fit_plan_conflicts(), Decision, Keep the reply under the outbound frame budget (see room.fit_e2e)., One human-readable sentence about the peer that drove the decision. (+57 more)
+Cohesion: 0.05
+Nodes (55): Steady-rate budget with bursts: `rate_per_minute` tokens refill evenly over…, Spend one token if there is one. False means: drop the message., TokenBucket, Team-wide conflict windows from the repo's .hivelane.toml. Sent on join so the…, RoomSettings, feed_frames(), _merged_ranges(), ranges_near() (+47 more)
 
 ### Community 17 - "logging_config.py"
-Cohesion: 0.09
-Nodes (25): Formatter, LogRecord, configure(), escape_controls(), JsonFormatter, mask_code(), Any, Log formatting. Human-readable locally, JSON everywhere else. No log shipper is… (+17 more)
+Cohesion: 0.10
+Nodes (24): Formatter, LogRecord, configure(), escape_controls(), JsonFormatter, mask_code(), Any, Log formatting. Human-readable locally, JSON everywhere else. No log shipper is… (+16 more)
 
 ### Community 18 - "Bee"
 Cohesion: 0.14
@@ -466,16 +465,16 @@ Cohesion: 0.07
 Nodes (46): DetectionQuality(), describeCard(), PreventedCounterProps, ShareCardDialog(), ShareCardDialogProps, ShortcutHelp(), agentLabel(), PreventionSummary (+38 more)
 
 ### Community 33 - "MemoryRoomStore"
-Cohesion: 0.03
-Nodes (36): MemoryRoomStore, Protocol, The room's owner-token hash and join policy, or None if unset., Replace a known room's access record; a no-op for an unknown code., The room's webhooks record, or None if it has none., Replace a known room's webhooks record; a no-op for an unknown code., The repo lookup key bound to room_id, or None if unbound., Bind (or with None clear) a repo lookup key on room_id. Returns False if… (+28 more)
+Cohesion: 0.06
+Nodes (20): MemoryRoomStore, The room's owner-token hash and join policy, or None if unset., Replace a known room's access record; a no-op for an unknown code., Default store: codes live as long as the process does., test_e2e_flag_survives_a_restart(), MonkeyPatch, relay(), test_a_room_in_use_when_the_timer_fires_is_kept() (+12 more)
 
 ### Community 36 - "run_doctor_checks"
 Cohesion: 0.14
 Nodes (18): Check, create_room(), create_room_with_owner(), _e2e_check(), http_client(), http_origin(), lookup_room_by_repo(), _protocol_check() (+10 more)
 
 ### Community 37 - "Room"
-Cohesion: 0.04
-Nodes (70): render(), DecisionFeedbackUpdate, is_always_warn_file(), Spend one unit of the room's inbound message quota., Return True if this user sent this kind of message too recently. On acceptance,…, Drop touches that can no longer affect a comparison. Measured against the…, Evict least recently updated touches past the per-room bounds., Merge a batch into each file's touch from this sender. A touch is the union of… (+62 more)
+Cohesion: 0.03
+Nodes (64): Recommended speedups, in priority order, Top bottlenecks, FileRequested, Sent to each member currently holding file_path (its latest touch is inside the…, _close_stalled(), _dumps(), BaseModel, WebSocket (+56 more)
 
 ### Community 38 - "graphify"
 Cohesion: 0.50
@@ -497,9 +496,9 @@ Nodes (11): _bound(), FakePipeline, FakeRedis, command(), _in_range(), Any, Conn
 Cohesion: 0.13
 Nodes (26): wait_for(), e2e_connection(), Any, CaptureFixture, Path, RoomKey, ServerConnection, QueueRelay (+18 more)
 
-### Community 44 - "test_check_edit.py"
-Cohesion: 0.17
-Nodes (22): FakeSocket, _join(), Room.check_edit policy: the pre-edit decision an agent's hook depends on., A prompt is followed by edits within milliseconds; the intent must not cause…, An intent has to expire: otherwise one morning prompt naming a file warns about…, A long-lived room must not keep an entry for every file ever touched., Stand-in member socket: Room only stores it and calls send_json on broadcast,…, The sweep must not reach a touch a comparison can still see. (+14 more)
+### Community 44 - "test_decision_engine.py"
+Cohesion: 0.11
+Nodes (47): render(), is_always_warn_file(), True for imports/config files that are never judged by symbol., FakeSocket, _feed(), _frame(), _join(), _plan() (+39 more)
 
 ### Community 45 - "RoomPolicyUpdate"
 Cohesion: 0.25
@@ -510,12 +509,12 @@ Cohesion: 0.15
 Nodes (28): _add(), _member(), Any, parametrize, Path, TestClient, Owner-configured webhooks (server/webhooks.py): the owner API, URL and SSRF…, _receive_until() (+20 more)
 
 ### Community 47 - "test_room_store_redis.py"
-Cohesion: 0.15
-Nodes (28): build_room_store(), Pick a store from the environment. - HIVELANE_REDIS_URL set: RedisRoomStore,…, fake_connect(), make_store(), fixture, FixtureRequest, LogCaptureFixture, MonkeyPatch (+20 more)
+Cohesion: 0.11
+Nodes (36): build_room_store(), Pick a store from the environment. - HIVELANE_REDIS_URL set: RedisRoomStore,…, fixture, MonkeyPatch, Path, fake_connect(), make_store(), fixture (+28 more)
 
 ### Community 48 - "test_security_headers.py"
-Cohesion: 0.11
-Nodes (16): parametrize, TestClient, Transport hardening on the relay's HTTP surface, and what it keeps out of its…, _site(), test_a_route_can_keep_its_own_policy(), test_an_invalid_origin_regex_fails_the_boot(), test_csp_and_framing_only_on_html(), test_hsts_header_when_enabled() (+8 more)
+Cohesion: 0.09
+Nodes (27): ASGIApp, Adds the headers above. Headers a route already set are left alone, so one…, SecurityHeadersMiddleware, _await_events(), _join(), _next_event(), Any, LogCaptureFixture (+19 more)
 
 ### Community 49 - "service.py"
 Cohesion: 0.05
@@ -547,7 +546,7 @@ Nodes (60): Client, _bounded_put(), Daemon, add_repo(), decide(), events(), heal
 
 ### Community 56 - "normalize_room_code"
 Cohesion: 0.04
-Nodes (51): get(), model_validator, PlainTextResponse, health(), bind_room_repo(), BindRepoRequest, create_room(), CreateRoomRequest (+43 more)
+Nodes (52): get(), model_validator, PlainTextResponse, health(), bind_room_repo(), BindRepoRequest, create_room(), CreateRoomRequest (+44 more)
 
 ### Community 57 - "FakeNet"
 Cohesion: 0.14
@@ -602,12 +601,12 @@ Cohesion: 0.14
 Nodes (8): Who owns each room. Codes passed in are already normalized., True when other instances consult the same directory., Take the lease if nobody holds it; return the owner's instance id, which is…, Extend this instance's lease, or retake it if it lapsed and nobody else took…, Replace `stale_owner`'s lease with ours (it is known to be unreachable). False…, Drop the lease if this instance holds it; a no-op otherwise., The current owner, or None when the room is unclaimed., RoomDirectory
 
 ### Community 72 - "test_security_hardening.py"
-Cohesion: 0.13
-Nodes (19): redis", "sqlite" or "memory", for /readyz., store_kind(), MonkeyPatch, parametrize, Path, Regression tests for the relay infrastructure/security review (04): rate-limit…, _request(), test_a_500_still_carries_the_security_headers() (+11 more)
+Cohesion: 0.10
+Nodes (22): redis", "sqlite" or "memory", for /readyz., store_kind(), MonkeyPatch, parametrize, Path, Regression tests for the relay infrastructure/security review (04): rate-limit…, _request(), test_a_500_still_carries_the_security_headers() (+14 more)
 
 ### Community 73 - "test_access_control.py"
-Cohesion: 0.10
-Nodes (59): hash_owner_token(), new_owner_token(), A fresh owner secret: 32 random bytes, URL-safe base64 (43 characters)., What the relay keeps instead of the token: its SHA-256, hex. Unsalted on…, True if token is this room's owner token. Compared as hashes in constant time,…, _admitted(), _create(), _frames() (+51 more)
+Cohesion: 0.13
+Nodes (52): new_owner_token(), A fresh owner secret: 32 random bytes, URL-safe base64 (43 characters)., _admitted(), _create(), _frames(), _fresh_counters(), _join(), _let_in() (+44 more)
 
 ### Community 74 - "vscode/package.json"
 Cohesion: 0.08
@@ -622,8 +621,8 @@ Cohesion: 0.08
 Nodes (67): Return `(room, relay)` remembered on this machine for `repo_id`, or None., remembered_room(), One-way relay lookup key derived from a repository id. Uses a domain-separated…, repo_lookup_key(), relay_is_local(), Machine, fixture, MonkeyPatch (+59 more)
 
 ### Community 77 - "benchmark_decisions.py"
-Cohesion: 0.09
-Nodes (20): _accepts(), _decision_of(), _ev(), _FakeSocket, _filter(), generate(), load_sessions(), metrics() (+12 more)
+Cohesion: 0.11
+Nodes (19): _accepts(), _decision_of(), _ev(), _FakeSocket, _filter(), generate(), load_sessions(), metrics() (+11 more)
 
 ### Community 78 - "main"
 Cohesion: 0.12
@@ -657,13 +656,13 @@ Nodes (85): cached_repo_id(), compute_repo_id(), default_name(), _existing_dir()
 Cohesion: 0.13
 Nodes (28): _fresh_counters(), _join(), _next_event(), Any, fixture, MonkeyPatch, What one client can make the relay hold and fan out: per-field caps (truncated,…, Under the cap in characters, over it in UTF-8 bytes. (+20 more)
 
-### Community 86 - ".plan_conflicts"
-Cohesion: 0.11
-Nodes (15): evaluate_and_broadcast_conflicts(), heuristic_conflict_alert(), Broadcast a conflict_alert for each overlapping file. Fully isolated from the…, The conflict alert for a same-file overlap in the recent window: deterministic,…, PlanUpdate, FileOverlap, plan_symbols_intersect(), Return per-file overlaps with the most recent active peer (if any). Call this… (+7 more)
+### Community 86 - "RoomStore"
+Cohesion: 0.06
+Nodes (15): Protocol, Replace a known room's settings; a no-op for an unknown code., The room's webhooks record, or None if it has none., Replace a known room's webhooks record; a no-op for an unknown code., The repo lookup key bound to room_id, or None if unbound., Bind (or with None clear) a repo lookup key on room_id. Returns False if…, The unexpired room_id bound to repo_key, or None., The code's creation time, settings and access record in one read, or None if… (+7 more)
 
 ### Community 87 - "test_dashboard.py"
-Cohesion: 0.20
-Nodes (17): parametrize, TestClient, The relay serving the bundled dashboard: static files, the single-page-app…, test_a_missing_file_is_a_404_not_the_dashboard(), test_api_paths_never_get_the_dashboard(), test_client_routes_fall_back_to_index_html(), test_files_outside_the_build_are_not_reachable(), test_fingerprinted_assets_are_cached_for_good() (+9 more)
+Cohesion: 0.11
+Nodes (31): hivelane watch, install(), Any, Why `directory` cannot be served as the dashboard, or None if it can., Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as `app`'s…, static_dir_problem(), build(), client() (+23 more)
 
 ### Community 88 - "feed.test.ts"
 Cohesion: 0.11
@@ -674,8 +673,8 @@ Cohesion: 0.06
 Nodes (95): ArgumentParser, build_parser(), check_transport(), cmd_bee(), cmd_daemon(), cmd_doctor(), cmd_down(), cmd_githook() (+87 more)
 
 ### Community 90 - "properties"
-Cohesion: 0.07
-Nodes (34): enum, title, type, EditCheckResponse, EditDecision, properties, required, title (+26 more)
+Cohesion: 0.10
+Nodes (21): enum, title, type, properties, decision, queue_position, request_id, scope (+13 more)
 
 ### Community 91 - "test_daemon_multi_repo.py"
 Cohesion: 0.10
@@ -702,8 +701,8 @@ Cohesion: 0.07
 Nodes (37): Conflict detection, Dashboard, Decision table, Feedback loop, Scopes, Semantic matching (`server/semantic.py`), Several agents per person, activity_update (+29 more)
 
 ### Community 97 - "ActivityMessage"
-Cohesion: 0.10
-Nodes (40): handle_activity(), _log_conflict_task_error(), _merge_deferred(), _publish_activity(), _publish_deferred(), Task, Caption an accepted activity and broadcast it as activity_update. The caption…, Fold a rate-limited activity into the one already waiting. In an e2e room the… (+32 more)
+Cohesion: 0.07
+Nodes (50): bench(), acts(), many(), cprofile_edit_check(), many(), FakeSocket, main_(), Costs what Starlette's send_json costs before the transport: one json.dumps per… (+42 more)
 
 ### Community 98 - "crypto.py"
 Cohesion: 0.04
@@ -718,8 +717,8 @@ Cohesion: 0.22
 Nodes (6): Any, Room leases in Redis, shared by every relay instance., RedisRoomDirectory, call(), _text(), T
 
 ### Community 101 - "semantic.py"
-Cohesion: 0.21
-Nodes (13): functools, _cosine(), files_mentioned(), lexical_similarity(), Lightweight semantic matching for agent intents (pure, stdlib-only). Two entry…, Blend of trigram cosine and stemmed-token Jaccard, in [0, 1]., Known paths the prompt refers to, strongest evidence first. Evidence, strongest…, Lowercase, split camelCase/snake_case/paths, drop stopwords, stem. (+5 more)
+Cohesion: 0.13
+Nodes (19): functools, _cosine(), _embedding_scorer(), files_mentioned(), lexical_similarity(), Lightweight semantic matching for agent intents (pure, stdlib-only). Two entry…, Blend of trigram cosine and stemmed-token Jaccard, in [0, 1]., Score two intents. Returns (score, used_embeddings). (+11 more)
 
 ### Community 102 - "FileQueues"
 Cohesion: 0.07
@@ -786,8 +785,8 @@ Cohesion: 0.12
 Nodes (9): Any, ServerConnection, Records joins and frames per room; answers edit_check with `decision[room]`…, StubRelay, scenario(), scenario(), scenario(), scenario() (+1 more)
 
 ### Community 118 - "room.py"
-Cohesion: 0.03
-Nodes (85): Collection, collections, config, dataclasses, dotenv, fastapi, logging, Pattern (+77 more)
+Cohesion: 0.04
+Nodes (62): collections, config, dataclasses, dotenv, fastapi, logging, Pattern, pydantic (+54 more)
 
 ### Community 119 - "test_metrics.py"
 Cohesion: 0.15
@@ -805,13 +804,13 @@ Nodes (10): _header(), parse_fly_fields(), Receive, Scope, Send, a=1;b=2" (fly-r
 Cohesion: 0.11
 Nodes (17): bin, hivelane, bugs, url, description, engines, node, files (+9 more)
 
-### Community 123 - ".check_edit"
-Cohesion: 0.13
-Nodes (10): Benchmark (`scripts/benchmark_decisions.py`), Inputs, Symbol names, 3. Relay, _branches_differ(), Decision, Decide whether user_id may edit file_path (in repo_id) right now. Returns the…, Decision table for one peer touch already inside the warn window. The scope is… (+2 more)
+### Community 123 - "FileTouch"
+Cohesion: 0.05
+Nodes (33): Collection, Benchmark (`scripts/benchmark_decisions.py`), Inputs, Symbol names, 3. Relay, _edit_check_reason(), evaluate_and_broadcast_conflicts(), heuristic_conflict_alert() (+25 more)
 
-### Community 124 - "properties"
-Cohesion: 0.07
-Nodes (31): default, maxLength, title, type, default, title, type, FileRequest (+23 more)
+### Community 124 - "type"
+Cohesion: 0.12
+Nodes (18): default, title, type, FileRequest, title, type, properties, required (+10 more)
 
 ### Community 125 - "FakeRedis"
 Cohesion: 0.10
@@ -826,8 +825,8 @@ Cohesion: 0.28
 Nodes (8): edit_symbols(), Symbols and line ranges a pending edit is predicted to touch, from its old/new…, What a whole-file write is about to change: the definitions whose lines it…, write_symbols(), merge_ranges(), predict_ranges(), Where an Edit's `old_string` sits in the current file (every occurrence, for…, test_a_write_names_only_what_it_changes()
 
 ### Community 128 - "x-client-to-relay"
-Cohesion: 0.09
-Nodes (21): description, oneOf, $schema, title, x-client-to-relay, activity, decision_feedback, edit_check (+13 more)
+Cohesion: 0.13
+Nodes (15): x-client-to-relay, activity, decision_feedback, edit_check, file_request, history_request, hold_release, intent (+7 more)
 
 ### Community 129 - "FAQ"
 Cohesion: 0.11
@@ -853,17 +852,17 @@ Nodes (44): BadResponse, claim_offline_notice(), claim_spawn(), daemon_command()
 Cohesion: 0.15
 Nodes (23): personal(), CaptureFixture, MonkeyPatch, parametrize, The CLI side of Phase 4 security: plaintext relays need an explicit opt-in,…, An agent runs `hivelane up` in a tool call: a join the owner has not answered…, test_a_teammate_sets_the_key_they_were_given(), test_creating_a_room_keeps_its_owner_token_privately() (+15 more)
 
-### Community 135 - "client"
-Cohesion: 0.20
-Nodes (14): hivelane watch, install(), Any, Why `directory` cannot be served as the dashboard, or None if it can., Serve the dashboard from `directory` (default: $HIVELANE_STATIC_DIR) as `app`'s…, static_dir_problem(), build(), client() (+6 more)
+### Community 135 - "test_capacity_limits.py"
+Cohesion: 0.13
+Nodes (23): fastapi_testclient, main, _edit_check_reply(), _join(), Any, fixture, MonkeyPatch, Capacity limits: every one is configurable, 0 means unlimited, and rooms and… (+15 more)
 
 ### Community 136 - "Counter"
-Cohesion: 0.32
-Nodes (4): LabelValue, Counter, Monotonic counter, pre-seeded with known label values. `label` is one label…, test_label_values_are_escaped()
+Cohesion: 0.15
+Nodes (6): LabelValue, Counter, Zero every counter and histogram, and drop cached gauge values. Tests only: a…, Monotonic counter, pre-seeded with known label values. `label` is one label…, Registry, test_label_values_are_escaped()
 
-### Community 137 - "bench"
-Cohesion: 0.11
-Nodes (15): EventSink, bench(), acts(), many(), sinks(), cprofile_edit_check(), many(), FakeSocket (+7 more)
+### Community 137 - "test_a_failing_sink_never_breaks_the_broadcast"
+Cohesion: 0.24
+Nodes (7): EventSink, sinks(), add_event_sink(), remove_event_sink(), test_a_failing_sink_never_breaks_the_broadcast(), test_join_requests_reach_the_event_sinks(), sink()
 
 ### Community 138 - "DaemonClient"
 Cohesion: 0.24
@@ -885,9 +884,9 @@ Nodes (62): Constants the CLI needs before it knows which command runs. Kept fre
 Cohesion: 0.21
 Nodes (12): merge_hooks(), Add hivelane's hook entries without disturbing anything already there. An older…, _with_command(), hook_settings(), The hooks block hivelane wants merged into a Claude Code settings.json.…, #5 / T9: a --port (or wrapper) the user added survives; the matcher and timeout…, test_absolute_path_entry_is_not_duplicated(), test_non_list_event_value_is_refused() (+4 more)
 
-### Community 143 - "type"
-Cohesion: 0.10
-Nodes (21): type, default, items, title, type, own_names, same_chat, siblings (+13 more)
+### Community 143 - "properties"
+Cohesion: 0.09
+Nodes (26): properties, type, default, items, title, type, own_names, same_chat (+18 more)
 
 ### Community 144 - "sync-docs.mjs"
 Cohesion: 0.22
@@ -934,16 +933,16 @@ Cohesion: 0.08
 Nodes (26): activity, Client to relay, Close codes, Connection lifecycle, decision_feedback, Delivery, edit_check, End-to-end encrypted rooms (+18 more)
 
 ### Community 155 - "dashboard.py"
-Cohesion: 0.08
-Nodes (27): base64, DashboardApp, inline_script_hashes(), _is_api_path(), _looks_like_file(), ASGIApp, Path, Receive (+19 more)
+Cohesion: 0.09
+Nodes (26): base64, DashboardApp, inline_script_hashes(), _is_api_path(), _looks_like_file(), ASGIApp, Path, Receive (+18 more)
 
 ### Community 156 - "test_lan_address_is_never_loopback"
 Cohesion: 0.09
 Nodes (17): _free_port(), CaptureFixture, fixture, MonkeyPatch, parametrize, Path, The probe socket is faked, so this checks the filtering rather than whatever…, relay_process() (+9 more)
 
-### Community 157 - "type"
+### Community 157 - "properties"
 Cohesion: 0.12
-Nodes (17): properties, title, type, title, type, properties, explanation, file_path (+9 more)
+Nodes (16): properties, required, title, type, ConflictAlert, title, type, explanation (+8 more)
 
 ### Community 158 - "McpServer"
 Cohesion: 0.06
@@ -974,8 +973,8 @@ Cohesion: 0.24
 Nodes (9): posted(), fake_poster(), Any, fixture, MonkeyPatch, Path, test_run_generic_agent_without_message(), test_run_missing_command() (+1 more)
 
 ### Community 165 - "test_semantic.py"
-Cohesion: 0.15
-Nodes (15): _embedding_scorer(), Score two intents. Returns (score, used_embeddings)., Peers whose intent text is similar to ``text``, best match first. ``threshold``…, similar_intents(), similarity(), _lexical_only(), _precision_recall(), fixture (+7 more)
+Cohesion: 0.27
+Nodes (9): Peers whose intent text is similar to ``text``, best match first. ``threshold``…, similar_intents(), _lexical_only(), _precision_recall(), fixture, Tests for server/semantic.py (intent similarity + prompt -> file matching)., test_fixture_precision_recall_at_default_threshold(), test_similar_intents_empty_text() (+1 more)
 
 ### Community 166 - "Any"
 Cohesion: 0.32
@@ -989,9 +988,9 @@ Nodes (14): _daemon(), CaptureFixture, MonkeyPatch, Path, Daemon liveness report
 Cohesion: 0.23
 Nodes (8): maintain_leases(), For the app's lifespan: renew this instance's room leases every `interval`…, FakeHolder, test_maintain_leases_does_nothing_for_a_single_instance(), run(), test_maintain_leases_renews_until_shutdown_then_releases(), run(), _until()
 
-### Community 169 - "WebSocket"
-Cohesion: 0.05
-Nodes (25): Recommended speedups, in priority order, Top bottlenecks, FileReleased, FileRequested, Sent to each member currently holding file_path (its latest touch is inside the…, Sent to the first requester in a file's queue when the file frees up: every…, _close_stalled(), _dumps() (+17 more)
+### Community 169 - "others"
+Cohesion: 0.20
+Nodes (10): items, title, type, $ref, default, items, title, type (+2 more)
 
 ### Community 171 - "Backend"
 Cohesion: 0.12
@@ -1003,11 +1002,11 @@ Nodes (7): 1. Install (each person, once), 2. Pick a repo to test in, 3. One per
 
 ### Community 173 - "properties"
 Cohesion: 0.07
-Nodes (32): properties, properties, required, title, type, default, enum, title (+24 more)
+Nodes (36): properties, properties, default, enum, title, type, default, title (+28 more)
 
 ### Community 174 - "$defs"
-Cohesion: 0.14
-Nodes (14): required, title, type, required, title, type, $defs, ActivityMessage (+6 more)
+Cohesion: 0.09
+Nodes (22): required, title, type, required, title, type, $defs, ActivityMessage (+14 more)
 
 ### Community 175 - "properties"
 Cohesion: 0.15
@@ -1029,9 +1028,9 @@ Nodes (21): Resolver, test_store_io_can_run_off_the_event_loop(), run(), _Breake
 Cohesion: 0.17
 Nodes (12): 1. Correction, 2. Warning, 3. Temporary Ban, 4. Permanent Ban, Attribution, Contributor Covenant Code of Conduct, Enforcement, Enforcement Guidelines (+4 more)
 
-### Community 181 - "SecurityHeadersMiddleware"
-Cohesion: 0.20
-Nodes (9): MutableHeaders, ASGIApp, Receive, Scope, Send, Adds the headers above. Headers a route already set are left alone, so one…, SecurityHeadersMiddleware, send_with_headers() (+1 more)
+### Community 181 - ".__call__"
+Cohesion: 0.33
+Nodes (5): MutableHeaders, Receive, Scope, Send, send_with_headers()
 
 ### Community 182 - "The contract"
 Cohesion: 0.20
@@ -1041,9 +1040,9 @@ Nodes (11): The contract, Two rules that override everything else, ack_decision(
 Cohesion: 0.17
 Nodes (12): Browser notifications, Discord, End-to-end encrypted rooms, From the dashboard, Generic JSON, Limits and delivery, Notifications and replay, Replay (+4 more)
 
-### Community 184 - "Settings"
-Cohesion: 0.18
-Nodes (8): limits_summary(), Strict-Transport-Security only where TLS is certain: a dev relay on…, Every capacity and rate limit in force (0 = unlimited), for /readyz., Settings, parametrize, test_a_bad_limit_refuses_to_boot(), test_every_limit_reads_its_environment_variable(), test_rate_limits_accept_zero_as_unlimited()
+### Community 184 - "hash_owner_token"
+Cohesion: 0.25
+Nodes (6): hash_owner_token(), True if token is the owner token of a valid room code, live or not. Read from…, What the relay keeps instead of the token: its SHA-256, hex. Unsalted on…, True if token is this room's owner token. Compared as hashes in constant time,…, parametrize, test_only_the_exact_token_verifies()
 
 ### Community 185 - "command"
 Cohesion: 0.20
@@ -1061,17 +1060,17 @@ Nodes (16): bee(), Any, MonkeyPatch, A real child process, so the liveness probe
 Cohesion: 0.18
 Nodes (10): The dashboard link for room. Unless the relay serves this dashboard itself, the…, room_url(), _Page, MonkeyPatch, Where a room's dashboard link points: a local relay's own dashboard when it…, test_a_local_relay_that_serves_the_dashboard_opens_its_own(), test_a_local_relay_without_a_dashboard_opens_the_hosted_one(), test_a_remote_relay_is_never_probed() (+2 more)
 
-### Community 189 - "repo_id"
-Cohesion: 0.14
-Nodes (14): FileReleased, properties, required, title, type, reason, repo_id, default (+6 more)
+### Community 189 - "properties"
+Cohesion: 0.22
+Nodes (9): FileReleased, properties, required, title, type, reason, default, title (+1 more)
 
 ### Community 190 - "transport_problem"
 Cohesion: 0.20
 Nodes (10): print_summary(), The line teammates run to use this relay. A ws:// relay on another machine is…, What a teammate runs to join. Never carries an e2e room key: that goes to them…, relay_join_command(), share_command(), is_loopback_host(), Why relay may not be used, or None. A ws:// relay on anything but this machine…, transport_problem() (+2 more)
 
 ### Community 191 - "main.py"
-Cohesion: 0.04
-Nodes (131): fastapi_responses, Admission, admit_joiner(), _announce_go_first(), _answer_plan(), _answer_task(), _answer_throttled_edit_check(), apply_member_settings() (+123 more)
+Cohesion: 0.03
+Nodes (146): fastapi_responses, Admission, admit_joiner(), _announce_go_first(), _answer_plan(), _answer_task(), _answer_throttled_edit_check(), apply_member_settings() (+138 more)
 
 ### Community 192 - "generate.py"
 Cohesion: 0.19
@@ -1121,9 +1120,9 @@ Nodes (8): Adapter, JsonHooksAdapter, Any, Base for every adapter; subclasses fi
 Cohesion: 0.33
 Nodes (3): DaemonPool, Daemons sharing one event loop on a background thread., Ask every daemon to wind down through its normal shutdown path (flush, close…
 
-### Community 204 - "metrics.py"
-Cohesion: 0.14
-Nodes (11): bisect, _escape_label(), _format_value(), Gauge, _labels(), Process-local relay metrics, rendered in the Prometheus text exposition format.…, Gauge read from a callback at scrape time, so it can never go stale. With…, Forget the cached value (tests only). (+3 more)
+### Community 204 - "Gauge"
+Cohesion: 0.25
+Nodes (5): Gauge, Gauge read from a callback at scrape time, so it can never go stale. With…, Forget the cached value (tests only)., Add (or replace) a scrape-time gauge. Replacing keeps re-imports and test…, register_gauge()
 
 ### Community 205 - "contributes"
 Cohesion: 0.33
@@ -1179,7 +1178,7 @@ Nodes (9): FrameTooLarge, HandshakeTimeout, JoinRefused, Exception, Raised by th
 
 ### Community 218 - "RoomManager"
 Cohesion: 0.05
-Nodes (47): Any, Live Room instances plus the durable set of valid room codes. Room contents…, Look up the unexpired room bound to `raw_key`, or None., True if token is the owner token of a valid room code, live or not. Read from…, True when other relay instances may own some of the rooms., Claim a room whose owner is known to be unreachable., Hold a lease exactly while this instance has sockets in the room. Run every…, Give up every lease, so the rooms move as soon as members reconnect (at… (+39 more)
+Nodes (41): Any, Live Room instances plus the durable set of valid room codes. Room contents…, Look up the unexpired room bound to `raw_key`, or None., True when other relay instances may own some of the rooms., Claim a room whose owner is known to be unreachable., Hold a lease exactly while this instance has sockets in the room. Run every…, Give up every lease, so the rooms move as soon as members reconnect (at…, Rooms live in this process (what /health reports). (+33 more)
 
 ### Community 219 - "test_config_history.py"
 Cohesion: 0.25
@@ -1206,8 +1205,8 @@ Cohesion: 0.23
 Nodes (13): Any, CaptureFixture, MonkeyPatch, parametrize, `hivelane task ...`: each command becomes one POST /tasks to the daemon,…, scripted(), _task(), test_add_sends_files_and_dependencies() (+5 more)
 
 ### Community 225 - "test_e2e_relay.py"
-Cohesion: 0.12
-Nodes (24): fastapi_testclient, main, _activity(), _join(), _next_event(), _next_events(), Any, fixture (+16 more)
+Cohesion: 0.19
+Nodes (19): _activity(), _join(), _next_event(), _next_events(), Any, fixture, MonkeyPatch, parametrize (+11 more)
 
 ### Community 226 - "HivelaneConfig"
 Cohesion: 0.16
@@ -1226,8 +1225,8 @@ Cohesion: 0.20
 Nodes (10): Comments say why, Conventions, Dual imports in `server/`, Python style, Tests, The hook fast path stays stdlib-only, fixture, server() (+2 more)
 
 ### Community 230 - "store.py"
-Cohesion: 0.11
-Nodes (12): Connection, connect_redis(), A Redis client for `url`, or None when the redis package is missing or the URL…, _build_local_store(), _LockedConnection, _loggable(), Durable registry of which room codes exist. Only the codes (and each room's…, Bring a file written by an older relay up to the current schema. Files from… (+4 more)
+Cohesion: 0.08
+Nodes (16): Connection, connect_redis(), A Redis client for `url`, or None when the redis package is missing or the URL…, Outage bookkeeping for one Redis-backed component. Runs a call against Redis,…, RedisGuard, _build_local_store(), _LockedConnection, _loggable() (+8 more)
 
 ### Community 231 - "suggest.py"
 Cohesion: 0.17
@@ -1245,9 +1244,9 @@ Nodes (3): 0.1.0, 0.2.0, Changelog
 Cohesion: 0.62
 Nodes (6): die(), install_uv(), run(), install.sh script, say(), usage()
 
-### Community 236 - "ConfigError"
-Cohesion: 0.25
-Nodes (8): ConfigError, _limit(), _positive_int(), RuntimeError, Raised at import when the environment cannot serve traffic safely., A capacity or rate limit: a whole number, 0 meaning unlimited., Optional shared store for the rate limiters (see limits.py). Unset keeps the…, _redis_url()
+### Community 236 - "schema.json"
+Cohesion: 0.29
+Nodes (6): description, oneOf, $schema, title, x-min-supported-protocol, x-protocol-version
 
 ### Community 237 - "hivelane.tokenPath"
 Cohesion: 0.50
@@ -1261,9 +1260,9 @@ Nodes (4): BaseModel, field_validator, POST /rooms/{code}/webhooks body. HTTP-on
 Cohesion: 0.50
 Nodes (4): repository, directory, type, url
 
-### Community 241 - "test_prompts_and_diffs_never_reach_the_log"
-Cohesion: 0.43
-Nodes (8): _await_events(), _join(), _next_event(), Any, LogCaptureFixture, Read frames until one event of each type has arrived, in any order. The relay…, test_intents_are_not_logged_at_info(), test_prompts_and_diffs_never_reach_the_log()
+### Community 241 - "base_version"
+Cohesion: 0.40
+Nodes (5): default, maxLength, title, type, base_version
 
 ### Community 242 - "captured_daemon"
 Cohesion: 0.29
@@ -1322,8 +1321,8 @@ Cohesion: 0.50
 Nodes (3): Checklist, How it was tested, What and why
 
 ### Community 265 - "load_settings"
-Cohesion: 0.10
-Nodes (25): _bool(), _csv(), load_settings(), test_per_message_caps_keep_their_defaults(), test_rooms_and_members_are_unlimited_by_default(), test_spectators_are_capped_by_default(), test_webhooks_per_room_cannot_be_unlimited(), parametrize (+17 more)
+Cohesion: 0.06
+Nodes (42): _bool(), ConfigError, _csv(), _limit(), limits_summary(), load_settings(), _positive_int(), RuntimeError (+34 more)
 
 ### Community 266 - "test_redis_client_cannot_stall_the_event_loop"
 Cohesion: 0.20
@@ -1369,10 +1368,6 @@ Nodes (3): fixture, A plain HTTP server answering /events with `state["ack"]` (J
 Cohesion: 0.09
 Nodes (36): command_for(), enabled(), notify(), The argv that shows (title, body) on this platform, or None., Show a desktop notification; True when one was handed to the OS., _encodable(), EventAck, Any (+28 more)
 
-### Community 283 - "RoomSettingsUpdate"
-Cohesion: 0.40
-Nodes (4): The conflict windows the relay is enforcing for this room. Broadcast whenever a…, RoomSettingsUpdate, The current settings as a room_settings frame (join catch-up)., Adopt new conflict windows. Returns the frame to broadcast, or None when…
-
 ### Community 286 - "_event"
 Cohesion: 0.47
 Nodes (6): _event(), Any, Path, A NormalizedEvent as the Claude Code adapter posts it: absolute paths, plus the…, _repo(), test_teammates_are_kept_out_of_each_others_files()
@@ -1413,9 +1408,9 @@ Nodes (3): menu_lines(), The status at the top of the bee's menu: the tip wrappe
 Cohesion: 0.14
 Nodes (15): asker(), join_row(), open_target(), Any, Who is asking, the same across their repeated asks (each ask has a new request…, The join requests worth a notification: people not announced in the last…, One room's line in the menu when you are in several: its code, folder and what…, One pending join request row at the top of an owner's tray menu. (+7 more)
 
-### Community 315 - "Histogram"
-Cohesion: 0.15
-Nodes (5): Histogram, Cumulative-bucket histogram; +Inf is implicit and always present., Zero every counter and histogram, and drop cached gauge values. Tests only: a…, Registry, test_histogram_buckets_are_cumulative_and_end_in_inf()
+### Community 315 - "metrics.py"
+Cohesion: 0.19
+Nodes (8): bisect, _escape_label(), _format_value(), Histogram, _labels(), Process-local relay metrics, rendered in the Prometheus text exposition format.…, Cumulative-bucket histogram; +Inf is implicit and always present., test_histogram_buckets_are_cumulative_and_end_in_inf()
 
 ### Community 317 - "format_discord"
 Cohesion: 0.18
@@ -1430,11 +1425,11 @@ Nodes (14): test_conflict_alerts_and_join_requests_have_notices_but_unrelated_on
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentKind` connect `types.ts` to `sessionLog.ts`, `HeatMapView.tsx`, `detect.py`, `The contract`, `TimelineView.tsx`?**
-  _High betweenness centrality (0.146) - this node is a cross-community bridge._
+  _High betweenness centrality (0.147) - this node is a cross-community bridge._
 - **Why does `The contract` connect `The contract` to `Relay to client`, `types.ts`, `ack_message`, `base.py`, `detect.py`, `HookOutput`?**
-  _High betweenness centrality (0.126) - this node is a cross-community bridge._
-- **Why does `Room` connect `Room` to `RedisRoomStore`, `bench`, `sanitize.py`, `test_relay_core_fixes.py`, `test_history.py`, `typing`, `RoomSettingsUpdate`, `tests/test_tasks.py`, `Relay`, `WebSocket`, `test_check_edit.py`, `RoomPolicyUpdate`, `test_webhooks.py`, `normalize_room_code`, `main.py`, `test_resolve_actions.py`, `test_access_control.py`, `benchmark_decisions.py`, `tests/test_file_queue.py`, `test_room_settings.py`, `test_payload_limits.py`, `.plan_conflicts`, `RoomReplayBudget`, `RoomManager`, `JoinRequest`, `ActivityMessage`, `test_e2e_relay.py`, `FileQueues`, `room.py`, `.check_edit`?**
-  _High betweenness centrality (0.110) - this node is a cross-community bridge._
+  _High betweenness centrality (0.127) - this node is a cross-community bridge._
+- **Why does `Room` connect `Room` to `RedisRoomStore`, `test_capacity_limits.py`, `test_a_failing_sink_never_breaks_the_broadcast`, `test_relay_core_fixes.py`, `test_history.py`, `typing`, `tests/test_tasks.py`, `Relay`, `test_decision_engine.py`, `RoomPolicyUpdate`, `test_webhooks.py`, `normalize_room_code`, `hash_owner_token`, `main.py`, `test_resolve_actions.py`, `test_access_control.py`, `benchmark_decisions.py`, `tests/test_file_queue.py`, `test_room_settings.py`, `test_payload_limits.py`, `RoomReplayBudget`, `RoomManager`, `JoinRequest`, `ActivityMessage`, `test_e2e_relay.py`, `FileQueues`, `room.py`, `FileTouch`?**
+  _High betweenness centrality (0.112) - this node is a cross-community bridge._
 - **Are the 99 inferred relationships involving `Room` (e.g. with `Benchmark (`scripts/benchmark_decisions.py`)` and `admit_joiner()`) actually correct?**
   _`Room` has 99 INFERRED edges - model-reasoned connections that need verification._
 - **Are the 107 inferred relationships involving `RoomManager` (e.g. with `RoomDirectory` and `RoomRoute`) actually correct?**
