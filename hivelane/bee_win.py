@@ -526,6 +526,7 @@ def _open_url(url: str) -> None:
         os.startfile(url)
         return
     except (OSError, AttributeError):
+        # Best-effort launch: fall back to ShellExecute if os.startfile fails.
         pass
     shell32.ShellExecuteW(None, "open", url, None, None, 1)
 
@@ -777,6 +778,7 @@ def _attach_desktop() -> None:
         if hdesk:
             user32.SetThreadDesktop(hdesk)
     except Exception:
+        # Best-effort attachment: if the interactive desktop is unreachable, stay on current.
         pass
 
 
