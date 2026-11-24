@@ -787,3 +787,35 @@ def test_rate_limited_socket_is_refused_before_the_room_lookup(
         frame = refused.receive_json()
 
     assert frame["type"] == "rate_limited"
+
+
+# --- GET /rooms/by-repo/{repo_key} --------------------------------------------
+
+
+def test_repo_lookup_returns_429_with_retry_after(
+    monkeypatch: pytest.MonkeyPatch, relay_backend: str
+) -> None:
+    monkeypatch.setattr(limits.repo_lookup_limiter, "limit", 2)
+    client = TestClient(app)
+    repo_key = "a" * 64
+
+    assert client.get(f"/rooms/by-repo/{repo_key}").status_code == 404
+    assert client.get(f"/rooms/by-repo/{repo_key}").status_code == 404
+
+    response = client.get(f"/rooms/by-repo/{repo_key}")
+
+    assert response.status_code == 429
+    assert int(response.headers["Retry-After"]) > 0
+
+
+def test_repo_lookup_rate_limit_isolates_per_ip(
+    monkeypatch: pytest.MonkeyPatch, relay_backend: str
+) -> None:
+    monkeypatch.setattr(config, "TRUST_PROXY_HEADER", True)
+    monkeypatch.setattr(limits.repo_lookup_limiter, "limit", 1)
+    client = TestClient(app)
+    repo_key = "b" * 64
+
+    assert client.get(f"/rooms/by-repo/{repo_key}", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 404
+    assert client.get(f"/rooms/by-repo/{repo_key}", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 429
+    assert client.get(f"/rooms/by-repo/{repo_key}", headers={"X-Forwarded-For": "198.51.100.4"}).status_code == 404

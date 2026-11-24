@@ -5,9 +5,11 @@ Every environment variable read by the CLI, the relay and the dashboard.
 ## CLI (`hivelane`)
 
 Flags win over these, and these win over `~/.hivelane/config.toml` and the repo's
-`.hivelane.toml`. The room and conflict windows are the exception: those come
-from `.hivelane.toml`, so one person's settings cannot split them from the team.
-Full precedence and every command: [docs/cli.md](cli.md).
+optional `.hivelane.toml`. When `.hivelane.toml` is present, its room and
+conflict windows win over personal settings, so one person's settings cannot
+split them from the team; otherwise `hivelane up` and `hivelane join` remember
+each repo's room in `~/.hivelane/config.toml` (`rooms`). Full precedence and
+every command: [docs/cli.md](cli.md).
 
 | Variable | Default | Description |
 |----------|---------|-------------|

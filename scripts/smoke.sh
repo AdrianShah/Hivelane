@@ -90,7 +90,7 @@ printf 'def broadcast():\n    return 1\n' > "$REPO/server/room.py"
 
 start_daemon() {
   local name=$1 agent=$2 port=$3 cwd=$4
-  ( cd "$cwd" && exec hivelane join "$ROOM" --name "$name" --agent "$agent" \
+  ( cd "$cwd" && exec hivelane daemon "$ROOM" --name "$name" --agent "$agent" \
       --server "$RELAY_WS" --port "$port" \
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)

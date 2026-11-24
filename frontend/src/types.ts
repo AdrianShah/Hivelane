@@ -447,6 +447,8 @@ export interface JoinMessage {
   settings?: RoomSettings | null;
   /** Secret from POST /rooms; marks this socket as a room owner. */
   owner_token?: string | null;
+  /** True when discovered via GET /rooms/by-repo; repo-bound rooms enforce approval regardless. */
+  via_repo_lookup?: boolean;
 }
 
 export type ServerMessage =

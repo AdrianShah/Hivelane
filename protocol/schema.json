@@ -1267,6 +1267,11 @@
           ],
           "default": null,
           "title": "Owner Token"
+        },
+        "via_repo_lookup": {
+          "default": false,
+          "title": "Via Repo Lookup",
+          "type": "boolean"
         }
       },
       "title": "JoinMessage",

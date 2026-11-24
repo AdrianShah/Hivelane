@@ -49,9 +49,11 @@ def _reset_rate_limits() -> Iterator[None]:
     """The limiters are process-global, so every test starts with a full budget
     and leaves nothing behind."""
     limits.room_creation_limiter.reset()
+    limits.repo_lookup_limiter.reset()
     limits.ws_attempt_limiter.reset()
     yield
     limits.room_creation_limiter.reset()
+    limits.repo_lookup_limiter.reset()
     limits.ws_attempt_limiter.reset()
 
 

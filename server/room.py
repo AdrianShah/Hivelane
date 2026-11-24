@@ -611,6 +611,11 @@ class Room:
         # created before owner tokens, which therefore have no owners.
         self._owner_hash: Optional[str] = None
         self._require_approval = False
+        # SHA-256 lookup key when the room is bound to a repository. Because the
+        # room code is discoverable from the repo's remote URL via GET /rooms/by-repo,
+        # non-owners joining a repo-bound room always wait for owner approval even
+        # when require_approval is off.
+        self._repo_key: Optional[str] = None
         # Sockets (members or spectators) that presented the owner token.
         self._owner_sockets: set[WebSocket] = set()
         # request_id -> joiner waiting for approval, oldest first.
@@ -867,6 +872,17 @@ class Room:
     @property
     def require_approval(self) -> bool:
         return self._require_approval
+
+    @property
+    def repo_key(self) -> Optional[str]:
+        return self._repo_key
+
+    @property
+    def has_repo_binding(self) -> bool:
+        return self._repo_key is not None
+
+    def set_repo_key(self, repo_key: Optional[str]) -> None:
+        self._repo_key = repo_key or None
 
     def policy_update(self) -> RoomPolicyUpdate:
         return RoomPolicyUpdate(require_approval=self._require_approval)

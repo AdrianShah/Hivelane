@@ -47,3 +47,14 @@ def _no_desktop_bee(monkeypatch: pytest.MonkeyPatch) -> None:
     """`hivelane up` in a test must never start a real desktop bee
     (hivelane/bee.py); test_bee turns it back on with fakes."""
     monkeypatch.setenv("HIVELANE_BEE", "0")
+
+
+@pytest.fixture(autouse=True)
+def _no_local_relay_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Room links probe a local relay for its own dashboard; a relay the
+    developer happens to run on localhost:8000 must not change what a test
+    sees. test_links.py covers the probe against a real server."""
+    from hivelane import links
+
+    monkeypatch.setattr(links, "serves_dashboard", lambda base: False)
+    monkeypatch.setattr(links, "_probed", {})

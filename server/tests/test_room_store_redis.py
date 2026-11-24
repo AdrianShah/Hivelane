@@ -120,6 +120,38 @@ def test_settings_can_be_replaced(make_store: StoreFactory) -> None:
     assert make_store().get_settings("ABCDEFGH") == CUSTOM.model_dump()
 
 
+def test_repo_keys_persist_reject_duplicates_and_clean_up(make_store: StoreFactory) -> None:
+    store = make_store()
+    key = "a" * 64
+    other_key = "b" * 64
+    now = time.time()
+    store.add("ROOMAAAA", now)
+    store.add("ROOMBBBB", now)
+
+    assert store.set_repo_key("ROOMAAAA", key) is True
+    assert store.set_repo_key("ROOMBBBB", key) is False
+    assert make_store().find_by_repo_key(key) == "ROOMAAAA"
+    assert make_store().get_repo_key("ROOMAAAA") == key
+    record = make_store().get_record("ROOMAAAA")
+    assert record is not None and record.get("repo_key") == key
+
+    # Replacing or unbinding updates the reverse lookup index cleanly.
+    assert store.set_repo_key("ROOMAAAA", other_key) is True
+    assert store.find_by_repo_key(key) is None
+    assert store.find_by_repo_key(other_key) == "ROOMAAAA"
+
+    store.remove("ROOMAAAA")
+    assert store.find_by_repo_key(other_key) is None
+
+    # Expired room's repo key is purged with the room.
+    store.add("EXPIRED1", now - ROOM_TTL_SECONDS - 10)
+    assert store.set_repo_key("EXPIRED1", key) is True
+    assert store.find_by_repo_key(key) is None  # expired room does not resolve
+    assert store.purge_expired(now) == 1
+    assert store.set_repo_key("ROOMBBBB", key) is True
+    assert store.find_by_repo_key(key) == "ROOMBBBB"
+
+
 def test_access_goes_with_the_code(make_store: StoreFactory) -> None:
     store = make_store()
     store.add("ABCDEFGH", time.time())

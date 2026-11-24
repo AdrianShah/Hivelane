@@ -52,6 +52,7 @@ from hivelane.config import (
     ConfigFileError,
     HivelaneConfig,
     load_config,
+    remembered_room,
     room_key_env_name,
     transport_problem,
     unconfirmed_project_optouts,
@@ -128,6 +129,17 @@ SEND_SPACING = 0.6
 # being admitted for this long; a relay that accepts then drops is backed off.
 STABLE_SECONDS = 30.0
 BACKOFF_JITTER = 0.2
+# A join an owner must approve: the relay holds it for 5 minutes, then answers
+# "approval timed out" (server/main.py REASON_APPROVAL_*, short and stable).
+# That is not a refusal, so the daemon asks again after APPROVAL_RETRY_SECONDS,
+# up to APPROVAL_ATTEMPTS asks in all (about half an hour), and stays "waiting"
+# meanwhile. A full approval queue is retried the same way. Only an owner's
+# decline, or no answer at all after the last ask, ends the join.
+APPROVAL_TIMED_OUT = "approval timed out"
+APPROVAL_DECLINED = "an owner declined your request"
+APPROVAL_QUEUE_FULL_PREFIX = "too many join requests are waiting"
+APPROVAL_RETRY_SECONDS = 60.0
+APPROVAL_ATTEMPTS = 6
 REPO_ROOT_CACHE_SIZE = 64
 ROUTE_CACHE_SIZE = 256
 # Ordinary (non-priority) messages kept for the relay while it is unreachable,
@@ -666,9 +678,20 @@ def default_name(root: Optional[Path] = None) -> Optional[str]:
     return sanitize_name(login) or None
 
 
+def _find_git_root(cwd: str) -> Optional[Path]:
+    try:
+        current = Path(cwd).resolve()
+    except (OSError, ValueError):
+        return None
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
-    """The project config and display name for an unregistered cwd, or None
-    when nothing there says which room to join.
+    """The project or remembered config and display name for an unregistered cwd,
+    or None when nothing there says which room to join.
 
     Blocking (filesystem walk, TOML parse, maybe `git config`): the daemon
     runs it in a worker thread.
@@ -679,7 +702,26 @@ def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
         print(f"hivelane: not coordinating {cwd}: {exc}", file=sys.stderr)
         return None
     if not config.room or config.root is None:
-        return None
+        git_root = _find_git_root(cwd)
+        if git_root is None:
+            return None
+        repo_id = repo_id_for(git_root)
+        remembered = remembered_room(repo_id) if repo_id else None
+        if remembered is None:
+            return None
+        rem_room, rem_relay = remembered
+        has_key = config.room_key(rem_room, generic_env=False) is not None
+        try:
+            config = load_config(
+                git_root,
+                root=git_root,
+                room=rem_room,
+                relay=rem_relay,
+                e2e=True if has_key else None,
+            )
+        except ConfigFileError as exc:
+            print(f"hivelane: not coordinating {cwd}: {exc}", file=sys.stderr)
+            return None
     # A repo the daemon finds on its own may be a fresh clone: its committed
     # file must not be able to turn off transport security or redaction for
     # data leaving this machine. `hivelane up` in the repo is the opt-in.
@@ -980,6 +1022,7 @@ class RoomConnection:
         rename_hint: str = "Re-run with a different --name.",
         e2e_key: Optional[crypto.RoomKey] = None,
         owner_token: Optional[str] = None,
+        via_repo_lookup: bool = False,
     ) -> None:
         self.room = room
         self.name = name
@@ -1009,8 +1052,12 @@ class RoomConnection:
         # Room ownership (the token POST /rooms returned to whoever created
         # it): an owner socket is asked to approve joins.
         self.owner_token = owner_token
-        # Set while the relay holds this join for an owner's approval.
+        self.via_repo_lookup = via_repo_lookup
+        # Set while the relay holds this join for an owner's approval, and
+        # kept between asks when the hold timed out and we ask again.
         self.awaiting_approval: Optional[dict[str, Any]] = None
+        # Asks that ended without an answer (approval timed out, queue full).
+        self.unanswered_asks = 0
         # Join requests waiting on us as an owner: request_id -> details.
         self.join_requests: OrderedDict[str, dict[str, Any]] = OrderedDict()
         # The room's join policy as last broadcast (None: never heard).
@@ -1989,6 +2036,7 @@ class RoomConnection:
             repo_id=self._wire_repo_id(self.repo_id),
             settings=self.settings,
             owner_token=self.owner_token,
+            via_repo_lookup=self.via_repo_lookup,
         ).model_dump(mode="json")
         settings = payload.get("settings")
         if isinstance(settings, dict) and not settings.get("e2e"):
@@ -2006,6 +2054,8 @@ class RoomConnection:
             settings.pop("history_hours", None)
         if payload.get("owner_token") is None:
             payload.pop("owner_token", None)
+        if not payload.get("via_repo_lookup"):
+            payload.pop("via_repo_lookup", None)
         return json.dumps(payload, separators=(",", ":"))
 
     # --- room ownership ------------------------------------------------------
@@ -2059,6 +2109,29 @@ class RoomConnection:
         exc = task.exception()
         if exc is not None and self.fatal is None:
             self._set_fatal(f"internal error in the relay connection: {exc!r}")
+
+    def _approval_unanswered(self, reason: str) -> bool:
+        """A held join ended without an owner's answer (the hold timed out, or
+        too many joins were waiting). Ask again later instead of giving up,
+        still showing as waiting; after APPROVAL_ATTEMPTS asks, stop with a
+        message that says what happened. True when the frame was handled."""
+        if reason != APPROVAL_TIMED_OUT and not reason.startswith(APPROVAL_QUEUE_FULL_PREFIX):
+            return False
+        self.unanswered_asks += 1
+        if self.unanswered_asks >= APPROVAL_ATTEMPTS:
+            self.awaiting_approval = None
+            self._set_fatal(
+                f"no owner of room {self.room} answered the join request "
+                f"(asked {self.unanswered_asks} times).\n"
+                "Ask them to let you in, then run `hivelane up` again."
+            )
+            return True
+        if self.awaiting_approval is None:
+            self.awaiting_approval = {"request_id": "", "reason": "", "since": time.time()}
+        self.awaiting_approval["reason"] = "no answer yet; asking again shortly"
+        self.retry_after = max(self.retry_after, APPROVAL_RETRY_SECONDS)
+        print(f"hivelane: room {self.room}: {reason}; asking the owner again in {APPROVAL_RETRY_SECONDS:.0f}s")
+        return True
 
     def _set_fatal(self, message: str) -> None:
         self.fatal = message
@@ -2442,12 +2515,19 @@ class RoomConnection:
                 # traffic: an owner let us in.
                 print(f"hivelane: room {self.room}: join approved")
                 self.awaiting_approval = None
+            self.unanswered_asks = 0
             # The relay's first ordinary frame (it sends the joiner its own
             # user_joined) is what admits us.
             self._admit()
 
         if kind == "join_request":
             self._on_join_request(data)
+            return
+
+        if kind == "join_resolved":
+            request_id = str(data.get("request_id") or "")
+            if request_id:
+                self.join_requests.pop(request_id, None)
             return
 
         if kind == "room_policy_update":
@@ -2546,6 +2626,15 @@ class RoomConnection:
                 f"{self.rename_hint}"
             )
         elif kind == "room_rejected":
+            if self._approval_unanswered(str(data.get("reason") or "")):
+                return
+            if str(data.get("reason") or "") == APPROVAL_DECLINED:
+                self.awaiting_approval = None
+                self._set_fatal(
+                    f"an owner of room {self.room} turned this join away.\n"
+                    "Ask them to let you in, then run `hivelane up` again."
+                )
+                return
             self._set_fatal(
                 f"the relay rejected room {self.room!r}: {data.get('reason', '')}\n"
                 "Check the room code, or have a teammate create the room first."
@@ -2694,6 +2783,8 @@ class RepoRegistration(BaseModel):
     room_key: Optional[str] = None
     # The room's owner token, if this machine created the room.
     owner_token: Optional[str] = None
+    # True when this room was found automatically via relay repo lookup.
+    via_repo_lookup: bool = False
 
 
 class RepoRef(BaseModel):
@@ -3056,7 +3147,10 @@ class Daemon:
             # badge can poll it every couple of seconds.
             from hivelane.bee import bee_state
 
-            return bee_state(self.status())
+            # The snapshot is taken here, on the loop; building the view may
+            # probe a local relay for its dashboard (hivelane/links.py), so
+            # that runs off the loop and never stalls a hook.
+            return await asyncio.to_thread(bee_state, self.status())
 
         @app.post("/events")
         async def events(event: NormalizedEvent) -> EventAck:
@@ -3079,6 +3173,7 @@ class Daemon:
                     redact_patterns=body.redact_patterns,
                     room_key=body.room_key,
                     owner_token=body.owner_token,
+                    via_repo_lookup=body.via_repo_lookup,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -3381,14 +3476,17 @@ class Daemon:
         if existing is not None:
             self._route_cache.clear()
             return existing
-        settings: Optional[RoomSettings]
-        try:
-            settings = RoomSettings.model_validate(config.room_settings())
-        except ValidationError as exc:
-            # The team's windows are out of the relay's bounds: coordinate
-            # under the room's current windows rather than not at all.
-            print(f"hivelane: ignoring settings in {config.root}: {exc}", file=sys.stderr)
-            settings = None
+        settings: Optional[RoomSettings] = None
+        if (key / PROJECT_FILE).is_file():
+            try:
+                settings = RoomSettings.model_validate(config.room_settings())
+            except ValidationError as exc:
+                # The team's windows are out of the relay's bounds: coordinate
+                # under the room's current windows rather than not at all.
+                print(f"hivelane: ignoring settings in {config.root}: {exc}", file=sys.stderr)
+                settings = None
+        elif config.e2e:
+            settings = RoomSettings(e2e=True)
         agent = config.agent if config.agent in AGENT_KINDS else "unknown"
         if transport_problem(config.relay, config.insecure):
             print(
@@ -3454,6 +3552,7 @@ class Daemon:
         redact_patterns: Iterable[str] = (),
         room_key: Optional[str] = None,
         owner_token: Optional[str] = None,
+        via_repo_lookup: bool = False,
     ) -> RepoBinding:
         """Coordinate the repo at root in room (replacing any earlier
         registration of it). Raises ValueError for an unusable registration.
@@ -3502,6 +3601,7 @@ class Daemon:
             # secrets themselves are kept only on the connection.
             hashlib.sha256(room_key.encode("utf-8")).hexdigest() if room_key else None,
             hashlib.sha256(owner_token.encode("utf-8")).hexdigest() if owner_token else None,
+            via_repo_lookup,
         )
         existing = self._bindings.get(key)
         if existing is not None and existing.spec == spec and existing.connection.fatal is None:
@@ -3541,6 +3641,7 @@ class Daemon:
             if problem:
                 conn.fail(problem)
             conn.owner_token = conn.owner_token or owner_token
+            conn.via_repo_lookup = conn.via_repo_lookup or via_repo_lookup
         if conn is None:
             conn = RoomConnection(
                 room,
@@ -3556,6 +3657,7 @@ class Daemon:
                 ),
                 e2e_key=e2e_key,
                 owner_token=owner_token,
+                via_repo_lookup=via_repo_lookup,
             )
             conn.repo_id = repo_id
             conn.repo_root = key

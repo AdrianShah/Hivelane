@@ -209,11 +209,17 @@ test('no key: locked placeholders and a locked state', async () => {
 
 test('the key travels in the fragment and is stripped from it', () => {
   assert.equal(parseKeyFragment('#k=abc-123_x'), 'abc-123_x');
+  assert.equal(parseKeyFragment('#key=abc-123_x'), 'abc-123_x');
   assert.equal(parseKeyFragment('#view=1&k=a%2Bb'), 'a+b');
+  assert.equal(parseKeyFragment('#view=1&key=a%2Bb'), 'a+b');
+  assert.equal(parseKeyFragment('#bare-secret'), 'bare-secret');
   assert.equal(parseKeyFragment('#view=1'), null);
   assert.equal(parseKeyFragment(''), null);
   assert.equal(stripKeyFragment('#k=abc'), '');
+  assert.equal(stripKeyFragment('#key=abc'), '');
+  assert.equal(stripKeyFragment('#bare-secret'), '');
   assert.equal(stripKeyFragment('#view=1&k=abc'), '#view=1');
+  assert.equal(stripKeyFragment('#view=1&key=abc'), '#view=1');
 });
 
 test('the decoder reads a v2 activity frame end to end', async () => {
