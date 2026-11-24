@@ -11,6 +11,8 @@ managing the daemon, or for advanced and scripted use.
 | Command | What it does |
 |---------|--------------|
 | [`up`](#hivelane-up) | Set up this repo: agent hooks, room, background daemon. Start here; safe to re-run. |
+| [`invite`](#hivelane-invite) | Print a shareable invite link (`/j/<ROOM>`) for this repo's room. |
+| [`join`](#hivelane-join) | Join a teammate's room from an invite link or room code. |
 | [`down`](#hivelane-down) | Stop the background daemon. Hooks stay installed. |
 | [`leave`](#hivelane-leave) | Disconnect this repo from its room. |
 | [`status`](#hivelane-status) | Show the daemon and the repos it is connected for. |
@@ -18,7 +20,7 @@ managing the daemon, or for advanced and scripted use.
 | [`open`](#hivelane-open) | Open this repo's room in the dashboard. |
 | [`serve`](#hivelane-serve) | Run the multi-repo daemon in the foreground. |
 | [`service`](#hivelane-service) | Start the daemon automatically at login (`install` / `uninstall`). |
-| [`join`](#hivelane-join--hivelane-daemon) | Run a single-room daemon in the foreground (advanced; `daemon` is an alias). |
+| [`daemon`](#hivelane-daemon) | Run a single-room daemon in the foreground (advanced). |
 | [`hook`](#hivelane-hook) | The agent hook entrypoint, plus `install` / `uninstall` for Claude Code. |
 | [`mcp`](#hivelane-mcp) | MCP server (stdio) for agents without native hooks. |
 | [`watch`](#hivelane-watch) | Observe-only file watcher for agents without hooks (e.g. Aider). |
@@ -39,7 +41,8 @@ and the hooks call.
 
 ```text
 hivelane up [--room CODE] [--relay URL] [--name NAME] [--root PATH]
-           [--port PORT] [-y] [--no-hooks] [--foreground] [--insecure] [--e2e]
+           [--port PORT] [-y] [--no-hooks] [--no-repo-lookup]
+           [--foreground] [--insecure] [--e2e] [--save-project]
 ```
 
 Installs agent hooks, creates or joins this repo's room, and connects the repo
@@ -48,27 +51,83 @@ through the background daemon. Safe to re-run.
 1. **Hooks**: for every detected agent Hivelane has an adapter for, plus Claude
    Code even when it isn't detected (asks first). Hooks go into the repo's
    own settings, e.g. `.claude/settings.json`.
-2. **Room**: `--room`, else the one in `.hivelane.toml`, else a new room created
-   on the relay. A new room, or an explicit `--relay`, is written to
-   `.hivelane.toml`. Commit that file so teammates join the same room.
+2. **Room**: `--room`, else `.hivelane.toml` (when present), else the room
+   remembered for this repo on this machine (`~/.hivelane/config.toml`), else an
+   automatic lookup on the relay by hashed repository identity
+   (`GET /rooms/by-repo/<key>`), else a new room created on the relay
+   (automatically bound to that repo lookup key unless `--no-repo-lookup` is
+   given). When a teammate finds a repo-bound room via lookup, their join is
+   always held for the room owner to approve from the desktop bee or
+   `hivelane room approve`. `hivelane up` does not wait for that answer: it
+   says the join is waiting and returns, and the daemon finishes joining in
+   the background (the bee and `hivelane status` show "waiting for the owner
+   to let you in" until then). If no owner answers within the relay's
+   5-minute hold, the daemon asks again a minute later, up to 6 times (about
+   half an hour); a decline or no answer at all stops it with a message, and
+   `hivelane up` asks again. The resolved room and relay are remembered on this
+   machine automatically—`.hivelane.toml` is optional and is not written unless
+   `--save-project` is passed. Use `hivelane invite` to share a fallback link
+   with teammates.
 3. **Daemon**: starts the per-machine background daemon if needed, registers
    this repo with it, and waits until it is connected. It then prints the
-   room, relay, your name, the dashboard link and the line to share.
+   room, relay, your name, the dashboard link and how teammates can join.
 
 | Option | Description |
 |--------|-------------|
-| `--room CODE` | Join this room. Default: `.hivelane.toml`, else create one. Asks before switching a repo that already has a different room. |
+| `--room CODE` | Join this room. Default: `.hivelane.toml`, remembered room on this machine, relay lookup by repo identity, else create one. Asks before switching a repo that already has a different room. |
 | `--relay URL` | Relay WebSocket base, e.g. `wss://relay.example.com/ws`. Default: config, `HIVELANE_RELAY`, else `ws://localhost:8000/ws`. |
 | `--name NAME` | Display name. Default: config / `HIVELANE_NAME`, then git `user.name`, then the OS user. An explicit name is saved to `~/.hivelane/config.toml`. |
 | `--root PATH` | Project directory (default: the git repo around the current directory). |
 | `--port PORT` | Daemon loopback port (default `4600`, or `HIVELANE_PORT`). |
 | `-y`, `--yes` | Answer yes to every question (scripts, CI). |
 | `--no-hooks` | Do not install agent hooks. |
+| `--no-repo-lookup` | Do not look up an existing room by repo identity or bind a newly created room to it. |
 | `--status-line` / `--no-status-line` | Show Hivelane in Claude Code's status line (the project's `.claude/settings.json`). Without either flag `up` asks on a terminal (default no) and never replaces a status line you set; `--yes` alone does not turn it on. |
 | `--bee` / `--no-bee` | Show the desktop bee (default on): room status in the menu bar, system tray or screen edge; see [`bee`](#hivelane-bee). |
 | `--foreground` | Run the daemon in this terminal instead of the background (debugging, CI). |
 | `--insecure` | Allow a plaintext `ws://` relay on another machine. Without it, `up` refuses `ws://` to anything but this machine. Also settable as `insecure = true` in `.hivelane.toml`. |
-| `--e2e` | Turn on end-to-end encryption for this repo's room: writes `e2e = true` to `.hivelane.toml` and, if you have no key yet, generates one and prints it once. Share the key out of band; it is never written to the repo. |
+| `--e2e` | Turn on end-to-end encryption for this repo's room: if you have no key yet, generates one, saves it to `~/.hivelane/config.toml`, and prints it once. |
+| `--save-project` | Write `room`, non-default `relay`, and `--e2e` into `.hivelane.toml` (optional; off by default). |
+
+## hivelane invite
+
+```text
+hivelane invite [--root PATH] [--room CODE] [--relay URL] [--no-key] [--copy] [--json]
+```
+
+Prints a shareable `<dashboard>/j/<ROOM>` invite link for this repo's room
+(reading `.hivelane.toml` or the room remembered on this machine). Includes
+`?relay=<encoded>` when needed and `#key=<key>` when end-to-end encryption is
+enabled (URL fragments stay client-side and are never sent to any server).
+Opening the link in a browser shows a `/j/<ROOM>` landing page with a one-click
+**"Copy for your coding agent"** button.
+
+| Option | Description |
+|--------|-------------|
+| `--root PATH` | Project directory (default: the git repo around the current directory). |
+| `--room CODE` | Room code override (default: this repo's room). |
+| `--relay URL` | Relay URL override. |
+| `--no-key` | Omit the `#key=` e2e passphrase fragment from the printed URL. |
+| `--copy` | Copy the invite URL to the system clipboard. |
+| `--json` | Print JSON with `room`, `relay`, `e2e`, and `url`. |
+
+## hivelane join
+
+```text
+hivelane join <LINK_OR_ROOM> [--relay URL] [--name NAME] [--root PATH]
+              [--port PORT] [-y] [--no-hooks] [--foreground] [--insecure]
+```
+
+Joins a teammate's room from an invite link (from `hivelane invite` or the
+`/j/<ROOM>` page) or a bare room code:
+
+1. Parses the room code, optional `?relay=`, and optional `#key=` e2e key from
+   the URL fragment (also accepts `#k=<key>` or bare `#<key>`).
+2. Installs agent hooks (honouring `--no-hooks`, `--yes`, `--status-line`).
+3. Saves any e2e key into `~/.hivelane/config.toml` under `room_keys` and
+   remembers the `(room, relay)` for this repo on this machine—without writing
+   anything into `.hivelane.toml`.
+4. Starts/connects the background daemon (or runs `--foreground`) and desktop bee.
 
 ## hivelane bee
 
@@ -297,10 +356,10 @@ SQLite file across restarts. A LAN relay speaks plaintext `ws://`, so the
 printed join line includes `--insecure`; for anything internet-facing see
 [self-hosting.md](self-hosting.md).
 
-## hivelane join / hivelane daemon
+## hivelane daemon
 
 ```text
-hivelane join ROOM --name NAME [--server URL] [--agent KIND] [--port PORT] [--root PATH]
+hivelane daemon ROOM --name NAME [--server URL] [--agent KIND] [--port PORT] [--root PATH]
 ```
 
 The pre-`up` way to run Hivelane: a single-room daemon in the foreground for
@@ -339,7 +398,8 @@ hivelane hook uninstall claude-code [--global]
 
 ## Configuration files
 
-**`.hivelane.toml`** (in the repo, committed) is the team's settings:
+**`.hivelane.toml`** (optional, in the repo, committed) holds team-shared settings
+if you choose to commit one (`hivelane up --save-project`):
 
 ```toml
 room = "K7M2PQ2X"
@@ -351,8 +411,9 @@ share_diffs = true            # false: send which files changed, keep the diffs 
 ```
 
 **`~/.hivelane/config.toml`** (personal; `HIVELANE_HOME` moves the directory)
-holds `name`, `relay` and `agent`. It can't set the room or the windows, so
-one person's file never splits them from the team.
+holds `name`, `relay`, `agent`, per-repo remembered rooms (`rooms`), `room_keys`,
+and `owner_tokens`. It can't override `.hivelane.toml`'s room or conflict
+windows, so one person's file never splits them from the team.
 
 **Precedence**, highest first: command-line flags, environment variables,
 personal file, project file, built-in defaults. The room and windows come only

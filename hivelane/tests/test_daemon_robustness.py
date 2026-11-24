@@ -466,3 +466,47 @@ def test_a_plan_carries_a_request_id_its_reply_is_matched_by(tmp_path: Path) -> 
 
     request_id, ack = asyncio.run(scenario())
     assert request_id and ack.decision == "warn" and "sam is editing a.py" in ack.reason
+
+
+# --- a join waiting for an owner -----------------------------------------------------
+
+
+def test_an_unanswered_approval_asks_again_and_stays_waiting() -> None:
+    conn = _conn()
+    conn._handle_frame(json.dumps({"type": "join_pending", "request_id": "r"}))
+    conn._handle_frame(json.dumps({"type": "room_rejected", "reason": daemon_module.APPROVAL_TIMED_OUT}))
+    assert conn.fatal is None
+    assert conn.awaiting_approval is not None
+    assert conn.retry_after >= daemon_module.APPROVAL_RETRY_SECONDS
+    # A full approval queue is no answer either.
+    conn.retry_after = 0.0
+    conn._handle_frame(
+        json.dumps({"type": "room_rejected", "reason": "too many join requests are waiting for approval; try again later"})
+    )
+    assert conn.fatal is None and conn.retry_after >= daemon_module.APPROVAL_RETRY_SECONDS
+
+
+def test_an_approval_nobody_answers_ends_with_a_clear_message() -> None:
+    conn = _conn()
+    for _ in range(daemon_module.APPROVAL_ATTEMPTS):
+        conn._handle_frame(json.dumps({"type": "room_rejected", "reason": daemon_module.APPROVAL_TIMED_OUT}))
+    assert conn.fatal is not None and "no owner of room TEAM42 answered" in conn.fatal
+    assert conn.awaiting_approval is None
+
+
+def test_being_let_in_resets_the_count() -> None:
+    conn = _conn()
+    conn._handle_frame(json.dumps({"type": "room_rejected", "reason": daemon_module.APPROVAL_TIMED_OUT}))
+    assert conn.unanswered_asks == 1
+    conn._socket = object()  # the next ask's join was written
+    conn._handle_frame(json.dumps({"type": "user_joined", "user_id": "ada"}))
+    assert conn.unanswered_asks == 0 and conn.connected
+
+
+def test_a_declined_join_says_it_was_turned_away() -> None:
+    conn = _conn()
+    conn._handle_frame(json.dumps({"type": "join_pending", "request_id": "r"}))
+    conn._handle_frame(json.dumps({"type": "room_rejected", "reason": daemon_module.APPROVAL_DECLINED}))
+    assert conn.fatal is not None and "turned this join away" in conn.fatal
+    assert "Check the room code" not in conn.fatal
+    assert conn.awaiting_approval is None

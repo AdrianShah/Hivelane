@@ -441,6 +441,7 @@ is 10-20x a real agent; target: edit-check p95 under 50 ms):
 | `HIVELANE_MAX_MEMBERS` | `0` (unlimited) | `25` | One room stayed under 50 ms p95 up to 25 busy members and failed at 35-50: fan-out is O(members x sockets). |
 | `HIVELANE_MAX_ROOMS` | `0` (unlimited) | `500` | Bounds memory (about 0.2 MB per connected socket, 52 MB idle) and ghost-room flooding. A process saturated at ~200 busy members (stress rate), so size instances by members, not rooms. |
 | `ROOM_CREATE_LIMIT` | `10` per IP per hour | keep | Without it one script fills `HIVELANE_MAX_ROOMS`. `0` turns it off. |
+| `REPO_LOOKUP_LIMIT` | `30` per IP per minute | keep | Bounds `GET /rooms/by-repo/<key>` probing for repo-bound rooms. `0` turns it off. |
 | `WS_ATTEMPT_LIMIT` | `30` per IP per minute | keep | Makes room codes impractical to brute-force. `0` turns it off (load tests). |
 | `ROOM_MESSAGE_LIMIT` | `600` per room per minute | keep, or `100 x HIVELANE_MAX_MEMBERS` for big rooms | Shared by everyone in the room; 600 is ample for 25 real agents. `0` turns it off. |
 | `RATE_LIMIT_MAX_TRACKED_IPS` | `4096` | keep | Bounds the limiters' memory. `0` is unbounded. |

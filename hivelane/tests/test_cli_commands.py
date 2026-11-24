@@ -380,8 +380,8 @@ def test_open_launches_the_room_url(
 
     assert cli.main(["open"]) == 0
 
-    assert opened == ["http://localhost:5173/r/TEAM42"]
-    assert "http://localhost:5173/r/TEAM42" in capsys.readouterr().out
+    assert opened == ["https://adrianshah.github.io/Hivelane/r/TEAM42?relay=ws%3A%2F%2Flocalhost%3A8000%2Fws"]
+    assert opened[0] in capsys.readouterr().out
 
 
 def test_open_with_a_remote_relay(machine: Machine, monkeypatch: pytest.MonkeyPatch) -> None:

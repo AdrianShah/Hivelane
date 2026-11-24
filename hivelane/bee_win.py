@@ -274,6 +274,55 @@ def menu_lines(tip: str, width: int = 64, most: int = 5) -> list[str]:
     return [line.replace("&", "&&") for line in lines] or ["Hivelane"]
 
 
+# A person asking to join is announced once; while they keep asking (the
+# daemon asks again each time the relay's 5-minute hold runs out, up to about
+# half an hour) the bee stays quiet about them for this long. The menu still
+# lists them the whole time.
+REMIND_SECONDS = 3600.0
+
+
+def asker(req: dict[str, Any]) -> str:
+    """Who is asking, the same across their repeated asks (each ask has a new
+    request id): room, name and agent."""
+    return f"{req.get('room') or ''}\x00{req.get('name') or ''}\x00{req.get('agent') or ''}"
+
+
+def requests_to_announce(
+    reqs: list[dict[str, Any]], announced: dict[str, float], now: float, every: float = REMIND_SECONDS
+) -> list[dict[str, Any]]:
+    """The join requests worth a notification: people not announced in the
+    last `every` seconds. Updates `announced` (person -> when) in place."""
+    due = []
+    for req in reqs:
+        key = asker(req)
+        last = announced.get(key)
+        if last is None or now - last >= every:
+            announced[key] = now
+            due.append(req)
+    return due
+
+
+def room_row(room: dict[str, Any]) -> str:
+    """One room's line in the menu when you are in several: its code,
+    folder and what it says."""
+    said = room.get("label") or ("all clear" if room.get("state") == "live" else str(room.get("state") or "off"))
+    return f"{room.get('room') or '?'} \u00b7 {room.get('name') or '?'} \u2014 {said}".replace("&", "&&")
+
+
+def join_row(request: dict[str, Any]) -> str:
+    """One pending join request row at the top of an owner's tray menu."""
+    who = request.get("name") or "Someone"
+    room = request.get("room") or "?"
+    return f"{who} wants to join {room}".replace("&", "&&")
+
+
+def open_target(view: dict[str, Any]) -> str:
+    """What "Open the dashboard" opens: the link the daemon built
+    (hivelane/links.py picks a local relay's own dashboard, else the hosted
+    one with ?relay=), else the hosted home page."""
+    return str(view.get("url") or "https://adrianshah.github.io/Hivelane")
+
+
 def light_taskbar() -> bool:
     """Whether the taskbar is light. Windows 10 and 11 ship with it dark."""
     try:
@@ -306,9 +355,13 @@ WM_LBUTTONUP, WM_RBUTTONUP, WM_NULL = 0x0202, 0x0205, 0x0000
 NIM_ADD, NIM_MODIFY, NIM_DELETE = 0, 1, 2
 NIF_MESSAGE, NIF_ICON, NIF_TIP, NIF_INFO = 0x1, 0x2, 0x4, 0x10
 NIIF_WARNING = 0x2
-MF_STRING, MF_GRAYED, MF_SEPARATOR = 0x0, 0x1, 0x800
+MF_STRING, MF_GRAYED, MF_POPUP, MF_SEPARATOR = 0x0, 0x1, 0x10, 0x800
 TPM_RIGHTBUTTON, TPM_RETURNCMD = 0x2, 0x100
-ID_OPEN, ID_HIDE, ID_COPY = 1, 2, 3
+ID_HIDE, ID_HIDE_NOW, ID_OPEN_TOP = 2, 4, 5
+# Per-room commands: ID_ROOM + 10 * (its index in the menu) + one of these.
+ID_ROOM, ROOM_OPEN, ROOM_COPY = 100, 1, 2
+# Per-request join approval commands: ID_JOIN_BASE + 10 * index + action.
+ID_JOIN_BASE, JOIN_APPROVE, JOIN_DENY = 10000, 1, 2
 CF_UNICODETEXT, GMEM_MOVEABLE = 13, 0x0002
 TIMER_POLL, TIMER_FRAME = 1, 2
 CALLBACK = WM_APP + 1
@@ -541,7 +594,11 @@ class Bee:
             "root": None,
             "room": None,
             "url": None,
+            "rooms": [],
+            "join_requests": [],
         }
+        # Person (asker()) -> when we last announced them (time.monotonic()).
+        self.announced: dict[str, float] = {}
         self.fails_since: float | None = None
         self.frame = 0
         self.frame_ms = 0
@@ -632,6 +689,32 @@ class Bee:
             raise OSError("daemon answered " + head[:40].decode("latin-1"))
         return json.loads(body)
 
+    def _decide_join(self, request_id: str, approve: bool) -> None:
+        if not request_id:
+            return
+        # Answered: if they ask again later, that is news.
+        for req in self.view.get("join_requests") or []:
+            if isinstance(req, dict) and req.get("request_id") == request_id:
+                self.announced.pop(asker(req), None)
+        try:
+            with open(self.token_file, encoding="utf-8") as fh:
+                token = fh.read().strip()
+            body = json.dumps({"request_id": request_id, "approve": approve}).encode("utf-8")
+            with socket.create_connection(("127.0.0.1", self.port), timeout=2) as sock:
+                sock.sendall(
+                    (
+                        f"POST /rooms/decide HTTP/1.0\r\n"
+                        f"Host: 127.0.0.1:{self.port}\r\n"
+                        f"X-Hivelane-Token: {token}\r\n"
+                        f"Content-Type: application/json\r\n"
+                        f"Content-Length: {len(body)}\r\n\r\n"
+                    ).encode("ascii")
+                    + body
+                )
+        except OSError:
+            return
+        self._poll()
+
     def _poll(self) -> None:
         try:
             nxt = self._fetch()
@@ -642,12 +725,27 @@ class Bee:
             if now - self.fails_since > GIVE_UP_SECONDS:
                 user32.DestroyWindow(self.hwnd)
                 return
-            nxt = {"state": "off", "label": "", "tip": "Hivelane is not running", "root": None}
+            nxt = {"state": "off", "label": "", "tip": "Hivelane is not running", "root": None, "join_requests": []}
         old = self.view
-        if (nxt.get("state"), nxt.get("label"), nxt.get("tip")) == (old["state"], old["label"], old["tip"]):
-            self.view.update(root=nxt.get("root"), room=nxt.get("room"), url=nxt.get("url"))
+        nxt_reqs = [r for r in (nxt.get("join_requests") or []) if isinstance(r, dict) and r.get("request_id")]
+        new_reqs = requests_to_announce(nxt_reqs, self.announced, time.monotonic())
+        if (nxt.get("state"), nxt.get("label"), nxt.get("tip"), nxt_reqs) == (
+            old["state"],
+            old["label"],
+            old["tip"],
+            old.get("join_requests") or [],
+        ):
+            self.view.update(
+                root=nxt.get("root"),
+                room=nxt.get("room"),
+                url=nxt.get("url"),
+                rooms=nxt.get("rooms") or [],
+                join_requests=nxt_reqs,
+            )
             return
-        worse = nxt.get("state") in ("warn", "block") and nxt.get("state") != old["state"]
+        # Someone asking to join turns the bee amber too; that is announced
+        # once per person (above), not again each time they ask.
+        worse = nxt.get("state") in ("warn", "block") and nxt.get("state") != old["state"] and not nxt_reqs
         self.view = {
             "state": str(nxt.get("state") or "off"),
             "label": str(nxt.get("label") or ""),
@@ -655,6 +753,8 @@ class Bee:
             "root": nxt.get("root"),
             "room": nxt.get("room"),
             "url": nxt.get("url"),
+            "rooms": nxt.get("rooms") or [],
+            "join_requests": nxt_reqs,
         }
         first = self.view["tip"].split("\n")[0]
         text = f"{first} · {self.view['label']}" if self.view["label"] else first
@@ -663,24 +763,22 @@ class Bee:
         shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self.nid))
         self._show(self.frame if FRAME_MS.get(self.view["state"]) else -1)
         self._animate()
-        if worse:  # a quiet heads-up when things turn amber or red; nothing for green
+        if worse or new_reqs:  # a quiet heads-up when things turn amber/red or a join arrives
+            info_text = (
+                f"{new_reqs[0].get('name') or 'Someone'} wants to join {new_reqs[0].get('room') or self.view.get('room') or '?'}"
+                if new_reqs
+                else self.view["tip"].replace("\n", " · ")
+            )
             self.nid.uFlags = NIF_INFO
             self.nid.szInfoTitle = "Hivelane"
-            self.nid.szInfo = self.view["tip"].replace("\n", " · ")[:255]
+            self.nid.szInfo = info_text[:255]
             self.nid.dwInfoFlags = NIIF_WARNING
             shell32.Shell_NotifyIconW(NIM_MODIFY, ctypes.byref(self.nid))
 
     # actions
 
-    def _open(self) -> None:
-        url = self.view.get("url")
-        room = self.view.get("room")
-        if not url or url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
-            if room:
-                url = f"https://adrianshah.github.io/Hivelane/r/{room}"
-            else:
-                url = "https://adrianshah.github.io/Hivelane"
-        _open_url(url)
+    def _open(self, view: dict[str, Any]) -> None:
+        _open_url(open_target(view))
 
     def _copy(self, text: str) -> None:
         """Put text on the clipboard (CF_UNICODETEXT)."""
@@ -700,37 +798,89 @@ class Bee:
             kernel32.GlobalFree(handle)  # the clipboard owns it only on success
         user32.CloseClipboard()
 
-    def _hide(self) -> None:
-        with open(os.path.join(self.home, "bee-hidden"), "a", encoding="utf-8"):
-            pass
+    def _hide(self, for_good: bool) -> None:
+        """For now: just quit, so the next `hivelane up` brings the bee back.
+        For good: also leave bee-hidden, which `hivelane up` respects until
+        `hivelane bee on`."""
+        if for_good:
+            with open(os.path.join(self.home, "bee-hidden"), "a", encoding="utf-8"):
+                pass
         user32.DestroyWindow(self.hwnd)
 
-    def _menu(self) -> None:
-        """The bee's menu, on either click: the room's whole status, then
-        what you can do about it."""
-        menu = user32.CreatePopupMenu()
-        for line in menu_lines(self.view["tip"]):
-            user32.AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line)
-        user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-        can_open = bool(self.view.get("url") or (self.hivelane and self.view.get("root")))
-        user32.AppendMenuW(menu, MF_STRING | (0 if can_open else MF_GRAYED), ID_OPEN, "Open the dashboard")
-        room = self.view.get("room")
+    def _room_items(self, menu: int, view: dict[str, Any], base: int) -> None:
+        """Open the dashboard and Copy room code, for one room."""
+        user32.AppendMenuW(menu, MF_STRING, base + ROOM_OPEN, "Open the dashboard")
+        room = view.get("room")
         copy = f"Copy room code {room}" if room else "Copy room code"
-        user32.AppendMenuW(menu, MF_STRING | (0 if room else MF_GRAYED), ID_COPY, copy)
+        user32.AppendMenuW(menu, MF_STRING | (0 if room else MF_GRAYED), base + ROOM_COPY, copy)
+
+    def _menu(self) -> None:
+        """The bee's menu, on either click: pending join approvals, the room's
+        whole status, then what you can do about it."""
+        menu = user32.CreatePopupMenu()
+        join_requests: list[dict[str, Any]] = [
+            r for r in (self.view.get("join_requests") or []) if isinstance(r, dict) and r.get("request_id")
+        ]
+        if join_requests:
+            for i, req in enumerate(join_requests):
+                sub = user32.CreatePopupMenu()
+                base = ID_JOIN_BASE + 10 * i
+                user32.AppendMenuW(sub, MF_STRING, base + JOIN_APPROVE, "Let in")
+                user32.AppendMenuW(sub, MF_STRING, base + JOIN_DENY, "Turn away")
+                user32.AppendMenuW(menu, MF_STRING | MF_POPUP, sub, join_row(req))
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+        rooms: list[dict[str, Any]] = [r for r in self.view.get("rooms") or [] if isinstance(r, dict)]
+        many = len(rooms) > 1
+        if many:
+            # In several rooms at once: one line each, worst first; its
+            # submenu has its status and what to do about it.
+            for line in menu_lines(self.view["tip"]):
+                user32.AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line)
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            # The room that needs a look most (the one the tip names), one click away.
+            user32.AppendMenuW(menu, MF_STRING, ID_OPEN_TOP, f"Open the dashboard ({self.view.get('room') or '?'})")
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            for i, room in enumerate(rooms):
+                sub = user32.CreatePopupMenu()
+                for line in menu_lines(str(room.get("tip") or "")):
+                    user32.AppendMenuW(sub, MF_STRING | MF_GRAYED, 0, line)
+                user32.AppendMenuW(sub, MF_SEPARATOR, 0, None)
+                self._room_items(sub, room, ID_ROOM + 10 * i)
+                user32.AppendMenuW(menu, MF_STRING | MF_POPUP, sub, room_row(room))
+        else:
+            for line in menu_lines(self.view["tip"]):
+                user32.AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, line)
+            user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
+            self._room_items(menu, self.view, ID_ROOM)
         user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
-        user32.AppendMenuW(menu, MF_STRING, ID_HIDE, "Hide the bee (hivelane bee on brings it back)")
+        # A click hides it for now: the next `hivelane up` brings it back.
+        user32.AppendMenuW(menu, MF_STRING, ID_HIDE_NOW, "Hide the bee")
+        user32.AppendMenuW(menu, MF_STRING, ID_HIDE, "Hide the bee until hivelane bee on")
         pt = w.POINT()
         user32.GetCursorPos(ctypes.byref(pt))
         user32.SetForegroundWindow(self.hwnd)  # so the menu closes on an outside click
         choice = user32.TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_RETURNCMD, pt.x, pt.y, 0, self.hwnd, None)
         user32.PostMessageW(self.hwnd, WM_NULL, 0, 0)
-        user32.DestroyMenu(menu)
-        if choice == ID_OPEN:
-            self._open()
-        elif choice == ID_COPY and room:
-            self._copy(str(room))
-        elif choice == ID_HIDE:
-            self._hide()
+        user32.DestroyMenu(menu)  # submenus go with it
+        if choice in (ID_HIDE, ID_HIDE_NOW):
+            self._hide(for_good=choice == ID_HIDE)
+            return
+        if choice == ID_OPEN_TOP:
+            self._open(self.view)
+            return
+        if choice >= ID_JOIN_BASE:
+            req_index, action = divmod(choice - ID_JOIN_BASE, 10)
+            if req_index < len(join_requests) and action in (JOIN_APPROVE, JOIN_DENY):
+                self._decide_join(str(join_requests[req_index]["request_id"]), action == JOIN_APPROVE)
+            return
+        if choice < ID_ROOM:
+            return
+        index, action = divmod(choice - ID_ROOM, 10)
+        target = rooms[index] if many and index < len(rooms) else self.view
+        if action == ROOM_OPEN:
+            self._open(target)
+        elif action == ROOM_COPY and target.get("room"):
+            self._copy(str(target["room"]))
 
     def _wndproc(self, hwnd: int, msg: int, wparam: int, lparam: int) -> int:
         if msg == WM_TIMER:

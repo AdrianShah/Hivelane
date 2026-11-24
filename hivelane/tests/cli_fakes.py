@@ -5,6 +5,7 @@ httpx.MockTransport, and an isolated machine (home, PATH, git identity)."""
 from __future__ import annotations
 
 import io
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -72,7 +73,9 @@ class FakeService:
         return 0
 
     # repos
-    def connect_repo(self, port: int, root: Path, config: Any) -> dict[str, Any]:
+    def connect_repo(
+        self, port: int, root: Path, config: Any, *, via_repo_lookup: bool = False
+    ) -> dict[str, Any]:
         self.calls.append(("connect_repo", port, Path(root), config))
         entry: dict[str, Any] = {
             "root": str(root),
@@ -87,6 +90,7 @@ class FakeService:
             "queued_events": 0,
             "repo_id": "abc123",
             "fatal": None,
+            "via_repo_lookup": via_repo_lookup,
         }
         entry.update(self.outcome)
         self.repos[str(root)] = entry
@@ -127,7 +131,8 @@ class FakeService:
 
 @dataclass
 class FakeRelay:
-    """Answers POST /rooms, GET /health and GET /readyz like server/main.py."""
+    """Answers POST /rooms, GET /rooms/by-repo/<key>, POST /rooms/<code>/repo,
+    GET /health and GET /readyz like server/main.py."""
 
     rooms: list[str] = field(default_factory=lambda: ["K7Q2XM", "P3RT8Z"])
     # Returned with a created room when set, as a relay with ownership does.
@@ -135,6 +140,8 @@ class FakeRelay:
     create_status: int = 200
     create_headers: dict[str, str] = field(default_factory=dict)
     health_status: int = 200
+    lookup_status: Optional[int] = None
+    repo_bindings: dict[str, str] = field(default_factory=dict)
     readyz: dict[str, Any] = field(
         default_factory=lambda: {
             "status": "ready",
@@ -145,6 +152,7 @@ class FakeRelay:
     clock_offset: float = 0.0
     error: Optional[Callable[[httpx.Request], Exception]] = None
     requests: list[httpx.Request] = field(default_factory=list)
+    created_bodies: list[dict[str, Any]] = field(default_factory=list)
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
@@ -159,10 +167,42 @@ class FakeRelay:
                     json={"detail": "nope"},
                     headers={**headers, **self.create_headers},
                 )
-            body: dict[str, Any] = {"room_id": self.rooms.pop(0)}
+            payload: dict[str, Any] = {}
+            if request.content:
+                try:
+                    loaded = json.loads(request.content.decode("utf-8"))
+                    if isinstance(loaded, dict):
+                        payload = loaded
+                except ValueError:
+                    pass
+            self.created_bodies.append(payload)
+            repo_key = payload.get("repo_key")
+            if isinstance(repo_key, str) and repo_key in self.repo_bindings:
+                return httpx.Response(
+                    409,
+                    json={"detail": "This repository already has a room on this relay."},
+                    headers=headers,
+                )
+            room_id = self.rooms.pop(0)
+            body: dict[str, Any] = {"room_id": room_id}
             if self.owner_token:
                 body["owner_token"] = self.owner_token
+            if isinstance(repo_key, str) and repo_key:
+                self.repo_bindings[repo_key] = room_id
+                body["repo_key"] = repo_key
             return httpx.Response(200, json=body, headers=headers)
+        if request.method == "GET" and path.startswith("/rooms/by-repo/"):
+            if self.lookup_status is not None and self.lookup_status != 200:
+                return httpx.Response(
+                    self.lookup_status,
+                    json={"detail": "nope"},
+                    headers={**headers, **self.create_headers},
+                )
+            key = path[len("/rooms/by-repo/") :]
+            bound = self.repo_bindings.get(key)
+            if bound is None:
+                return httpx.Response(404, json={"detail": "No room found for this repository"}, headers=headers)
+            return httpx.Response(200, json={"room_id": bound}, headers=headers)
         if request.method == "GET" and path == "/health":
             return httpx.Response(self.health_status, json={"status": "ok", "rooms": 1}, headers=headers)
         if request.method == "GET" and path == "/readyz":

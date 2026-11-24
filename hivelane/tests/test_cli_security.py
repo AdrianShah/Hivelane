@@ -62,8 +62,13 @@ def test_insecure_opts_in_and_the_share_line_carries_it(machine: Machine, capsys
     assert cli.main(["up"]) == 0
 
 
-def test_join_refuses_a_plaintext_remote_relay(capsys: pytest.CaptureFixture[str]) -> None:
-    assert cli.main(["join", "TEAM", "--name", "ada", "--server", "ws://relay.example.com/ws"]) == 2
+def test_daemon_refuses_a_plaintext_remote_relay(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["daemon", "TEAM", "--name", "ada", "--server", "ws://relay.example.com/ws"]) == 2
+    assert "refusing the plaintext relay" in capsys.readouterr().err
+
+
+def test_join_refuses_a_plaintext_remote_relay(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["join", "https://dash.example/j/TEAM?relay=ws%3A%2F%2Frelay.example.com%2Fws"]) == 2
     assert "refusing the plaintext relay" in capsys.readouterr().err
 
 
@@ -77,7 +82,7 @@ def test_creating_a_room_keeps_its_owner_token_privately(machine: Machine, capsy
     assert "you own room K7Q2XM" in out
     assert "own-3f9a" not in out
     assert personal(machine)["owner_tokens"] == {"K7Q2XM": "own-3f9a"}
-    assert "owner" not in machine.project_file().read_text(encoding="utf-8")
+    assert not machine.project_file().exists()
     path = machine.home / ".hivelane" / "config.toml"
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == 0o600
@@ -94,14 +99,17 @@ def test_secrets_in_the_project_file_are_refused(machine: Machine, capsys: pytes
 # --- e2e keys ---------------------------------------------------------------------------------
 
 
-def test_first_e2e_up_generates_the_key_and_shows_it_once(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+def test_first_e2e_up_generates_the_key_and_shows_it_once(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-e2e-1")
     assert cli.main(["up", "--e2e"]) == 0
     out = capsys.readouterr().out
     key = personal(machine)["room_keys"]["K7Q2XM"]
     assert len(key) >= 32
     assert f"ROOM KEY   {key}" in out
     assert "separate channel" in out
-    assert tomllib.loads(machine.project_file().read_text(encoding="utf-8"))["e2e"] is True
+    assert not machine.project_file().exists()
     # The share line never carries the key.
     share = [line for line in out.splitlines() if "hivelane up --room" in line]
     assert share and all(key not in line for line in share)
@@ -112,6 +120,11 @@ def test_first_e2e_up_generates_the_key_and_shows_it_once(machine: Machine, caps
     again = capsys.readouterr().out
     assert key not in again
     assert "end-to-end encrypted room (key from" in again
+
+
+def test_e2e_with_save_project_writes_project_file(machine: Machine) -> None:
+    assert cli.main(["up", "--e2e", "--save-project"]) == 0
+    assert tomllib.loads(machine.project_file().read_text(encoding="utf-8"))["e2e"] is True
 
 
 def test_a_teammate_sets_the_key_they_were_given(machine: Machine, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,17 +200,23 @@ def test_status_shows_requests_waits_and_encryption() -> None:
     text = "\n".join(cli.format_status(status, 4600) or [])
     assert "end-to-end encrypted" in text
     assert "joins need your approval" in text
+    assert "waiting for the owner to let you in" in text
     assert "waiting for an owner to approve" in text
     assert "`hivelane room approve abc`" in text
 
 
-def test_up_reports_a_held_join(machine: Machine, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli, "APPROVAL_WAIT", 0.2)
+def test_up_returns_at_once_while_a_join_is_held(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+    """An agent runs `hivelane up` in a tool call: a join the owner has not
+    answered yet must not hold it open. The daemon finishes in the background."""
+    import time
+
     machine.service.outcome = {"connected": False, "awaiting_approval": {"request_id": "r", "reason": ""}}
+    started = time.monotonic()
     assert cli.main(["up"]) == 0
+    assert time.monotonic() - started < cli.CONNECT_WAIT
     out = capsys.readouterr().out
-    assert out.count("waiting for an owner to approve this join (room K7Q2XM)") == 1
-    assert "still waiting for an owner to approve" in out
+    assert out.count("waiting for the owner of room K7Q2XM to let you in") == 1
+    assert "the daemon joins in the background" in out
 
 
 # --- doctor ------------------------------------------------------------------------------------------

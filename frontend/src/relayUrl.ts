@@ -99,7 +99,7 @@ function chosenRelay(): string | null {
  * (GitHub Pages): the page's own origin is then never a relay, so with no
  * relay chosen the dashboard falls back to the CLI default on localhost.
  */
-const STATIC_HOST = import.meta.env.VITE_STATIC_HOST === '1';
+const STATIC_HOST = import.meta.env?.VITE_STATIC_HOST === '1';
 
 /** True on a static host build (GitHub Pages): the Home page then asks for a relay URL. */
 export function isStaticHost(): boolean {
@@ -127,7 +127,7 @@ function resolveWsBase(options: { ignoreChosen?: boolean } = {}): { base: string
   const configured = import.meta.env.VITE_WS_URL?.trim();
   // A VITE_WS_URL without /ws (or as https://) is normalized like a typed one.
   if (configured) return { base: normalizeRelayUrl(configured) ?? configured, source: 'build' };
-  if (import.meta.env.DEV || STATIC_HOST || typeof window === 'undefined') {
+  if (import.meta.env?.DEV || STATIC_HOST || typeof window === 'undefined') {
     return { base: DEFAULT_WS_BASE, source: 'default' };
   }
   const { protocol, host, port } = window.location;
@@ -195,13 +195,18 @@ export function roomPath(roomId: string): string {
   return `/r/${normalizeRoomCode(roomId)}`;
 }
 
+/** Dashboard invite route for a room: /j/K7M2PQ2X */
+export function invitePath(roomId: string): string {
+  return `/j/${normalizeRoomCode(roomId)}`;
+}
+
 /**
  * The path this build is served under, without a trailing slash: '' at the
  * root, '/Hivelane' on GitHub Pages (vite.config.ts `base`). The router's
  * basename; roomPath() stays relative to it.
  */
 export function basePath(): string {
-  return import.meta.env.BASE_URL.replace(/\/+$/, '');
+  return (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '');
 }
 
 /** True when the relay is the server this page was loaded from. */
@@ -264,4 +269,16 @@ export const INSTALL_COMMAND = 'pipx install git+https://github.com/AdrianShah/H
 /** The one line a teammate pastes to install Hivelane and join a room. */
 export function setupCommand(roomId: string): string {
   return `${INSTALL_COMMAND} && ${upCommand(roomId)}`;
+}
+
+/** CLI command to join an invite link directly (`hivelane join "<url>"`). */
+export function joinCommand(inviteUrl: string, relayWs?: string): string {
+  const insecure = needsInsecure(relayWs ?? relayWsBase()) ? ' --insecure' : '';
+  return `hivelane join "${inviteUrl}"${insecure}`;
+}
+
+/** Ready-to-paste prompt for an AI coding agent on the `/j/<room>` invite page. */
+export function agentJoinPrompt(inviteUrl: string, relayWs?: string): string {
+  const cmd = joinCommand(inviteUrl, relayWs);
+  return `Join this Hivelane coordination room in the current repo by running:\n\n${cmd}\n\nIf \`hivelane\` is not installed yet, install it first with:\n${INSTALL_COMMAND}`;
 }

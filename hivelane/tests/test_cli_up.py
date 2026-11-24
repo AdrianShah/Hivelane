@@ -32,16 +32,20 @@ def hivelane_events(m: Machine) -> set[str]:
     }
 
 
-def test_first_run_creates_room_writes_config_installs_hooks_and_connects(
-    machine: Machine, capsys: pytest.CaptureFixture[str]
+def test_first_run_creates_room_without_project_file_and_remembers_it(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    from hivelane import config as cfg
+
     machine.executables["claude"] = "/usr/bin/claude"
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-abc123")
 
     assert cli.main(["up"]) == 0
 
     out = capsys.readouterr().out
     assert machine.relay.urls("POST") == ["http://localhost:8000/rooms"]
-    assert project_values(machine) == {"room": "K7Q2XM"}  # default relay is not recorded
+    assert not machine.project_file().exists()
+    assert cfg.remembered_room("repo-abc123") == ("K7Q2XM", DEFAULT_RELAY)
     assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"}
 
     assert machine.service.called("start_background") == [("start_background", 4600)]
@@ -52,16 +56,45 @@ def test_first_run_creates_room_writes_config_installs_hooks_and_connects(
 
     assert "created room K7Q2XM" in out
     assert "Claude Code (claude on PATH): added hooks to" in out
-    assert "commit it" in out
+    assert "hivelane invite" in out
     assert "connected as ada-lovelace (1 teammate online: sam)" in out
-    assert "http://localhost:5173/r/K7Q2XM" in out
+    # The default relay is local but serves no dashboard here: the hosted one, told where the relay is.
+    assert "https://adrianshah.github.io/Hivelane/r/K7Q2XM?relay=ws%3A%2F%2Flocalhost%3A8000%2Fws" in out
     assert "pipx install git+https://github.com/AdrianShah/Hivelane && hivelane up --room K7Q2XM\n" in out
 
 
-def test_second_run_reuses_the_room_and_changes_nothing(
+def test_save_project_flag_writes_project_file(
     machine: Machine, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    assert cli.main(["up", "--save-project"]) == 0
+    out = capsys.readouterr().out
+    assert project_values(machine) == {"room": "K7Q2XM"}
+    assert "commit it" in out
+
+
+def test_second_run_reuses_remembered_room_without_project_file(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-abc123")
     assert cli.main(["up"]) == 0
+    settings_bytes = machine.settings().read_bytes()
+    capsys.readouterr()
+
+    assert cli.main(["up"]) == 0
+
+    out = capsys.readouterr().out
+    assert len(machine.relay.urls("POST")) == 1  # no second room
+    assert not machine.project_file().exists()
+    assert machine.settings().read_bytes() == settings_bytes
+    assert f"joining remembered room K7Q2XM on {DEFAULT_RELAY}" in out
+    assert "hooks already in" in out
+    assert "wrote" not in out
+
+
+def test_second_run_reuses_the_project_file_when_present(
+    machine: Machine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["up", "--save-project"]) == 0
     config_bytes = machine.project_file().read_bytes()
     settings_bytes = machine.settings().read_bytes()
     capsys.readouterr()
@@ -75,6 +108,26 @@ def test_second_run_reuses_the_room_and_changes_nothing(
     assert "joining room K7Q2XM from .hivelane.toml" in out
     assert "hooks already in" in out
     assert "wrote" not in out
+
+
+def test_room_resolution_order_flag_over_project_over_remembered(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import config as cfg
+
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-order")
+    cfg.remember_room("repo-order", "REM111", "wss://rem.example/ws")
+    machine.project_file().write_text('room = "PROJ22"\nrelay = "wss://proj.example/ws"\n', encoding="utf-8")
+
+    # .hivelane.toml beats remembered
+    assert cli.main(["up"]) == 0
+    assert "joining room PROJ22 from .hivelane.toml" in capsys.readouterr().out
+    assert machine.service.called("connect_repo")[-1][3].room == "PROJ22"
+
+    # --room beats .hivelane.toml and remembered
+    assert cli.main(["up", "--room", "FLAG33", "--yes"]) == 0
+    assert machine.service.called("connect_repo")[-1][3].room == "FLAG33"
+    assert cfg.remembered_room("repo-order") == ("FLAG33", "wss://proj.example/ws")
 
 
 def test_room_flag_overrides_the_file_and_is_recorded(machine: Machine) -> None:
@@ -101,14 +154,18 @@ def test_room_flag_switch_can_be_declined(
     assert machine.service.calls == []
 
 
-def test_relay_flag_is_normalized_used_recorded_and_shared(
-    machine: Machine, capsys: pytest.CaptureFixture[str]
+def test_relay_flag_is_normalized_used_remembered_and_shared(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    from hivelane import config as cfg
+
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-relay")
     assert cli.main(["up", "--relay", "https://relay.example.com"]) == 0
 
     out = capsys.readouterr().out
     assert machine.relay.urls("POST") == ["https://relay.example.com/rooms"]
-    assert project_values(machine) == {"room": "K7Q2XM", "relay": "wss://relay.example.com/ws"}
+    assert not machine.project_file().exists()
+    assert cfg.remembered_room("repo-relay") == ("K7Q2XM", "wss://relay.example.com/ws")
     assert machine.service.called("connect_repo")[0][3].relay == "wss://relay.example.com/ws"
     assert "https://adrianshah.github.io/Hivelane/r/K7Q2XM?relay=wss%3A%2F%2Frelay.example.com%2Fws" in out
     assert "hivelane up --room K7Q2XM --relay wss://relay.example.com/ws" in out
@@ -129,12 +186,16 @@ def test_relay_from_the_project_file_is_used_and_shared(
 def test_new_room_on_a_personal_relay_records_the_relay(
     machine: Machine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from hivelane import config as cfg
+
     monkeypatch.setenv("HIVELANE_RELAY", "ws://127.0.0.1:9000/ws")
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-personal-relay")
 
     assert cli.main(["up"]) == 0
 
     assert machine.relay.urls("POST") == ["http://127.0.0.1:9000/rooms"]
-    assert project_values(machine) == {"room": "K7Q2XM", "relay": "ws://127.0.0.1:9000/ws"}
+    assert not machine.project_file().exists()
+    assert cfg.remembered_room("repo-personal-relay") == ("K7Q2XM", "ws://127.0.0.1:9000/ws")
 
 
 def test_dashboard_env_overrides_the_room_url(
@@ -159,13 +220,16 @@ def test_bad_room_flag_is_a_config_error(machine: Machine, capsys: pytest.Captur
 # --- names --------------------------------------------------------------------------
 
 
-def test_name_flag_wins_and_is_remembered(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+def test_name_flag_wins_and_is_remembered(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     personal = machine.home / ".hivelane" / "config.toml"
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-name-test")
 
     assert cli.main(["up", "--name", "Grace H"]) == 0
 
     assert machine.service.called("connect_repo")[0][3].name == "grace-h"
-    assert tomllib.loads(personal.read_text(encoding="utf-8")) == {"name": "grace-h"}
+    assert tomllib.loads(personal.read_text(encoding="utf-8"))["name"] == "grace-h"
     assert "saved name grace-h" in capsys.readouterr().out
 
     # A plain re-run keeps the chosen name instead of falling back to git's.
@@ -271,7 +335,7 @@ def test_root_flag_works_outside_git(machine: Machine, tmp_path: Path) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     assert cli.main(["up", "--root", str(plain)]) == 0
-    assert (plain / ".hivelane.toml").exists()
+    assert not (plain / ".hivelane.toml").exists()
     assert (plain / ".claude" / "settings.json").exists()
     assert machine.service.called("connect_repo")[0][2] == plain.resolve()
 
@@ -477,3 +541,231 @@ def test_relay_is_local(relay: str, local: bool) -> None:
     from hivelane.links import relay_is_local
 
     assert relay_is_local(relay) is local
+
+
+# --- invite & join ----------------------------------------------------------------------
+
+
+def test_invite_prints_link_from_remembered_room_and_includes_e2e_key(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import config as cfg
+
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-inv-1")
+    cfg.remember_room("repo-inv-1", "K7Q2XM", "wss://relay.example/ws")
+    cfg.set_personal_secret("room_keys", "K7Q2XM", "super-secret-room-key-1234")
+
+    assert cli.main(["invite"]) == 0
+    captured = capsys.readouterr()
+    assert (
+        captured.out.strip()
+        == "https://adrianshah.github.io/Hivelane/j/K7Q2XM?relay=wss%3A%2F%2Frelay.example%2Fws#key=super-secret-room-key-1234"
+    )
+    assert "hivelane join" in captured.err
+
+    assert cli.main(["invite", "--no-key", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "room": "K7Q2XM",
+        "relay": "wss://relay.example/ws",
+        "e2e": True,
+        "url": "https://adrianshah.github.io/Hivelane/j/K7Q2XM?relay=wss%3A%2F%2Frelay.example%2Fws",
+    }
+
+
+def test_invite_copy_uses_clipboard_without_failing(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    copied: list[str] = []
+    monkeypatch.setattr(cli, "_copy_to_clipboard", lambda text: copied.append(text) or True)
+    machine.project_file().write_text('room = "TEAM42"\n', encoding="utf-8")
+
+    assert cli.main(["invite", "--copy"]) == 0
+    out = capsys.readouterr()
+    assert copied == ["https://adrianshah.github.io/Hivelane/j/TEAM42?relay=ws%3A%2F%2Flocalhost%3A8000%2Fws"]
+    assert "copied invite link to clipboard" in out.err
+
+
+def test_invite_without_room_fails(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["invite"]) == 2
+    assert "no room configured here" in capsys.readouterr().err
+
+
+def test_join_invite_link_saves_key_remembers_room_installs_hooks_and_connects(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import config as cfg
+
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-join-1")
+    url = (
+        "https://adrianshah.github.io/Hivelane/j/K7Q2XM"
+        "?relay=wss%3A%2F%2Frelay.example%2Fws#key=given-by-ada-1234567890"
+    )
+
+    assert cli.main(["join", url, "--name", "Sam", "--yes"]) == 0
+
+    out = capsys.readouterr().out
+    assert not machine.project_file().exists()
+    assert cfg.remembered_room("repo-join-1") == ("K7Q2XM", "wss://relay.example/ws")
+    assert cfg.load_config(machine.repo).room_key("K7Q2XM") == "given-by-ada-1234567890"
+    assert hivelane_events(machine) == {"UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop"}
+
+    (_, port, root, config) = machine.service.called("connect_repo")[0]
+    assert port == 4600
+    assert root == machine.repo.resolve()
+    assert config.room == "K7Q2XM"
+    assert config.relay == "wss://relay.example/ws"
+    assert config.name == "sam"
+    assert config.e2e is True
+    assert config.room_key() == "given-by-ada-1234567890"
+    assert "joining room K7Q2XM" in out
+    assert "saved end-to-end room key" in out
+
+
+def test_join_accepts_bare_room_code_and_no_hooks_and_foreground(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-join-2")
+    assert cli.main(["join", "team-42", "--no-hooks", "--port", "4700", "--foreground"]) == 0
+    assert not machine.settings().exists()
+    assert not machine.project_file().exists()
+    assert machine.service.called("serve") == [("serve", 4700)]
+    (_, port, _, config) = machine.service.called("connect_repo")[0]
+    assert port == 4700
+    assert config.room == "TEAM42"
+    assert config.relay == DEFAULT_RELAY
+
+
+def test_join_rejects_invalid_link(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["join", "https://example.com/not-an-invite"]) == 2
+    assert "no /j/<ROOM>" in capsys.readouterr().err
+
+
+def test_open_leave_key_and_doctor_work_with_remembered_room(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import auth, config as cfg
+
+    monkeypatch.setattr(cli, "repo_id_for_root", lambda root: "repo-ops-1")
+    cfg.remember_room("repo-ops-1", "K7Q2XM", DEFAULT_RELAY)
+
+    opened: list[str] = []
+    monkeypatch.setattr("webbrowser.open", lambda url: opened.append(url) or True)
+    assert cli.main(["open"]) == 0
+    assert opened == ["https://adrianshah.github.io/Hivelane/r/K7Q2XM?relay=ws%3A%2F%2Flocalhost%3A8000%2Fws"]
+
+    monkeypatch.setattr("sys.stdin", cli.io.StringIO("my-secret-passphrase-1234\n") if hasattr(cli, "io") else __import__("io").StringIO("my-secret-passphrase-1234\n"))
+    assert cli.main(["key", "set"]) == 0
+    assert cfg.load_config(machine.repo).room_key("K7Q2XM") == "my-secret-passphrase-1234"
+
+    # doctor recognises remembered room cleanly
+    auth.ensure_token()
+    checks = {c.label: c for c in cli.run_doctor_checks(None, 4600)}
+    assert checks[".hivelane.toml / room"].status == "ok"
+    assert "remembered room K7Q2XM" in checks[".hivelane.toml / room"].detail
+
+    assert cli.main(["leave", "--forget"]) == 0
+    assert "forgot the remembered room" in capsys.readouterr().out
+    assert cfg.remembered_room("repo-ops-1") is None
+
+
+# --- repo lookup, auto-binding, and resolution precedence -----------------------
+
+
+def _write_origin(repo: Path, url: str = "git@github.com:acme/widget.git") -> str:
+    from hivelane import gitinfo
+
+    (repo / ".git" / "config").write_text(f'[remote "origin"]\n\turl = {url}\n', encoding="utf-8")
+    return gitinfo.compute_repo_id(repo)
+
+
+def test_create_binds_hashed_lookup_key_without_raw_remote_and_informs_owner(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import config as cfg
+    from hivelane import gitinfo
+
+    # Make git subprocess read .git/config or stub compute_repo_id directly.
+    repo_id = "deadbeef01234567"
+    monkeypatch.setattr(gitinfo, "compute_repo_id", lambda root: repo_id)
+    expected_key = gitinfo.repo_lookup_key(repo_id)
+
+    assert cli.main(["up"]) == 0
+
+    out = capsys.readouterr().out
+    assert expected_key != repo_id
+    assert len(expected_key) == 64
+    assert machine.relay.created_bodies == [{"repo_key": expected_key}]
+    assert machine.relay.repo_bindings == {expected_key: "K7Q2XM"}
+    assert "teammates who clone this repo will find it automatically" in out
+    assert cfg.remembered_room(repo_id) == ("K7Q2XM", DEFAULT_RELAY)
+
+
+def test_no_repo_lookup_skips_lookup_and_binding(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import gitinfo
+
+    repo_id = "deadbeef01234567"
+    lookup_key = gitinfo.repo_lookup_key(repo_id)
+    machine.relay.repo_bindings[lookup_key] = "TEAM9999"
+    monkeypatch.setattr(gitinfo, "compute_repo_id", lambda root: repo_id)
+
+    assert cli.main(["up", "--no-repo-lookup"]) == 0
+
+    out = capsys.readouterr().out
+    assert not any(r.method == "GET" and "/rooms/by-repo/" in r.url.path for r in machine.relay.requests)
+    assert machine.relay.created_bodies == [{}]
+    assert "created room K7Q2XM" in out
+    assert "teammates who clone" not in out
+
+
+def test_teammate_finds_bound_room_by_repo_and_requests_approval(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from hivelane import config as cfg
+    from hivelane import gitinfo
+
+    repo_id = "feedface01234567"
+    lookup_key = gitinfo.repo_lookup_key(repo_id)
+    machine.relay.repo_bindings[lookup_key] = "APQEJN5W"
+    monkeypatch.setattr(gitinfo, "compute_repo_id", lambda root: repo_id)
+
+    assert cli.main(["up"]) == 0
+
+    out = capsys.readouterr().out
+    assert "found your team's room APQEJN5W for this repo; asking the owner to let you in" in out
+    assert machine.relay.created_bodies == []
+    assert not machine.project_file().exists()
+    assert machine.service.repos[str(machine.repo.resolve())]["via_repo_lookup"] is True
+    assert cfg.remembered_room(repo_id) == ("APQEJN5W", DEFAULT_RELAY)
+
+
+def test_room_resolution_precedence_room_file_remembered_lookup_create(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from hivelane import config as cfg
+    from hivelane import gitinfo
+
+    repo_id = "0123456789abcdef"
+    lookup_key = gitinfo.repo_lookup_key(repo_id)
+    machine.relay.repo_bindings[lookup_key] = "LOOK9999"
+    monkeypatch.setattr(gitinfo, "compute_repo_id", lambda root: repo_id)
+
+    # 3. Remembered room beats relay lookup (and restores remembered relay).
+    cfg.remember_room(repo_id, "REMEM123", "wss://rem.example/ws")
+    assert cli.main(["up"]) == 0
+    connect_calls = machine.service.called("connect_repo")
+    assert connect_calls[-1][3].room == "REMEM123"
+    assert connect_calls[-1][3].relay == "wss://rem.example/ws"
+    assert machine.service.repos[str(machine.repo.resolve())]["via_repo_lookup"] is False
+    assert not any("/rooms/by-repo/" in r.url.path for r in machine.relay.requests)
+
+    # 2. .hivelane.toml beats remembered room.
+    machine.project_file().write_text('room = "FILE4567"\n', encoding="utf-8")
+    assert cli.main(["up"]) == 0
+    assert machine.service.called("connect_repo")[-1][3].room == "FILE4567"
+
+    # 1. --room beats .hivelane.toml.
+    assert cli.main(["up", "--room", "FLAG8901", "--yes"]) == 0
+    assert machine.service.called("connect_repo")[-1][3].room == "FLAG8901"

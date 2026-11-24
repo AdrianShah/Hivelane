@@ -358,3 +358,52 @@ def test_remove_project_keys_handles_multiline_values(tmp_path: Path) -> None:
 def test_remove_project_keys_without_a_file(tmp_path: Path) -> None:
     assert cfg.remove_project_keys(tmp_path, "room") == []
     assert not (tmp_path / cfg.PROJECT_FILE).exists()
+
+
+# --- remembered rooms ----------------------------------------------------------------
+
+
+def test_remember_and_lookup_room_preserves_personal_config(isolated: Path, tmp_path: Path) -> None:
+    import os
+
+    cfg.write_personal_config(name="ada", relay="wss://personal.example/ws")
+    cfg.set_personal_secret("room_keys", "TEAM42", "secret-key")
+    cfg.remember_room("repo111", "k7q2-xm9p", "wss://relay.example/ws")
+    cfg.remember_room("repo222", "abcd1234", "ws://localhost:8000/ws")
+
+    assert cfg.remembered_room("repo111") == ("K7Q2XM9P", "wss://relay.example/ws")
+    assert cfg.remembered_room("repo222") == ("ABCD1234", "ws://localhost:8000/ws")
+    assert cfg.remembered_room("missing") is None
+    assert cfg.remembered_room("") is None
+
+    loaded = cfg.load_config(tmp_path)
+    assert loaded.name == "ada"
+    assert loaded.relay == "wss://personal.example/ws"
+    assert loaded.room_key("TEAM42") == "secret-key"
+
+    if os.name != "nt":
+        assert cfg.personal_config_path().stat().st_mode & 0o777 == 0o600
+
+
+def test_remember_room_ignores_empty_repo_id(isolated: Path) -> None:
+    cfg.remember_room("", "TEAM42", "ws://localhost:8000/ws")
+    cfg.remember_room("   ", "TEAM42", "ws://localhost:8000/ws")
+    assert not cfg.personal_config_path().exists()
+
+
+def test_forget_room_removes_only_target_repo(isolated: Path) -> None:
+    cfg.remember_room("repo111", "TEAM42", "ws://localhost:8000/ws")
+    cfg.remember_room("repo222", "OTHER1", "wss://relay.example/ws")
+    assert cfg.forget_room("repo111") is True
+    assert cfg.forget_room("repo111") is False
+    assert cfg.remembered_room("repo111") is None
+    assert cfg.remembered_room("repo222") == ("OTHER1", "wss://relay.example/ws")
+
+
+def test_invalid_remembered_rooms_table_is_reported(isolated: Path, tmp_path: Path) -> None:
+    personal('rooms = "bad"\n')
+    with pytest.raises(cfg.ConfigFileError, match="rooms must be a table"):
+        cfg.load_config(tmp_path)
+    personal('rooms = { abc = { room = "bad/room", relay = "ws://localhost:8000/ws" } }\n')
+    with pytest.raises(cfg.ConfigFileError, match="valid room code"):
+        cfg.remembered_room("abc")
