@@ -420,6 +420,83 @@ def create_room(relay: str) -> str:
     return create_room_with_owner(relay)[0]
 
 
+def looks_like_link(raw: str) -> bool:
+    """True for a pasted invite link rather than a bare room code."""
+    return any(mark in raw for mark in ("://", "/", "#", "?"))
+
+
+def room_and_link(raw: str) -> tuple[str, Any]:
+    """(room code, parsed InviteTarget or None) from `--room`, which takes a
+    room code or a full invite link (whose #invite= secret lets this machine
+    in without an owner's approval)."""
+    if not looks_like_link(raw):
+        return normalize_room(raw), None
+    try:
+        target = parse_invite_link(raw)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+    return normalize_room(target.room), target
+
+
+def save_secret(table: str, room: str, value: Optional[str]) -> Path:
+    """A per-room secret into the personal config (never .hivelane.toml)."""
+    from hivelane import config as cfg
+
+    try:
+        return cfg.set_personal_secret(table, room, value)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+
+
+def fetch_invite_secret(
+    relay: str, room: str, owner_token: str, *, rotate: bool = False
+) -> Optional[str]:
+    """The room's invite secret from the relay, for its owner (GET
+    /rooms/<code>/invite), or a fresh one (POST .../invite/rotate). Reading
+    is best-effort (None when the relay cannot say); rotating raises."""
+    import httpx
+
+    origin = http_origin(relay)
+    url = f"{origin}/rooms/{room}/invite" + ("/rotate" if rotate else "")
+    headers = {"X-Hivelane-Owner-Token": owner_token}
+    try:
+        with http_client(timeout=HTTP_TIMEOUT if rotate else 3.0) as client:
+            response = client.post(url, headers=headers) if rotate else client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        if not rotate:
+            return None
+        raise ConfigError(f"cannot reach the relay at {origin} ({exc.__class__.__name__}: {exc})") from None
+    if response.status_code != 200:
+        if not rotate:
+            return None
+        if response.status_code == 404:
+            raise ConfigError(
+                f"the relay does not know room {room} with this machine's owner token "
+                "(the room expired, or another machine owns it)"
+            )
+        raise ConfigError(f"the relay at {origin} refused to rotate the invite link (HTTP {response.status_code})")
+    try:
+        secret = response.json().get("invite_secret")
+    except (ValueError, AttributeError):
+        return None
+    return secret if isinstance(secret, str) and secret else None
+
+
+def current_invite_secret(config: HivelaneConfig, relay: str, room: str) -> Optional[str]:
+    """The invite secret to put in this room's share link: the relay's
+    current one when this machine owns the room (a rotation from the
+    dashboard shows up here), else the one saved from a link. A fresher one
+    from the relay is saved over the old."""
+    saved = config.invite_secret(room)
+    owner = config.owner_token(room)
+    if owner:
+        fetched = fetch_invite_secret(relay, room, owner)
+        if fetched and fetched != saved:
+            save_secret("invite_secrets", room, fetched)
+            return fetched
+    return saved
+
+
 def repo_lookup_key_for(root: Path) -> tuple[str, Optional[str]]:
     """(repo_id, hashed relay lookup key) for `root`, or ("", None) outside git/remotes."""
     from hivelane import gitinfo
@@ -474,10 +551,11 @@ def lookup_room_by_repo(relay: str, repo_key: str) -> Optional[str]:
 
 def create_room_with_owner(
     relay: str, *, repo_key: Optional[str] = None
-) -> tuple[str, Optional[str]]:
-    """(room code, owner token or None) from POST /rooms. The token makes
-    whoever holds it the room's owner (join approvals); a relay that predates
-    ownership sends none."""
+) -> tuple[str, Optional[str], Optional[str]]:
+    """(room code, owner token or None, invite secret or None) from POST
+    /rooms. The token makes whoever holds it the room's owner (join
+    approvals); the invite secret goes in the share link and lets whoever
+    opens it in without approval. A relay that predates either sends none."""
     import httpx
 
     origin = http_origin(relay)
@@ -524,7 +602,12 @@ def create_room_with_owner(
     if not isinstance(room, str):
         raise ConfigError(f"unexpected answer from {url}: room_id is not a string")
     owner = body.get("owner_token") if isinstance(body, dict) else None
-    return normalize_room(room), owner if isinstance(owner, str) and owner else None
+    invite = body.get("invite_secret") if isinstance(body, dict) else None
+    return (
+        normalize_room(room),
+        owner if isinstance(owner, str) and owner else None,
+        invite if isinstance(invite, str) and invite else None,
+    )
 
 
 # --- daemon status helpers -------------------------------------------------------
@@ -1065,8 +1148,13 @@ def cmd_up(args: argparse.Namespace) -> int:
 
     root = project_root(args.root)
     port = resolve_port(args.port)
-    relay_flag = normalize_relay(args.relay) if args.relay else None
-    room_flag = normalize_room(args.room) if args.room else None
+    room_flag, link = room_and_link(args.room) if args.room else (None, None)
+    if args.relay:
+        relay_flag: Optional[str] = normalize_relay(args.relay)
+    elif link is not None and link.relay:
+        relay_flag = normalize_relay(link.relay)
+    else:
+        relay_flag = None
     try:
         config = cfg.load_config(root, relay=relay_flag)
     except cfg.ConfigFileError as exc:
@@ -1106,6 +1194,15 @@ def cmd_up(args: argparse.Namespace) -> int:
             if not confirm(f"{source_desc}. Switch this repo to {room}?", assume_yes=args.yes):
                 raise CommandFailed(f"kept room {existing}; nothing else changed")
         say(f"  {mark('ok')} joining room {room}" + (f" (was {existing})" if existing and existing != room else ""))
+        # A pasted invite link: its secrets go to the personal config only,
+        # never .hivelane.toml (which is committed).
+        if link is not None and link.invite:
+            path = save_secret("invite_secrets", room, link.invite)
+            say(f"  {mark('ok')} saved the invite from the link to {path}; you will be let in without waiting")
+        if link is not None and link.key:
+            warn_weak_key(link.key, f"the key for room {room}")
+            path = save_secret("room_keys", room, link.key)
+            say(f"  {mark('ok')} saved end-to-end room key for {room} to {path}")
     elif existing_file:
         room = existing_file
         say(f"  {mark('ok')} joining room {room} from {cfg.PROJECT_FILE}")
@@ -1122,20 +1219,23 @@ def cmd_up(args: argparse.Namespace) -> int:
             from_lookup = True
             say(f"  {mark('info')} found your team's room {room} for this repo; asking the owner to let you in")
         else:
-            room, owner_token = create_room_with_owner(effective_relay, repo_key=lookup_key)
+            room, owner_token, invite_secret = create_room_with_owner(effective_relay, repo_key=lookup_key)
             created_room = True
             say(f"  {mark('ok')} created room {room} on {effective_relay}")
             if lookup_key is not None:
                 say("      teammates who clone this repo will find it automatically")
             if owner_token:
-                try:
-                    cfg.set_personal_secret("owner_tokens", room, owner_token)
-                except cfg.ConfigFileError as exc:
-                    raise ConfigError(str(exc)) from None
+                save_secret("owner_tokens", room, owner_token)
                 say(
                     f"  {mark('ok')} you own room {room} (owner token saved to {cfg.personal_config_path()}); "
-                    "`hivelane room require-approval on` makes newcomers wait for you"
+                    + (
+                        "teammates you send the invite link come straight in, anyone with just the code waits for you"
+                        if invite_secret
+                        else "`hivelane room require-approval on` makes newcomers wait for you"
+                    )
                 )
+            if invite_secret:
+                save_secret("invite_secrets", room, invite_secret)
 
     on_file = project_file_values(root)
     save_project = bool(getattr(args, "save_project", False))
@@ -1160,6 +1260,11 @@ def cmd_up(args: argparse.Namespace) -> int:
             f"  {mark('ok')} wrote {', '.join(updates)} to {display_path(path, root)} "
             "(commit it so teammates join the same room)"
         )
+        if "room" in updates:
+            say(
+                f"  {mark('info')} the committed room code alone does not let anyone in: they wait for "
+                "an owner's approval. Send teammates the invite link below instead."
+            )
 
     # An explicit --name is remembered, or the next plain `hivelane up` would
     # quietly rename you back to your git identity.
@@ -1171,6 +1276,10 @@ def cmd_up(args: argparse.Namespace) -> int:
         say(f"  {mark('ok')} saved name {name} to {path} (used in every repo)")
 
     relay_override = effective_relay if (relay_flag is not None or effective_relay != config.relay) else None
+    if not created_room and config.owner_token(room):
+        # An owner's share link carries the relay's current invite secret
+        # (it may have been rotated from the dashboard since).
+        current_invite_secret(config, effective_relay, room)
     e2e_active = _effective_e2e(config, room, on_file, explicit_e2e=e2e_flag)
     try:
         config = cfg.load_config(
@@ -1276,7 +1385,26 @@ def cmd_invite(args: argparse.Namespace) -> int:
             err=True,
         )
 
-    url = invite_url(relay, room, key=key)
+    owner = config.owner_token(room)
+    if getattr(args, "rotate", False):
+        if not owner:
+            raise ConfigError(
+                f"only an owner can rotate room {room}'s invite link, and this machine has no owner token for it"
+            )
+        invite: Optional[str] = fetch_invite_secret(relay, room, owner, rotate=True)
+        if invite:
+            save_secret("invite_secrets", room, invite)
+        say("hivelane: rotated the invite link; links sent before now only ask an owner to let them in", err=True)
+    else:
+        invite = current_invite_secret(config, relay, room)
+    if invite is None:
+        say(
+            f"hivelane: note: no invite secret for room {room} on this machine; whoever uses this link "
+            "waits for an owner's approval" + ("" if owner else " (ask the room's owner for their link)"),
+            err=True,
+        )
+
+    url = invite_url(relay, room, key=key, invite=invite)
     if args.copy:
         if _copy_to_clipboard(url):
             say("hivelane: copied invite link to clipboard", err=True)
@@ -1284,13 +1412,24 @@ def cmd_invite(args: argparse.Namespace) -> int:
             say("hivelane: could not access system clipboard; copy the link below", err=True)
 
     if args.json:
-        say(json.dumps({"room": room, "relay": relay, "e2e": bool(e2e_active or key), "url": url}))
+        say(
+            json.dumps(
+                {
+                    "room": room,
+                    "relay": relay,
+                    "e2e": bool(e2e_active or key),
+                    "invite": invite is not None,
+                    "owner": bool(owner),
+                    "url": url,
+                }
+            )
+        )
         return 0
 
     say(url)
     note = f'Teammates run: hivelane join "{url}"'
-    if key:
-        note += " (e2e key stays in the #key= fragment and is never sent to any server)"
+    if key or invite:
+        note += " (the #fragment stays in the browser and is never sent to any server)"
     say(note, err=True)
     return 0
 
@@ -1344,7 +1483,11 @@ def cmd_join(args: argparse.Namespace) -> int:
     if not args.no_hooks:
         offer_status_line(root, choice=args.status_line)
 
-    # 2. save optional e2e key from fragment & remember room on this machine (never writes .hivelane.toml)
+    # 2. save the invite secret and optional e2e key from the fragment & remember
+    # the room on this machine (never writes .hivelane.toml)
+    if target.invite:
+        invite_path = save_secret("invite_secrets", room, target.invite)
+        say(f"  {mark('ok')} saved the invite for {room} to {invite_path}; you will be let in without waiting")
     if target.key:
         warn_weak_key(target.key, f"the key for room {room}")
         try:
@@ -1477,9 +1620,15 @@ def print_summary(config: HivelaneConfig, name_source: str) -> None:
     if config.e2e:
         say("  e2e        on: paths, diffs and prompts are encrypted; the relay sees hashes")
     say()
-    say("Share with teammates:")
-    say("  hivelane invite  (prints a shareable invite link)")
-    say(f"  or: {share_command(room, config.relay)}")
+    invite = config.invite_secret(room)
+    if invite:
+        say("Share with teammates (the line to share; it lets them in without waiting for you):")
+        say(f"  {invite_url(config.relay, room, invite=invite)}")
+        say(f'  they run: hivelane join "<that link>"  (or open it in a browser)')
+    else:
+        say("Share with teammates:")
+        say("  hivelane invite  (prints a shareable invite link)")
+        say(f"  or: {share_command(room, config.relay)}")
     if config.e2e:
         say(f"  and, separately (not in the same message), the room key: `hivelane key show {room}`")
 
@@ -2551,7 +2700,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install agent hooks, create or join this repo's room, and connect "
         "it through the background daemon. Safe to re-run.",
     )
-    up.add_argument("--room", default=None, metavar="CODE", help="join this room (default: .hivelane.toml, remembered room, relay lookup, else create one)")
+    up.add_argument(
+        "--room",
+        default=None,
+        metavar="CODE_OR_LINK",
+        help="join this room: a code, or the invite link a teammate sent (lets you in without waiting for approval; "
+        "default: .hivelane.toml, remembered room, relay lookup, else create one)",
+    )
     up.add_argument("--relay", default=None, metavar="URL", help="relay URL, e.g. wss://relay.example.com/ws")
     up.add_argument("--name", default=None, help="display name (default: config, git user.name, OS user)")
     up.add_argument("--root", default=None, metavar="PATH", help=root_help)
@@ -2593,14 +2748,20 @@ def build_parser() -> argparse.ArgumentParser:
         "invite",
         help="print a shareable invite link for this repo's room",
         description="Print a `<dashboard>/j/<ROOM>` invite link for teammates (carries ?relay= "
-        "when needed and #key= when e2e is enabled).",
+        "when needed, #invite= so they come straight in without approval, and #key= when e2e is enabled). "
+        "An owner's link carries the relay's current invite secret.",
     )
     invite_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
     invite_cmd.add_argument("--room", default=None, metavar="CODE", help="room code (default: this repo's)")
     invite_cmd.add_argument("--relay", default=None, metavar="URL", help="relay URL override")
     invite_cmd.add_argument("--no-key", action="store_true", help="omit the e2e room key fragment from the invite link")
     invite_cmd.add_argument("--copy", action="store_true", help="copy the invite link to the system clipboard")
-    invite_cmd.add_argument("--json", action="store_true", help="output JSON with room, relay, e2e and url")
+    invite_cmd.add_argument("--json", action="store_true", help="output JSON with room, relay, e2e, invite, owner and url")
+    invite_cmd.add_argument(
+        "--rotate",
+        action="store_true",
+        help="owner only: replace the invite link (links sent before only ask for approval; people already let in stay)",
+    )
     invite_cmd.set_defaults(func=cmd_invite)
 
     join_cmd = sub.add_parser(

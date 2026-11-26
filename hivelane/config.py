@@ -4,7 +4,9 @@ The project file may be committed so a teammate who pulls the repo shares
 conflict windows, `ignore`, or `e2e`. The personal file holds what lives per
 person and per machine: display name, a private relay, remembered rooms per
 repo (`rooms`), and the secrets that must never be committed: e2e room keys
-(`room_keys`) and room owner tokens (`owner_tokens`), kept owner-only (0600).
+(`room_keys`), room owner tokens (`owner_tokens`), invite-link secrets
+(`invite_secrets`) and the member tokens a relay issues once someone is let in
+(`member_tokens`), kept owner-only (0600).
 Precedence, highest first: explicit overrides (CLI flags) > environment >
 personal file > project file > defaults, except `room`, the windows, `e2e` and
 `history_hours`, which the project file owns when present so one person's
@@ -61,10 +63,20 @@ _PROJECT_KEYS = (
     "insecure",
 )
 # What write_personal_config emits: the per-person keys.
-_PERSONAL_KEYS = ("name", "relay", "agent", "insecure", "room_keys", "owner_tokens", "rooms")
+_PERSONAL_KEYS = (
+    "name",
+    "relay",
+    "agent",
+    "insecure",
+    "room_keys",
+    "owner_tokens",
+    "invite_secrets",
+    "member_tokens",
+    "rooms",
+)
 # Secrets: personal file only. One found in the committed project file has
 # already leaked to everyone with the repo, so it is an error, not ignored.
-_SECRET_TABLES = ("room_keys", "owner_tokens")
+_SECRET_TABLES = ("room_keys", "owner_tokens", "invite_secrets", "member_tokens")
 
 # A room code ends up in the relay's WebSocket path, so keep it path-safe.
 _ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -98,6 +110,10 @@ class HivelaneConfig:
     # Personal secrets by room code: ((ROOM, value), ...).
     room_keys: tuple[tuple[str, str], ...] = ()
     owner_tokens: tuple[tuple[str, str], ...] = ()
+    # The invite secret from a share link (`#invite=`), and the member token
+    # the relay issued after this machine was let in, per room.
+    invite_secrets: tuple[tuple[str, str], ...] = ()
+    member_tokens: tuple[tuple[str, str], ...] = ()
     # Directory holding the project file, or None when there is none.
     root: Optional[Path] = None
     # Which files contributed, for `hivelane doctor`.
@@ -146,6 +162,15 @@ class HivelaneConfig:
     def owner_token(self, room: Optional[str] = None) -> Optional[str]:
         """The owner token `hivelane up` stored when it created room."""
         return _lookup(self.owner_tokens, room or self.room)
+
+    def invite_secret(self, room: Optional[str] = None) -> Optional[str]:
+        """The invite secret from the share link this machine joined with
+        (or that `hivelane up` got back when it created room)."""
+        return _lookup(self.invite_secrets, room or self.room)
+
+    def member_token(self, room: Optional[str] = None) -> Optional[str]:
+        """The member token the relay issued once this machine was let in."""
+        return _lookup(self.member_tokens, room or self.room)
 
 
 # Mirrors hivelane.crypto.normalize_room (the relay's rule): whitespace and
@@ -611,7 +636,8 @@ def personal_values() -> dict[str, Any]:
 
 def set_personal_secret(table: str, room: str, value: Optional[str]) -> Path:
     """Set (or with None remove) `table`.ROOM in the personal file, keeping
-    the table's other rooms. table is "room_keys" or "owner_tokens"."""
+    the table's other rooms. table is one of _SECRET_TABLES: "room_keys",
+    "owner_tokens", "invite_secrets" or "member_tokens"."""
     if table not in _SECRET_TABLES:
         raise ValueError(f"not a secret table: {table!r}")
     if not _ROOM_RE.match(room.strip()):

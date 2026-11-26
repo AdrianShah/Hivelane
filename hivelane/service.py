@@ -508,6 +508,10 @@ def registration(
         # passphrase (rooms that say e2e) and the owner token, if any.
         "room_key": config.room_key() if config.e2e else None,
         "owner_token": config.owner_token(),
+        # The share link's invite secret and the member token the relay issued
+        # once this machine was let in: either skips the owner's approval.
+        "invite_secret": config.invite_secret(),
+        "member_token": config.member_token(),
     }
 
 

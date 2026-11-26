@@ -137,6 +137,11 @@ class FakeRelay:
     rooms: list[str] = field(default_factory=lambda: ["K7Q2XM", "P3RT8Z"])
     # Returned with a created room when set, as a relay with ownership does.
     owner_token: Optional[str] = None
+    # Returned with a created room when set, as a relay with invite links does;
+    # GET /rooms/<code>/invite answers it to the owner token, and
+    # POST .../invite/rotate replaces it with each of `rotations` in turn.
+    invite_secret: Optional[str] = None
+    rotations: list[str] = field(default_factory=list)
     create_status: int = 200
     create_headers: dict[str, str] = field(default_factory=dict)
     health_status: int = 200
@@ -188,6 +193,8 @@ class FakeRelay:
             body: dict[str, Any] = {"room_id": room_id}
             if self.owner_token:
                 body["owner_token"] = self.owner_token
+            if self.invite_secret:
+                body["invite_secret"] = self.invite_secret
             if isinstance(repo_key, str) and repo_key:
                 self.repo_bindings[repo_key] = room_id
                 body["repo_key"] = repo_key
@@ -204,6 +211,17 @@ class FakeRelay:
             if bound is None:
                 return httpx.Response(404, json={"detail": "No room found for this repository"}, headers=headers)
             return httpx.Response(200, json={"room_id": bound}, headers=headers)
+        if path.startswith("/rooms/") and (path.endswith("/invite") or path.endswith("/invite/rotate")):
+            owner = request.headers.get("x-hivelane-owner-token")
+            if not self.owner_token or owner != self.owner_token:
+                return httpx.Response(404, json={"detail": "Room not found"}, headers=headers)
+            if request.method == "POST" and path.endswith("/rotate"):
+                self.invite_secret = self.rotations.pop(0)
+            return httpx.Response(
+                200,
+                json={"room_id": path.split("/")[2], "invite_required": True, "invite_secret": self.invite_secret},
+                headers=headers,
+            )
         if request.method == "GET" and path == "/health":
             return httpx.Response(self.health_status, json={"status": "ok", "rooms": 1}, headers=headers)
         if request.method == "GET" and path == "/readyz":
