@@ -26,7 +26,8 @@ tests). Version 2, what this module writes:
     mac_key = the same with info="mac"
     blob    = "2." + base64url_nopad(nonce(12 random bytes) || ciphertext || tag(16))
               with AES-256-GCM associated data = the client message type the
-              blob was made for ("activity", "intent", "plan", "edit_check").
+              blob was made for ("activity", "intent", "plan", "edit_check",
+              "task", "pending").
               seal() pads the JSON plaintext with trailing spaces to a size
               bucket, so a blob's length says little about a prompt's.
     hash    = "h:" + first 32 hex of HMAC-SHA256(mac_key, value UTF-8)
@@ -81,7 +82,7 @@ GENERATED_KEY_BYTES = 32
 MIN_PASSPHRASE_CHARS = 16
 MIN_PASSPHRASE_BITS = 80
 # The client message types a blob can be made for: its associated data.
-ENVELOPE_TYPES = ("activity", "intent", "plan", "edit_check", "task")
+ENVELOPE_TYPES = ("activity", "intent", "plan", "edit_check", "task", "pending")
 INSTALL_HINT = "pip install 'hivelane[e2e]'  (or: pipx inject hivelane cryptography)"
 
 

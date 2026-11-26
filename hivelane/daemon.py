@@ -46,6 +46,7 @@ from pydantic import BaseModel, Field, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
 from hivelane import __version__, auth, crypto, desktop, gitinfo, redact, symbols
+from hivelane import pending as pending_work
 from hivelane.depgraph import DepTracker
 from hivelane.config import (
     PROJECT_FILE,
@@ -72,6 +73,8 @@ from hivelane.protocol import (
     JoinDecision,
     JoinMessage,
     PeerTouch,
+    PendingChanges,
+    PendingFile,
     PlanConflicts,
     PlanMessage,
     RoomPolicy,
@@ -123,7 +126,7 @@ TRUNCATED_MARKER = chr(10) + "[... truncated by hivelane]"
 # The relay drops a member's activity, intent or plan sent less than 0.5 s
 # after the previous one of the same kind (server/main.py
 # ACTIVITY_MIN_INTERVAL_SECONDS); sends of those kinds are spaced by this.
-PACED_KINDS = ("activity", "intent", "plan")
+PACED_KINDS = ("activity", "intent", "plan", "pending_changes")
 SEND_SPACING = 0.6
 # A connection only counts as stable (and the reconnect backoff resets) after
 # being admitted for this long; a relay that accepts then drops is backed off.
@@ -243,6 +246,15 @@ NESTED_SEARCH_DEPTH = 3
 NESTED_SEARCH_DIRS = 4000
 _NESTED_SKIP = frozenset({"node_modules", "__pycache__", "venv", "env", "dist", "build", "target", "site-packages"})
 _LANE_SHORT_NAMES = {"claude-code": "claude", "gemini-cli": "gemini", "antigravity": "agy"}
+
+# Pending (unpushed) work, see hivelane/pending.py: each repo's primary
+# connection reports the files its user changed but has not pushed. Scanned
+# this often, and this soon after an edit (debounced); an unchanged report is
+# re-sent only every PENDING_REFRESH_SECONDS (the relay keeps it meanwhile).
+PENDING_ENABLED = os.environ.get("HIVELANE_PENDING", "1").strip().lower() not in ("0", "false", "no", "off")
+PENDING_SCAN_SECONDS = 45.0
+PENDING_EDIT_DELAY = 5.0
+PENDING_REFRESH_SECONDS = 600.0
 
 # Mirrors server/room.py _ALWAYS_WARN_BASENAMES: files the relay always judges
 # at file level. In an e2e room it only sees a hashed path and cannot tell, so
@@ -1149,6 +1161,15 @@ class RoomConnection:
         # `hivelane wait` callers: (repo_id, path key) -> futures resolved with
         # how the file came free ("released" or "allowed").
         self._file_waiters: dict[tuple[str, str], list[asyncio.Future[str]]] = {}
+        # Pending (unpushed) work reports: repo_id -> (what the last report
+        # said, monotonic time sent, the link it went out on), so an
+        # unchanged report is not re-sent and a reconnect re-sends it.
+        self._pending_sent: dict[str, tuple[tuple, float, Optional[float]]] = {}
+        # repo_id -> (base ref, commits behind it, files those commits change)
+        # from the last scan, for the pull hint; and the (repo_id, path) pairs
+        # already hinted about for that state.
+        self._upstream: dict[str, tuple[str, int, frozenset[str]]] = {}
+        self._pull_hinted: set[tuple[str, str]] = set()
 
     @property
     def ws_url(self) -> str:
@@ -1244,13 +1265,48 @@ class RoomConnection:
 
     def _seal(
         self,
-        message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest,
-    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest:
+        message: ActivityMessage
+        | IntentMessage
+        | EditCheckRequest
+        | PlanMessage
+        | FileRequest
+        | TaskRequest
+        | PendingChanges,
+    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest | PendingChanges:
         """The e2e form of message: names hashed, content emptied, the real
         values in its blob. The relay still matches overlaps (equal names hash
         equal) but can read nothing."""
         key = self.e2e_key
         assert key is not None
+        if isinstance(message, PendingChanges):
+            # Paths and symbols hashed like an edit_check's, so the relay can
+            # match them; the real ones (for dashboards) only in the blob.
+            blob = key.seal(
+                "pending",
+                {
+                    "v": 1,
+                    "files": [{"path": f.path, "symbols": list(f.symbols)} for f in message.files],
+                    "branch": message.branch,
+                    "base": message.base,
+                },
+            )
+            files = [
+                PendingFile(
+                    path=self._hash(f.path),
+                    symbols=[] if is_always_warn_file(f.path) else [self._hash(s) for s in f.symbols],
+                    since=f.since,
+                )
+                for f in message.files
+            ]
+            return message.model_copy(
+                update={
+                    "files": files,
+                    "branch": self._hash(message.branch),
+                    "base": self._hash(message.base),
+                    "e2e": blob,
+                    "repo_id": self._wire_repo_id(message.repo_id),
+                }
+            )
         if isinstance(message, FileRequest):
             # An edit_check-shaped envelope: the relay copies it onto the
             # file_requested a holder gets, whose daemon opens it like any
@@ -1971,12 +2027,13 @@ class RoomConnection:
         | FileRequest
         | JoinDecision
         | RoomPolicy
-        | TaskRequest,
+        | TaskRequest
+        | PendingChanges,
     ) -> bool:
         """Queue message for the relay; False when it cannot go (an e2e room
         without a key, or a message that cannot be encoded or made to fit a
         frame). Never raises: a caller's batch must not die with one message."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest, PendingChanges)
         if self.e2e_required and self.e2e_key is None and isinstance(message, sealable):
             # An e2e room without a key: never fall back to cleartext.
             return False
@@ -2010,7 +2067,9 @@ class RoomConnection:
     def _encode(self, message: Any) -> Optional[str]:
         """message as the JSON frame to send (sealed in an e2e room), or None
         when even its slimmest form is over MAX_FRAME_BYTES."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest, PendingChanges)
+        if isinstance(message, PendingChanges):
+            return self._encode_pending(message)
         sealed = self._seal(message) if self.e2e_key is not None and isinstance(message, sealable) else message
         payload = sealed.model_dump_json()
         if len(payload) <= MAX_FRAME_BYTES // 4 or len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
@@ -2028,6 +2087,93 @@ class RoomConnection:
             if len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
                 return payload
         return None
+
+    def _encode_pending(self, message: PendingChanges) -> Optional[str]:
+        """A pending report that fits a frame (and, sealed, the relay's blob
+        cap): as is, then without symbols, then with fewer files."""
+        files = list(message.files)
+        candidates = [message, message.model_copy(update={"files": [f.model_copy(update={"symbols": []}) for f in files]})]
+        for keep in (len(files) // 2, len(files) // 4, 20):
+            if 0 < keep < len(files):
+                candidates.append(
+                    message.model_copy(
+                        update={"files": [f.model_copy(update={"symbols": []}) for f in files[:keep]], "truncated": True}
+                    )
+                )
+        for candidate in candidates:
+            sealed = self._seal(candidate) if self.e2e_key is not None else candidate
+            if len(sealed.e2e) > E2E_MAX_CHARS:
+                continue
+            payload = sealed.model_dump_json()
+            if len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
+                return payload
+        return None
+
+    # --- pending (unpushed) work ------------------------------------------------
+
+    def report_pending(
+        self, repo_id: str, snapshot: pending_work.PendingSnapshot, *, now: Optional[float] = None
+    ) -> bool:
+        """Tell the relay this repo's unpushed files when that changed since
+        the last report on this link (or PENDING_REFRESH_SECONDS passed).
+        Also remembers what upstream has that we have not pulled, for the
+        pull hint. True when a report was queued."""
+        upstream = (
+            snapshot.base,
+            snapshot.behind,
+            frozenset(snapshot.upstream_files) if snapshot.behind else frozenset(),
+        )
+        if self._upstream.get(repo_id) != upstream:
+            self._upstream[repo_id] = upstream
+            self._pull_hinted = {key for key in self._pull_hinted if key[0] != repo_id}
+            while len(self._upstream) > REPO_ROOT_CACHE_SIZE:
+                self._upstream.pop(next(iter(self._upstream)))
+        if not self.live:
+            return False
+        now = time.monotonic() if now is None else now
+        signature = snapshot.signature()
+        last = self._pending_sent.get(repo_id)
+        if (
+            last is not None
+            and last[0] == signature
+            and last[2] == self.connected_since
+            and now - last[1] < PENDING_REFRESH_SECONDS
+        ):
+            return False
+        if last is None and not snapshot.files:
+            # Nothing pending and nothing ever reported: nothing to clear.
+            self._pending_sent[repo_id] = (signature, now, self.connected_since)
+            return False
+        message = PendingChanges(
+            user_id=self.name,
+            repo_id=repo_id,
+            branch=snapshot.branch,
+            base=snapshot.base,
+            files=[
+                PendingFile(path=path, symbols=list(names), since=round(since, 3))
+                for path, since, names in snapshot.files
+            ],
+            truncated=snapshot.truncated,
+        )
+        if not self._send(message):
+            return False
+        self._pending_sent[repo_id] = (signature, now, self.connected_since)
+        return True
+
+    def pull_note(self, repo_id: str, rel: str) -> Optional[str]:
+        """A one-time hint when upstream has commits we have not pulled that
+        change rel (seen in the last scan; a fetch must have brought them)."""
+        base, behind, files = self._upstream.get(repo_id, ("", 0, frozenset()))
+        if not behind or rel not in files or (repo_id, rel) in self._pull_hinted:
+            return None
+        self._pull_hinted.add((repo_id, rel))
+        if len(self._pull_hinted) > QUEUE_MEMORY:
+            self._pull_hinted.clear()
+        commits = "commit" if behind == 1 else "commits"
+        return (
+            f"{base} has {behind} {commits} you have not pulled that change {rel}; "
+            "pull (or rebase) before editing it to avoid a merge conflict"
+        )
 
     def _join_payload(self) -> str:
         payload = JoinMessage(
@@ -3037,6 +3183,12 @@ class Daemon:
         self._session_roots: OrderedDict[str, Path] = OrderedDict()
         self._pending_intents: OrderedDict[str, tuple[NormalizedEvent, float]] = OrderedDict()
         self._nested: dict[str, tuple[float, Optional[Path]]] = {}
+        # Pending (unpushed) work: one scanner per repo root, the task that
+        # runs them, and the monotonic time an edit asked for an early scan.
+        self.pending_enabled = PENDING_ENABLED
+        self._pending_scanners: dict[Path, pending_work.PendingScanner] = {}
+        self._pending_task: Optional[asyncio.Task[None]] = None
+        self._pending_due: Optional[float] = None
 
         self._stopping = asyncio.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -3757,8 +3909,87 @@ class Daemon:
             )
             # Still applied: a relay older than same_chat ignores the lists,
             # and then only this ack (not the room's feed) reflects them.
-            return self._family_ack(lane, ack)
-        return await conn.handle_event(event, binding, own_names=own_names)
+            return await self._with_pull_note(event, binding, self._family_ack(lane, ack))
+        ack = await conn.handle_event(event, binding, own_names=own_names)
+        if event.kind == "post_edit":
+            self._pending_soon()
+        elif event.kind == "pre_edit":
+            ack = await self._with_pull_note(event, binding, ack)
+        return ack
+
+    # --- pending (unpushed) work -------------------------------------------------
+
+    async def _with_pull_note(self, event: NormalizedEvent, binding: RepoBinding, ack: EventAck) -> EventAck:
+        """ack plus the repo connection's pull hint for the file, if any (the
+        primary connection scans; a lane's own connection never does)."""
+        if not ack.file_path:
+            return ack
+        repo_id = await binding.connection.repo_id_for_cwd(event.cwd, binding)
+        note = binding.connection.pull_note(repo_id, ack.file_path)
+        return with_note(ack, note) if note else ack
+
+    def _pending_soon(self) -> None:
+        """An edit landed: scan for pending work shortly (debounced)."""
+        if self.pending_enabled and self._pending_task is not None:
+            self._pending_due = time.monotonic() + PENDING_EDIT_DELAY
+
+    def _pending_root(self, binding: RepoBinding) -> Optional[Path]:
+        root = binding.root if binding.root is not None else (binding.connection.repo_root or self._anchor)
+        if root is None:
+            return None
+        top = repo_root(str(root))
+        # Paths are keyed from the git top level; a --root inside a repo keys
+        # them differently, so it is not scanned.
+        if top is None or top.resolve() != Path(root).resolve():
+            return None
+        return top
+
+    async def scan_pending(self, now: Optional[float] = None) -> int:
+        """Scan every coordinated repo once and report what changed. Returns
+        how many reports were queued."""
+        sent = 0
+        scanned: set[Path] = set()
+        for binding in self._all_bindings():
+            conn = binding.connection
+            if not conn.live:
+                continue
+            root = await asyncio.to_thread(self._pending_root, binding)
+            if root is None or root in scanned:
+                continue
+            scanned.add(root)
+            scanner = self._pending_scanners.get(root)
+            if scanner is None:
+                scanner = self._pending_scanners[root] = pending_work.PendingScanner()
+            head = gitinfo.head_for(root)
+            branch = (head.branch or "") if head else ""
+            try:
+                snapshot = await asyncio.to_thread(scanner.scan, root, branch, binding.ignore.matches)
+            except Exception as exc:  # noqa: BLE001 - one repo must not stop the others
+                print(f"hivelane: could not read pending changes in {root} ({exc!r})", file=sys.stderr)
+                continue
+            if snapshot is None:
+                continue
+            repo_id = await conn.repo_id_for_cwd(str(root), binding)
+            if conn.report_pending(repo_id, snapshot, now=now):
+                sent += 1
+        return sent
+
+    async def _scan_pending_periodically(self) -> None:
+        next_scan = time.monotonic() + 2.0
+        while True:
+            await asyncio.sleep(1.0)
+            now = time.monotonic()
+            due = self._pending_due
+            if now < next_scan and (due is None or now < due):
+                continue
+            self._pending_due = None
+            next_scan = now + PENDING_SCAN_SECONDS
+            try:
+                await self.scan_pending()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - keep scanning
+                print(f"hivelane: pending-changes scan failed ({exc!r})", file=sys.stderr)
 
     # --- routing beyond the cwd ------------------------------------------------
 
@@ -4087,6 +4318,8 @@ class Daemon:
             self._start_connection(conn)
         if self._lane_sweeper is None:
             self._lane_sweeper = asyncio.create_task(self._sweep_periodically(), name="lanes")
+        if self.pending_enabled and self._pending_task is None:
+            self._pending_task = asyncio.create_task(self._scan_pending_periodically(), name="pending")
 
     async def aclose(self) -> None:
         """Graceful stop of the relay side: flush batches, close sockets."""
@@ -4096,6 +4329,9 @@ class Daemon:
         if self._lane_sweeper is not None:
             self._lane_sweeper.cancel()
             self._lane_sweeper = None
+        if self._pending_task is not None:
+            self._pending_task.cancel()
+            self._pending_task = None
         lanes = [lane.conn for lane in self._lanes.values() if lane.owned]
         self._lanes.clear()
         self._primary_holder.clear()
