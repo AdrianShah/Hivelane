@@ -2,6 +2,7 @@ import { memo } from 'react';
 import Bee from '../components/Bee';
 import Icon from '../components/Icon';
 import { laneBuckets, type LineRange } from '../dashboard/charts';
+import { unpushedText } from '../dashboard/laneReducer';
 import { LANE_STATE_LABEL } from '../dashboard/laneState';
 import { diffFor, type SessionLog } from '../dashboard/sessionLog';
 import type { ConflictAlert } from '../types';
@@ -28,6 +29,39 @@ function overlapPartner(
   if (named && lanes[named]) return lanes[named];
   return Object.values(lanes).find(
     (other) => other.id !== lane.id && other.offlineSince == null && other.changes.some((c) => c.file_path === file),
+  );
+}
+
+/** Files shown before "and N more" in a lane's unpushed list. */
+const UNPUSHED_SHOWN = 50;
+
+function unpushedLabel(lane: Pick<LaneView, 'pendingFiles' | 'pendingTruncated'>): string {
+  return unpushedText(lane.pendingFiles.length, lane.pendingTruncated);
+}
+
+/**
+ * The files a lane changed but has not pushed (pending_update), oldest work
+ * first: an edit of one by someone else is likely a merge conflict later.
+ */
+function UnpushedList({ lane, nowSeconds }: { lane: LaneView; nowSeconds: number }) {
+  const shown = lane.pendingFiles.slice(0, UNPUSHED_SHOWN);
+  const more = lane.pendingFiles.length - shown.length;
+  return (
+    <details className="v3-unpushed">
+      <summary className="v3-label">{unpushedLabel(lane)}</summary>
+      <ul className="v3-unpushed__list">
+        {shown.map((file) => (
+          <li key={file.path}>
+            <bdi className="v3-mono">{file.path}</bdi>
+            {file.symbols && file.symbols.length > 0 ? (
+              <span className="v3-faint"> ({file.symbols.slice(0, 3).join(', ')})</span>
+            ) : null}
+            {file.since ? <span className="v3-faint"> · since {relativeTime(file.since, nowSeconds)}</span> : null}
+          </li>
+        ))}
+        {more > 0 ? <li className="v3-faint">and {more} more</li> : null}
+      </ul>
+    </details>
   );
 }
 
@@ -74,6 +108,12 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
           <span className="v3-lane-row__app">
             {agentLabel(lane.agent)}
             {lane.branch ? ` · ${lane.branch}` : ''}
+            {lane.pendingFiles.length > 0 ? (
+              <span className="v3-lane-row__unpushed" title="Changed but not pushed yet">
+                {' · '}
+                {unpushedLabel(lane)}
+              </span>
+            ) : null}
           </span>
         </span>
         <span className="v3-lane-row__file" title={file ?? undefined}>
@@ -98,6 +138,7 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
             Last active {relativeTime(lane.derived.lastActivity, nowSeconds)}
             {held ? ` · held: ${held.reason || `waiting on ${held.others.join(', ')}`}` : ''}
           </p>
+          {lane.pendingFiles.length > 0 ? <UnpushedList lane={lane} nowSeconds={nowSeconds} /> : null}
           {partner && file ? (
             <OverlapBar
               mine={rangesFor(lane, file, log, nowSeconds)}

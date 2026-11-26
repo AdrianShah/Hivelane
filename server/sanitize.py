@@ -30,9 +30,23 @@ except ImportError:  # Render rootDir=server
 
 if TYPE_CHECKING:
     try:
-        from .models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage, TaskRequest
+        from .models import (
+            ActivityMessage,
+            EditCheckRequest,
+            IntentMessage,
+            PendingChanges,
+            PlanMessage,
+            TaskRequest,
+        )
     except ImportError:  # Render rootDir=server
-        from models import ActivityMessage, EditCheckRequest, IntentMessage, PlanMessage, TaskRequest
+        from models import (  # type: ignore[no-redef]
+            ActivityMessage,
+            EditCheckRequest,
+            IntentMessage,
+            PendingChanges,
+            PlanMessage,
+            TaskRequest,
+        )
 
 # Best-effort layer only. The charset strip below is the real safety mechanism.
 BLOCKLIST = {
@@ -163,3 +177,26 @@ def cap_task(message: TaskRequest) -> None:
     _trim(message.files, MAX_TASK_FILES)
     _trim(message.depends_on, MAX_TASK_DEPENDS)
     message.depends_on = [d[:16] for d in message.depends_on]
+
+
+# Pending (unpushed) work reports (Room.record_pending). One report per member
+# and repo replaces the last, so these bound what one member can make the
+# relay hold for as long as its work stays unpushed.
+MAX_PENDING_FILES = 200
+MAX_PENDING_SYMBOLS = 32
+MAX_PENDING_REF_CHARS = 256
+
+
+def cap_pending(message: PendingChanges) -> None:
+    """Trim a pending_changes report in place. Over-long paths are dropped
+    (a truncated path names another file); the list keeps its first files."""
+    limit = config.MAX_PATH_CHARS
+    kept = [f for f in message.files if f.path and (limit <= 0 or len(f.path) <= limit)]
+    if len(kept) > MAX_PENDING_FILES:
+        message.truncated = True
+    message.files = kept[:MAX_PENDING_FILES]
+    for pending in message.files:
+        pending.symbols = [s for s in pending.symbols if s][:MAX_PENDING_SYMBOLS]
+        _trim(pending.symbols, MAX_SYMBOLS)
+    message.branch = message.branch[:MAX_PENDING_REF_CHARS]
+    message.base = message.base[:MAX_PENDING_REF_CHARS]
