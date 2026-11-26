@@ -385,6 +385,37 @@ class RoomManager:
             return False
         return hmac.compare_digest(hash_owner_token(token), owner_hash)
 
+    def owner_room_expiry(self, room_id: str, token: Optional[str]) -> Optional[float]:
+        """When the room expires (epoch seconds; 0.0 if unknown), or None.
+
+        None covers an unknown code, an expired or finished one, and a token
+        that does not own the room alike: GET /rooms/{code} must not tell a
+        prober which codes exist. Like verify_owner_token it reads the store
+        for a room with no live state instead of reviving it, so asking does
+        not keep a dead room alive. Raises StoreReadError when the store
+        cannot answer (the caller says "unknown", never "gone")."""
+        if not token:
+            return None
+        normalized = normalize_room_code(room_id)
+        room = self._rooms.get(normalized)
+        if room is not None:
+            return room.expires_at if room.verify_owner_token(token) else None
+        if not is_plausible_code(normalized):
+            return None
+        record = self._store.get_record(normalized)
+        if record is None:
+            return None
+        access = record.get("access") or {}
+        owner_hash = access.get("owner_hash") if isinstance(access, dict) else None
+        if not isinstance(owner_hash, str) or not owner_hash:
+            return None
+        if not hmac.compare_digest(hash_owner_token(token), owner_hash):
+            return None
+        created_at = record.get("created_at")
+        if isinstance(created_at, (int, float)) and not isinstance(created_at, bool):
+            return float(created_at) + ROOM_TTL_SECONDS
+        return 0.0
+
     def load_webhooks(self, room_id: str) -> Optional[dict[str, Any]]:
         return self._store.get_webhooks(normalize_room_code(room_id))
 

@@ -157,6 +157,29 @@ def invite_url(relay: str, room: str, key: str | None = None) -> str:
     return url
 
 
+INSTALL_COMMAND = "pipx install git+https://github.com/AdrianShah/Hivelane"
+
+
+def share_link(relay: str, room: str) -> str:
+    """The link teammates are given to join `room`: the one place the CLI
+    builds it (`hivelane up`'s share line, the agent prompt, the MCP server),
+    so a change to what a share link carries is made here once. Never carries
+    an e2e room key: that goes to teammates separately."""
+    return invite_url(relay, room)
+
+
+def agent_join_prompt(relay: str, room: str, *, insecure: bool = False) -> str:
+    """The sentence a person pastes into any coding agent to bring a repo into
+    `room` (mirrors agentJoinPrompt in frontend/src/links.ts). The link is
+    quoted: `?` in it is a glob character in zsh."""
+    flags = " --insecure" if insecure else ""
+    code = _canonical_room(room)
+    return (
+        f"Join Hivelane room {code} in this repo: install hivelane if needed "
+        f"(`{INSTALL_COMMAND}`), then run `hivelane up --room \"{share_link(relay, room)}\" -y{flags}`."
+    )
+
+
 def _parse_fragment_key(fragment: str) -> str | None:
     """Extract an e2e room key from `#key=...`, `#k=...`, or a bare `#<key>`."""
     body = (fragment or "").lstrip("#").strip()

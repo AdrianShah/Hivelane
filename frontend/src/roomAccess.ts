@@ -10,7 +10,7 @@
 
 import { normalizeRoomCode, relayHttpOrigin, relaySource, relayWsBase } from './relayUrl';
 import type { JoinMessage } from './types';
-import { ownedRoomCodes } from './dashboard/roomLife';
+import { livenessFromResponse, ownedRoomCodes, type RoomLiveness } from './dashboard/roomLife';
 
 const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
 
@@ -91,6 +91,62 @@ export function spectatorJoin(roomId: string): JoinMessage {
  */
 export function isApprovalRefusal(reason: string, wasWaiting: boolean): boolean {
   return wasWaiting || reason.includes('waiting for approval');
+}
+
+/**
+ * How many owned rooms one page load asks about. GET /rooms/{code} shares the
+ * relay's repository-lookup budget (30 a minute per address by default) with
+ * every `hivelane up` behind the same address, so the list must not spend it.
+ */
+const ROOM_CHECK_LIMIT = 8;
+/** Answers are reused for this long (moving between pages re-renders the list). */
+const ROOM_CHECK_TTL_MS = 60_000;
+const checked = new Map<string, { at: number; liveness: RoomLiveness }>();
+
+/** Asks the relay whether one owned room is still alive (needs its owner token). */
+export async function checkOwnedRoom(roomId: string): Promise<RoomLiveness | 'rate-limited'> {
+  const code = normalizeRoomCode(roomId);
+  const token = ownerToken(code);
+  if (!token) return { state: 'unknown' };
+  const cacheKey = `${relayWsBase()}|${code}`;
+  const hit = checked.get(cacheKey);
+  if (hit && Date.now() - hit.at < ROOM_CHECK_TTL_MS) return hit.liveness;
+  let response: Response;
+  try {
+    response = await fetch(`${relayHttpOrigin()}/rooms/${encodeURIComponent(code)}`, {
+      headers: { 'X-Hivelane-Owner-Token': token },
+    });
+  } catch {
+    return { state: 'unknown' };
+  }
+  if (response.status === 429) return 'rate-limited';
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  const liveness = livenessFromResponse(response.status, body);
+  if (liveness.state !== 'unknown') checked.set(cacheKey, { at: Date.now(), liveness });
+  return liveness;
+}
+
+/**
+ * Checks the owned rooms one at a time (in list order, at most
+ * ROOM_CHECK_LIMIT, stopping at the first 429) and reports each answer as it
+ * arrives. A room the relay says is gone has its owner token dropped: that
+ * is the only thing that removes one, never a failed or ambiguous request.
+ */
+export async function refreshOwnedRooms(
+  codes: string[],
+  onResult: (code: string, liveness: RoomLiveness) => void,
+): Promise<void> {
+  for (const code of codes.slice(0, ROOM_CHECK_LIMIT)) {
+    const liveness = await checkOwnedRoom(code);
+    if (liveness === 'rate-limited') break;
+    if (liveness.state === 'gone') forgetOwnerToken(code);
+    onResult(code, liveness);
+  }
 }
 
 /** Room codes this browser owns on the relay in use (the header's room switcher). */
