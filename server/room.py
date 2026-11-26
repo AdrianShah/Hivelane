@@ -47,6 +47,9 @@ try:
         JoinRequest,
         JoinResolved,
         PeerKind,
+        PendingChanges,
+        PendingFile,
+        PendingUpdate,
         PlanConflict,
         PlanMessage,
         PlanUpdate,
@@ -83,6 +86,9 @@ except ImportError:  # Render rootDir=server
         JoinRequest,
         JoinResolved,
         PeerKind,
+        PendingChanges,
+        PendingFile,
+        PendingUpdate,
         PlanConflict,
         PlanMessage,
         PlanUpdate,
@@ -206,6 +212,16 @@ MAX_RANGES_PER_TOUCH = 256
 # Plans and intents kept per member (one per repo; oldest evicted).
 MAX_PLANS_PER_MEMBER = 8
 MAX_INTENTS_PER_MEMBER = 8
+# Pending (unpushed) work reports, one per (member, repo), replaced by each
+# report and kept for as long as the work stays unpushed rather than for the
+# touch window. A member that disconnects keeps its last report (judged with
+# its age, marked offline) for PENDING_OFFLINE_SECONDS: unpushed work does not
+# go away when a laptop lid closes. Bounded per member, per room and in bytes
+# per room (oldest report dropped first), like the touch bounds above.
+PENDING_OFFLINE_SECONDS = _env_number("HIVELANE_PENDING_OFFLINE_SECONDS", 4 * 3600.0)
+MAX_PENDING_REPORTS_PER_MEMBER = 8
+MAX_PENDING_REPORTS_PER_ROOM = int(_env_number("HIVELANE_MAX_PENDING_REPORTS_PER_ROOM", 256))
+MAX_PENDING_BYTES_PER_ROOM = int(_env_number("HIVELANE_MAX_PENDING_BYTES_PER_ROOM", 16 * 1024 * 1024))
 # Joiners from one address that may wait for approval at once.
 MAX_PENDING_JOINS_PER_IP = int(_env_number("HIVELANE_MAX_PENDING_JOINS_PER_IP", 2))
 
@@ -395,6 +411,29 @@ class FileTouch:
             if ranges_near(ranges, [(start, end)], proximity)
         ]
         return max(times) if times else None
+
+
+@dataclass
+class PendingRecord:
+    """A member's latest pending_changes report for one repo, as broadcast,
+    with its files indexed by path. offline_since is set (Unix seconds) once
+    the member disconnects; a report from it again replaces the record."""
+
+    update: PendingUpdate
+    by_path: dict[str, PendingFile]
+    cost: int
+    offline_since: Optional[float] = None
+
+
+def _pending_age(seconds: float) -> str:
+    seconds = int(max(0.0, seconds))
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60} min ago"
+    if seconds < 172800:
+        return f"{seconds // 3600} h ago"
+    return f"{seconds // 86400} days ago"
 
 
 # Owner resolve actions (hold_release, queue_order). The member let through
@@ -653,6 +692,10 @@ class Room:
         # the file pass the other members' touches (see go_first).
         self._held: OrderedDict[str, HeldEdit] = OrderedDict()
         self._overrides: dict[tuple[str, str, str], float] = {}
+        # (user_id, repo_id) -> that member's unpushed files (record_pending),
+        # least recently reported first: the eviction order for the bounds.
+        self._pending_work: OrderedDict[tuple[str, str], PendingRecord] = OrderedDict()
+        self._pending_bytes = 0
 
     # --- membership ----------------------------------------------------------
 
@@ -736,6 +779,12 @@ class Room:
         # Its places in line and its claims; the files it held are released
         # by the next tick_file_queues().
         self.file_queues.remove_user(user_id)
+        if current is not None:
+            # Its unpushed work is still unpushed: kept, marked offline.
+            offline_at = time.time()
+            for key, record in self._pending_work.items():
+                if key[0] == user_id and record.offline_since is None:
+                    record.offline_since = offline_at
         return current is not None
 
     # --- settings ------------------------------------------------------------
@@ -1574,11 +1623,19 @@ class Room:
                 task_id=reserved.task_id,
                 task_lease_until=reserved.lease_until or now,
             )
+        mine = {user_id.lower(), *ignored, *(name.lower() for name in own_names)}
+        pending, pending_reason = self._pending_peers(
+            file_path, mine, now, repo_id, wanted_symbols, branch, always_warn
+        )
         if judged:
             # Same-branch peers first (stable sort keeps newest-first within):
             # a live edit matters more than a future merge conflict.
             judged.sort(key=lambda item: item[2] == "branch")
             peers = [touch for touch, _, _ in judged]
+            # Unpushed work rides along after the live peers; the live touch
+            # decides scope and reason.
+            live_ids = {touch.user_id for touch in peers}
+            peers.extend(touch for touch in pending if touch.user_id not in live_ids)
             if all(scope == "imports" for _, _, scope in judged):
                 who = f"{peers[0].user_id}'s {peers[0].agent}"
                 return EditVerdict(
@@ -1589,6 +1646,9 @@ class Room:
                 )
             scope = judged[0][2]
             return EditVerdict("warn", peers, "symbol" if scope == "imports" else scope)
+
+        if pending:
+            return EditVerdict("warn", pending, "pending", reason=pending_reason)
 
         planned = [
             touch
@@ -1606,6 +1666,153 @@ class Room:
         if mentions:
             return EditVerdict("warn", mentions, "intent")
         return EditVerdict("allow", [], "file")
+
+    # --- pending (unpushed) work ---------------------------------------------
+
+    def _pending_live(self, record: PendingRecord, now: float) -> bool:
+        """False once a disconnected member's report has lapsed."""
+        if self.is_active(record.update.user_id) or record.offline_since is None:
+            return True
+        return now - record.offline_since <= PENDING_OFFLINE_SECONDS
+
+    def _prune_pending(self, now: float) -> None:
+        for key in [k for k, r in self._pending_work.items() if not self._pending_live(r, now)]:
+            self._drop_pending(key)
+
+    def _drop_pending(self, key: tuple[str, str]) -> None:
+        record = self._pending_work.pop(key, None)
+        if record is not None:
+            self._pending_bytes -= record.cost
+
+    def record_pending(
+        self, message: PendingChanges, now: float, agent: AgentKind = "unknown"
+    ) -> PendingUpdate:
+        """Store message as its sender's unpushed files in its repo, replacing
+        the previous report (an empty list clears it). Returns the dashboards'
+        pending_update."""
+        update = PendingUpdate(
+            user_id=message.user_id,
+            agent=agent,
+            repo_id=message.repo_id,
+            branch=message.branch,
+            base=message.base,
+            files=[f.model_copy() for f in message.files],
+            truncated=message.truncated,
+            timestamp=now,
+            online=True,
+            e2e=message.e2e,
+        )
+        key = (message.user_id, message.repo_id)
+        self._drop_pending(key)
+        self._prune_pending(now)
+        if not update.files:
+            return update
+        cost = 256 + len(update.e2e) + len(update.branch) + len(update.base)
+        cost += sum(64 + len(f.path) + sum(len(s) for s in f.symbols) for f in update.files)
+        self._pending_work[key] = PendingRecord(
+            update=update, by_path={f.path: f for f in update.files}, cost=cost
+        )
+        self._pending_bytes += cost
+        own = [k for k in self._pending_work if k[0] == message.user_id]
+        for old in own[: max(0, len(own) - MAX_PENDING_REPORTS_PER_MEMBER)]:
+            self._drop_pending(old)
+        while self._pending_work and (
+            (MAX_PENDING_REPORTS_PER_ROOM > 0 and len(self._pending_work) > MAX_PENDING_REPORTS_PER_ROOM)
+            or (MAX_PENDING_BYTES_PER_ROOM > 0 and self._pending_bytes > MAX_PENDING_BYTES_PER_ROOM)
+        ):
+            self._drop_pending(next(iter(self._pending_work)))
+        return update
+
+    def pending_updates(self, now: Optional[float] = None) -> list[PendingUpdate]:
+        """Every unpushed-work report still held (spectator catch-up), online
+        saying whether its member is connected right now."""
+        now = time.time() if now is None else now
+        self._prune_pending(now)
+        return [
+            record.update.model_copy(update={"online": self.is_active(record.update.user_id)})
+            for record in self._pending_work.values()
+        ]
+
+    @property
+    def pending_report_count(self) -> int:
+        return len(self._pending_work)
+
+    @property
+    def pending_bytes(self) -> int:
+        return self._pending_bytes
+
+    def _pending_peers(
+        self,
+        file_path: str,
+        mine: set[str],
+        now: float,
+        repo_id: str,
+        symbols: list[str],
+        branch: str,
+        always_warn: bool,
+    ) -> tuple[list[FileTouch], str]:
+        """Other people's unpushed changes to file_path, oldest work first,
+        and the reason sentence for the first. mine: the requester's names,
+        lowercased (its own lanes and its daemon's main name are one person).
+        When both sides name symbols only shared ones count; a config file
+        counts whatever changed in it."""
+        found: list[tuple[FileTouch, list[str], bool]] = []
+        for (other_id, report_repo), record in list(self._pending_work.items()):
+            if report_repo != repo_id or other_id.lower() in mine:
+                continue
+            pending = record.by_path.get(file_path)
+            if pending is None:
+                continue
+            if not self._pending_live(record, now):
+                self._drop_pending((other_id, report_repo))
+                continue
+            shared: list[str] = []
+            if symbols and pending.symbols and not always_warn:
+                shared = [name for name in pending.symbols if name in symbols]
+                if not shared:
+                    continue
+            update = record.update
+            touch = FileTouch(
+                user_id=other_id,
+                file_path=file_path,
+                diff="",
+                prompt=None,
+                timestamp=pending.since or update.timestamp,
+                agent=update.agent,
+                repo_id=repo_id,
+                symbols=list(pending.symbols),
+                branch=update.branch,
+                kind="pending",
+                # No blob: a daemon that predates pending_changes cannot open
+                # a "pending" envelope, and the reason names the path anyway.
+            )
+            found.append((touch, shared, self.is_active(other_id)))
+        if not found:
+            return [], ""
+        found.sort(key=lambda item: item[0].timestamp)
+        touch, shared, online = found[0]
+        # In an e2e room names are hashes: only the shared ones (the
+        # requester's own) turn back into names on its side.
+        shown = shared or [n for n in touch.symbols if not n.startswith(suggest.HASH_PREFIX)]
+        names = f" ({', '.join(shown[:3])})" if shown else ""
+        age = _pending_age(now - touch.timestamp)
+        who = touch.user_id if online else f"{touch.user_id} (offline)"
+        if _branches_differ(branch, touch.branch):
+            where = (
+                "another branch"
+                if touch.branch.startswith(suggest.HASH_PREFIX)
+                else f"branch {touch.branch}"
+            )
+            reason = (
+                f"{who} has unpushed changes to {file_path}{names} on {where} "
+                f"from {age}, this will conflict at merge; coordinate first"
+            )
+        else:
+            reason = (
+                f"{who} has unpushed changes to {file_path}{names} from {age}; "
+                "pull or coordinate first"
+            )
+        return [item[0] for item in found], reason
 
     # --- plans ---------------------------------------------------------------
 
