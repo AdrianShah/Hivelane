@@ -97,22 +97,39 @@ def dashboard_base(relay: str) -> str:
 
 
 class InviteTarget:
-    """Parsed invite link or room code: room code, optional relay, optional e2e key."""
+    """Parsed invite link or room code: room code, optional relay, optional
+    e2e key, optional invite secret (what lets the holder in without an
+    owner's approval)."""
 
-    __slots__ = ("room", "relay", "key")
+    __slots__ = ("room", "relay", "key", "invite")
 
-    def __init__(self, room: str, relay: str | None = None, key: str | None = None) -> None:
+    def __init__(
+        self,
+        room: str,
+        relay: str | None = None,
+        key: str | None = None,
+        invite: str | None = None,
+    ) -> None:
         self.room = room
         self.relay = relay
         self.key = key
+        self.invite = invite
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, InviteTarget):
             return NotImplemented
-        return (self.room, self.relay, self.key) == (other.room, other.relay, other.key)
+        return (self.room, self.relay, self.key, self.invite) == (
+            other.room,
+            other.relay,
+            other.key,
+            other.invite,
+        )
 
     def __repr__(self) -> str:
-        return f"InviteTarget(room={self.room!r}, relay={self.relay!r}, key={self.key!r})"
+        return (
+            f"InviteTarget(room={self.room!r}, relay={self.relay!r}, "
+            f"key={self.key!r}, invite={self.invite!r})"
+        )
 
 
 def _canonical_room(raw: str) -> str:
@@ -139,22 +156,74 @@ def room_url(relay: str, room: str) -> str:
     return url
 
 
-def invite_url(relay: str, room: str, key: str | None = None) -> str:
-    """Shareable invite link for `room`: `<dashboard>/j/<ROOM>` with `?relay=`
-    when the dashboard is hosted apart from the relay, and `#key=<key>` when an
-    e2e passphrase is provided (fragments are never sent to any server)."""
+# The fragment parameter carrying a room's invite secret. Mirrors
+# INVITE_PARAM in frontend/src/relayUrl.ts.
+INVITE_PARAM = "invite"
+
+
+def invite_url(relay: str, room: str, key: str | None = None, invite: str | None = None) -> str:
+    """The one share link for `room` (every caller builds it here):
+    `<dashboard>/j/<ROOM>` with `?relay=` when the dashboard is hosted apart
+    from the relay, then a fragment (never sent to any server, so it stays out
+    of logs and Referer) carrying `key=<e2e passphrase>` and
+    `invite=<invite secret>` when given, e.g. `#key=...&invite=...`.
+
+    The invite secret is what lets whoever opens the link in without an
+    owner's approval; the room code alone only knocks."""
+    from urllib.parse import quote
+
     base = dashboard_base(relay)
     code = _canonical_room(room)
     url = f"{base}/j/{code}"
     if relay and base != relay_http_base(relay):
-        from urllib.parse import quote
-
         url += "?relay=" + quote(relay.strip(), safe="")
+    fragment: list[str] = []
     if key and key.strip():
-        from urllib.parse import quote
-
-        url += "#key=" + quote(key.strip(), safe="")
+        fragment.append("key=" + quote(key.strip(), safe=""))
+    if invite and invite.strip():
+        fragment.append(f"{INVITE_PARAM}=" + quote(invite.strip(), safe=""))
+    if fragment:
+        url += "#" + "&".join(fragment)
     return url
+
+
+def _parse_fragment_invite(fragment: str) -> str | None:
+    """The invite secret from `#invite=...` (alone or beside `key=`)."""
+    body = (fragment or "").lstrip("#").strip()
+    if "=" not in body:
+        return None
+    from urllib.parse import unquote
+
+    for part in body.split("&"):
+        name, sep, value = part.partition("=")
+        if sep and name == INVITE_PARAM:
+            decoded = unquote(value).strip()
+            if decoded:
+                return decoded
+    return None
+
+
+INSTALL_COMMAND = "pipx install git+https://github.com/AdrianShah/Hivelane"
+
+
+def share_link(relay: str, room: str, invite: str | None = None) -> str:
+    """The link teammates are given to join `room`: the one place the CLI
+    builds it (`hivelane up`'s share line, the agent prompt, the MCP server),
+    so a change to what a share link carries is made here once. Never carries
+    an e2e room key: that goes to teammates separately."""
+    return invite_url(relay, room, invite=invite)
+
+
+def agent_join_prompt(relay: str, room: str, *, insecure: bool = False, invite: str | None = None) -> str:
+    """The sentence a person pastes into any coding agent to bring a repo into
+    `room` (mirrors agentJoinPrompt in frontend/src/links.ts). The link is
+    quoted: `?` in it is a glob character in zsh."""
+    flags = " --insecure" if insecure else ""
+    code = _canonical_room(room)
+    return (
+        f"Join Hivelane room {code} in this repo: install hivelane if needed "
+        f"(`{INSTALL_COMMAND}`), then run `hivelane up --room \"{share_link(relay, room, invite)}\" -y{flags}`."
+    )
 
 
 def _parse_fragment_key(fragment: str) -> str | None:
@@ -181,8 +250,9 @@ def _parse_fragment_key(fragment: str) -> str | None:
 
 
 def parse_invite_link(link_or_room: str) -> InviteTarget:
-    """Parse an invite URL (`/j/<ROOM>?relay=...#key=...`, `/r/<ROOM>...`) or bare
-    room code into an `InviteTarget(room, relay, key)`. Raises ValueError if invalid."""
+    """Parse an invite URL (`/j/<ROOM>?relay=...#key=...&invite=...`,
+    `/r/<ROOM>...`) or bare room code into an `InviteTarget(room, relay, key,
+    invite)`. Raises ValueError if invalid."""
     raw = (link_or_room or "").strip()
     if not raw:
         raise ValueError("invite link or room code is empty")
@@ -219,4 +289,5 @@ def parse_invite_link(link_or_room: str) -> InviteTarget:
     relay_values = query.get("relay") or []
     relay = relay_values[0].strip() if relay_values and relay_values[0].strip() else None
     key = _parse_fragment_key(parts.fragment)
-    return InviteTarget(room=code, relay=relay, key=key)
+    invite = _parse_fragment_invite(parts.fragment)
+    return InviteTarget(room=code, relay=relay, key=key, invite=invite)

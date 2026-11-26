@@ -38,7 +38,7 @@ export const PBKDF2_ITERATIONS = 600_000;
 export const BLOB_V2_PREFIX = '2.';
 const PAD_MIN = 256;
 const PAD_LINEAR_STEP = 16 * 1024;
-export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check', 'task'] as const;
+export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check', 'task', 'pending'] as const;
 export type EnvelopeType = (typeof ENVELOPE_TYPES)[number];
 
 const NONCE_BYTES = 12;
@@ -459,6 +459,29 @@ export class E2EDecoder {
     return this.state === 'bad-key' ? `can't decrypt·${tag}` : `🔒 ${tag}`;
   }
 
+  /** Whether this decoder holds a room key (so it can seal what it sends). */
+  get hasKey(): boolean {
+    return this.key != null;
+  }
+
+  /**
+   * A task the dashboard adds, in its e2e form (as hivelane/daemon.py
+   * _seal does for a TaskRequest): title and body only in a "task" blob,
+   * files hashed so the relay can still match reservations.
+   */
+  async sealTask(task: { title: string; body: string; files: string[] }): Promise<{ e2e: string; files: string[] }> {
+    if (!this.key) throw new DecryptError('no room key');
+    const key = await this.key;
+    const e2e = await sealEnvelope(key, 'task', { v: 1, title: task.title, body: task.body, text: '', files: task.files });
+    const files: string[] = [];
+    for (const file of task.files) {
+      const token = await hashName(key, file);
+      this.names.set(token, file);
+      files.push(token);
+    }
+    return { e2e, files };
+  }
+
   /** Every h-token in free text (relay reasons, conflict explanations) replaced. */
   text(value: string): string {
     return value.includes('h:') ? value.replace(HASH_TOKEN, (token) => this.name(token)) : value;
@@ -475,6 +498,15 @@ export class E2EDecoder {
     }
     if (typeof envelope.file_path === 'string') found.push(envelope.file_path);
     if (typeof envelope.branch === 'string') found.push(envelope.branch);
+    if (typeof envelope.base === 'string') found.push(envelope.base);
+    // A pending envelope lists {path, symbols} objects rather than paths.
+    for (const file of Array.isArray(envelope.files) ? envelope.files : []) {
+      if (file && typeof file === 'object') {
+        const f = file as Record<string, unknown>;
+        if (typeof f.path === 'string') found.push(f.path);
+        found.push(...asStrings(f.symbols));
+      }
+    }
     found.push(...asStrings(envelope.files), ...asStrings(envelope.symbols));
     for (const value of found) {
       if (!value || value === '<imports>') continue;
@@ -560,6 +592,20 @@ export class E2EDecoder {
           out.symbols = asStrings(frame.symbols).map((s) => this.name(s));
           out.branch = this.name(String(frame.branch ?? ''));
         }
+        break;
+      case 'pending_update':
+        // The blob's names were learned on open: each hashed path and
+        // symbol on the frame now reads as its real name.
+        out.files = (Array.isArray(frame.files) ? frame.files : []).map((file) => {
+          const f = (file && typeof file === 'object' ? file : {}) as Record<string, unknown>;
+          return {
+            ...f,
+            path: this.name(String(f.path ?? '')),
+            symbols: asStrings(f.symbols).map((s) => this.name(s)),
+          };
+        });
+        out.branch = envelope && typeof envelope.branch === 'string' ? envelope.branch : this.name(String(frame.branch ?? ''));
+        out.base = envelope && typeof envelope.base === 'string' ? envelope.base : this.name(String(frame.base ?? ''));
         break;
       case 'edit_decision':
         out.file_path =

@@ -501,6 +501,7 @@ def registration(
         "settings": settings,
         "ignore": list(config.ignore),
         "share_diffs": config.share_diffs,
+        "plan_tasks": config.plan_tasks,
         "redact": config.redact,
         "redact_patterns": list(config.redact_patterns),
         "via_repo_lookup": bool(via_repo_lookup),
@@ -508,6 +509,10 @@ def registration(
         # passphrase (rooms that say e2e) and the owner token, if any.
         "room_key": config.room_key() if config.e2e else None,
         "owner_token": config.owner_token(),
+        # The share link's invite secret and the member token the relay issued
+        # once this machine was let in: either skips the owner's approval.
+        "invite_secret": config.invite_secret(),
+        "member_token": config.member_token(),
     }
 
 

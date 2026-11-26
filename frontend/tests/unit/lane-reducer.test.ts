@@ -8,7 +8,10 @@ import assert from 'node:assert/strict';
 import {
   MAX_LANE_DECISIONS,
   applyLaneEvent,
+  pendingFiles,
+  pendingTruncated,
   replaceConflict,
+  unpushedText,
   type LaneFields,
 } from '../../src/dashboard/laneReducer.ts';
 import { foldUntil } from '../../src/replay.ts';
@@ -73,6 +76,38 @@ test('conflicts are replaced per file and pair, cleared by a non-actionable verd
   list = replaceConflict(list, alert(['u2', 'u1'], 'independent'));
   assert.equal(list.length, 1);
   assert.deepEqual(list[0].users, ['u1', 'u3']);
+});
+
+function pendingEvent(repo: string, files: { path: string; since?: number; symbols?: string[] }[], extra: Record<string, unknown> = {}): FeedEvent {
+  return { type: 'pending_update', user_id: 'u1', repo_id: repo, files, timestamp: T0, ...extra } as FeedEvent;
+}
+
+test('pending: replaced per repo, cleared by an empty report, listed oldest first', () => {
+  let lane = applyLaneEvent(blank, pendingEvent('r1', [{ path: 'b.ts', since: T0 - 10 }, { path: 'a.ts', since: T0 - 50 }]) as never);
+  lane = applyLaneEvent(lane, pendingEvent('r2', [{ path: 'c.ts', since: T0 - 30 }]) as never);
+  assert.deepEqual(pendingFiles(lane).map((f) => f.path), ['a.ts', 'c.ts', 'b.ts']);
+
+  lane = applyLaneEvent(lane, pendingEvent('r1', [{ path: 'd.ts', since: T0 }]) as never);
+  assert.deepEqual(pendingFiles(lane).map((f) => f.path), ['c.ts', 'd.ts'], 'a new report replaces its repo');
+
+  lane = applyLaneEvent(lane, pendingEvent('r2', []) as never);
+  assert.deepEqual(pendingFiles(lane).map((f) => f.path), ['d.ts'], 'everything pushed clears it');
+  assert.equal(pendingTruncated(lane), false);
+});
+
+test('pending: one entry per path across repos, truncation shows as N+', () => {
+  let lane = applyLaneEvent(blank, pendingEvent('r1', [{ path: 'a.ts', since: T0 }], { truncated: true }) as never);
+  lane = applyLaneEvent(lane, pendingEvent('r2', [{ path: 'a.ts', since: T0 - 5 }]) as never);
+  assert.equal(pendingFiles(lane).length, 1);
+  assert.equal(pendingFiles(lane)[0].since, T0 - 5);
+  assert.equal(pendingTruncated(lane), true);
+  assert.equal(unpushedText(1, false), 'Unpushed: 1 file');
+  assert.equal(unpushedText(200, true), 'Unpushed: 200+ files');
+});
+
+test('pending: replay folds it like live', () => {
+  const state = foldUntil([pendingEvent('r1', [{ path: 'a.ts', since: T0 - 1 }])], T0);
+  assert.deepEqual(pendingFiles(state.lanes.u1).map((f) => f.path), ['a.ts']);
 });
 
 test('replay keeps the branch when the relay later sends an empty one (parity with live)', () => {

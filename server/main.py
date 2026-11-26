@@ -24,7 +24,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ValidationError, model_validator
 
 try:
@@ -55,10 +55,14 @@ try:
         IntentMessage,
         JoinDecision,
         JoinMessage,
+        InviteRotate,
         JoinPending,
+        MemberRevoke,
+        MemberToken,
         JoinResolved,
         NameRejected,
         PeerTouch,
+        PendingChanges,
         PlanConflict,
         PlanConflicts,
         PlanMessage,
@@ -89,6 +93,7 @@ try:
         add_event_sink,
         fit_e2e,
         hash_owner_token,
+        new_invite_secret,
         new_owner_token,
         settings_problem,
     )
@@ -108,6 +113,7 @@ try:
         cap_activity,
         cap_edit_check,
         cap_intent,
+        cap_pending,
         cap_plan,
         cap_task,
         sanitize_name,
@@ -150,10 +156,14 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         IntentMessage,
         JoinDecision,
         JoinMessage,
+        InviteRotate,
         JoinPending,
+        MemberRevoke,
+        MemberToken,
         JoinResolved,
         NameRejected,
         PeerTouch,
+        PendingChanges,
         PlanConflict,
         PlanConflicts,
         PlanMessage,
@@ -184,6 +194,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         add_event_sink,
         fit_e2e,
         hash_owner_token,
+        new_invite_secret,
         new_owner_token,
         settings_problem,
     )
@@ -203,6 +214,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         cap_activity,
         cap_edit_check,
         cap_intent,
+        cap_pending,
         cap_plan,
         cap_task,
         sanitize_name,
@@ -239,8 +251,11 @@ RELAY_COMMIT = (
 
 
 def redact_code(code: str) -> str:
-    """A room code is the join credential: logs carry only a short prefix."""
-    return f"{code[:3]}…" if code else "?"
+    """A room code is the join credential: logs carry only a short prefix.
+    The code comes from the request path, so line breaks are dropped too:
+    a forged code cannot start a fake log line."""
+    prefix = code[:3].replace("\r", "").replace("\n", "") if code else ""
+    return f"{prefix}…" if prefix else "?"
 
 
 app = FastAPI(
@@ -337,6 +352,8 @@ metrics.register_gauge(
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
 # Task operations per member (list is free): a script cannot churn the board.
 TASK_MIN_INTERVAL_SECONDS = 0.2
+# A dashboard's task changes (create, cancel): a person clicking, not a script.
+DASHBOARD_TASK_MIN_INTERVAL_SECONDS = 1.0
 
 # Keep empty rooms around so a shared Vercel link / daemon reconnect still
 # works after a brief disconnect (Render free-tier blips, laptop sleep, etc.).
@@ -381,6 +398,12 @@ REASON_APPROVAL_TIMED_OUT = "approval timed out"
 REASON_APPROVAL_QUEUE_FULL = (
     "too many join requests are waiting for approval; try again later"
 )
+# Whether POST /rooms gives new rooms an invite secret (HIVELANE_INVITE_LINKS,
+# on by default). A module constant so a test can patch it.
+INVITE_LINKS = config.SETTINGS.invite_links
+
+# room_rejected reason for a socket whose remembered grant an owner revoked.
+REASON_MEMBER_REVOKED = "an owner removed you from this room"
 
 
 class VersionTooOld(Exception):
@@ -556,7 +579,9 @@ async def create_room(
 
     The response also carries owner_token, returned this once and never
     stored (the relay keeps its SHA-256). A join presenting it is an owner:
-    it may approve joiners and set the room's join policy.
+    it may approve joiners and set the room's join policy. And invite_secret,
+    the secret a share link carries (`#invite=`): a join presenting it is let
+    in without approval, while a join with the code alone waits for an owner.
 
     Unauthenticated, so it is rate-limited per IP, and a room nobody joins
     is evicted (code and all) after HIVELANE_UNCLAIMED_ROOM_TTL_SECONDS
@@ -588,9 +613,12 @@ async def create_room(
         # the dashboard shows different copy for each.
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     owner_token = new_owner_token()
+    invite_secret = new_invite_secret() if INVITE_LINKS else None
     room = room_manager.get(room_id)
     if room is not None:
         room.set_owner_hash(hash_owner_token(owner_token))
+        if invite_secret is not None:
+            room.set_invite_secret(invite_secret, owner_token)
         room_manager.save_access(room_id, room)
     effective = settings if settings is not None else DEFAULT_SETTINGS
     reply: dict[str, object] = {
@@ -598,6 +626,8 @@ async def create_room(
         "settings": effective.model_dump(),
         "owner_token": owner_token,
     }
+    if invite_secret is not None:
+        reply["invite_secret"] = invite_secret
     if room is not None and room.repo_key is not None:
         reply["repo_key"] = room.repo_key
     return reply
@@ -628,6 +658,39 @@ async def lookup_room_by_repo(repo_key: str, request: Request) -> dict[str, str]
     if room_id is None:
         raise HTTPException(status_code=404, detail="No room found for this repository")
     return {"room_id": room_id}
+
+
+@app.get("/rooms/{code}", response_model=None)
+async def room_info(
+    code: str,
+    request: Request,
+    x_hivelane_owner_token: Optional[str] = Header(default=None),
+) -> JSONResponse | dict[str, object]:
+    """Whether a room this caller owns is still alive, and when it expires.
+
+    For the dashboard's "Your rooms" list, which keeps owner tokens for codes
+    that may have expired or finished long ago. Owner only, and deliberately
+    one answer for every failure: an unknown code, a dead one and a wrong or
+    missing token all get the same 404, so the endpoint cannot be used to
+    find out which codes exist. Rate-limited with the repository lookups.
+    Never revives a room (room_manager.owner_room_expiry reads the store)."""
+    allowance = await check_repo_lookup_async(request)
+    if not allowance.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many room requests from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+    try:
+        expires_at = room_manager.owner_room_expiry(code, x_hivelane_owner_token)
+    except StoreReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if expires_at is None:
+        # "alive": false, not just a 404: a relay that predates this endpoint
+        # also answers 404 (no such route), and the dashboard must not take
+        # that for "gone" and throw away owner tokens of rooms that are fine.
+        return JSONResponse(status_code=404, content={"detail": "Room not found", "alive": False})
+    return {"alive": True, "expires_at": expires_at}
 
 
 @app.post("/rooms/{code}/repo")
@@ -670,6 +733,64 @@ async def bind_room_repo(
     }
 
 
+async def _owned_room(
+    code: str, request: Request, owner_token: Optional[str]
+) -> tuple[str, Room]:
+    """The room `code` names when owner_token is its owner token. Unknown
+    room and wrong token are the same 404, so this cannot be used to probe
+    for codes or tokens; rate-limited like repository lookups."""
+    allowance = await check_repo_lookup_async(request)
+    if not allowance.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many room requests from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+    normalized = normalize_room_code(code)
+    if not is_plausible_code(normalized):
+        raise HTTPException(status_code=404, detail="Room not found")
+    try:
+        room = room_manager.get(normalized)
+    except StoreReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if room is None or not room.verify_owner_token(owner_token):
+        raise HTTPException(status_code=404, detail="Room not found")
+    return normalized, room
+
+
+@app.get("/rooms/{code}/invite")
+async def get_room_invite(
+    code: str,
+    request: Request,
+    x_hivelane_owner_token: Optional[str] = Header(default=None),
+) -> dict[str, object]:
+    """The room's current invite secret, for its owner (to print the share
+    link again). invite_secret is null for a room without invite links."""
+    room_id, room = await _owned_room(code, request, x_hivelane_owner_token)
+    return {
+        "room_id": room_id,
+        "invite_required": room.invite_required,
+        "invite_secret": room.invite_secret(x_hivelane_owner_token),
+    }
+
+
+@app.post("/rooms/{code}/invite/rotate")
+async def rotate_room_invite(
+    code: str,
+    request: Request,
+    x_hivelane_owner_token: Optional[str] = Header(default=None),
+) -> dict[str, object]:
+    """Replace the invite secret (owner only): links carrying the old one
+    stop admitting and only ask. On a room without invite links, this turns
+    them on."""
+    room_id, room = await _owned_room(code, request, x_hivelane_owner_token)
+    secret = room.rotate_invite(x_hivelane_owner_token)
+    room_manager.save_access(room_id, room)
+    log.info("Room %s invite link rotated", redact_code(room_id))
+    await room.send_to_owners(room.access_update())
+    return {"room_id": room_id, "invite_required": True, "invite_secret": secret}
+
+
 @app.get("/health")
 async def health() -> dict[str, object]:
     return {"status": "ok", "rooms": room_manager.room_count}
@@ -702,6 +823,8 @@ async def readyz() -> dict[str, object]:
         # Which header client_ip reads first; "socket" alone means none.
         "client_ip_from": limits.client_ip_source(),
         "room_message_limit_per_minute": config.ROOM_MESSAGE_LIMIT,
+        # Whether new rooms get invite links (a code alone then only knocks).
+        "invite_links": INVITE_LINKS,
         "protocol_version": PROTOCOL_VERSION,
         "min_supported_protocol": MIN_SUPPORTED_PROTOCOL,
         "rooms": room_manager.room_count,
@@ -753,16 +876,62 @@ async def _until_disconnect(socket: WebSocket) -> None:
 
 def _pending_reason(room: Room) -> str:
     minutes = int(JOIN_APPROVAL_TIMEOUT_SECONDS // 60)
+    if room.require_approval or not room.invite_required:
+        lead = "This room requires an owner's approval to join."
+    else:
+        # Same words for a missing and a wrong (or rotated) invite secret.
+        lead = (
+            "Joining with the room code alone (no invite link) needs an "
+            "owner's approval."
+        )
     if room.owner_count == 0:
         return (
-            "This room requires an owner's approval to join. No owner is "
+            f"{lead} No owner is "
             f"connected right now; you will be let in if one approves within "
             f"{minutes} minutes."
         )
     return (
-        "This room requires an owner's approval to join. Waiting up to "
+        f"{lead} Waiting up to "
         f"{minutes} minutes for an owner to let you in."
     )
+
+
+def _needs_approval(room: Room, join: JoinMessage, *, trusted: bool, by_invite: bool) -> bool:
+    """Whether this join waits for an owner.
+
+    `trusted`: it presented the owner token or a remembered member token;
+    those are never held. `require_approval` holds everyone else, invite
+    link holders too. Otherwise the invite secret admits, and a join without
+    it waits in a room that has invite links or is bound to a repository
+    (whose code is discoverable). Rooms from before invite links, unbound,
+    admit the code alone, as they always did."""
+    if trusted:
+        return False
+    if room.require_approval:
+        return True
+    if by_invite:
+        return False
+    return room.invite_required or room.has_repo_binding or join.via_repo_lookup
+
+
+async def _remember_joiner(
+    socket: WebSocket, room: Room, name: str, kind: str, grant: Optional[str]
+) -> None:
+    """After an admission: bind the socket to its grant (a member token it
+    presented), or issue a fresh one to someone an owner just approved or who
+    came in by invite link, so their next connection is not asked again.
+    Owners hear about it in room_access."""
+    if grant is not None:
+        room.bind_grant(socket, grant)
+        if room.rename_member(grant, name) and room.code:
+            room_manager.save_access(room.code, room)
+    else:
+        member_id, token = room.remember_member(name, kind)
+        room.bind_grant(socket, member_id)
+        if room.code:
+            room_manager.save_access(room.code, room)
+        await room.send(socket, MemberToken(member_id=member_id, token=token))
+    await room.send_to_owners(room.access_update())
 
 
 async def await_approval(
@@ -880,23 +1049,38 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             continue
 
         is_owner = room.verify_owner_token(join.owner_token)
+        # A remembered member (approved before, or came in by invite link).
+        grant = None if is_owner else room.verify_member_token(join.member_token)
+        by_invite = (
+            not is_owner and grant is None and room.verify_invite_secret(join.invite_secret)
+        )
         # Knowing a repository's remote URL only proves read/clone awareness, not
-        # team membership. Any room bound to a repo key (as well as any join
-        # explicitly marked via_repo_lookup) forces owner approval for non-owners
-        # even if require_approval is off — and even if a modified client omits
-        # via_repo_lookup.
-        needs_approval = room.require_approval or room.has_repo_binding or join.via_repo_lookup
+        # team membership, and a room code alone proves no invitation. Any room
+        # with invite links or bound to a repo key (as well as any join marked
+        # via_repo_lookup) holds a join without the invite secret or a token
+        # for owner approval, even if require_approval is off and even if a
+        # modified client omits via_repo_lookup.
+        needs_approval = _needs_approval(
+            room, join, trusted=is_owner or grant is not None, by_invite=by_invite
+        )
+        # Who gets a member token (or is bound to the one they presented):
+        # everyone admitted other than an owner, in a room with an owner.
+        remember = not is_owner and room.has_owner and (
+            grant is not None or by_invite or needs_approval
+        )
 
         if join.is_spectator:
             # An owner always gets in, so a full room can still be managed.
             if not is_owner and spectators_full(room):
                 await reject("Room full")
                 continue
-            if needs_approval and not is_owner and approved is None:
+            if needs_approval and approved is None:
                 approved = await await_approval(
                     socket, room, SPECTATOR_DISPLAY_NAME, join.agent, ip=ip
                 )
                 await admit_joiner(socket, room, approved)
+            if remember:
+                await _remember_joiner(socket, room, SPECTATOR_DISPLAY_NAME, "dashboard", grant)
             return Admission(None, join.agent, None, is_owner)
 
         if join.protocol_version < MIN_SUPPORTED_PROTOCOL:
@@ -932,7 +1116,7 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             await reject("Room full")
             continue
 
-        if needs_approval and not is_owner and approved is None:
+        if needs_approval and approved is None:
             approved = await await_approval(socket, room, user_id, join.agent, ip=ip)
             deadline = time.monotonic() + HANDSHAKE_TIMEOUT_SECONDS
             # Waiting took time: the name or the last seat may be gone since.
@@ -947,12 +1131,14 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
         # checks, so a concurrent join under the same name sees it taken.
         room.add_member(user_id, socket, join.agent)
         room.begin_catch_up(socket)
-        if approved is not None:
-            try:
+        try:
+            if approved is not None:
                 await admit_joiner(socket, room, approved)
-            except BaseException:
-                room.remove_member(user_id, socket)
-                raise
+            if remember:
+                await _remember_joiner(socket, room, user_id, "member", grant)
+        except BaseException:
+            room.remove_member(user_id, socket)
+            raise
         return Admission(user_id, join.agent, join.settings, is_owner)
 
 
@@ -1229,6 +1415,27 @@ async def handle_plan(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
     await room.broadcast(update)
 
 
+async def handle_pending_changes(room: Room, user_id: str, raw: dict) -> None:
+    """Replace the sender's unpushed-files report for its repo and tell the
+    dashboards. Members are not sent it: the relay judges edit_checks
+    against it itself."""
+    try:
+        message = PendingChanges.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("pending_changes", user_id, exc)
+        return
+    cap_pending(message)
+    message.user_id = user_id
+    if room.is_activity_rate_limited(
+        user_id, ACTIVITY_MIN_INTERVAL_SECONDS, channel="pending", scope=message.repo_id
+    ):
+        log.debug("Rate-limiting pending_changes from %s", user_id)
+        return
+    update = room.record_pending(message, time.time(), room.member_agent(user_id))
+    log.debug("pending_changes from %s (%d file(s))", user_id, len(update.files))
+    await room.broadcast(update, spectators_only=True)
+
+
 async def _answer_task(room: Room, socket: WebSocket, raw: dict, *, reason: str) -> None:
     """A refused task request still gets its reply (the daemon waits on it)."""
     request_id = raw.get("request_id") if isinstance(raw, dict) else None
@@ -1271,6 +1478,24 @@ async def handle_task(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
                     files=message.files,
                     depends_on=message.depends_on,
                     e2e=message.e2e,
+                    claim=message.claim,
+                    lease_seconds=message.lease_seconds,
+                    source=message.source,
+                    lane=_task_name(message.lane),
+                    active=bool(message.active),
+                    suggested_for=_task_name(message.suggested_for),
+                )
+            elif message.op == "update":
+                task = board.update(
+                    user_id,
+                    now,
+                    task_id=message.task_id,
+                    title=message.title,
+                    body=message.body,
+                    files=message.files,
+                    e2e=message.e2e,
+                    active=message.active,
+                    lease_seconds=message.lease_seconds,
                 )
             elif message.op == "claim":
                 task = board.claim(
@@ -1298,6 +1523,74 @@ async def handle_task(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
         log.debug("task %s %s by %s", message.op, reply.task.task_id, user_id)
         await room.broadcast(TaskUpdate(task=reply.task), spectators_only=True)
         room.ensure_task_sweeper()
+
+
+def _task_name(raw: str) -> str:
+    """A member name carried on a task (lane, suggested_for), or "" when it
+    is not one a member could have."""
+    try:
+        return sanitize_name(raw) if raw.strip() else ""
+    except ValueError:
+        return ""
+
+
+async def handle_dashboard_task(room: Room, socket: WebSocket, raw: dict) -> None:
+    """A task operation from a dashboard (spectator) socket.
+
+    Any dashboard admitted to the room may create a task and cancel the ones
+    it created; nothing else (claims belong to members, whose agents the
+    reservation exempts). The task is credited to `as_name`, the name the
+    viewer typed, which nobody verifies: the task carries a dashboard_tag so
+    everyone can see where it came from, and only the dashboard holding the
+    key it was created with (or a member who claims it) may cancel it. In an
+    e2e room the text must come sealed: a dashboard without the room key
+    cannot add tasks there."""
+    try:
+        message = TaskRequest.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("task", "dashboard", exc)
+        await _answer_task(room, socket, raw, reason="invalid")
+        return
+    if message.op not in ("create", "cancel"):
+        await _answer_task(room, socket, raw, reason="not_allowed")
+        return
+    cap_task(message)
+    if len(message.dashboard_key) < 16:
+        await _answer_task(room, socket, raw, reason="invalid")
+        return
+    if room.is_activity_rate_limited(
+        f"dashboard:{id(socket)}", DASHBOARD_TASK_MIN_INTERVAL_SECONDS, channel="task"
+    ):
+        await _answer_task(room, socket, raw, reason="rate_limited")
+        return
+    now = time.time()
+    board = room.tasks
+    try:
+        if message.op == "create":
+            name = _task_name(message.as_name)
+            if not name or (room.settings.e2e and (message.title or message.body or not message.e2e)):
+                raise TaskError("invalid")
+            task = board.create(
+                name,
+                now,
+                repo_id=message.repo_id,
+                title=message.title,
+                body=message.body,
+                files=message.files,
+                depends_on=message.depends_on,
+                e2e=message.e2e,
+                suggested_for=_task_name(message.suggested_for),
+                dashboard_key=message.dashboard_key,
+            )
+        else:
+            task = board.cancel_from_dashboard(message.dashboard_key, now, task_id=message.task_id)
+        reply = TaskReply(request_id=message.request_id, ok=True, task=task)
+    except TaskError as exc:
+        reply = TaskReply(request_id=message.request_id, ok=False, reason=exc.reason)
+    await room.send(socket, reply)
+    if reply.ok and reply.task is not None:
+        log.debug("dashboard task %s %s", message.op, reply.task.task_id)
+        await room.broadcast(TaskUpdate(task=reply.task), spectators_only=True)
 
 
 async def handle_decision_feedback(room: Room, voter: str, raw: dict) -> None:
@@ -1573,6 +1866,45 @@ async def handle_room_policy(
     await room.broadcast(update)
 
 
+async def handle_invite_rotate(
+    room: Room, room_id: str, socket: WebSocket, raw: dict
+) -> None:
+    """An owner replaces the invite link: old links only knock from now on."""
+    if _owner_frame(room, socket, raw, InviteRotate) is None:
+        return
+    if room.rotate_invite() is None:
+        return
+    room_manager.save_access(room_id, room)
+    log.info("Room %s invite link rotated", redact_code(room_id))
+    await room.send_to_owners(room.access_update())
+
+
+async def handle_member_revoke(
+    room: Room, room_id: str, socket: WebSocket, raw: dict
+) -> None:
+    """An owner forgets a remembered member: its token stops working and any
+    socket connected under it is disconnected (room_rejected, close 4403)."""
+    revoke = _owner_frame(room, socket, raw, MemberRevoke)
+    if revoke is None:
+        return
+    assert isinstance(revoke, MemberRevoke)
+    kicked = room.revoke_member(revoke.member_id)
+    if kicked is None:
+        log.debug("member_revoke for unknown member %s", revoke.member_id[:8])
+        return
+    room_manager.save_access(room_id, room)
+    log.info(
+        "Room %s: an owner revoked a remembered member (%d socket(s) disconnected)",
+        redact_code(room_id),
+        len(kicked),
+    )
+    for target in kicked:
+        with contextlib.suppress(Exception):
+            await room.send(target, RoomRejected(reason=REASON_MEMBER_REVOKED))
+        await _close_quietly(target, WS_CLOSE_JOIN_REFUSED, "Removed by an owner")
+    await room.send_to_owners(room.access_update())
+
+
 # --- owner resolve actions (dashboard) ---------------------------------------
 
 # What a relay-made notice calls the person acting: the dashboard's owner is
@@ -1837,7 +2169,8 @@ async def _reject_unknown_room(socket: WebSocket) -> None:
 async def serve_spectator(
     socket: WebSocket, room: Room, room_id: str, admission: Admission
 ) -> None:
-    """A dashboard: catch-up, then votes and (for owners) access decisions."""
+    """A dashboard: catch-up, then votes, its own tasks (create, cancel) and
+    (for owners) access decisions."""
     # Added and snapshotted with no await in between; feeds that arrive while
     # the catch-up is being sent are held and sent after it (finish_catch_up).
     room.add_spectator(socket)
@@ -1858,9 +2191,11 @@ async def serve_spectator(
     )
     catch_up.extend(room.latest_intents())
     catch_up.extend(room.active_plans())
+    catch_up.extend(room.pending_updates())
     catch_up.extend(room.latest_updates())
     catch_up.extend(TaskUpdate(task=task) for task in room.tasks.all())
     if admission.is_owner:
+        catch_up.append(room.access_update())
         catch_up.extend(room.pending_requests())
     try:
         # Catch up: the windows in force, the join policy, current lanes, and
@@ -1884,6 +2219,10 @@ async def serve_spectator(
                 await handle_join_decision(room, socket, raw)
             elif kind == "room_policy":
                 await handle_room_policy(room, room_id, socket, raw)
+            elif kind == "invite_rotate":
+                await handle_invite_rotate(room, room_id, socket, raw)
+            elif kind == "member_revoke":
+                await handle_member_revoke(room, room_id, socket, raw)
             elif kind == "history_request":  # server/history.py
                 await history.handle_request(room, socket, raw)
             elif kind == "hold_release":
@@ -1892,14 +2231,20 @@ async def serve_spectator(
                 await handle_queue_order(room, socket, raw)
             elif kind == "nudge":
                 await handle_nudge(room, socket, raw)
+            elif kind == "task":
+                await handle_dashboard_task(room, socket, raw)
     except FrameTooLarge:
         metrics.messages_dropped_total.inc("frame_too_large")
         await _close_frame_too_large(socket)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:
+        had_grant = room.grant_of(socket) is not None
         room.remove_spectator(socket)
         log.info("Spectator disconnected from room %s", redact_code(room_id))
+        if had_grant:
+            with contextlib.suppress(Exception):
+                await room.send_to_owners(room.access_update())
 
 
 # Frames that judge against the wait queues: lapsed holders are released
@@ -1937,6 +2282,7 @@ async def serve_member(
         if admission.is_owner:
             room.add_owner(socket)
             await room.send(socket, room.policy_update())
+            await room.send(socket, room.access_update())
             for request in room.pending_requests():
                 await room.send(socket, request)
         while True:
@@ -1973,6 +2319,8 @@ async def serve_member(
                 await handle_file_request(room, user_id, raw)
             elif kind == "plan":
                 await handle_plan(room, socket, user_id, raw)
+            elif kind == "pending_changes":
+                await handle_pending_changes(room, user_id, raw)
             elif kind == "task":
                 await handle_task(room, socket, user_id, raw)
             elif kind == "decision_feedback":
@@ -1981,6 +2329,10 @@ async def serve_member(
                 await handle_join_decision(room, socket, raw)
             elif kind == "room_policy":
                 await handle_room_policy(room, room_id, socket, raw)
+            elif kind == "invite_rotate":
+                await handle_invite_rotate(room, room_id, socket, raw)
+            elif kind == "member_revoke":
+                await handle_member_revoke(room, room_id, socket, raw)
             elif kind == "history_request":  # server/history.py
                 await history.handle_request(room, socket, raw)
             else:
@@ -1993,7 +2345,11 @@ async def serve_member(
     finally:
         # Only if this socket still holds the name: a replaced connection's
         # handler must not evict (or announce the departure of) its successor.
+        had_grant = room.grant_of(socket) is not None
         removed = room.remove_member(user_id, socket)
+        if had_grant:
+            with contextlib.suppress(Exception):
+                await room.send_to_owners(room.access_update())
         if removed:
             # Files it held go to whoever waits for them; its places in line go.
             with contextlib.suppress(Exception):

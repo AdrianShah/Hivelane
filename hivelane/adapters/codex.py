@@ -44,6 +44,12 @@ HOOK_COMMAND = "hivelane hook codex"
 PATCH_TOOL = "apply_patch"
 EDIT_TOOLS: tuple[str, ...] = (PATCH_TOOL, "Edit", "Write")
 EDIT_MATCHER = "^(" + "|".join(EDIT_TOOLS) + ")$"
+# Codex's plan tool. Its arguments are the whole step list; PostToolUse turns
+# it into a plan event whose steps become room tasks. Codex documents hooks
+# per tool name, but whether it runs them for update_plan is not confirmed:
+# if it does not, this matcher simply never fires.
+PLAN_TOOL = "update_plan"
+POST_MATCHER = "^(" + "|".join((*EDIT_TOOLS, PLAN_TOOL)) + ")$"
 
 PRE_TOOL_TIMEOUT = 5
 OTHER_TIMEOUT = 10
@@ -71,7 +77,7 @@ def hook_settings(command: str = HOOK_COMMAND) -> dict[str, list[dict[str, Any]]
         ],
         "PostToolUse": [
             {
-                "matcher": EDIT_MATCHER,
+                "matcher": POST_MATCHER,
                 "hooks": [{"type": "command", "command": command, "timeout": OTHER_TIMEOUT}],
             }
         ],
@@ -192,6 +198,14 @@ def _tool_paths(tool_input: dict[str, Any], cwd: str) -> list[str]:
     return out
 
 
+def _plan_event(session_id: str, cwd: str, tool_input: dict[str, Any]) -> Optional[dict[str, Any]]:
+    """update_plan's {"plan": [{"step", "status"}], "explanation"}: the whole
+    plan each time, like Claude Code's TodoWrite."""
+    steps = base.plan_steps(tool_input.get("plan"), content_key="step")
+    summary = "\n".join("- " + s["content"] for s in steps if s["status"] != "completed")
+    return base.plan_event(AGENT, session_id, cwd, summary, tool=PLAN_TOOL, steps=steps)
+
+
 def normalize_payload(payload: Any) -> list[dict[str, Any]]:
     """Codex hook stdin payload -> NormalizedEvent-shaped dicts ([] = ignore)."""
     if not isinstance(payload, dict):
@@ -209,9 +223,14 @@ def normalize_payload(payload: Any) -> list[dict[str, Any]]:
     if event_name not in ("PreToolUse", "PostToolUse"):
         return []
     tool = payload.get("tool_name")
+    tool_input = payload.get("tool_input")
+    if tool == PLAN_TOOL and isinstance(tool_input, dict):
+        if event_name != "PostToolUse":
+            return []
+        event = _plan_event(session_id, cwd, tool_input)
+        return [event] if event is not None else []
     if tool not in EDIT_TOOLS:
         return []
-    tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict):
         return []
 

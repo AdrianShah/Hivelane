@@ -30,7 +30,7 @@ export interface FileChange {
 }
 
 /** Granularity at which the relay found a conflict. */
-export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch' | 'task';
+export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch' | 'task' | 'pending';
 
 /**
  * Opaque repository identity from the daemon (hash of the normalized origin
@@ -113,7 +113,37 @@ export interface PlanUpdate {
   e2e?: string;
 }
 
-export type TaskStatus = 'open' | 'claimed' | 'done' | 'cancelled';
+/** One file a member changed but has not pushed (pending_update). */
+export interface PendingFile {
+  path: string;
+  /** Definitions the unpushed changes touch; empty = the whole file. */
+  symbols?: string[];
+  /** Unix seconds it has been pending since (oldest unpushed commit, or first seen changed); 0 = unknown. */
+  since?: number;
+}
+
+/**
+ * A member's unpushed work in one repo: uncommitted changes plus commits
+ * ahead of its upstream. Replaces the previous one for (user_id, repo_id);
+ * an empty files list clears it. online is false for the last report of a
+ * member that has left. In an e2e room paths, symbols, branch and base are
+ * h: hashes and the real values are in the blob.
+ */
+export interface PendingUpdate {
+  type: 'pending_update';
+  user_id: string;
+  agent?: AgentKind;
+  repo_id?: RepoId;
+  branch?: string;
+  base?: string;
+  files: PendingFile[];
+  truncated?: boolean;
+  timestamp: number;
+  online?: boolean;
+  e2e?: string;
+}
+
+export type TaskStatus ='open' | 'claimed' | 'done' | 'cancelled';
 
 /** A note on a room task (kind "done" is the result, "cancel" the reason). */
 export interface TaskNote {
@@ -125,10 +155,12 @@ export interface TaskNote {
 }
 
 /**
- * A room task: created and claimed from the CLI or MCP. While claimed its
- * files are reserved (others' edits to them are blocked, scope "task").
- * In an e2e room title, body and note text live in the blobs and files are
- * h: hashes.
+ * A room task: created and claimed from the CLI, MCP or a dashboard, or one
+ * step of an agent's own plan (source "agent_plan", kept in step by its
+ * daemon; `lane` wrote it, `active` is the step it is on). While claimed its
+ * files are reserved (others' edits to them are blocked, scope "task"); a
+ * plan step reserves only while active. In an e2e room title, body and note
+ * text live in the blobs and files are h: hashes.
  */
 export interface Task {
   task_id: string;
@@ -146,12 +178,51 @@ export interface Task {
   lease_until?: number | null;
   notes: TaskNote[];
   e2e?: string;
+  source?: TaskSource;
+  lane?: string;
+  active?: boolean;
+  /** Who the creator thinks should take it (claim --next offers it to them first). */
+  suggested_for?: string;
+  /** Set when a dashboard created it: a public tag of that dashboard's task key. */
+  dashboard_tag?: string;
 }
+
+export type TaskSource = 'manual' | 'agent_plan';
 
 /** A task changed (dashboards only), also sent in the join catch-up. */
 export interface TaskUpdate {
   type: 'task_update';
   task: Task;
+}
+
+/**
+ * What a dashboard may send about tasks: create one (credited to `as_name`)
+ * or cancel one it created. `dashboard_key` is this browser's own secret.
+ */
+export interface TaskRequest {
+  type: 'task';
+  request_id: string;
+  op: 'create' | 'cancel';
+  task_id?: string;
+  title?: string;
+  body?: string;
+  files?: string[];
+  depends_on?: string[];
+  repo_id?: RepoId;
+  suggested_for?: string;
+  as_name?: string;
+  dashboard_key: string;
+  e2e?: string;
+}
+
+/** The relay's answer to one task request. */
+export interface TaskReply {
+  type: 'task_reply';
+  request_id: string;
+  ok: boolean;
+  reason?: string;
+  task?: Task | null;
+  tasks?: Task[];
 }
 
 export interface PlanConflict {
@@ -334,6 +405,49 @@ export interface RoomPolicyUpdate {
   require_approval: boolean;
 }
 
+/**
+ * Relay → a joiner just let in (approved, or by invite link): a per-member
+ * token to present as `member_token` next time, so a reload is not asked
+ * again. Sent once; the relay keeps only its hash.
+ */
+export interface MemberToken {
+  type: 'member_token';
+  member_id: string;
+  token: string;
+}
+
+/** One person the room remembers (holds a member token). */
+export interface RememberedMember {
+  member_id: string;
+  name: string;
+  kind: 'member' | 'dashboard';
+  issued_at: number;
+  online: boolean;
+}
+
+/**
+ * Relay → owner sockets only: the invite secret (to show the share link
+ * again; null for rooms from before invite links) and who the room remembers.
+ * In an owner's catch-up and after every rotation, admission or revocation.
+ */
+export interface RoomAccess {
+  type: 'room_access';
+  invite_required: boolean;
+  invite_secret?: string | null;
+  members: RememberedMember[];
+}
+
+/** Owner → relay: replace the invite link; old links stop admitting. */
+export interface InviteRotate {
+  type: 'invite_rotate';
+}
+
+/** Owner → relay: forget a remembered member and disconnect it. */
+export interface MemberRevoke {
+  type: 'member_revoke';
+  member_id: string;
+}
+
 /** Spectator → relay: replay the room's kept events newer than `since` (0 = all). */
 /** Owner -> relay: let a held (blocked) edit go ahead (server/models.py HoldRelease). */
 export interface HoldRelease {
@@ -414,6 +528,7 @@ export type FeedEvent =
   | EditDecision
   | IntentUpdate
   | PlanUpdate
+  | PendingUpdate
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | RoomPolicyUpdate
@@ -449,6 +564,10 @@ export interface JoinMessage {
   owner_token?: string | null;
   /** True when discovered via GET /rooms/by-repo; repo-bound rooms enforce approval regardless. */
   via_repo_lookup?: boolean;
+  /** The invite secret from a share link (`#invite=`): admitted without approval. */
+  invite_secret?: string | null;
+  /** The token from an earlier member_token: skips approval until revoked. */
+  member_token?: string | null;
 }
 
 export type ServerMessage =
@@ -459,14 +578,18 @@ export type ServerMessage =
   | EditDecision
   | IntentUpdate
   | PlanUpdate
+  | PendingUpdate
   | PlanConflicts
   | TaskUpdate
+  | TaskReply
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | RoomPolicyUpdate
   | JoinPending
   | JoinRequest
   | JoinResolved
+  | MemberToken
+  | RoomAccess
   | UserJoined
   | UserLeft
   | NameRejected

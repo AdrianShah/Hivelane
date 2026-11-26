@@ -106,8 +106,11 @@ DEFAULT_EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 
 
 def redact_code(code: str) -> str:
-    """Room codes are the join credential: logs carry only a short prefix."""
-    return f"{code[:3]}…" if code else "?"
+    """Room codes are the join credential: logs carry only a short prefix.
+    The code comes from the request path, so line breaks are dropped too:
+    a forged code cannot start a fake log line."""
+    prefix = code[:3].replace("\r", "").replace("\n", "") if code else ""
+    return f"{prefix}…" if prefix else "?"
 
 
 # How long a room lease outlives the last socket in the room on this instance
@@ -384,6 +387,37 @@ class RoomManager:
         if not isinstance(owner_hash, str) or not owner_hash:
             return False
         return hmac.compare_digest(hash_owner_token(token), owner_hash)
+
+    def owner_room_expiry(self, room_id: str, token: Optional[str]) -> Optional[float]:
+        """When the room expires (epoch seconds; 0.0 if unknown), or None.
+
+        None covers an unknown code, an expired or finished one, and a token
+        that does not own the room alike: GET /rooms/{code} must not tell a
+        prober which codes exist. Like verify_owner_token it reads the store
+        for a room with no live state instead of reviving it, so asking does
+        not keep a dead room alive. Raises StoreReadError when the store
+        cannot answer (the caller says "unknown", never "gone")."""
+        if not token:
+            return None
+        normalized = normalize_room_code(room_id)
+        room = self._rooms.get(normalized)
+        if room is not None:
+            return room.expires_at if room.verify_owner_token(token) else None
+        if not is_plausible_code(normalized):
+            return None
+        record = self._store.get_record(normalized)
+        if record is None:
+            return None
+        access = record.get("access") or {}
+        owner_hash = access.get("owner_hash") if isinstance(access, dict) else None
+        if not isinstance(owner_hash, str) or not owner_hash:
+            return None
+        if not hmac.compare_digest(hash_owner_token(token), owner_hash):
+            return None
+        created_at = record.get("created_at")
+        if isinstance(created_at, (int, float)) and not isinstance(created_at, bool):
+            return float(created_at) + ROOM_TTL_SECONDS
+        return 0.0
 
     def load_webhooks(self, room_id: str) -> Optional[dict[str, Any]]:
         return self._store.get_webhooks(normalize_room_code(room_id))

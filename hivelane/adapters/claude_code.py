@@ -26,7 +26,11 @@ AGENT = "claude-code"
 EDIT_TOOLS: tuple[str, ...] = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 EDIT_MATCHER = "|".join(EDIT_TOOLS)
 # PostToolUse for these yields a `plan` event: the agent's todo list / plan.
-PLAN_TOOLS: tuple[str, ...] = ("TodoWrite", "ExitPlanMode")
+# TodoWrite sends the whole list each time; TaskCreate / TaskUpdate (the task
+# tools newer releases use instead) one step at a time. Their steps become the
+# agent's room tasks (hivelane/plan_tasks.py).
+STEP_TOOLS: tuple[str, ...] = ("TaskCreate", "TaskUpdate")
+PLAN_TOOLS: tuple[str, ...] = ("TodoWrite", "ExitPlanMode", *STEP_TOOLS)
 POST_MATCHER = "|".join(EDIT_TOOLS + PLAN_TOOLS)
 # The tool that launches a subagent: "Agent" today, "Task" in older releases.
 # Its PreToolUse yields a `delegate` event carrying the subagent's task, which
@@ -116,6 +120,55 @@ def _plan_text(tool: Any, tool_input: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _created_task_id(response: Any) -> Any:
+    """The id Claude Code gave a TaskCreate'd task: {"task": {"id"}} or
+    {"id"} in the tool response, or "#3" / "Task 3" in its text."""
+    if isinstance(response, dict):
+        task = response.get("task")
+        if isinstance(task, dict) and task.get("id") is not None:
+            return task.get("id")
+        for key in ("id", "taskId", "task_id"):
+            if response.get(key) is not None:
+                return response.get(key)
+        response = response.get("content") or response.get("text") or ""
+    if isinstance(response, list):
+        response = " ".join(str(part.get("text", "")) if isinstance(part, dict) else str(part) for part in response)
+    if isinstance(response, str):
+        # No `re` on the hook path: the first run of digits after "#" or "task ".
+        lowered = response.lower()
+        for marker in ("#", "task "):
+            start = lowered.find(marker)
+            if start < 0:
+                continue
+            digits = ""
+            for ch in lowered[start + len(marker):]:
+                if not ch.isdigit():
+                    break
+                digits += ch
+            if digits:
+                return digits
+    return None
+
+
+def _plan_steps(tool: Any, tool_input: dict[str, Any], response: Any) -> tuple[list[dict[str, str]], bool]:
+    """(steps, partial) for a plan tool's room tasks."""
+    if tool == "TodoWrite":
+        return base.plan_steps(tool_input.get("todos")), False
+    if tool == "TaskCreate":
+        step = base.plan_step(tool_input.get("subject"), "pending", _created_task_id(response))
+        return ([step] if step is not None and step.get("id") and step["content"] else []), True
+    if tool == "TaskUpdate":
+        ident = tool_input.get("taskId") or tool_input.get("task_id") or tool_input.get("id")
+        if ident is None:
+            return [], True
+        status = tool_input.get("status")
+        step = base.plan_step(tool_input.get("subject"), status if isinstance(status, str) else "", ident)
+        if step is not None and not isinstance(status, str):
+            step["status"] = ""  # renamed only: keep the status it has
+        return ([step] if step is not None else []), True
+    return [], False
+
+
 def _event(kind: str, session_id: str, cwd: str, **fields: Any) -> dict[str, Any]:
     return base.make_event(AGENT, kind, session_id, cwd, **fields)
 
@@ -188,7 +241,10 @@ def normalize_payload(payload: dict[str, Any]) -> Optional[dict[str, Any]]:
     if tool in PLAN_TOOLS:
         if event_name != "PostToolUse":
             return None
-        event = base.plan_event(AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool)
+        steps, partial = _plan_steps(tool, tool_input, payload.get("tool_response"))
+        event = base.plan_event(
+            AGENT, session_id, cwd, _plan_text(tool, tool_input), tool=tool, steps=steps, partial=partial
+        )
         if event is not None:
             event.update(sub)
         return event

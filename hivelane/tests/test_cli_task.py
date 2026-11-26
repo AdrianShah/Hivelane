@@ -104,3 +104,62 @@ def test_tasks_cli_never_imports_the_cli_back() -> None:
         for alias in node.names
     }
     assert not {name for name in imported if name and name.startswith("hivelane")}, imported
+
+
+def test_add_for_a_teammate_and_list_shows_plans_and_suggestions(
+    machine: Machine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sent = scripted(machine, [{"ok": True, "task": _task(suggested_for="ben")}])
+    assert cli.main(["task", "add", "Fix login", "--for", "ben"]) == 0
+    assert sent[0]["suggested_for"] == "ben"
+    capsys.readouterr()
+
+    lease = time.time() + 600
+    tasks = [
+        _task(suggested_for="ben"),
+        _task(task_id="T2", status="claimed", claimer="ada", lease_until=lease, title="Wire it",
+              source="agent_plan", lane="ada-claude", active=True),
+    ]
+    scripted(machine, [{"ok": True, "me": "ada", "tasks": tasks}])
+    assert cli.main(["task", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "[for ben]" in out
+    assert "[step of ada-claude's plan, current step]" in out
+
+
+class _Gh:
+    def __init__(self, stdout: str, returncode: int = 0) -> None:
+        self.stdout, self.returncode, self.stderr = stdout, returncode, "boom"
+
+
+def test_import_github_adds_new_labelled_issues_once(
+    machine: Machine, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import json
+
+    issues = [
+        {"number": 7, "title": "Login loops", "body": "steps", "url": "u7"},
+        {"number": 8, "title": "Dark mode", "body": "", "url": "u8"},
+    ]
+    commands: list[list[str]] = []
+    monkeypatch.setattr(tasks_cli.shutil, "which", lambda name: "gh")
+    monkeypatch.setattr(
+        tasks_cli.subprocess, "run", lambda cmd, **kw: commands.append(cmd) or _Gh(json.dumps(issues))
+    )
+    listed = {"ok": True, "tasks": [_task(title="#7 Login loops")]}
+    sent = scripted(machine, [listed, {"ok": True, "task": _task(task_id="T2")}])
+    assert cli.main(["task", "import-github", "--label", "ready"]) == 0
+    assert commands[0][:5] == ["gh", "issue", "list", "--label", "ready"]
+    creates = [b for b in sent if b["op"] == "create"]
+    assert [c["title"] for c in creates] == ["#8 Dark mode"]
+    assert creates[0]["body"] == "u8"
+    assert "imported 1 issue labelled ready (1 already on the list)" in capsys.readouterr().out
+
+
+def test_import_github_without_gh_says_so(
+    machine: Machine, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(tasks_cli.shutil, "which", lambda name: None)
+    scripted(machine, [{"ok": True}])
+    assert cli.main(["task", "import-github", "--label", "x"]) == 1
+    assert "GitHub CLI" in capsys.readouterr().err
