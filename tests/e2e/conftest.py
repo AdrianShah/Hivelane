@@ -39,6 +39,11 @@ def _no_desktop_notifications(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HIVELANE_DESKTOP_NOTIFY", "0")
     # Nor may a `hivelane up` start a real desktop bee (hivelane/bee.py).
     monkeypatch.setenv("HIVELANE_BEE", "0")
+    # Nor may every daemon report the suite's own checkout as unpushed work
+    # (they would all warn about each other's "pending" files).
+    from hivelane import daemon
+
+    monkeypatch.setattr(daemon, "PENDING_ENABLED", False)
 
 
 def free_port() -> int:
