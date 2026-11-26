@@ -92,7 +92,8 @@ client                                        relay
    `user_joined` for it, and a `room_settings` if its join carried settings.
    A spectator receives, in order: `room_settings`, `room_policy_update`, a
    `user_joined` per member, the latest `intent_update` per member, every
-   active `plan_update`, and the latest `activity_update` per member. A
+   active `plan_update`, every kept `pending_update`, and the latest
+   `activity_update` per member. A
    connection that joined with the owner token also receives the open
    `join_request`s (and, as a member, a `room_policy_update`).
 5. **Traffic** until either side closes. When a member disconnects, the room
@@ -143,6 +144,7 @@ arrived on its own.
 | [`edit_check`](#edit_check) | members | `edit_check_response` to the sender; an `edit_decision` broadcast for warn/block |
 | [`file_request`](#file_request) | members | `file_released` to the sender when the file is (or becomes) theirs; `file_requested` to its holders |
 | [`plan`](#plan) | members | `plan_conflicts` to the sender; a `plan_update` broadcast |
+| [`pending_changes`](#pending_changes) | members | a `pending_update` to dashboards; no reply |
 | [`decision_feedback`](#decision_feedback) | members and spectators | `decision_feedback_update` broadcast |
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
@@ -321,6 +323,43 @@ files, and `"<imports>"` is never matched across files.
 | `request_id` | string (at most 128 chars) | `""` | Client-chosen id, echoed in the `plan_conflicts` reply. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
+### pending_changes
+
+The sender's full set of files changed but not pushed in one repo:
+uncommitted working-tree changes plus the files of commits ahead of the
+branch's upstream (or of the merge-base with the default remote branch). It
+replaces the sender's previous report for that `repo_id`; an empty `files`
+list clears it. The relay keeps it for as long as it holds, not for the touch
+window, and after the sender disconnects for 4 more hours, marked offline.
+Another person's `edit_check` of one of the files gets a `warn` with
+`scope: "pending"` (see [conflict detection](conflict-detection.md#unpushed-work)).
+Clients send it when the set changes, at most every 0.5 s per repo (faster
+ones are dropped), and may re-send it unchanged as a refresh.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `user_id` | string | `""` | Ignored: the relay substitutes the connection's own name. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
+| `branch` | string | `""` | The local branch; `""` if unknown. A different known branch turns the reason into a merge-conflict warning. |
+| `base` | string | `""` | The ref the work is measured against (`"origin/main"`); `""` when there is none. Display only. |
+| `files` | [PendingFile](#pendingfile)[] | `[]` | The pending files, oldest work first. The relay keeps the first 200. |
+| `truncated` | boolean | `false` | More files were pending than the report carries. |
+| `e2e` | string (at most 262,144 chars) | `""` | In an e2e room: a `"pending"` envelope with `files` (`{path, symbols}`), `branch` and `base`. |
+
+#### PendingFile
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | required | Repo-relative path. Paths longer than the relay's path cap are dropped. |
+| `symbols` | string[] | `[]` | Definitions the unpushed changes touch; `[]` means the whole file. The relay keeps 32. When both a report and an `edit_check` name symbols, only shared ones warn. |
+| `since` | number | `0` | Unix time the file has been pending since: its oldest unpushed commit, or when the client first saw it changed. `0` if unknown. |
+
+```json
+{"type": "pending_changes", "repo_id": "3f9c0a1b2d4e5f60", "branch": "main",
+ "base": "origin/main", "truncated": false,
+ "files": [{"path": "web/Header.tsx", "symbols": ["renderNav"], "since": 1764100000.0}]}
+```
+
 ### decision_feedback
 
 A vote on whether a warn/block decision was useful. One vote per socket per
@@ -412,7 +451,7 @@ The answer to an `edit_check`, sent only to the member who asked.
 | `file_path` | string | required | The checked path, as sent. |
 | `others` | [PeerTouch](#peertouch)[] | `[]` | The peers that drove the decision, most relevant first. |
 | `reason` | string | `""` | One sentence about the peer that drove the decision; `""` for allow. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"`, `"pending"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, `task` (the file is reserved by a claimed [room task](#task)) or `pending` (someone else has [unpushed changes](#pending_changes) to it; warn only). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | The sender's place in the file's [wait queue](#wait-queues) after this check, `1` being next; `0` when not queued (allowed, or the queue was full). |
 | `suggestion` | string | `""` | For warn/block, one short thing to do instead, built from room state: another file nobody active is in (this module's tests, the sender's own plan, a neighbour in the same directory) and, for a block, how long to wait. `""` when there is nothing to offer. Paths are never suggested in encrypted rooms. |
@@ -429,7 +468,7 @@ One peer's recent involvement with the checked file.
 | `prompt` | string or `null` | `null` | The peer's intent, if known. |
 | `symbols` | string[] | `[]` | Symbols the peer touched. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
-| `kind` | `"edited"`, `"planned"`, `"intent"` | `"edited"` | `edited` the file, `planned` to, or only mentioned it in its `intent`. |
+| `kind` | `"edited"`, `"planned"`, `"intent"`, `"pending"` | `"edited"` | `edited` the file, `planned` to, only mentioned it in its `intent`, or has `pending` (unpushed) changes to it; for `pending`, `seconds_ago` counts from when the file became pending and `e2e` is always `""`. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
 ```json
@@ -542,6 +581,27 @@ expired.
 | `expires_at` | number | required | Unix time after which the plan no longer counts. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
+### pending_update
+
+A member's unpushed files in one repo, as its last
+[`pending_changes`](#pending_changes) reported them (an empty `files` list:
+everything was pushed). Sent to dashboards only, and in their catch-up for
+every report the relay still keeps, including those of members who have left
+(`online: false`, kept for 4 hours after they disconnect).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `user_id` | string | required | The member. |
+| `agent` | [agent kind](#agent-kinds) | `"unknown"` | The agent behind the member. Labelling only; never used for decisions. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id. |
+| `branch` | string | `""` | The member's local branch. |
+| `base` | string | `""` | The ref its work is measured against. |
+| `files` | [PendingFile](#pendingfile)[] | `[]` | As reported, after the relay's caps. |
+| `truncated` | boolean | `false` | More files were pending than listed. |
+| `timestamp` | number | required | Server time of the report. |
+| `online` | boolean | `true` | `false` for the kept report of a member no longer connected. |
+| `e2e` | string (at most 262,144 chars) | `""` | The member's `"pending"` envelope, in e2e rooms. |
+
 ### edit_decision
 
 An `edit_check` that came back warn or block, broadcast so dashboards can
@@ -557,7 +617,7 @@ show it. Allowed edits are not broadcast.
 | `reason` | string | `""` | Human-readable explanation, safe to show verbatim. |
 | `timestamp` | number | now | Unix time in seconds. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"`, `"pending"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, `task` (the file is reserved by a claimed [room task](#task)) or `pending` (someone else has [unpushed changes](#pending_changes) to it; warn only). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | As in `edit_check_response`: the member's place in the file's wait queue. |
 | `suggestion` | string | `""` | As in `edit_check_response`. |
@@ -839,6 +899,8 @@ and clients should not depend on the exact numbers.
 | Joiners waiting for approval, per address | 2 | `room_rejected`, close 4403 |
 | Tracked file touches per room (`HIVELANE_MAX_TOUCHES_PER_ROOM`, `HIVELANE_MAX_TOUCH_BYTES_PER_ROOM`) | 5,000 touches, 64 MB | Least recently updated touches are forgotten |
 | Plans and intents per member | one per repo, up to 8 repos | Oldest dropped |
+| `pending_changes` from one member, per `repo_id` | one per 0.5 s | Dropped silently |
+| Pending reports | one per member and repo, up to 8 repos; 200 files and 32 symbols per file; 256 reports and 16 MB per room (`HIVELANE_MAX_PENDING_REPORTS_PER_ROOM`, `HIVELANE_MAX_PENDING_BYTES_PER_ROOM`); kept 4 h after the member leaves (`HIVELANE_PENDING_OFFLINE_SECONDS`) | Extra files and symbols cut (`truncated` set); oldest reports dropped |
 | Connection attempts per address (`WS_ATTEMPT_LIMIT`) | 30 per minute | `rate_limited`, close 4429 |
 | Members per room (`HIVELANE_MAX_MEMBERS`) | unlimited by default | `name_rejected` "Room full" |
 | Joiners waiting for approval, per room | 10 | `room_rejected`, close 4403 |
@@ -929,7 +991,10 @@ relay only ever compares values for equality:
   broadcasts (and onto `PeerTouch` and `PlanConflict` entries derived from
   that member's messages) for key holders to decrypt. A `file_request`
   carries an `edit_check` envelope; `file_requested` and `file_released`
-  carry the blob of the request that queued the member.
+  carry the blob of the request that queued the member. A `pending_changes`
+  carries a `"pending"` envelope, copied onto its `pending_update` only (a
+  `PeerTouch` of kind `pending` has none: daemons older than it could not
+  open one).
 
 Keys come from a passphrase that never reaches the relay or the repository.
 The key schedule and the blob format are specified in
