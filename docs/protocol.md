@@ -47,6 +47,7 @@ its `join`. Owners can approve joiners and change the room's join policy.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `GET` | `/rooms/{code}` | Owner only: send the room's owner token as `X-Hivelane-Owner-Token`. Returns `{"alive": true, "expires_at": <epoch seconds>}` while the room exists. An unknown, expired or finished room and a missing or wrong token all get the same `404`, so the endpoint does not reveal which codes exist; `429` (with `Retry-After`) shares the repository-lookup budget (`HIVELANE_REPO_LOOKUP_LIMIT`, default 30 a minute per address); `503` when the room registry cannot be read. Asking never revives a room. The dashboard uses it for "Your rooms". |
 | `GET` | `/health` | Liveness: `{"status": "ok", "rooms": N}`. |
 | `GET` | `/readyz` | Readiness and configuration, including `version` (the hivelane release), `commit` (the build's commit when the deploy sets `HIVELANE_COMMIT`, else `""`), `protocol_version` and `min_supported_protocol`. |
 | `GET` | `/metrics` | Prometheus counters and gauges. Aggregates only, no room codes or names. |
