@@ -3192,6 +3192,7 @@ class Daemon:
         owner_token: Optional[str] = None,
         redact: bool = True,
         redact_patterns: Iterable[str] = (),
+        invite_secret: Optional[str] = None,
     ) -> None:
         if (room is None) != (name is None):
             raise ValueError("room and name go together: both for single-room mode, neither for multi-repo")
@@ -3221,6 +3222,7 @@ class Daemon:
                 settings=room_settings,
                 e2e_key=_room_key(room_settings, room_key, room),
                 owner_token=owner_token,
+                invite_secret=invite_secret,
             )
             self._default = RepoBinding(
                 root=self.root,

@@ -891,10 +891,13 @@ export default function App() {
             break;
 
           case 'task_reply': {
-            // The answer to a task this dashboard added or cancelled.
-            const waiter = taskWaiters.current.get(msg.request_id);
-            if (waiter) {
-              taskWaiters.current.delete(msg.request_id);
+            // The answer to a task this dashboard added or cancelled. Only ids
+            // this tab minted (`dash-…`) are looked up, and only a function the
+            // tab stored is called.
+            const requestId = typeof msg.request_id === 'string' ? msg.request_id : '';
+            const waiter = requestId.startsWith('dash-') ? taskWaiters.current.get(requestId) : undefined;
+            if (typeof waiter === 'function') {
+              taskWaiters.current.delete(requestId);
               waiter(msg);
             }
             break;

@@ -251,8 +251,11 @@ RELAY_COMMIT = (
 
 
 def redact_code(code: str) -> str:
-    """A room code is the join credential: logs carry only a short prefix."""
-    return f"{code[:3]}…" if code else "?"
+    """A room code is the join credential: logs carry only a short prefix.
+    The code comes from the request path, so line breaks are dropped too:
+    a forged code cannot start a fake log line."""
+    prefix = code[:3].replace("\r", "").replace("\n", "") if code else ""
+    return f"{prefix}…" if prefix else "?"
 
 
 app = FastAPI(
@@ -397,7 +400,7 @@ REASON_APPROVAL_QUEUE_FULL = (
 )
 # Whether POST /rooms gives new rooms an invite secret (HIVELANE_INVITE_LINKS,
 # on by default). A module constant so a test can patch it.
-INVITE_LINKS = config.INVITE_LINKS
+INVITE_LINKS = config.SETTINGS.invite_links
 
 # room_rejected reason for a socket whose remembered grant an owner revoked.
 REASON_MEMBER_REVOKED = "an owner removed you from this room"

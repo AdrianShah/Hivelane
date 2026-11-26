@@ -56,7 +56,9 @@ PlanKey = tuple[str, str, str]
 class TaskSender(Protocol):
     name: str
 
-    async def task_request(self, op: str, repo_id: str, **fields: Any) -> dict[str, Any]: ...
+    async def task_request(self, op: str, repo_id: str, **fields: Any) -> dict[str, Any]:
+        """Send one task frame to the room and return the relay's reply."""
+        raise NotImplementedError
 
 
 @dataclass(eq=False)

@@ -435,7 +435,7 @@ def test_revoking_a_member_kicks_it_and_its_token_stops_working(
             owner.send_json({"type": "member_revoke", "member_id": issued["member_id"]})
             assert _next(sam, "room_rejected")["reason"] == REASON_MEMBER_REVOKED
             with pytest.raises(WebSocketDisconnect) as closed:
-                while True:
+                for _ in range(MAX_FRAMES):
                     sam.receive_json()
             assert closed.value.code == WS_CLOSE_JOIN_REFUSED
         for event in _frames(owner):
