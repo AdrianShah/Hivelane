@@ -808,7 +808,9 @@ def route_hook(rest: Sequence[str]) -> Optional[int]:
         return run_hook_fast_path(rest[1:], rest[0])
     try:
         known = ", ".join(REGISTRY)
-        what = f"unknown agent {rest[0]!r}" if rest else "no agent given"
+        # The unknown id is not echoed: argv can carry secrets (`--invite`),
+        # and the list of known agents says enough.
+        what = "unknown agent" if rest else "no agent given"
         print(
             f"hivelane: hook: {what} (this hivelane knows: {known}), proceeding without coordination",
             file=sys.stderr,
