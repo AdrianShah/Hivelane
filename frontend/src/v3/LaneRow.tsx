@@ -58,6 +58,7 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
   const stateLabel = LANE_STATE_LABEL[lane.state];
   const intent = lane.intent ?? lane.plan?.summary ?? lane.caption;
   const problem = lane.state === 'blocked' || lane.state === 'waiting' || lane.state === 'conflict';
+  const step = lane.planProgress && lane.planProgress.total > 0 ? lane.planProgress : null;
 
   return (
     <li id={`lane-${lane.id}`}>
@@ -71,9 +72,10 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
         <Bee state={lane.state} accent={lane.color} size={32} />
         <span className="v3-lane-row__who">
           <span className="v3-lane-row__name">{lane.id}</span>
-          <span className="v3-lane-row__app">
+          <span className="v3-lane-row__app" title={step?.current?.title || undefined}>
             {agentLabel(lane.agent)}
             {lane.branch ? ` · ${lane.branch}` : ''}
+            {step ? ` · step ${Math.min(step.done + 1, step.total)}/${step.total}` : ''}
           </span>
         </span>
         <span className="v3-lane-row__file" title={file ?? undefined}>
@@ -94,6 +96,12 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
           ) : (
             <p className="v3-lane-detail__intent v3-faint">No intent shared yet.</p>
           )}
+          {step ? (
+            <p className="v3-label">
+              Plan: {step.done}/{step.total} steps done
+              {step.current ? ` · now: ${step.current.title || 'encrypted step'}` : ''}
+            </p>
+          ) : null}
           <p className="v3-label">
             Last active {relativeTime(lane.derived.lastActivity, nowSeconds)}
             {held ? ` · held: ${held.reason || `waiting on ${held.others.join(', ')}`}` : ''}
