@@ -13,6 +13,9 @@ const DOCS_LINKS = [
   ["Security", "security/"],
 ] as const;
 
+// Read once at load, not during render: render must stay pure.
+const YEAR = new Date().getFullYear();
+
 /** Nav and footer shared by the public pages (landing, about, updates, legal). */
 export default function SiteLayout({
   children,
@@ -109,7 +112,7 @@ export default function SiteLayout({
             </div>
           </div>
           <div className="site__footer-base">
-            <span>© {new Date().getFullYear()} Hivelane contributors.</span>
+            <span>© {YEAR} Hivelane contributors.</span>
             <span>
               Self-hostable. Your code never has to leave your network.
             </span>

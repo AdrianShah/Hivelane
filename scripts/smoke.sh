@@ -78,8 +78,11 @@ else
 fi
 wait_for "$RELAY_HTTP/health" "relay"
 
-ROOM=$(curl -fsS -X POST "$RELAY_HTTP/rooms" \
-  | python3 -c 'import sys,json; print(json.load(sys.stdin)["room_id"])')
+ROOM_JSON=$(curl -fsS -X POST "$RELAY_HTTP/rooms")
+ROOM=$(printf '%s' "$ROOM_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin)["room_id"])')
+# The code alone only asks an owner for approval; the invite secret lets the
+# daemons straight in.
+INVITE=$(printf '%s' "$ROOM_JSON" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("invite_secret") or "")')
 echo "== room $ROOM"
 
 # A repo whose agents run from two different directories.
@@ -90,8 +93,8 @@ printf 'def broadcast():\n    return 1\n' > "$REPO/server/room.py"
 
 start_daemon() {
   local name=$1 agent=$2 port=$3 cwd=$4
-  ( cd "$cwd" && exec hivelane join "$ROOM" --name "$name" --agent "$agent" \
-      --server "$RELAY_WS" --port "$port" \
+  ( cd "$cwd" && exec hivelane daemon "$ROOM" --name "$name" --agent "$agent" \
+      --server "$RELAY_WS" --port "$port" ${INVITE:+--invite "$INVITE"} \
       >"$WORK/$name.log" 2>&1 ) &
   PIDS+=($!)
   disown

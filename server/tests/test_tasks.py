@@ -157,7 +157,8 @@ def test_a_reserved_file_blocks_a_teammate_with_scope_task() -> None:
 
     outcome = room.queue_edit_check("ben", "cursor", "r", API, verdict, T0 + 60)
     assert (outcome.decision, outcome.scope, outcome.queue_position) == ("block", "task", 0)
-    assert outcome.reason == f"{API} is reserved by ada's task T1 (9 min left on its lease)"
+    # The reason names the task by its title too.
+    assert outcome.reason == f'{API} is reserved by ada\'s task T1 "Fix" (9 min left on its lease)'
     # Not queued: a task can hold its files for hours.
     assert not room.file_queues
 
@@ -336,3 +337,202 @@ def test_an_invalid_task_request_is_still_answered() -> None:
         ada.send_json({"type": "task", "request_id": "x1", "op": "explode"})
         reply = _next(ada, "task_reply")
         assert (reply["ok"], reply["reason"]) == (False, "invalid")
+
+
+def test_a_block_reason_leaves_out_a_sealed_title_and_shortens_a_long_one() -> None:
+    room = _room("ada", "ben")
+    sealed = room.tasks.create("sam", T0, e2e="blob", repo_id="r", files=[API])
+    room.tasks.claim("ada", T0, task_id=sealed.task_id, lease_seconds=600)
+    verdict = room.evaluate_edit("ben", API, T0 + 60, "r")
+    reason = room.queue_edit_check("ben", "cursor", "r", API, verdict, T0 + 60).reason
+    assert reason == f"{API} is reserved by ada's task T1 (9 min left on its lease)"
+
+    long = room.tasks.create("sam", T0, title="x" * 150, repo_id="r", files=["b.py"])
+    room.tasks.claim("ada", T0, task_id=long.task_id, lease_seconds=600)
+    verdict = room.evaluate_edit("ben", "b.py", T0 + 60, "r")
+    reason = room.queue_edit_check("ben", "cursor", "r", "b.py", verdict, T0 + 60).reason
+    assert '"' + "x" * 79 + '…"' in reason
+
+
+# --- agent plans, suggestions, room-wide tasks ---------------------------------------
+
+
+def test_a_plan_step_is_created_claimed_and_reserves_only_while_active() -> None:
+    room = _room("ada", "ben")
+    board = room.tasks
+    step = board.create(
+        "ada", T0, title="Wire the API", repo_id="r", claim=True, source="agent_plan",
+        lane="ada-claude", lease_seconds=3600,
+    )
+    assert (step.status, step.claimer, step.source, step.lane, step.active) == (
+        "claimed", "ada", "agent_plan", "ada-claude", False,
+    )
+    assert step.lease_until == T0 + 3600
+
+    # Files attached while inactive reserve nothing yet.
+    board.update("ada", T0 + 1, task_id=step.task_id, title=step.title, files=[API], active=False)
+    assert room.evaluate_edit("ben", API, T0 + 2, "r").decision == "allow"
+    # The agent is on this step now: reserved, and the lease follows the update.
+    board.update("ada", T0 + 3, task_id=step.task_id, title=step.title, files=[API], active=True, lease_seconds=600)
+    assert step.lease_until == T0 + 603
+    assert room.evaluate_edit("ben", API, T0 + 4, "r").scope == "task"
+    board.done("ada", T0 + 5, task_id=step.task_id)
+    assert step.active is False
+    assert room.evaluate_edit("ben", API, T0 + 6, "r").decision == "allow"
+
+
+def test_update_rules() -> None:
+    board = TaskBoard()
+    task = board.create("sam", T0, title="Fix", files=[API])
+    updated = board.update("sam", T0 + 1, task_id=task.task_id, title="Fix it", files=["a.py", "a.py"])
+    assert (updated.title, updated.files, updated.updated_at) == ("Fix it", ["a.py"], T0 + 1)
+    # Not claimed: active cannot be set, and nobody's lease changes.
+    assert board.update("sam", T0, task_id=task.task_id, title="Fix it", active=True).active is False
+    _refused("not_owner", board.update, "ben", T0, task_id=task.task_id, title="mine now")
+    _refused("invalid", board.update, "sam", T0, task_id=task.task_id, title=" ")
+    board.cancel("sam", T0, task_id=task.task_id)
+    _refused("closed", board.update, "sam", T0, task_id=task.task_id, title="again")
+
+
+def test_claim_next_skips_plan_steps_and_prefers_a_suggestion() -> None:
+    board = TaskBoard()
+    board.create("ada", T0, title="ada's step", repo_id="r", source="agent_plan")
+    for_cy = board.create("sam", T0, title="for cy", repo_id="r", suggested_for="cy")
+    anyone = board.create("sam", T0, title="anyone", repo_id="r")
+    room_wide = board.create("sam", T0, title="room-wide")
+
+    assert board.claim("cy", T0, next_ready=True, repo_id="r").task_id == for_cy.task_id
+    assert board.claim("ben", T0, next_ready=True, repo_id="r").task_id == anyone.task_id
+    # A task without a repo is every repo's.
+    assert board.claim("ben", T0, next_ready=True, repo_id="r").task_id == room_wide.task_id
+    _refused("none_ready", board.claim, "ben", T0, next_ready=True, repo_id="r")
+    assert [t.task_id for t in board.list("other")] == [room_wide.task_id]
+
+
+def test_suggestions_for_someone_else_come_last() -> None:
+    board = TaskBoard()
+    for_cy = board.create("sam", T0, title="for cy", repo_id="r", suggested_for="cy")
+    assert board.claim("ben", T0, next_ready=True, repo_id="r").task_id == for_cy.task_id
+
+
+def test_a_room_wide_task_reserves_in_every_repo() -> None:
+    room = _room("ada", "ben")
+    _claimed(room, [API], repo="")
+    assert room.evaluate_edit("ben", API, T0, "any-repo").scope == "task"
+
+
+# --- tasks from dashboards ------------------------------------------------------------
+
+KEY = "k" * 32
+
+
+def test_a_dashboard_task_is_tagged_and_only_its_dashboard_or_claimer_may_cancel() -> None:
+    try:
+        from server.tasks import dashboard_tag
+    except ImportError:  # Render rootDir=server
+        from tasks import dashboard_tag  # type: ignore[no-redef]
+
+    board = TaskBoard()
+    task = board.create("adrian", T0, title="Fix login", dashboard_key=KEY, suggested_for="ben")
+    assert task.dashboard_tag == dashboard_tag(KEY) and len(task.dashboard_tag) == 16
+    assert task.suggested_for == "ben" and task.status == "open"
+    assert KEY not in task.model_dump_json()
+
+    # A member who shares the typed name is not its creator.
+    _refused("not_owner", board.cancel, "adrian", T0, task_id=task.task_id)
+    _refused("not_owner", board.note, "adrian", T0, task_id=task.task_id, text="x")
+    _refused("not_owner", board.update, "adrian", T0, task_id=task.task_id, title="x")
+    _refused("not_owner", board.cancel_from_dashboard, "x" * 32, T0, task_id=task.task_id)
+    _refused("not_owner", board.cancel_from_dashboard, "", T0, task_id=task.task_id)
+
+    cancelled = board.cancel_from_dashboard(KEY, T0 + 1, task_id=task.task_id)
+    assert cancelled.status == "cancelled"
+    _refused("closed", board.cancel_from_dashboard, KEY, T0, task_id=task.task_id)
+
+    # Once a member claims a dashboard's task, it is the claimer's to cancel.
+    other = board.create("adrian", T0, title="Docs", dashboard_key=KEY)
+    board.claim("ben", T0, task_id=other.task_id)
+    assert board.cancel("ben", T0, task_id=other.task_id).status == "cancelled"
+
+
+def test_dashboards_may_fill_only_part_of_the_list() -> None:
+    board = TaskBoard(max_dashboard_open=2)
+    board.create("v", T0, title="a", dashboard_key=KEY)
+    board.create("v", T0, title="b", dashboard_key=KEY)
+    _refused("limit", board.create, "v", T0, title="c", dashboard_key=KEY)
+    # Members are not held back by it.
+    assert board.create("sam", T0, title="d").task_id == "T3"
+
+
+def _main_module() -> Any:
+    try:
+        from server import main
+    except ImportError:  # Render rootDir=server
+        import main  # type: ignore[no-redef]
+    return main
+
+
+def test_a_dashboard_creates_and_cancels_its_tasks_over_the_wire(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_main_module(), "DASHBOARD_TASK_MIN_INTERVAL_SECONDS", 0.0)
+    _no_task_rate_limit(monkeypatch)
+    client = _client()
+    room_id = client.post("/rooms").json()["room_id"]
+    with client.websocket_connect(f"/ws/{room_id}") as ben, client.websocket_connect(f"/ws/{room_id}") as dash:
+        _join(ben, "ben")
+        dash.send_json({"type": "join", "name": None, "role": "spectator"})
+        dash.send_json({
+            "type": "task", "request_id": "d1", "op": "create", "title": "Fix login",
+            "files": [API], "as_name": "Adrian!", "suggested_for": "ben", "dashboard_key": KEY,
+        })
+        created = _next(dash, "task_reply")
+        assert created["ok"], created
+        task = created["task"]
+        assert (task["created_by"], task["suggested_for"], task["source"]) == ("adrian", "ben", "manual")
+        assert task["dashboard_tag"]
+
+        # No name, a short key, or a member-only op: refused.
+        dash.send_json({"type": "task", "request_id": "d2", "op": "create", "title": "x", "dashboard_key": KEY})
+        assert _next(dash, "task_reply")["reason"] == "invalid"
+        dash.send_json(
+            {"type": "task", "request_id": "d3", "op": "create", "title": "x", "as_name": "v", "dashboard_key": "short"}
+        )
+        assert _next(dash, "task_reply")["reason"] == "invalid"
+        for op in ("claim", "done", "note", "update", "release", "renew", "list"):
+            dash.send_json({"type": "task", "request_id": f"o-{op}", "op": op, "task_id": "T1", "dashboard_key": KEY})
+            assert _next(dash, "task_reply")["reason"] == "not_allowed"
+
+        # ben takes it with claim --next (it was suggested for him), then lets go.
+        ben.send_json({"type": "task", "request_id": "b1", "op": "claim", "next": True})
+        assert _next(ben, "task_reply")["task"]["task_id"] == "T1"
+        ben.send_json({"type": "task", "request_id": "b2", "op": "release", "task_id": "T1"})
+        assert _next(ben, "task_reply")["ok"]
+
+        dash.send_json({"type": "task", "request_id": "d4", "op": "cancel", "task_id": "T1", "dashboard_key": "z" * 32})
+        assert _next(dash, "task_reply")["reason"] == "not_owner"
+        dash.send_json({"type": "task", "request_id": "d5", "op": "cancel", "task_id": "T1", "dashboard_key": KEY})
+        assert _next(dash, "task_reply")["task"]["status"] == "cancelled"
+
+
+def test_dashboard_task_changes_are_rate_limited() -> None:
+    client = _client()
+    room_id = client.post("/rooms").json()["room_id"]
+    with client.websocket_connect(f"/ws/{room_id}") as dash:
+        dash.send_json({"type": "join", "name": None, "role": "spectator"})
+        frame = {"type": "task", "op": "create", "title": "x", "as_name": "v", "dashboard_key": KEY}
+        dash.send_json({**frame, "request_id": "r1"})
+        assert _next(dash, "task_reply")["ok"]
+        dash.send_json({**frame, "request_id": "r2"})
+        assert _next(dash, "task_reply")["reason"] == "rate_limited"
+
+
+def test_a_dashboard_cannot_add_clear_text_tasks_to_an_e2e_room(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_main_module(), "DASHBOARD_TASK_MIN_INTERVAL_SECONDS", 0.0)
+    client = _client()
+    room_id = client.post("/rooms", json={"settings": {"e2e": True}}).json()["room_id"]
+    with client.websocket_connect(f"/ws/{room_id}") as dash:
+        dash.send_json({"type": "join", "name": None, "role": "spectator"})
+        base = {"type": "task", "op": "create", "as_name": "v", "dashboard_key": KEY}
+        dash.send_json({**base, "request_id": "e1", "title": "readable"})
+        assert _next(dash, "task_reply")["reason"] == "invalid"
+        dash.send_json({**base, "request_id": "e2", "e2e": "2.sealed", "files": ["h:" + "c" * 32]})
+        assert _next(dash, "task_reply")["ok"]

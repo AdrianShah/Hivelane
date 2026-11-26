@@ -437,12 +437,14 @@ def test_spectators_need_approval_too(relay: RoomManager) -> None:
             owner.send_json(
                 {"type": "join_decision", "request_id": request["request_id"], "approve": True}
             )
-            # Admitted: told so, then the normal spectator catch-up follows.
+            # Admitted: told so, handed a member token (so a reload is not
+            # asked again), then the normal spectator catch-up follows.
             assert viewer.receive_json() == {
                 "type": "join_resolved",
                 "request_id": request["request_id"],
                 "outcome": "approved",
             }
+            assert viewer.receive_json()["type"] == "member_token"
             assert viewer.receive_json()["type"] == "room_settings"
             assert viewer.receive_json()["require_approval"] is True
 
@@ -599,3 +601,171 @@ def test_rooms_without_approval_admit_as_before(relay: RoomManager) -> None:
     with client.websocket_connect(f"/ws/{room_id}") as sam:
         _join(sam, "sam")
         assert _admitted(sam)
+
+
+# --- repo-bound room discovery and forced approval --------------------------------
+
+
+_REPO_KEY_A = "a" * 64
+_REPO_KEY_B = "b" * 64
+
+
+def test_repo_binding_lookup_and_owner_rebind(relay: RoomManager) -> None:
+    client = TestClient(app)
+    created = client.post("/rooms", json={"repo_key": _REPO_KEY_A})
+    assert created.status_code == 200
+    body = created.json()
+    room_id = body["room_id"]
+    token = body["owner_token"]
+    assert body["repo_key"] == _REPO_KEY_A
+
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_A}").json() == {"room_id": room_id}
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_B}").status_code == 404
+    assert client.get("/rooms/by-repo/not-a-hash").status_code == 422
+
+    # Second room cannot claim the same repository lookup key.
+    conflict = client.post("/rooms", json={"repo_key": _REPO_KEY_A})
+    assert conflict.status_code == 409
+
+    # Owner endpoint enforces authentication and validates conflicts.
+    assert client.post(f"/rooms/{room_id}/repo", json={"repo_key": _REPO_KEY_B}).status_code == 403
+    assert client.post(
+        f"/rooms/{room_id}/repo",
+        json={"repo_key": _REPO_KEY_B},
+        headers={"X-Hivelane-Owner-Token": "wrong"},
+    ).status_code == 403
+    assert client.post(
+        "/rooms/NOPE9999/repo",
+        json={"repo_key": _REPO_KEY_B},
+        headers={"X-Hivelane-Owner-Token": token},
+    ).status_code == 404
+
+    rebound = client.post(
+        f"/rooms/{room_id}/repo",
+        json={"repo_key": _REPO_KEY_B},
+        headers={"X-Hivelane-Owner-Token": token},
+    )
+    assert rebound.status_code == 200
+    assert rebound.json() == {"room_id": room_id, "repo_key": _REPO_KEY_B}
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_A}").status_code == 404
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_B}").json() == {"room_id": room_id}
+
+    unbound = client.post(
+        f"/rooms/{room_id}/repo",
+        json={"repo_key": None},
+        headers={"X-Hivelane-Owner-Token": token},
+    )
+    assert unbound.status_code == 200
+    assert unbound.json() == {"room_id": room_id, "repo_key": None}
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_B}").status_code == 404
+
+
+def test_repo_bound_room_forces_approval_even_when_require_approval_is_off_and_flag_omitted(
+    relay: RoomManager,
+) -> None:
+    client = TestClient(app)
+    created = client.post("/rooms", json={"repo_key": _REPO_KEY_A}).json()
+    room_id, token = created["room_id"], created["owner_token"]
+    room = relay.get(room_id)
+    assert room is not None and not room.require_approval and room.has_repo_binding
+
+    with client.websocket_connect(f"/ws/{room_id}") as owner:
+        # Owner gets straight in without waiting.
+        _spectate(owner, owner_token=token)
+
+        # Normal repo-lookup join is held even though require_approval is False.
+        with client.websocket_connect(f"/ws/{room_id}") as ana:
+            ana.send_json(
+                {
+                    "type": "join",
+                    "name": "ana",
+                    "agent": "claude-code",
+                    "protocol_version": PROTOCOL_VERSION,
+                    "via_repo_lookup": True,
+                }
+            )
+            pending = _next(ana, "join_pending")
+            req = _next(owner, "join_request")
+            assert req["request_id"] == pending["request_id"]
+            owner.send_json({"type": "join_decision", "request_id": req["request_id"], "approve": True})
+            assert _next(owner, "join_resolved")["outcome"] == "approved"
+            _let_in(ana, req["request_id"])
+            assert _admitted(ana)
+
+        # Modified client omitting via_repo_lookup is STILL held server-side.
+        with client.websocket_connect(f"/ws/{room_id}") as bob:
+            _join(bob, "bob")
+            pending_bob = _next(bob, "join_pending")
+            req_bob = _next(owner, "join_request")
+            assert req_bob["request_id"] == pending_bob["request_id"]
+            owner.send_json({"type": "join_decision", "request_id": req_bob["request_id"], "approve": False})
+            assert _refused(bob)[0] == REASON_APPROVAL_DECLINED
+
+        # Spectators without the owner token are also held on repo-bound rooms.
+        with client.websocket_connect(f"/ws/{room_id}") as viewer:
+            _spectate(viewer)
+            pending_v = _next(viewer, "join_pending")
+            req_v = _next(owner, "join_request")
+            assert req_v["request_id"] == pending_v["request_id"]
+            owner.send_json({"type": "join_decision", "request_id": req_v["request_id"], "approve": False})
+            assert _refused(viewer)[0] == REASON_APPROVAL_DECLINED
+
+    # Once unbound with require_approval still off, normal joins admit directly,
+    # while an explicit via_repo_lookup=True join still waits for the owner.
+    assert (
+        client.post(
+            f"/rooms/{room_id}/repo",
+            json={"repo_key": None},
+            headers={"X-Hivelane-Owner-Token": token},
+        ).status_code
+        == 200
+    )
+    with client.websocket_connect(f"/ws/{room_id}") as direct:
+        _join(direct, "direct")
+        assert _admitted(direct)
+    with client.websocket_connect(f"/ws/{room_id}") as marked:
+        marked.send_json(
+            {
+                "type": "join",
+                "name": "marked",
+                "agent": "claude-code",
+                "protocol_version": PROTOCOL_VERSION,
+                "via_repo_lookup": True,
+            }
+        )
+        assert _next(marked, "join_pending")["request_id"]
+
+
+def test_repo_binding_and_forced_approval_survive_relay_restart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    try:
+        from server import main as server_main
+        from server.store import SqliteRoomStore
+    except ImportError:
+        import main as server_main  # type: ignore[no-redef]
+        from store import SqliteRoomStore  # type: ignore[no-redef]
+
+    db_path = str(tmp_path / "relay.db")
+    monkeypatch.setattr(server_main, "room_manager", RoomManager(store=SqliteRoomStore(db_path)))
+    client = TestClient(app)
+    created = client.post("/rooms", json={"repo_key": _REPO_KEY_A}).json()
+    room_id = created["room_id"]
+
+    # Simulate relay restart with empty in-memory RoomManager and same SQLite store.
+    restarted = RoomManager(store=SqliteRoomStore(db_path))
+    monkeypatch.setattr(server_main, "room_manager", restarted)
+    assert client.get(f"/rooms/by-repo/{_REPO_KEY_A}").json() == {"room_id": room_id}
+
+    with client.websocket_connect(f"/ws/{room_id}") as bob:
+        _join(bob, "bob")
+        assert _next(bob, "join_pending")["request_id"]
+
+
+def test_binding_a_repo_to_a_garbage_code_is_not_found(relay: RoomManager) -> None:
+    response = TestClient(app).post(
+        "/rooms/" + "x" * 200 + "/repo",
+        json={"repo_key": "a" * 64},
+        headers={"X-Hivelane-Owner-Token": "t"},
+    )
+    assert response.status_code == 404

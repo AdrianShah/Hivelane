@@ -46,17 +46,20 @@ from pydantic import BaseModel, Field, ValidationError
 from websockets.asyncio.client import connect as ws_connect
 
 from hivelane import __version__, auth, crypto, desktop, gitinfo, redact, symbols
+from hivelane import pending as pending_work
 from hivelane.depgraph import DepTracker
 from hivelane.config import (
     PROJECT_FILE,
     ConfigFileError,
     HivelaneConfig,
     load_config,
+    remembered_room,
     room_key_env_name,
     transport_problem,
     unconfirmed_project_optouts,
 )
 from hivelane.events import EventAck, NormalizedEvent
+from hivelane.plan_tasks import PlanTasks
 from hivelane.protocol import (
     AGENT_KINDS,
     E2E_MAX_CHARS,
@@ -71,6 +74,8 @@ from hivelane.protocol import (
     JoinDecision,
     JoinMessage,
     PeerTouch,
+    PendingChanges,
+    PendingFile,
     PlanConflicts,
     PlanMessage,
     RoomPolicy,
@@ -122,12 +127,26 @@ TRUNCATED_MARKER = chr(10) + "[... truncated by hivelane]"
 # The relay drops a member's activity, intent or plan sent less than 0.5 s
 # after the previous one of the same kind (server/main.py
 # ACTIVITY_MIN_INTERVAL_SECONDS); sends of those kinds are spaced by this.
-PACED_KINDS = ("activity", "intent", "plan")
+PACED_KINDS = ("activity", "intent", "plan", "pending_changes")
 SEND_SPACING = 0.6
 # A connection only counts as stable (and the reconnect backoff resets) after
 # being admitted for this long; a relay that accepts then drops is backed off.
 STABLE_SECONDS = 30.0
 BACKOFF_JITTER = 0.2
+# A join an owner must approve: the relay holds it for 5 minutes, then answers
+# "approval timed out" (server/main.py REASON_APPROVAL_*, short and stable).
+# That is not a refusal, so the daemon asks again after APPROVAL_RETRY_SECONDS,
+# up to APPROVAL_ATTEMPTS asks in all (about half an hour), and stays "waiting"
+# meanwhile. A full approval queue is retried the same way. Only an owner's
+# decline, or no answer at all after the last ask, ends the join.
+APPROVAL_TIMED_OUT = "approval timed out"
+APPROVAL_DECLINED = "an owner declined your request"
+APPROVAL_QUEUE_FULL_PREFIX = "too many join requests are waiting"
+# An owner revoked the grant this connection was admitted under
+# (server/main.py REASON_MEMBER_REVOKED).
+MEMBER_REVOKED = "an owner removed you from this room"
+APPROVAL_RETRY_SECONDS = 60.0
+APPROVAL_ATTEMPTS = 6
 REPO_ROOT_CACHE_SIZE = 64
 ROUTE_CACHE_SIZE = 256
 # Ordinary (non-priority) messages kept for the relay while it is unreachable,
@@ -231,6 +250,15 @@ NESTED_SEARCH_DEPTH = 3
 NESTED_SEARCH_DIRS = 4000
 _NESTED_SKIP = frozenset({"node_modules", "__pycache__", "venv", "env", "dist", "build", "target", "site-packages"})
 _LANE_SHORT_NAMES = {"claude-code": "claude", "gemini-cli": "gemini", "antigravity": "agy"}
+
+# Pending (unpushed) work, see hivelane/pending.py: each repo's primary
+# connection reports the files its user changed but has not pushed. Scanned
+# this often, and this soon after an edit (debounced); an unchanged report is
+# re-sent only every PENDING_REFRESH_SECONDS (the relay keeps it meanwhile).
+PENDING_ENABLED = os.environ.get("HIVELANE_PENDING", "1").strip().lower() not in ("0", "false", "no", "off")
+PENDING_SCAN_SECONDS = 45.0
+PENDING_EDIT_DELAY = 5.0
+PENDING_REFRESH_SECONDS = 600.0
 
 # Mirrors server/room.py _ALWAYS_WARN_BASENAMES: files the relay always judges
 # at file level. In an e2e room it only sees a hashed path and cannot tell, so
@@ -666,9 +694,20 @@ def default_name(root: Optional[Path] = None) -> Optional[str]:
     return sanitize_name(login) or None
 
 
+def _find_git_root(cwd: str) -> Optional[Path]:
+    try:
+        current = Path(cwd).resolve()
+    except (OSError, ValueError):
+        return None
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
 def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
-    """The project config and display name for an unregistered cwd, or None
-    when nothing there says which room to join.
+    """The project or remembered config and display name for an unregistered cwd,
+    or None when nothing there says which room to join.
 
     Blocking (filesystem walk, TOML parse, maybe `git config`): the daemon
     runs it in a worker thread.
@@ -679,7 +718,26 @@ def discover_repo(cwd: str) -> Optional[tuple[HivelaneConfig, str]]:
         print(f"hivelane: not coordinating {cwd}: {exc}", file=sys.stderr)
         return None
     if not config.room or config.root is None:
-        return None
+        git_root = _find_git_root(cwd)
+        if git_root is None:
+            return None
+        repo_id = repo_id_for(git_root)
+        remembered = remembered_room(repo_id) if repo_id else None
+        if remembered is None:
+            return None
+        rem_room, rem_relay = remembered
+        has_key = config.room_key(rem_room, generic_env=False) is not None
+        try:
+            config = load_config(
+                git_root,
+                root=git_root,
+                room=rem_room,
+                relay=rem_relay,
+                e2e=True if has_key else None,
+            )
+        except ConfigFileError as exc:
+            print(f"hivelane: not coordinating {cwd}: {exc}", file=sys.stderr)
+            return None
     # A repo the daemon finds on its own may be a fresh clone: its committed
     # file must not be able to turn off transport security or redaction for
     # data leaving this machine. `hivelane up` in the repo is the opt-in.
@@ -921,6 +979,8 @@ class RepoBinding:
     spec: tuple[Any, ...] = ()
     # Secret redaction for what this repo sends (`redact`, `redact_patterns`).
     redactor: redact.Redactor = field(default_factory=redact.Redactor)
+    # Agents' plans become room tasks (`plan_tasks`, hivelane/plan_tasks.py).
+    plan_tasks: bool = True
 
 
 @dataclass(eq=False)
@@ -980,6 +1040,10 @@ class RoomConnection:
         rename_hint: str = "Re-run with a different --name.",
         e2e_key: Optional[crypto.RoomKey] = None,
         owner_token: Optional[str] = None,
+        via_repo_lookup: bool = False,
+        invite_secret: Optional[str] = None,
+        member_token: Optional[str] = None,
+        remember_tokens: bool = False,
     ) -> None:
         self.room = room
         self.name = name
@@ -1009,8 +1073,22 @@ class RoomConnection:
         # Room ownership (the token POST /rooms returned to whoever created
         # it): an owner socket is asked to approve joins.
         self.owner_token = owner_token
-        # Set while the relay holds this join for an owner's approval.
+        self.via_repo_lookup = via_repo_lookup
+        # The share link's invite secret (lets this join in without an
+        # owner's approval) and the member token the relay issued once we were
+        # let in (skips approval on every reconnect). remember_tokens: keep an
+        # issued token in the personal config, so the next daemon has it too.
+        self.invite_secret = invite_secret
+        self.member_token = member_token
+        self.remember_tokens = remember_tokens
+        # As an owner: the relay's latest room_access (invite secret and
+        # remembered members).
+        self.room_access: Optional[dict[str, Any]] = None
+        # Set while the relay holds this join for an owner's approval, and
+        # kept between asks when the hold timed out and we ask again.
         self.awaiting_approval: Optional[dict[str, Any]] = None
+        # Asks that ended without an answer (approval timed out, queue full).
+        self.unanswered_asks = 0
         # Join requests waiting on us as an owner: request_id -> details.
         self.join_requests: OrderedDict[str, dict[str, Any]] = OrderedDict()
         # The room's join policy as last broadcast (None: never heard).
@@ -1102,6 +1180,15 @@ class RoomConnection:
         # `hivelane wait` callers: (repo_id, path key) -> futures resolved with
         # how the file came free ("released" or "allowed").
         self._file_waiters: dict[tuple[str, str], list[asyncio.Future[str]]] = {}
+        # Pending (unpushed) work reports: repo_id -> (what the last report
+        # said, monotonic time sent, the link it went out on), so an
+        # unchanged report is not re-sent and a reconnect re-sends it.
+        self._pending_sent: dict[str, tuple[tuple, float, Optional[float]]] = {}
+        # repo_id -> (base ref, commits behind it, files those commits change)
+        # from the last scan, for the pull hint; and the (repo_id, path) pairs
+        # already hinted about for that state.
+        self._upstream: dict[str, tuple[str, int, frozenset[str]]] = {}
+        self._pull_hinted: set[tuple[str, str]] = set()
 
     @property
     def ws_url(self) -> str:
@@ -1197,13 +1284,48 @@ class RoomConnection:
 
     def _seal(
         self,
-        message: ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest,
-    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest:
+        message: ActivityMessage
+        | IntentMessage
+        | EditCheckRequest
+        | PlanMessage
+        | FileRequest
+        | TaskRequest
+        | PendingChanges,
+    ) -> ActivityMessage | IntentMessage | EditCheckRequest | PlanMessage | FileRequest | TaskRequest | PendingChanges:
         """The e2e form of message: names hashed, content emptied, the real
         values in its blob. The relay still matches overlaps (equal names hash
         equal) but can read nothing."""
         key = self.e2e_key
         assert key is not None
+        if isinstance(message, PendingChanges):
+            # Paths and symbols hashed like an edit_check's, so the relay can
+            # match them; the real ones (for dashboards) only in the blob.
+            blob = key.seal(
+                "pending",
+                {
+                    "v": 1,
+                    "files": [{"path": f.path, "symbols": list(f.symbols)} for f in message.files],
+                    "branch": message.branch,
+                    "base": message.base,
+                },
+            )
+            files = [
+                PendingFile(
+                    path=self._hash(f.path),
+                    symbols=[] if is_always_warn_file(f.path) else [self._hash(s) for s in f.symbols],
+                    since=f.since,
+                )
+                for f in message.files
+            ]
+            return message.model_copy(
+                update={
+                    "files": files,
+                    "branch": self._hash(message.branch),
+                    "base": self._hash(message.base),
+                    "e2e": blob,
+                    "repo_id": self._wire_repo_id(message.repo_id),
+                }
+            )
         if isinstance(message, FileRequest):
             # An edit_check-shaped envelope: the relay copies it onto the
             # file_requested a holder gets, whose daemon opens it like any
@@ -1582,7 +1704,10 @@ class RoomConnection:
         suggestion = response.suggestion
         if response.scope == "task" and response.decision == "block":
             # Reserved by a claimed task: no line to wait in.
-            suggestion = "pick other work: `hivelane task list` shows open tasks"
+            suggestion = (
+                "pick other work: `hivelane task list` shows open tasks, "
+                "`hivelane task claim --next` takes the oldest ready one"
+            )
         return EventAck(
             decision=response.decision,
             reason=self.reveal(response.reason) or "",
@@ -1924,12 +2049,13 @@ class RoomConnection:
         | FileRequest
         | JoinDecision
         | RoomPolicy
-        | TaskRequest,
+        | TaskRequest
+        | PendingChanges,
     ) -> bool:
         """Queue message for the relay; False when it cannot go (an e2e room
         without a key, or a message that cannot be encoded or made to fit a
         frame). Never raises: a caller's batch must not die with one message."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest, PendingChanges)
         if self.e2e_required and self.e2e_key is None and isinstance(message, sealable):
             # An e2e room without a key: never fall back to cleartext.
             return False
@@ -1963,7 +2089,9 @@ class RoomConnection:
     def _encode(self, message: Any) -> Optional[str]:
         """message as the JSON frame to send (sealed in an e2e room), or None
         when even its slimmest form is over MAX_FRAME_BYTES."""
-        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest)
+        sealable = (ActivityMessage, IntentMessage, EditCheckRequest, PlanMessage, FileRequest, TaskRequest, PendingChanges)
+        if isinstance(message, PendingChanges):
+            return self._encode_pending(message)
         sealed = self._seal(message) if self.e2e_key is not None and isinstance(message, sealable) else message
         payload = sealed.model_dump_json()
         if len(payload) <= MAX_FRAME_BYTES // 4 or len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
@@ -1982,6 +2110,93 @@ class RoomConnection:
                 return payload
         return None
 
+    def _encode_pending(self, message: PendingChanges) -> Optional[str]:
+        """A pending report that fits a frame (and, sealed, the relay's blob
+        cap): as is, then without symbols, then with fewer files."""
+        files = list(message.files)
+        candidates = [message, message.model_copy(update={"files": [f.model_copy(update={"symbols": []}) for f in files]})]
+        for keep in (len(files) // 2, len(files) // 4, 20):
+            if 0 < keep < len(files):
+                candidates.append(
+                    message.model_copy(
+                        update={"files": [f.model_copy(update={"symbols": []}) for f in files[:keep]], "truncated": True}
+                    )
+                )
+        for candidate in candidates:
+            sealed = self._seal(candidate) if self.e2e_key is not None else candidate
+            if len(sealed.e2e) > E2E_MAX_CHARS:
+                continue
+            payload = sealed.model_dump_json()
+            if len(payload.encode("utf-8")) <= MAX_FRAME_BYTES:
+                return payload
+        return None
+
+    # --- pending (unpushed) work ------------------------------------------------
+
+    def report_pending(
+        self, repo_id: str, snapshot: pending_work.PendingSnapshot, *, now: Optional[float] = None
+    ) -> bool:
+        """Tell the relay this repo's unpushed files when that changed since
+        the last report on this link (or PENDING_REFRESH_SECONDS passed).
+        Also remembers what upstream has that we have not pulled, for the
+        pull hint. True when a report was queued."""
+        upstream = (
+            snapshot.base,
+            snapshot.behind,
+            frozenset(snapshot.upstream_files) if snapshot.behind else frozenset(),
+        )
+        if self._upstream.get(repo_id) != upstream:
+            self._upstream[repo_id] = upstream
+            self._pull_hinted = {key for key in self._pull_hinted if key[0] != repo_id}
+            while len(self._upstream) > REPO_ROOT_CACHE_SIZE:
+                self._upstream.pop(next(iter(self._upstream)))
+        if not self.live:
+            return False
+        now = time.monotonic() if now is None else now
+        signature = snapshot.signature()
+        last = self._pending_sent.get(repo_id)
+        if (
+            last is not None
+            and last[0] == signature
+            and last[2] == self.connected_since
+            and now - last[1] < PENDING_REFRESH_SECONDS
+        ):
+            return False
+        if last is None and not snapshot.files:
+            # Nothing pending and nothing ever reported: nothing to clear.
+            self._pending_sent[repo_id] = (signature, now, self.connected_since)
+            return False
+        message = PendingChanges(
+            user_id=self.name,
+            repo_id=repo_id,
+            branch=snapshot.branch,
+            base=snapshot.base,
+            files=[
+                PendingFile(path=path, symbols=list(names), since=round(since, 3))
+                for path, since, names in snapshot.files
+            ],
+            truncated=snapshot.truncated,
+        )
+        if not self._send(message):
+            return False
+        self._pending_sent[repo_id] = (signature, now, self.connected_since)
+        return True
+
+    def pull_note(self, repo_id: str, rel: str) -> Optional[str]:
+        """A one-time hint when upstream has commits we have not pulled that
+        change rel (seen in the last scan; a fetch must have brought them)."""
+        base, behind, files = self._upstream.get(repo_id, ("", 0, frozenset()))
+        if not behind or rel not in files or (repo_id, rel) in self._pull_hinted:
+            return None
+        self._pull_hinted.add((repo_id, rel))
+        if len(self._pull_hinted) > QUEUE_MEMORY:
+            self._pull_hinted.clear()
+        commits = "commit" if behind == 1 else "commits"
+        return (
+            f"{base} has {behind} {commits} you have not pulled that change {rel}; "
+            "pull (or rebase) before editing it to avoid a merge conflict"
+        )
+
     def _join_payload(self) -> str:
         payload = JoinMessage(
             name=self.name,
@@ -1989,6 +2204,9 @@ class RoomConnection:
             repo_id=self._wire_repo_id(self.repo_id),
             settings=self.settings,
             owner_token=self.owner_token,
+            via_repo_lookup=self.via_repo_lookup,
+            invite_secret=self.invite_secret,
+            member_token=self.member_token,
         ).model_dump(mode="json")
         settings = payload.get("settings")
         if isinstance(settings, dict) and not settings.get("e2e"):
@@ -2004,8 +2222,11 @@ class RoomConnection:
             # Sent only when the .hivelane.toml sets it: the relay then keeps
             # the room's history setting (and what it has kept) as it was.
             settings.pop("history_hours", None)
-        if payload.get("owner_token") is None:
-            payload.pop("owner_token", None)
+        for secret in ("owner_token", "invite_secret", "member_token"):
+            if payload.get(secret) is None:
+                payload.pop(secret, None)
+        if not payload.get("via_repo_lookup"):
+            payload.pop("via_repo_lookup", None)
         return json.dumps(payload, separators=(",", ":"))
 
     # --- room ownership ------------------------------------------------------
@@ -2059,6 +2280,29 @@ class RoomConnection:
         exc = task.exception()
         if exc is not None and self.fatal is None:
             self._set_fatal(f"internal error in the relay connection: {exc!r}")
+
+    def _approval_unanswered(self, reason: str) -> bool:
+        """A held join ended without an owner's answer (the hold timed out, or
+        too many joins were waiting). Ask again later instead of giving up,
+        still showing as waiting; after APPROVAL_ATTEMPTS asks, stop with a
+        message that says what happened. True when the frame was handled."""
+        if reason != APPROVAL_TIMED_OUT and not reason.startswith(APPROVAL_QUEUE_FULL_PREFIX):
+            return False
+        self.unanswered_asks += 1
+        if self.unanswered_asks >= APPROVAL_ATTEMPTS:
+            self.awaiting_approval = None
+            self._set_fatal(
+                f"no owner of room {self.room} answered the join request "
+                f"(asked {self.unanswered_asks} times).\n"
+                "Ask them to let you in, then run `hivelane up` again."
+            )
+            return True
+        if self.awaiting_approval is None:
+            self.awaiting_approval = {"request_id": "", "reason": "", "since": time.time()}
+        self.awaiting_approval["reason"] = "no answer yet; asking again shortly"
+        self.retry_after = max(self.retry_after, APPROVAL_RETRY_SECONDS)
+        print(f"hivelane: room {self.room}: {reason}; asking the owner again in {APPROVAL_RETRY_SECONDS:.0f}s")
+        return True
 
     def _set_fatal(self, message: str) -> None:
         self.fatal = message
@@ -2384,6 +2628,33 @@ class RoomConnection:
             if isinstance(other, str) and other and other not in self._self_ids:
                 self._peers.add(other)
 
+    def _on_member_token(self, data: dict[str, Any]) -> None:
+        """The relay let us in (approved, or by invite link) and hands us a
+        token so the next connection is not asked again."""
+        token = data.get("token")
+        if not isinstance(token, str) or not token:
+            return
+        self.member_token = token
+        self._store_member_token(token)
+
+    def _store_member_token(self, token: Optional[str]) -> None:
+        """Keep (or with None forget) this room's member token in the
+        personal config, next to owner_tokens. Never the project file."""
+        if not token:
+            self.member_token = None
+        if not self.remember_tokens:
+            return
+        from hivelane.config import set_personal_secret
+
+        try:
+            set_personal_secret("member_tokens", self.room, token)
+        except (ConfigFileError, OSError, ValueError) as exc:
+            print(
+                f"hivelane: room {self.room}: could not save the member token ({exc}); "
+                "the next reconnect may ask an owner again",
+                file=sys.stderr,
+            )
+
     def _on_join_request(self, data: dict[str, Any]) -> None:
         """Someone waits at the door of a room we own: keep it for `hivelane
         status` / `hivelane room approve`, and say so in the log (one plain
@@ -2442,6 +2713,7 @@ class RoomConnection:
                 # traffic: an owner let us in.
                 print(f"hivelane: room {self.room}: join approved")
                 self.awaiting_approval = None
+            self.unanswered_asks = 0
             # The relay's first ordinary frame (it sends the joiner its own
             # user_joined) is what admits us.
             self._admit()
@@ -2450,8 +2722,23 @@ class RoomConnection:
             self._on_join_request(data)
             return
 
+        if kind == "join_resolved":
+            request_id = str(data.get("request_id") or "")
+            if request_id:
+                self.join_requests.pop(request_id, None)
+            return
+
         if kind == "room_policy_update":
             self.require_approval = bool(data.get("require_approval"))
+            return
+
+        if kind == "member_token":
+            self._on_member_token(data)
+            return
+
+        if kind == "room_access":
+            if self.owner_token:
+                self.room_access = data
             return
 
         if kind == "file_released":
@@ -2546,6 +2833,23 @@ class RoomConnection:
                 f"{self.rename_hint}"
             )
         elif kind == "room_rejected":
+            if self._approval_unanswered(str(data.get("reason") or "")):
+                return
+            if str(data.get("reason") or "") == MEMBER_REVOKED:
+                self.awaiting_approval = None
+                self._store_member_token(None)
+                self._set_fatal(
+                    f"an owner of room {self.room} removed this machine from the room.\n"
+                    "Ask them for a fresh invite link, then run `hivelane up --room <link>`."
+                )
+                return
+            if str(data.get("reason") or "") == APPROVAL_DECLINED:
+                self.awaiting_approval = None
+                self._set_fatal(
+                    f"an owner of room {self.room} turned this join away.\n"
+                    "Ask them to let you in, then run `hivelane up` again."
+                )
+                return
             self._set_fatal(
                 f"the relay rejected room {self.room!r}: {data.get('reason', '')}\n"
                 "Check the room code, or have a teammate create the room first."
@@ -2686,6 +2990,7 @@ class RepoRegistration(BaseModel):
     settings: Optional[RoomSettings] = None
     ignore: list[str] = []
     share_diffs: bool = True
+    plan_tasks: bool = True
     redact: bool = True
     redact_patterns: list[str] = []
     # The e2e room passphrase (settings.e2e rooms), resolved by the CLI from
@@ -2694,6 +2999,12 @@ class RepoRegistration(BaseModel):
     room_key: Optional[str] = None
     # The room's owner token, if this machine created the room.
     owner_token: Optional[str] = None
+    # True when this room was found automatically via relay repo lookup.
+    via_repo_lookup: bool = False
+    # The share link's invite secret and the member token the relay issued
+    # earlier, from the personal config. Never echoed back by /status.
+    invite_secret: Optional[str] = None
+    member_token: Optional[str] = None
 
 
 class RepoRef(BaseModel):
@@ -2729,6 +3040,7 @@ class TaskOp(BaseModel):
     lease_seconds: float = Field(default=1800.0, ge=60, le=28800)
     text: str = ""
     include_closed: bool = False
+    suggested_for: str = Field(default="", max_length=64)
 
 
 class WaitRequest(BaseModel):
@@ -2880,6 +3192,7 @@ class Daemon:
         owner_token: Optional[str] = None,
         redact: bool = True,
         redact_patterns: Iterable[str] = (),
+        invite_secret: Optional[str] = None,
     ) -> None:
         if (room is None) != (name is None):
             raise ValueError("room and name go together: both for single-room mode, neither for multi-repo")
@@ -2909,6 +3222,7 @@ class Daemon:
                 settings=room_settings,
                 e2e_key=_room_key(room_settings, room_key, room),
                 owner_token=owner_token,
+                invite_secret=invite_secret,
             )
             self._default = RepoBinding(
                 root=self.root,
@@ -2941,11 +3255,19 @@ class Daemon:
         self._lane_sweeper: Optional[asyncio.Task[None]] = None
         # session_id -> [(subagent type asked for, task text, monotonic)].
         self._delegations: OrderedDict[str, list[tuple[str, str, float]]] = OrderedDict()
+        # Agents' plans mirrored as room tasks (hivelane/plan_tasks.py).
+        self.plan_tasks = PlanTasks()
         # Repo routing beyond the cwd (agents started above their repo):
         # session_id -> repo root, intents waiting for one, nested lookups.
         self._session_roots: OrderedDict[str, Path] = OrderedDict()
         self._pending_intents: OrderedDict[str, tuple[NormalizedEvent, float]] = OrderedDict()
         self._nested: dict[str, tuple[float, Optional[Path]]] = {}
+        # Pending (unpushed) work: one scanner per repo root, the task that
+        # runs them, and the monotonic time an edit asked for an early scan.
+        self.pending_enabled = PENDING_ENABLED
+        self._pending_scanners: dict[Path, pending_work.PendingScanner] = {}
+        self._pending_task: Optional[asyncio.Task[None]] = None
+        self._pending_due: Optional[float] = None
 
         self._stopping = asyncio.Event()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -3056,7 +3378,10 @@ class Daemon:
             # badge can poll it every couple of seconds.
             from hivelane.bee import bee_state
 
-            return bee_state(self.status())
+            # The snapshot is taken here, on the loop; building the view may
+            # probe a local relay for its dashboard (hivelane/links.py), so
+            # that runs off the loop and never stalls a hook.
+            return await asyncio.to_thread(bee_state, self.status())
 
         @app.post("/events")
         async def events(event: NormalizedEvent) -> EventAck:
@@ -3075,10 +3400,14 @@ class Daemon:
                     settings=body.settings,
                     ignore=body.ignore,
                     share_diffs=body.share_diffs,
+                    plan_tasks=body.plan_tasks,
                     redact=body.redact,
                     redact_patterns=body.redact_patterns,
                     room_key=body.room_key,
                     owner_token=body.owner_token,
+                    via_repo_lookup=body.via_repo_lookup,
+                    invite_secret=body.invite_secret,
+                    member_token=body.member_token,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -3184,6 +3513,7 @@ class Daemon:
             lease_seconds=body.lease_seconds,
             text=body.text,
             include_closed=body.include_closed,
+            suggested_for=body.suggested_for,
         )
         if ignored:
             answer["ignored_files"] = ignored
@@ -3381,14 +3711,17 @@ class Daemon:
         if existing is not None:
             self._route_cache.clear()
             return existing
-        settings: Optional[RoomSettings]
-        try:
-            settings = RoomSettings.model_validate(config.room_settings())
-        except ValidationError as exc:
-            # The team's windows are out of the relay's bounds: coordinate
-            # under the room's current windows rather than not at all.
-            print(f"hivelane: ignoring settings in {config.root}: {exc}", file=sys.stderr)
-            settings = None
+        settings: Optional[RoomSettings] = None
+        if (key / PROJECT_FILE).is_file():
+            try:
+                settings = RoomSettings.model_validate(config.room_settings())
+            except ValidationError as exc:
+                # The team's windows are out of the relay's bounds: coordinate
+                # under the room's current windows rather than not at all.
+                print(f"hivelane: ignoring settings in {config.root}: {exc}", file=sys.stderr)
+                settings = None
+        elif config.e2e:
+            settings = RoomSettings(e2e=True)
         agent = config.agent if config.agent in AGENT_KINDS else "unknown"
         if transport_problem(config.relay, config.insecure):
             print(
@@ -3407,12 +3740,15 @@ class Daemon:
                 settings=settings,
                 ignore=config.ignore,
                 share_diffs=config.share_diffs,
+                plan_tasks=config.plan_tasks,
                 redact=config.redact,
                 redact_patterns=config.redact_patterns,
                 # Never the bare HIVELANE_ROOM_KEY of whoever started the
                 # daemon: it is one room's key, and this may be another room.
                 room_key=config.room_key(generic_env=False),
                 owner_token=config.owner_token(),
+                invite_secret=config.invite_secret(),
+                member_token=config.member_token(),
                 auto=True,
             )
         except ValueError as exc:
@@ -3454,12 +3790,20 @@ class Daemon:
         redact_patterns: Iterable[str] = (),
         room_key: Optional[str] = None,
         owner_token: Optional[str] = None,
+        via_repo_lookup: bool = False,
+        plan_tasks: bool = True,
+        invite_secret: Optional[str] = None,
+        member_token: Optional[str] = None,
     ) -> RepoBinding:
         """Coordinate the repo at root in room (replacing any earlier
         registration of it). Raises ValueError for an unusable registration.
 
         `room_key` is the e2e passphrase (used only when settings say e2e);
-        `owner_token` marks this machine as the room's owner on join."""
+        `owner_token` marks this machine as the room's owner on join;
+        `invite_secret` (from a share link) and `member_token` (issued after an
+        earlier admission) let the join in without an owner's approval. Those
+        two are not part of the registration's identity: a token the daemon
+        itself saved must not make the next `hivelane up` bounce the link."""
         try:
             key = Path(root).expanduser().resolve()
         except (OSError, ValueError) as exc:
@@ -3502,6 +3846,8 @@ class Daemon:
             # secrets themselves are kept only on the connection.
             hashlib.sha256(room_key.encode("utf-8")).hexdigest() if room_key else None,
             hashlib.sha256(owner_token.encode("utf-8")).hexdigest() if owner_token else None,
+            via_repo_lookup,
+            plan_tasks,
         )
         existing = self._bindings.get(key)
         if existing is not None and existing.spec == spec and existing.connection.fatal is None:
@@ -3541,6 +3887,9 @@ class Daemon:
             if problem:
                 conn.fail(problem)
             conn.owner_token = conn.owner_token or owner_token
+            conn.via_repo_lookup = conn.via_repo_lookup or via_repo_lookup
+            conn.invite_secret = invite_secret or conn.invite_secret
+            conn.member_token = conn.member_token or member_token
         if conn is None:
             conn = RoomConnection(
                 room,
@@ -3556,6 +3905,10 @@ class Daemon:
                 ),
                 e2e_key=e2e_key,
                 owner_token=owner_token,
+                via_repo_lookup=via_repo_lookup,
+                invite_secret=invite_secret,
+                member_token=member_token,
+                remember_tokens=True,
             )
             conn.repo_id = repo_id
             conn.repo_root = key
@@ -3570,6 +3923,7 @@ class Daemon:
             auto=auto,
             spec=spec,
             redactor=redactor,
+            plan_tasks=plan_tasks,
         )
         self._bindings[key] = binding
         self._route_cache.clear()
@@ -3647,6 +4001,8 @@ class Daemon:
             await conn.handle_event(held, binding)
         if event.kind == "subagent_start":
             return EventAck()
+        if binding.plan_tasks and event.kind in ("plan", "post_edit"):
+            await self._mirror_plan(binding, conn, event)
         own_names = self._own_names(binding.connection) if event.kind == "pre_edit" else []
         if lane is not None and event.kind == "pre_edit":
             same_chat, siblings = self._family_names(lane)
@@ -3655,8 +4011,105 @@ class Daemon:
             )
             # Still applied: a relay older than same_chat ignores the lists,
             # and then only this ack (not the room's feed) reflects them.
-            return self._family_ack(lane, ack)
-        return await conn.handle_event(event, binding, own_names=own_names)
+            return await self._with_pull_note(event, binding, self._family_ack(lane, ack))
+        ack = await conn.handle_event(event, binding, own_names=own_names)
+        if event.kind == "post_edit":
+            self._pending_soon()
+        elif event.kind == "pre_edit":
+            ack = await self._with_pull_note(event, binding, ack)
+        return ack
+
+    # --- pending (unpushed) work -------------------------------------------------
+
+    async def _with_pull_note(self, event: NormalizedEvent, binding: RepoBinding, ack: EventAck) -> EventAck:
+        """ack plus the repo connection's pull hint for the file, if any (the
+        primary connection scans; a lane's own connection never does)."""
+        if not ack.file_path:
+            return ack
+        repo_id = await binding.connection.repo_id_for_cwd(event.cwd, binding)
+        note = binding.connection.pull_note(repo_id, ack.file_path)
+        return with_note(ack, note) if note else ack
+
+    def _pending_soon(self) -> None:
+        """An edit landed: scan for pending work shortly (debounced)."""
+        if self.pending_enabled and self._pending_task is not None:
+            self._pending_due = time.monotonic() + PENDING_EDIT_DELAY
+
+    def _pending_root(self, binding: RepoBinding) -> Optional[Path]:
+        root = binding.root if binding.root is not None else (binding.connection.repo_root or self._anchor)
+        if root is None:
+            return None
+        top = repo_root(str(root))
+        # Paths are keyed from the git top level; a --root inside a repo keys
+        # them differently, so it is not scanned.
+        if top is None or top.resolve() != Path(root).resolve():
+            return None
+        return top
+
+    async def scan_pending(self, now: Optional[float] = None) -> int:
+        """Scan every coordinated repo once and report what changed. Returns
+        how many reports were queued."""
+        sent = 0
+        scanned: set[Path] = set()
+        for binding in self._all_bindings():
+            conn = binding.connection
+            if not conn.live:
+                continue
+            root = await asyncio.to_thread(self._pending_root, binding)
+            if root is None or root in scanned:
+                continue
+            scanned.add(root)
+            scanner = self._pending_scanners.get(root)
+            if scanner is None:
+                scanner = self._pending_scanners[root] = pending_work.PendingScanner()
+            head = gitinfo.head_for(root)
+            branch = (head.branch or "") if head else ""
+            try:
+                snapshot = await asyncio.to_thread(scanner.scan, root, branch, binding.ignore.matches)
+            except Exception as exc:  # noqa: BLE001 - one repo must not stop the others
+                print(f"hivelane: could not read pending changes in {root} ({exc!r})", file=sys.stderr)
+                continue
+            if snapshot is None:
+                continue
+            repo_id = await conn.repo_id_for_cwd(str(root), binding)
+            if conn.report_pending(repo_id, snapshot, now=now):
+                sent += 1
+        return sent
+
+    async def _scan_pending_periodically(self) -> None:
+        next_scan = time.monotonic() + 2.0
+        while True:
+            await asyncio.sleep(1.0)
+            now = time.monotonic()
+            due = self._pending_due
+            if now < next_scan and (due is None or now < due):
+                continue
+            self._pending_due = None
+            next_scan = now + PENDING_SCAN_SECONDS
+            try:
+                await self.scan_pending()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - keep scanning
+                print(f"hivelane: pending-changes scan failed ({exc!r})", file=sys.stderr)
+
+    async def _mirror_plan(self, binding: RepoBinding, conn: RoomConnection, event: NormalizedEvent) -> None:
+        """Hand a plan's steps, or an edit made while one is in progress, to
+        PlanTasks. Never waits on the relay: the hook only pays for the
+        bookkeeping (the repo id is cached after the first event)."""
+        key = (event.agent, event.session_id, event.subagent_id or "")
+        primary = binding.connection
+        if event.kind == "plan":
+            if not event.steps or not event.session_id:
+                return
+            repo_id = await primary.repo_id_for_cwd(event.cwd, binding)
+            self.plan_tasks.submit(primary, key, repo_id, conn.name, event.steps, bool(event.plan_partial))
+            return
+        if not event.file_path or not event.session_id:
+            return
+        rel = repo_relative_path(event.file_path, event.cwd, binding.root)
+        if not binding.ignore.matches(rel):
+            self.plan_tasks.note_edit(primary, key, rel)
 
     # --- routing beyond the cwd ------------------------------------------------
 
@@ -3985,6 +4438,8 @@ class Daemon:
             self._start_connection(conn)
         if self._lane_sweeper is None:
             self._lane_sweeper = asyncio.create_task(self._sweep_periodically(), name="lanes")
+        if self.pending_enabled and self._pending_task is None:
+            self._pending_task = asyncio.create_task(self._scan_pending_periodically(), name="pending")
 
     async def aclose(self) -> None:
         """Graceful stop of the relay side: flush batches, close sockets."""
@@ -3994,6 +4449,9 @@ class Daemon:
         if self._lane_sweeper is not None:
             self._lane_sweeper.cancel()
             self._lane_sweeper = None
+        if self._pending_task is not None:
+            self._pending_task.cancel()
+            self._pending_task = None
         lanes = [lane.conn for lane in self._lanes.values() if lane.owned]
         self._lanes.clear()
         self._primary_holder.clear()

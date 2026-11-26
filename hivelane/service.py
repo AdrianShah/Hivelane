@@ -485,29 +485,40 @@ def stop(port: int, timeout: float = 5.0) -> bool:
 # --- repos ---------------------------------------------------------------------------
 
 
-def registration(root: Path, config: HivelaneConfig) -> dict[str, Any]:
+def registration(
+    root: Path, config: HivelaneConfig, *, via_repo_lookup: bool = False
+) -> dict[str, Any]:
     """POST /repos body for root under config. Team settings are sent only
     when a project file supplied them, so a repo without one never overrides
-    the windows its room already uses."""
+    the windows its room already uses (except e2e = True when enabled)."""
+    settings = config.room_settings() if config.root is not None else ({"e2e": True} if config.e2e else None)
     return {
         "root": str(Path(root).expanduser().resolve()),
         "room": config.room,
         "relay": config.relay,
         "name": config.name,
         "agent": config.agent,
-        "settings": config.room_settings() if config.root is not None else None,
+        "settings": settings,
         "ignore": list(config.ignore),
         "share_diffs": config.share_diffs,
+        "plan_tasks": config.plan_tasks,
         "redact": config.redact,
         "redact_patterns": list(config.redact_patterns),
+        "via_repo_lookup": bool(via_repo_lookup),
         # Secrets, over the token-guarded loopback socket only: the e2e
         # passphrase (rooms that say e2e) and the owner token, if any.
         "room_key": config.room_key() if config.e2e else None,
         "owner_token": config.owner_token(),
+        # The share link's invite secret and the member token the relay issued
+        # once this machine was let in: either skips the owner's approval.
+        "invite_secret": config.invite_secret(),
+        "member_token": config.member_token(),
     }
 
 
-def connect_repo(port: int, root: Path, config: HivelaneConfig) -> dict:
+def connect_repo(
+    port: int, root: Path, config: HivelaneConfig, *, via_repo_lookup: bool = False
+) -> dict:
     """Register root with the running daemon (replacing any earlier
     registration) and return its /status entry."""
     if not config.room:
@@ -515,7 +526,13 @@ def connect_repo(port: int, root: Path, config: HivelaneConfig) -> dict:
     if not _port_accepts(port):
         raise ServiceError(f"no daemon answering on {LOOPBACK}:{port}")
     try:
-        entry = _request(port, "POST", "/repos", registration(root, config), timeout=REGISTER_TIMEOUT)
+        entry = _request(
+            port,
+            "POST",
+            "/repos",
+            registration(root, config, via_repo_lookup=via_repo_lookup),
+            timeout=REGISTER_TIMEOUT,
+        )
     except urllib.error.HTTPError as exc:
         raise ServiceError(f"the daemon refused {root}: {_error_detail(exc)}") from None
     except _UNREACHABLE as exc:

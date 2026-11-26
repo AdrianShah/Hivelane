@@ -9,15 +9,24 @@ CHECK_INTERVAL seconds.
 
 from __future__ import annotations
 
+import hashlib
 import os
+import re
 import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 CHECK_INTERVAL = 2.0
+REPO_ID_LENGTH = 16
+LOOKUP_KEY_PREFIX = "hivelane-lookup:"
+
+# scp-like git address: [user@]host:path. The host must be longer than one
+# character so a Windows drive path (C:\repos\x) is not mistaken for one.
+_SCP_LIKE = re.compile(r"^(?:[^@/:]+@)?(?P<host>[^@/:\\]{2,}):(?P<path>[^\\].*)$")
 
 
 @dataclass(frozen=True)
@@ -183,3 +192,63 @@ def head_for(root: Optional[Path], now: Optional[float] = None) -> Optional[GitH
 def clear_cache() -> None:
     with _lock:
         _cache.clear()
+
+
+def normalize_remote_url(url: str) -> str:
+    """Reduce a git remote URL to host/path so every clone compares equal."""
+    url = url.strip()
+    if not url:
+        return ""
+    host = ""
+    path = url
+    if "://" in url:
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        path = parts.path
+    else:
+        match = _SCP_LIKE.match(url)
+        if match:
+            host = match["host"].lower()
+            path = match["path"]
+    path = path.replace("\\", "/").strip("/")
+    if path.endswith(".git"):
+        path = path[: -len(".git")].rstrip("/")
+    return f"{host}/{path}" if host else path
+
+
+def _run_git(root: Path, *args: str) -> str:
+    """stdout of a git command run in root, or "" on failure."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=3,
+            check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
+
+
+def compute_repo_id(root: Path) -> str:
+    """Identity of the repository at root, shared by every clone of it."""
+    origin = normalize_remote_url(_run_git(root, "remote", "get-url", "origin"))
+    if origin:
+        return hashlib.sha256(origin.encode("utf-8")).hexdigest()[:REPO_ID_LENGTH]
+    roots = _run_git(root, "rev-list", "--max-parents=0", "HEAD").split()
+    if roots:
+        return min(roots)[:REPO_ID_LENGTH]
+    return ""
+
+
+def repo_lookup_key(repo_id: str) -> str:
+    """One-way relay lookup key derived from a repository id.
+
+    Uses a domain-separated SHA-256 digest instead of the raw remote URL (or
+    the daemon's per-room wire id) so the relay can match clones without ever
+    seeing the repository address.
+    """
+    return hashlib.sha256(f"{LOOKUP_KEY_PREFIX}{repo_id}".encode("utf-8")).hexdigest()

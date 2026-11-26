@@ -11,7 +11,7 @@ import { ShareCardDialog } from './components/PreventedCounter';
 import ReplayView from './components/ReplayView';
 import ShortcutHelp from './components/ShortcutHelp';
 import Sidebar, { type AppView } from './components/Sidebar';
-import TasksView from './components/TasksView';
+import TasksView, { type NewTask } from './components/TasksView';
 import TimelineView from './components/TimelineView';
 import { closeAction } from './closeCodes';
 import { copyText as copyToClipboard } from './clipboard';
@@ -22,12 +22,14 @@ import {
   applyLaneEvent,
   conflictKey,
   isActionableConflict,
+  pendingFiles,
+  pendingTruncated,
   replaceConflict,
 } from './dashboard/laneReducer';
 import { laneState } from './dashboard/laneState';
 import { personColor } from './dashboard/people';
 import { lastDecisionFor } from './dashboard/sessionLog';
-import { applyTaskEvent, claimedBy } from './dashboard/taskReducer';
+import { applyTaskEvent, claimedBy, laneProgress, taskRefusal } from './dashboard/taskReducer';
 import { useDashboardState, viewFromParam } from './dashboard/useDashboardState';
 import { useThemePref } from './dashboard/useTheme';
 import { readViewParam } from './dashboard/useUrlState';
@@ -39,27 +41,45 @@ import {
 } from './detection';
 import { E2EDecoder, forgetRoomKey, rememberRoomKey, takeRoomKey, type E2EState } from './e2e';
 import { notifyFeedEvent } from './notifications';
-import { normalizeRoomCode, relayHttpOrigin, roomLink, roomPath, roomWsUrl } from './relayUrl';
+import { normalizeRoomCode, relayHttpOrigin, roomLink, roomPath, roomWsUrl, shareLink } from './relayUrl';
 import { publishHistoryChunk } from './replay';
-import { createRoom, isApprovalRefusal, ownerToken, spectatorJoin } from './roomAccess';
+import {
+  MEMBER_REVOKED_REASON,
+  createRoom,
+  forgetInviteSecret,
+  forgetMemberToken,
+  inviteSecret,
+  isApprovalRefusal,
+  ownerToken,
+  rememberMemberToken,
+  spectatorJoin,
+  takeInviteSecret,
+} from './roomAccess';
 import { hasSafeKeys, withEntry } from './safeKey';
 import { observeServerTimestamp, serverNowSeconds } from './serverClock';
+import { dashboardTag, dashboardTaskKey } from './taskKey';
 import type {
   ConflictAlert,
   DecisionFeedback,
   DecisionScope,
   FeedEvent,
   HoldRelease,
+  InviteRotate,
   JoinDecision,
   JoinRequest,
+  MemberRevoke,
+  RoomAccess,
   LaneState as WireLaneState,
   Nudge,
+  PendingUpdate,
   PlanUpdate,
   QueueOrder,
   RoomPolicy,
   RoomSettingsUpdate,
   ServerMessage,
   Task,
+  TaskReply,
+  TaskRequest,
 } from './types';
 import DashboardView from './v3/DashboardView';
 import Header from './v3/Header';
@@ -87,6 +107,8 @@ const RECONNECT_MAX_MS = 30_000;
 const OFFLINE_LANE_TTL_MS = 10 * 60 * 1000;
 /** How often derived "x ago" labels and lane statuses refresh with no traffic. */
 const CLOCK_TICK_MS = 5_000;
+// How long a task the dashboard sent waits for the relay's task_reply.
+const TASK_REPLY_TIMEOUT_MS = 8_000;
 /** Per-decision bookkeeping kept for this session (scopes, vote tallies). */
 const MAX_TRACKED_DECISIONS = 500;
 /** With no non-roster frame after it, the catch-up roster ends this long after room_settings. */
@@ -121,6 +143,8 @@ type LaneEntry = WireLaneState & {
   plan: PlanUpdate | null;
   /** Branch from the latest activity_update; empty when unknown. */
   branch: string;
+  /** Latest unpushed-work report per repo (pending_update). */
+  pending?: PendingUpdate[];
 };
 
 const BLANK_ENTRY: LaneEntry = {
@@ -233,6 +257,11 @@ export default function App() {
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
   const [isOwner, setIsOwner] = useState(() => ownerToken(roomId) != null);
+  // The share link's #invite= secret, taken from the address bar on the first
+  // render (and stripped from it) so the first join already carries it.
+  const [tabInvite, setTabInvite] = useState<string | null>(() => takeInviteSecret(roomId));
+  // Owners only: the relay's room_access (invite secret, remembered people).
+  const [access, setAccess] = useState<RoomAccess | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   // The relay's words while waiting for approval, or after being refused.
@@ -251,6 +280,22 @@ export default function App() {
   // repo_id: a go-first must name the file exactly as the relay keys it.
   const rawPaths = useRef(new Map<string, string>());
   const repoOf = useRef(new Map<string, string>());
+  // Tasks this dashboard adds: the live connection's decoder (seals them in
+  // an e2e room), task_reply waiters by request_id, and this browser's tag.
+  const e2eRef = useRef<E2EDecoder | null>(null);
+  const taskWaiters = useRef(new Map<string, (reply: TaskReply | null) => void>());
+  const [myTaskTag, setMyTaskTag] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    dashboardTag(dashboardTaskKey())
+      .then((tag) => {
+        if (live) setMyTaskTag(tag);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [, setThemePref] = useThemePref();
   // Session log, URL filters, prevented-collision stats, overlays, shortcuts.
   const nowSeconds = serverNowSeconds();
@@ -277,7 +322,7 @@ export default function App() {
     return ws;
   };
 
-  const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
+  const sendAccessFrame = (frame: JoinDecision | RoomPolicy | InviteRotate | MemberRevoke): boolean => {
     const ws = liveSocket();
     if (!ws) return false;
     ws.send(JSON.stringify(frame));
@@ -309,9 +354,117 @@ export default function App() {
 
   const setApprovalPolicy = (value: boolean) => {
     if (sendAccessFrame({ type: 'room_policy', require_approval: value })) {
-      showToast(value ? 'Joining now needs your approval' : 'Anyone with the code can join');
+      showToast(
+        value
+          ? 'Joining now needs your approval, invite link or not'
+          : access?.invite_required
+            ? 'People with the invite link come straight in again'
+            : 'Anyone with the code can join',
+      );
     }
   };
+
+  /** Send one task frame and wait for its task_reply (null: none came). */
+  const sendTaskFrame = (frame: TaskRequest): Promise<TaskReply | null> => {
+    const ws = liveSocket();
+    if (!ws || status !== 'connected') return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        taskWaiters.current.delete(frame.request_id);
+        resolve(null);
+      }, TASK_REPLY_TIMEOUT_MS);
+      taskWaiters.current.set(frame.request_id, (reply) => {
+        clearTimeout(timer);
+        resolve(reply);
+      });
+      ws.send(JSON.stringify(frame));
+    });
+  };
+
+  // Why the Add task form is off, if it is.
+  const addTaskBlocked =
+    status !== 'connected'
+      ? 'Connect to the room to add tasks.'
+      : roomSettings?.e2e && !e2eKey
+        ? 'This room is end-to-end encrypted: open it with the room key to add tasks.'
+        : null;
+
+  const addTask = async (task: NewTask): Promise<boolean> => {
+    // A dashboard's task belongs to the room's repo, or to every repo when
+    // the room has several (or none seen yet).
+    const repos = new Set(
+      [...repoOf.current.values(), ...Object.values(tasks).map((t) => t.repo_id ?? '')].filter(Boolean),
+    );
+    const frame: TaskRequest = {
+      type: 'task',
+      request_id: `dash-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      op: 'create',
+      title: task.title,
+      body: task.body,
+      files: task.files,
+      depends_on: task.dependsOn,
+      repo_id: repos.size === 1 ? [...repos][0] : '',
+      suggested_for: task.suggestedFor,
+      as_name: task.asName,
+      dashboard_key: dashboardTaskKey(),
+    };
+    if (roomSettings?.e2e) {
+      const decoder = e2eRef.current;
+      if (!decoder?.hasKey) {
+        showToast('Open the room with its key to add tasks');
+        return false;
+      }
+      try {
+        const sealed = await decoder.sealTask({ title: task.title, body: task.body, files: task.files });
+        Object.assign(frame, { title: '', body: '', files: sealed.files, e2e: sealed.e2e });
+      } catch {
+        showToast('Could not encrypt the task');
+        return false;
+      }
+    }
+    const reply = await sendTaskFrame(frame);
+    if (!reply) {
+      showToast('No answer from the relay, task not added');
+      return false;
+    }
+    if (!reply.ok) {
+      showToast(taskRefusal(reply.reason));
+      return false;
+    }
+    if (reply.task?.dashboard_tag) setMyTaskTag(reply.task.dashboard_tag);
+    showToast(`Added ${reply.task?.task_id ?? 'the task'}`);
+    return true;
+  };
+
+  const cancelTask = async (taskId: string) => {
+    const reply = await sendTaskFrame({
+      type: 'task',
+      request_id: `dash-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      op: 'cancel',
+      task_id: taskId,
+      dashboard_key: dashboardTaskKey(),
+    });
+    if (!reply) showToast('No answer from the relay');
+    else showToast(reply.ok ? `Cancelled ${taskId}` : taskRefusal(reply.reason));
+  };
+
+  const rotateInvite = () => {
+    if (sendAccessFrame({ type: 'invite_rotate' })) {
+      showToast('New invite link made; links sent before now only ask to join');
+    }
+  };
+
+  const revokeMember = (memberId: string) => {
+    if (sendAccessFrame({ type: 'member_revoke', member_id: memberId })) {
+      showToast('Removed: they need a fresh link or your approval to come back');
+    }
+  };
+
+  // The link to send teammates: with the room's invite secret (owners get
+  // it from the relay; a tab opened from a share link holds it too) whoever
+  // opens it comes straight in. Without one, the room link only asks.
+  const inviteForLink = access?.invite_secret ?? tabInvite;
+  const shareUrl = inviteForLink ? shareLink(roomId, { invite: inviteForLink }) : roomLink(roomId);
 
   const sendVoteNow = (decisionId: string, vote: Vote) => {
     if (myVotes[decisionId]) return;
@@ -432,6 +585,7 @@ export default function App() {
     const e2e = new E2EDecoder(e2eKey, roomId, (state) => {
       if (!cancelled) setE2EState(state);
     });
+    e2eRef.current = e2e;
     // Decryption is async; one chain keeps frames applied in arrival order.
     let e2eChain: Promise<void> = Promise.resolve();
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -615,6 +769,18 @@ export default function App() {
               });
               break;
 
+            case 'pending_update':
+              // Unpushed work (laneReducer.ts). A report the relay kept for a
+              // member who has left opens their lane greyed out, so the work
+              // they still have to push stays visible.
+              setUsers((prev) => {
+                const prior = prev[item.user_id];
+                const base = prior ?? (item.online === false ? { ...BLANK_ENTRY, offlineSince: Date.now() } : BLANK_ENTRY);
+                if (!prior && item.files.length === 0) return prev;
+                return withEntry(prev, item.user_id, applyLaneEvent(base, item));
+              });
+              break;
+
             case 'room_settings':
               setRoomSettings(item);
               break;
@@ -668,6 +834,12 @@ export default function App() {
 
         switch (msg.type) {
           case 'room_rejected':
+            if (msg.reason === MEMBER_REVOKED_REASON) {
+              // An owner removed this browser: what let it in no longer works.
+              forgetMemberToken(roomId);
+              forgetInviteSecret(roomId);
+              setTabInvite(null);
+            }
             if (isApprovalRefusal(msg.reason, awaitingApproval)) {
               refused = true;
               awaitingApproval = false;
@@ -707,6 +879,7 @@ export default function App() {
           case 'intent_update':
           case 'edit_decision':
           case 'plan_update':
+          case 'pending_update':
           case 'decision_feedback_update':
           case 'room_policy_update':
           case 'task_update':
@@ -716,6 +889,19 @@ export default function App() {
             // Catch-up frames still arrive as individual messages via send().
             applyDecoded(msg);
             break;
+
+          case 'task_reply': {
+            // The answer to a task this dashboard added or cancelled. Only ids
+            // this tab minted (`dash-…`) are looked up, and only a function the
+            // tab stored is called.
+            const requestId = typeof msg.request_id === 'string' ? msg.request_id : '';
+            const waiter = requestId.startsWith('dash-') ? taskWaiters.current.get(requestId) : undefined;
+            if (typeof waiter === 'function') {
+              taskWaiters.current.delete(requestId);
+              waiter(msg);
+            }
+            break;
+          }
 
           case 'join_pending':
             awaitingApproval = true;
@@ -735,6 +921,16 @@ export default function App() {
 
           case 'join_request':
             setJoinRequests((prev) => (prev.some((r) => r.request_id === msg.request_id) ? prev : [...prev, msg]));
+            break;
+
+          case 'member_token':
+            // Let in (approved, or by invite link): remembered, so a reload
+            // or a reconnect is not asked again.
+            rememberMemberToken(roomId, msg.token);
+            break;
+
+          case 'room_access':
+            setAccess(msg);
             break;
 
           case 'rate_limited':
@@ -794,6 +990,8 @@ export default function App() {
       setRoomSettings(null);
       setStatus('connecting');
       setIsOwner(ownerToken(roomId) != null);
+      setTabInvite(inviteSecret(roomId));
+      setAccess(null);
       setRequireApproval(null);
       setJoinRequests([]);
       setAccessNotice(null);
@@ -859,6 +1057,12 @@ export default function App() {
     }
     return out;
   }, [tasks]);
+  // Who a dashboard's task can be suggested for: each person's main name
+  // (agent lanes are "<person>-<agent>").
+  const taskPeople = useMemo(() => {
+    const ids = Object.keys(users);
+    return ids.filter((id) => !ids.some((other) => other !== id && id.startsWith(`${other}-`))).sort();
+  }, [users]);
   const laneDerived = useMemo(
     () => Object.fromEntries(displayUserIds.map((id) => [id, deriveLane(dash.log, id, users[id], laneNow)])),
     [dash.log, users, displayUserIds, laneNow],
@@ -918,6 +1122,8 @@ export default function App() {
         changes: entry.changes,
         decisions: entry.decisions,
         plan: entry.plan,
+        pendingFiles: pendingFiles(entry),
+        pendingTruncated: pendingTruncated(entry),
         branch: entry.branch,
         offlineSince: entry.offlineSince,
         derived,
@@ -925,14 +1131,15 @@ export default function App() {
         currentFile: lastFile.get(id) ?? entry.changes[0]?.file_path ?? null,
         inConflict: conflictedUsers.has(id),
         claimedTasks: tasksByClaimer[id] ?? [],
+        planProgress: laneProgress(tasks, id),
       };
     });
     return { lanes: out, held: heldOut.sort((a, b) => b.timestamp - a.timestamp) };
-  }, [dash.log, displayUserIds, users, laneDerived, releasedAt, queuedAt, conflictedUsers, laneNow, tasksByClaimer]);
+  }, [dash.log, displayUserIds, users, laneDerived, releasedAt, queuedAt, conflictedUsers, laneNow, tasksByClaimer, tasks]);
 
   const actions: V3Actions = {
     navigate: navigateTo,
-    copyLink: () => copyText('Room link', roomLink(roomId)),
+    copyLink: () => copyText(inviteForLink ? 'Invite link' : 'Room link', shareUrl),
     copyText,
     newRoom: () => {
       if (!creatingRoom) void createNewRoom();
@@ -986,6 +1193,8 @@ export default function App() {
     isOwner,
     settings: roomSettings,
     requireApproval,
+    shareUrl,
+    access,
     accessNotice,
     lanes,
     onlineIds: onlineUserIds,
@@ -1129,6 +1338,7 @@ export default function App() {
             anyAgent={false}
             e2e={roomSettings?.e2e ?? false}
             actions={actions}
+            shareUrl={shareUrl}
           />
         )}
       </div>
@@ -1143,7 +1353,14 @@ export default function App() {
           sub="Each teammate joins once from their repo; their agent then shows up as a lane."
         />
         <section className="v3-section" style={{ maxWidth: 720 }}>
-          <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+          <InviteContent
+            roomId={roomId}
+            settings={roomSettings}
+            requireApproval={requireApproval}
+            shareUrl={shareUrl}
+            hasInvite={inviteForLink != null}
+            onCopy={copyText}
+          />
         </section>
       </div>
     </div>
@@ -1158,7 +1375,17 @@ export default function App() {
       page = feedView;
       break;
     case 'tasks':
-      page = <TasksView tasks={tasks} nowSeconds={laneNow} />;
+      page = (
+        <TasksView
+          tasks={tasks}
+          nowSeconds={laneNow}
+          people={taskPeople}
+          myTag={myTaskTag}
+          addBlocked={addTaskBlocked}
+          onAdd={addTask}
+          onCancel={(id) => void cancelTask(id)}
+        />
+      );
       break;
     case 'timeline':
       page = (
@@ -1216,6 +1443,8 @@ export default function App() {
           joinRequests={joinRequests}
           onSetRequireApproval={setApprovalPolicy}
           onDecide={decideJoin}
+          onRotateInvite={rotateInvite}
+          onRevokeMember={revokeMember}
         />
       );
       break;
@@ -1248,7 +1477,14 @@ export default function App() {
       <MobileNav view={view} onNavigate={navigateTo} conflictCount={conflicts.length + held.length} />
       <CommandMenu open={commandOpen} getCommands={getCommands} onClose={() => setCommandOpen(false)} />
       <InviteSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
-        <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+        <InviteContent
+          roomId={roomId}
+          settings={roomSettings}
+          requireApproval={requireApproval}
+          shareUrl={shareUrl}
+          hasInvite={inviteForLink != null}
+          onCopy={copyText}
+        />
       </InviteSheet>
       <ShareCardDialog open={dash.shareOpen} stats={dash.stats} onClose={() => dash.setShareOpen(false)} onNotice={showToast} />
       <ShortcutHelp open={dash.helpOpen} onClose={() => dash.setHelpOpen(false)} />

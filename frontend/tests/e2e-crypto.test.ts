@@ -179,6 +179,30 @@ test('the right key overlays real paths, diffs and prompts', async () => {
   assert.equal(alert.explanation, 'both edited server/room.py');
 });
 
+test('a pending_update shows real paths, symbols, branch and base', async () => {
+  const passphrase = 'correct horse battery staple';
+  const room = 'K7Q2XM';
+  const key = await deriveRoomKey(passphrase, room);
+  const decoder = new E2EDecoder(passphrase, room, () => {});
+  const out = await decoder.decode({
+    type: 'pending_update',
+    user_id: 'adrian',
+    branch: await hashName(key, 'feat/nav'),
+    base: await hashName(key, 'origin/main'),
+    files: [{ path: await hashName(key, 'web/Header.tsx'), symbols: [await hashName(key, 'renderNav')], since: 5 }],
+    timestamp: 10,
+    e2e: await sealEnvelope(key, 'pending', {
+      v: 1,
+      files: [{ path: 'web/Header.tsx', symbols: ['renderNav'] }],
+      branch: 'feat/nav',
+      base: 'origin/main',
+    }),
+  });
+  assert.deepEqual(out.files, [{ path: 'web/Header.tsx', symbols: ['renderNav'], since: 5 }]);
+  assert.equal(out.branch, 'feat/nav');
+  assert.equal(out.base, 'origin/main');
+});
+
 test("a wrong key shows can't decrypt, never garbage", async () => {
   const vector = VECTORS.vectors[0];
   const key = await deriveRoomKey(vector.passphrase, vector.room);
@@ -209,11 +233,17 @@ test('no key: locked placeholders and a locked state', async () => {
 
 test('the key travels in the fragment and is stripped from it', () => {
   assert.equal(parseKeyFragment('#k=abc-123_x'), 'abc-123_x');
+  assert.equal(parseKeyFragment('#key=abc-123_x'), 'abc-123_x');
   assert.equal(parseKeyFragment('#view=1&k=a%2Bb'), 'a+b');
+  assert.equal(parseKeyFragment('#view=1&key=a%2Bb'), 'a+b');
+  assert.equal(parseKeyFragment('#bare-secret'), 'bare-secret');
   assert.equal(parseKeyFragment('#view=1'), null);
   assert.equal(parseKeyFragment(''), null);
   assert.equal(stripKeyFragment('#k=abc'), '');
+  assert.equal(stripKeyFragment('#key=abc'), '');
+  assert.equal(stripKeyFragment('#bare-secret'), '');
   assert.equal(stripKeyFragment('#view=1&k=abc'), '#view=1');
+  assert.equal(stripKeyFragment('#view=1&key=abc'), '#view=1');
 });
 
 test('the decoder reads a v2 activity frame end to end', async () => {

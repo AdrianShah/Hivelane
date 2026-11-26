@@ -99,7 +99,7 @@ function chosenRelay(): string | null {
  * (GitHub Pages): the page's own origin is then never a relay, so with no
  * relay chosen the dashboard falls back to the CLI default on localhost.
  */
-const STATIC_HOST = import.meta.env.VITE_STATIC_HOST === '1';
+const STATIC_HOST = import.meta.env?.VITE_STATIC_HOST === '1';
 
 /** True on a static host build (GitHub Pages): the Home page then asks for a relay URL. */
 export function isStaticHost(): boolean {
@@ -127,7 +127,7 @@ function resolveWsBase(options: { ignoreChosen?: boolean } = {}): { base: string
   const configured = import.meta.env.VITE_WS_URL?.trim();
   // A VITE_WS_URL without /ws (or as https://) is normalized like a typed one.
   if (configured) return { base: normalizeRelayUrl(configured) ?? configured, source: 'build' };
-  if (import.meta.env.DEV || STATIC_HOST || typeof window === 'undefined') {
+  if (import.meta.env?.DEV || STATIC_HOST || typeof window === 'undefined') {
     return { base: DEFAULT_WS_BASE, source: 'default' };
   }
   const { protocol, host, port } = window.location;
@@ -195,17 +195,22 @@ export function roomPath(roomId: string): string {
   return `/r/${normalizeRoomCode(roomId)}`;
 }
 
+/** Dashboard invite route for a room: /j/K7M2PQ2X */
+export function invitePath(roomId: string): string {
+  return `/j/${normalizeRoomCode(roomId)}`;
+}
+
 /**
  * The path this build is served under, without a trailing slash: '' at the
  * root, '/Hivelane' on GitHub Pages (vite.config.ts `base`). The router's
  * basename; roomPath() stays relative to it.
  */
 export function basePath(): string {
-  return import.meta.env.BASE_URL.replace(/\/+$/, '');
+  return (import.meta.env?.BASE_URL ?? '/').replace(/\/+$/, '');
 }
 
 /** True when the relay is the server this page was loaded from. */
-function relayIsThisOrigin(): boolean {
+export function relayIsThisOrigin(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     return new URL(relayHttpOrigin()).host === window.location.host;
@@ -226,12 +231,96 @@ export function roomLink(roomId: string): string {
 }
 
 /**
+ * The URL-fragment parameter carrying a room's invite secret:
+ * /j/K7M2PQ2X#invite=… (beside an e2e `key=` when there is one). Mirrors
+ * INVITE_PARAM in hivelane/links.py.
+ */
+export const INVITE_PARAM = 'invite';
+
+export interface ShareLinkParts {
+  /** e.g. https://adrianshah.github.io */
+  origin: string;
+  /** basePath(): '' or '/Hivelane'. */
+  base: string;
+  roomId: string;
+  /** The relay's WS base when the link must name it (?relay=), else null. */
+  relayWs?: string | null;
+  /** The e2e room passphrase, when it should travel in the link. */
+  e2eKey?: string | null;
+  /** The room's invite secret: whoever opens the link is let in without approval. */
+  invite?: string | null;
+}
+
+/**
+ * The one share link for a room (every caller builds it here, as the CLI does
+ * in hivelane/links.py invite_url): the /j/<ROOM> invite page, ?relay= when
+ * the dashboard is hosted apart from the relay, and a fragment (never sent to
+ * any server, so it stays out of logs and Referer) carrying `key=` and
+ * `invite=` when given. Pure, for tests; shareLink() fills in this page.
+ */
+export function buildShareLink(parts: ShareLinkParts): string {
+  let link = `${parts.origin}${parts.base}${invitePath(parts.roomId)}`;
+  if (parts.relayWs) link += `?${RELAY_PARAM}=${encodeURIComponent(parts.relayWs)}`;
+  const fragment: string[] = [];
+  const key = parts.e2eKey?.trim();
+  const invite = parts.invite?.trim();
+  if (key) fragment.push(`key=${encodeURIComponent(key)}`);
+  if (invite) fragment.push(`${INVITE_PARAM}=${encodeURIComponent(invite)}`);
+  return fragment.length ? `${link}#${fragment.join('&')}` : link;
+}
+
+/**
+ * The share link for a room on this site and relay. With `invite`, whoever
+ * opens it comes straight in; without, the room code alone only asks an
+ * owner to let them in. Omit `e2eKey` unless the key should travel with it.
+ */
+export function shareLink(roomId: string, options: { invite?: string | null; e2eKey?: string | null } = {}): string {
+  return buildShareLink({
+    origin: window.location.origin,
+    base: basePath(),
+    roomId,
+    relayWs: relayIsThisOrigin() ? null : relayWsBase(),
+    e2eKey: options.e2eKey,
+    invite: options.invite,
+  });
+}
+
+/** The invite secret in a URL fragment (`#invite=…`, alone or beside `key=`), else null. */
+export function parseInviteFragment(hash: string): string | null {
+  const body = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (!body.includes('=')) return null;
+  for (const part of body.split('&')) {
+    const eq = part.indexOf('=');
+    if (eq < 0 || part.slice(0, eq) !== INVITE_PARAM) continue;
+    try {
+      const value = decodeURIComponent(part.slice(eq + 1)).trim();
+      if (value) return value;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/** The fragment without its `invite=` part ("" when nothing else was there). */
+export function stripInviteFragment(hash: string): string {
+  const body = hash.startsWith('#') ? hash.slice(1) : hash;
+  if (!body) return '';
+  const kept = body.split('&').filter((part) => part && !part.startsWith(`${INVITE_PARAM}=`));
+  return kept.length ? `#${kept.join('&')}` : '';
+}
+
+/**
  * Connects the current repo's agent to a room. --relay is only spelled out
  * when this dashboard talks to a relay other than the CLI default.
  */
-export function upCommand(roomId: string): string {
-  const relay = isDefaultRelay() ? '' : ` --relay ${relayWsBase()}`;
+export function upCommand(roomId: string, link?: string): string {
   const insecure = needsInsecure(relayWsBase()) ? ' --insecure' : '';
+  // An invite link carries the relay and the invite secret, so whoever runs
+  // it (the room's creator included: their CLI has no owner token) comes
+  // straight in instead of waiting for approval. Quoted: `?` globs in zsh.
+  if (link) return `hivelane up --room "${link}"${insecure}`;
+  const relay = isDefaultRelay() ? '' : ` --relay ${relayWsBase()}`;
   return `hivelane up --room ${normalizeRoomCode(roomId)}${relay}${insecure}`;
 }
 
@@ -240,7 +329,7 @@ export function upCommand(roomId: string): string {
  * --insecure (e.g. `hivelane relay` on a LAN), so a copied line must carry it.
  * Mirrors transport_problem in hivelane/config.py.
  */
-function needsInsecure(wsBase: string): boolean {
+export function needsInsecure(wsBase: string): boolean {
   if (!/^ws:\/\//i.test(wsBase)) return false;
   let host: string;
   try {
@@ -262,6 +351,18 @@ function needsInsecure(wsBase: string): boolean {
 export const INSTALL_COMMAND = 'pipx install git+https://github.com/AdrianShah/Hivelane';
 
 /** The one line a teammate pastes to install Hivelane and join a room. */
-export function setupCommand(roomId: string): string {
-  return `${INSTALL_COMMAND} && ${upCommand(roomId)}`;
+export function setupCommand(roomId: string, link?: string): string {
+  return `${INSTALL_COMMAND} && ${upCommand(roomId, link)}`;
+}
+
+/** CLI command to join an invite link directly (`hivelane join "<url>"`). */
+export function joinCommand(inviteUrl: string, relayWs?: string): string {
+  const insecure = needsInsecure(relayWs ?? relayWsBase()) ? ' --insecure' : '';
+  return `hivelane join "${inviteUrl}"${insecure}`;
+}
+
+/** Ready-to-paste prompt for an AI coding agent on the `/j/<room>` invite page. */
+export function agentJoinPrompt(inviteUrl: string, relayWs?: string): string {
+  const cmd = joinCommand(inviteUrl, relayWs);
+  return `Join this Hivelane coordination room in the current repo by running:\n\n${cmd}\n\nIf \`hivelane\` is not installed yet, install it first with:\n${INSTALL_COMMAND}`;
 }
