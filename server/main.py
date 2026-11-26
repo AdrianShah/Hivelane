@@ -59,6 +59,7 @@ try:
         JoinResolved,
         NameRejected,
         PeerTouch,
+        PendingChanges,
         PlanConflict,
         PlanConflicts,
         PlanMessage,
@@ -108,6 +109,7 @@ try:
         cap_activity,
         cap_edit_check,
         cap_intent,
+        cap_pending,
         cap_plan,
         cap_task,
         sanitize_name,
@@ -154,6 +156,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         JoinResolved,
         NameRejected,
         PeerTouch,
+        PendingChanges,
         PlanConflict,
         PlanConflicts,
         PlanMessage,
@@ -203,6 +206,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         cap_activity,
         cap_edit_check,
         cap_intent,
+        cap_pending,
         cap_plan,
         cap_task,
         sanitize_name,
@@ -1229,6 +1233,27 @@ async def handle_plan(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
     await room.broadcast(update)
 
 
+async def handle_pending_changes(room: Room, user_id: str, raw: dict) -> None:
+    """Replace the sender's unpushed-files report for its repo and tell the
+    dashboards. Members are not sent it: the relay judges edit_checks
+    against it itself."""
+    try:
+        message = PendingChanges.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("pending_changes", user_id, exc)
+        return
+    cap_pending(message)
+    message.user_id = user_id
+    if room.is_activity_rate_limited(
+        user_id, ACTIVITY_MIN_INTERVAL_SECONDS, channel="pending", scope=message.repo_id
+    ):
+        log.debug("Rate-limiting pending_changes from %s", user_id)
+        return
+    update = room.record_pending(message, time.time(), room.member_agent(user_id))
+    log.debug("pending_changes from %s (%d file(s))", user_id, len(update.files))
+    await room.broadcast(update, spectators_only=True)
+
+
 async def _answer_task(room: Room, socket: WebSocket, raw: dict, *, reason: str) -> None:
     """A refused task request still gets its reply (the daemon waits on it)."""
     request_id = raw.get("request_id") if isinstance(raw, dict) else None
@@ -1858,6 +1883,7 @@ async def serve_spectator(
     )
     catch_up.extend(room.latest_intents())
     catch_up.extend(room.active_plans())
+    catch_up.extend(room.pending_updates())
     catch_up.extend(room.latest_updates())
     catch_up.extend(TaskUpdate(task=task) for task in room.tasks.all())
     if admission.is_owner:
@@ -1973,6 +1999,8 @@ async def serve_member(
                 await handle_file_request(room, user_id, raw)
             elif kind == "plan":
                 await handle_plan(room, socket, user_id, raw)
+            elif kind == "pending_changes":
+                await handle_pending_changes(room, user_id, raw)
             elif kind == "task":
                 await handle_task(room, socket, user_id, raw)
             elif kind == "decision_feedback":
