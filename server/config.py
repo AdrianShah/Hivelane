@@ -144,6 +144,11 @@ class Settings:
     # http://localhost). Off unless HIVELANE_WEBHOOKS_ALLOW_PRIVATE is set, in
     # every environment; production refuses it.
     webhooks_allow_private: bool = False
+    # New rooms get an invite secret: a join with the room code alone waits
+    # for an owner's approval, a join from the share link (or with a member
+    # or owner token) comes straight in. HIVELANE_INVITE_LINKS=false creates
+    # rooms where the code alone admits, as before invite links.
+    invite_links: bool = True
 
     @property
     def is_production(self) -> bool:
@@ -403,6 +408,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
             env, "HIVELANE_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
         ),
         webhooks_allow_private=allow_private,
+        invite_links=_bool(env.get("HIVELANE_INVITE_LINKS"), default=True),
         **limits,
     )
 
@@ -428,6 +434,7 @@ TRUST_CLOUDFLARE: bool = SETTINGS.trust_cloudflare
 BEHIND_FLY: bool = SETTINGS.behind_fly
 ROOM_MESSAGE_LIMIT: int = SETTINGS.room_message_limit
 HSTS_ENABLED: bool = SETTINGS.hsts_enabled
+INVITE_LINKS: bool = SETTINGS.invite_links
 # Capacity limits (0 = unlimited). Each module copies the ones it enforces
 # into a constant of its own at import, so a test can patch that constant.
 MAX_ROOMS: int = SETTINGS.max_rooms
