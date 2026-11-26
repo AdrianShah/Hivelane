@@ -114,6 +114,7 @@ def test_mcp_handshake(stub: StubDaemon, tmp_path: Path) -> None:
     assert init["protocolVersion"] == "2025-06-18"
     assert init["serverInfo"]["name"] == "hivelane" and "tools" in init["capabilities"]
     assert {t["name"] for t in replies[1]["result"]["tools"]} == {
+        "room_status", "join_room",
         "check_file", "declare_intent", "who_is_here", "report_edit",
         "task_list", "task_add", "task_claim", "task_note", "task_done", "task_release",
     }
