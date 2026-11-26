@@ -58,6 +58,7 @@ from hivelane.config import (
     unconfirmed_project_optouts,
 )
 from hivelane.events import EventAck, NormalizedEvent
+from hivelane.plan_tasks import PlanTasks
 from hivelane.protocol import (
     AGENT_KINDS,
     E2E_MAX_CHARS,
@@ -963,6 +964,8 @@ class RepoBinding:
     spec: tuple[Any, ...] = ()
     # Secret redaction for what this repo sends (`redact`, `redact_patterns`).
     redactor: redact.Redactor = field(default_factory=redact.Redactor)
+    # Agents' plans become room tasks (`plan_tasks`, hivelane/plan_tasks.py).
+    plan_tasks: bool = True
 
 
 @dataclass(eq=False)
@@ -1629,7 +1632,10 @@ class RoomConnection:
         suggestion = response.suggestion
         if response.scope == "task" and response.decision == "block":
             # Reserved by a claimed task: no line to wait in.
-            suggestion = "pick other work: `hivelane task list` shows open tasks"
+            suggestion = (
+                "pick other work: `hivelane task list` shows open tasks, "
+                "`hivelane task claim --next` takes the oldest ready one"
+            )
         return EventAck(
             decision=response.decision,
             reason=self.reveal(response.reason) or "",
@@ -2775,6 +2781,7 @@ class RepoRegistration(BaseModel):
     settings: Optional[RoomSettings] = None
     ignore: list[str] = []
     share_diffs: bool = True
+    plan_tasks: bool = True
     redact: bool = True
     redact_patterns: list[str] = []
     # The e2e room passphrase (settings.e2e rooms), resolved by the CLI from
@@ -2820,6 +2827,7 @@ class TaskOp(BaseModel):
     lease_seconds: float = Field(default=1800.0, ge=60, le=28800)
     text: str = ""
     include_closed: bool = False
+    suggested_for: str = Field(default="", max_length=64)
 
 
 class WaitRequest(BaseModel):
@@ -3032,6 +3040,8 @@ class Daemon:
         self._lane_sweeper: Optional[asyncio.Task[None]] = None
         # session_id -> [(subagent type asked for, task text, monotonic)].
         self._delegations: OrderedDict[str, list[tuple[str, str, float]]] = OrderedDict()
+        # Agents' plans mirrored as room tasks (hivelane/plan_tasks.py).
+        self.plan_tasks = PlanTasks()
         # Repo routing beyond the cwd (agents started above their repo):
         # session_id -> repo root, intents waiting for one, nested lookups.
         self._session_roots: OrderedDict[str, Path] = OrderedDict()
@@ -3169,6 +3179,7 @@ class Daemon:
                     settings=body.settings,
                     ignore=body.ignore,
                     share_diffs=body.share_diffs,
+                    plan_tasks=body.plan_tasks,
                     redact=body.redact,
                     redact_patterns=body.redact_patterns,
                     room_key=body.room_key,
@@ -3279,6 +3290,7 @@ class Daemon:
             lease_seconds=body.lease_seconds,
             text=body.text,
             include_closed=body.include_closed,
+            suggested_for=body.suggested_for,
         )
         if ignored:
             answer["ignored_files"] = ignored
@@ -3505,6 +3517,7 @@ class Daemon:
                 settings=settings,
                 ignore=config.ignore,
                 share_diffs=config.share_diffs,
+                plan_tasks=config.plan_tasks,
                 redact=config.redact,
                 redact_patterns=config.redact_patterns,
                 # Never the bare HIVELANE_ROOM_KEY of whoever started the
@@ -3553,6 +3566,7 @@ class Daemon:
         room_key: Optional[str] = None,
         owner_token: Optional[str] = None,
         via_repo_lookup: bool = False,
+        plan_tasks: bool = True,
     ) -> RepoBinding:
         """Coordinate the repo at root in room (replacing any earlier
         registration of it). Raises ValueError for an unusable registration.
@@ -3602,6 +3616,7 @@ class Daemon:
             hashlib.sha256(room_key.encode("utf-8")).hexdigest() if room_key else None,
             hashlib.sha256(owner_token.encode("utf-8")).hexdigest() if owner_token else None,
             via_repo_lookup,
+            plan_tasks,
         )
         existing = self._bindings.get(key)
         if existing is not None and existing.spec == spec and existing.connection.fatal is None:
@@ -3672,6 +3687,7 @@ class Daemon:
             auto=auto,
             spec=spec,
             redactor=redactor,
+            plan_tasks=plan_tasks,
         )
         self._bindings[key] = binding
         self._route_cache.clear()
@@ -3749,6 +3765,8 @@ class Daemon:
             await conn.handle_event(held, binding)
         if event.kind == "subagent_start":
             return EventAck()
+        if binding.plan_tasks and event.kind in ("plan", "post_edit"):
+            await self._mirror_plan(binding, conn, event)
         own_names = self._own_names(binding.connection) if event.kind == "pre_edit" else []
         if lane is not None and event.kind == "pre_edit":
             same_chat, siblings = self._family_names(lane)
@@ -3759,6 +3777,24 @@ class Daemon:
             # and then only this ack (not the room's feed) reflects them.
             return self._family_ack(lane, ack)
         return await conn.handle_event(event, binding, own_names=own_names)
+
+    async def _mirror_plan(self, binding: RepoBinding, conn: RoomConnection, event: NormalizedEvent) -> None:
+        """Hand a plan's steps, or an edit made while one is in progress, to
+        PlanTasks. Never waits on the relay: the hook only pays for the
+        bookkeeping (the repo id is cached after the first event)."""
+        key = (event.agent, event.session_id, event.subagent_id or "")
+        primary = binding.connection
+        if event.kind == "plan":
+            if not event.steps or not event.session_id:
+                return
+            repo_id = await primary.repo_id_for_cwd(event.cwd, binding)
+            self.plan_tasks.submit(primary, key, repo_id, conn.name, event.steps, bool(event.plan_partial))
+            return
+        if not event.file_path or not event.session_id:
+            return
+        rel = repo_relative_path(event.file_path, event.cwd, binding.root)
+        if not binding.ignore.matches(rel):
+            self.plan_tasks.note_edit(primary, key, rel)
 
     # --- routing beyond the cwd ------------------------------------------------
 
