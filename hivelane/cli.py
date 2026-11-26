@@ -20,7 +20,14 @@ from hivelane.hook_fast import DEFAULT_PORT
 
 # Dashboard links live in links.py, so the desktop bee can build them without
 # importing the CLI.
-from hivelane.links import DASHBOARD_ENV, invite_url, parse_invite_link, room_url
+from hivelane.links import (
+    DASHBOARD_ENV,
+    INSTALL_COMMAND,
+    agent_join_prompt,
+    invite_url,
+    parse_invite_link,
+    room_url,
+)
 
 # Type checkers treat any name TYPE_CHECKING as True.
 TYPE_CHECKING = False
@@ -47,8 +54,6 @@ MAX_CLOCK_SKEW = 5.0
 # `hivelane wait`: default overall timeout, and how long one daemon call waits.
 WAIT_TIMEOUT = 90.0
 WAIT_SLICE = 5.0
-
-INSTALL_COMMAND = "pipx install git+https://github.com/AdrianShah/Hivelane"
 
 # Mirrors server/sanitize.py, which is authoritative: a display name the relay
 # keeps is lowercase [a-z0-9_-], 1..MAX_LENGTH long, with no blocked substring.
@@ -911,6 +916,45 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, {hint}")
 
 
+def setup_agent_docs(root: Path, *, skip: bool, assume_yes: bool) -> None:
+    """Keep the Hivelane section in the repo's agent instruction files
+    (hivelane/agent_docs.py), so a teammate's agent connects the repo on its
+    own. Asks first, like the hooks: these files are committed and shared.
+    Never fatal: a file that cannot be written is reported and `up` goes on."""
+    from hivelane import agent_docs
+
+    if skip:
+        return
+    try:
+        todo = agent_docs.pending(root)
+    except OSError as exc:
+        say(f"  {mark('warn')} agent instructions: could not read them ({exc})")
+        return
+    if not todo:
+        names = ", ".join(display_path(p, root) for p, _ in agent_docs.targets(root))
+        say(f"  {mark('ok')} agent instructions: Hivelane section already in {names}")
+        return
+    names = ", ".join(display_path(p, root) for p in todo)
+    if not confirm(
+        f"Add a short Hivelane section to {names}, so any teammate's coding agent can connect this repo itself?",
+        assume_yes=assume_yes,
+    ):
+        say(f"  {mark('skip')} agent instructions: not changed (`hivelane up --no-agent-docs` skips this question)")
+        return
+    try:
+        changes = agent_docs.apply(root)
+    except (OSError, UnicodeError) as exc:
+        say(f"  {mark('warn')} agent instructions: could not update them ({exc})")
+        return
+    for change in changes:
+        if change.action == "unchanged":
+            continue
+        verb = {"created": "created", "added": "added the Hivelane section to", "updated": "updated the Hivelane section in"}[
+            change.action
+        ]
+        say(f"  {mark('ok')} agent instructions: {verb} {display_path(change.path, root)} (commit it for your team)")
+
+
 STATUS_LINE_ARGS = "status --line"
 
 
@@ -1060,13 +1104,33 @@ def _connect_and_finish(
     return 0
 
 
+def room_argument(raw: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """(room, relay, e2e key) from `--room`, which takes a bare code or a
+    whole share link: the dashboard and `hivelane up` hand people a link, and
+    an agent told to run `hivelane up --room <link>` should not have to pick
+    the code out of it. relay and key are None for a bare code."""
+    if not raw:
+        return None, None, None
+    text = raw.strip()
+    if "/" not in text and "?" not in text and "#" not in text:
+        return normalize_room(text), None, None
+    try:
+        target = parse_invite_link(text)
+    except ValueError as exc:
+        raise ConfigError(f"--room {raw!r} is not a room code or a share link: {exc}") from None
+    return normalize_room(target.room), target.relay, target.key
+
+
 def cmd_up(args: argparse.Namespace) -> int:
     from hivelane import config as cfg
 
     root = project_root(args.root)
     port = resolve_port(args.port)
-    relay_flag = normalize_relay(args.relay) if args.relay else None
-    room_flag = normalize_room(args.room) if args.room else None
+    room_flag, link_relay, link_key = room_argument(args.room)
+    if args.relay:
+        relay_flag: Optional[str] = normalize_relay(args.relay)
+    else:
+        relay_flag = normalize_relay(link_relay) if link_relay else None
     try:
         config = cfg.load_config(root, relay=relay_flag)
     except cfg.ConfigFileError as exc:
@@ -1082,6 +1146,7 @@ def cmd_up(args: argparse.Namespace) -> int:
     setup_hooks(root, skip=args.no_hooks, assume_yes=args.yes)
     if not args.no_hooks:
         offer_status_line(root, choice=args.status_line)
+    setup_agent_docs(root, skip=getattr(args, "no_agent_docs", False), assume_yes=args.yes)
 
     # 2. the room: --room > .hivelane.toml > remembered on this machine > relay lookup > create a new room
     repo_id, lookup_key_raw = repo_lookup_key_for(root)
@@ -1170,8 +1235,18 @@ def cmd_up(args: argparse.Namespace) -> int:
             raise ConfigError(str(exc)) from None
         say(f"  {mark('ok')} saved name {name} to {path} (used in every repo)")
 
+    # A share link may carry the room's e2e key in its fragment, as for
+    # `hivelane join`: keep it on this machine, never in the repo.
+    if link_key:
+        warn_weak_key(link_key, f"the key for room {room}")
+        try:
+            key_path = cfg.set_personal_secret("room_keys", room, link_key)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        say(f"  {mark('ok')} saved end-to-end room key for {room} to {key_path}")
+
     relay_override = effective_relay if (relay_flag is not None or effective_relay != config.relay) else None
-    e2e_active = _effective_e2e(config, room, on_file, explicit_e2e=e2e_flag)
+    e2e_active = _effective_e2e(config, room, on_file, explicit_e2e=e2e_flag or bool(link_key))
     try:
         config = cfg.load_config(
             root,
@@ -1477,9 +1552,13 @@ def print_summary(config: HivelaneConfig, name_source: str) -> None:
     if config.e2e:
         say("  e2e        on: paths, diffs and prompts are encrypted; the relay sees hashes")
     say()
-    say("Share with teammates:")
-    say("  hivelane invite  (prints a shareable invite link)")
-    say(f"  or: {share_command(room, config.relay)}")
+    from hivelane.config import transport_problem
+
+    say("Share with teammates (they paste it into their coding agent, any agent):")
+    say(f"  {agent_join_prompt(config.relay, room, insecure=bool(transport_problem(config.relay, False)))}")
+    say("  or run it themselves:")
+    say(f"  {share_command(room, config.relay)}")
+    say("  `hivelane invite` prints the link alone")
     if config.e2e:
         say(f"  and, separately (not in the same message), the room key: `hivelane key show {room}`")
 
@@ -2551,13 +2630,18 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install agent hooks, create or join this repo's room, and connect "
         "it through the background daemon. Safe to re-run.",
     )
-    up.add_argument("--room", default=None, metavar="CODE", help="join this room (default: .hivelane.toml, remembered room, relay lookup, else create one)")
+    up.add_argument("--room", default=None, metavar="CODE_OR_LINK", help="join this room, by code or share link (default: .hivelane.toml, remembered room, relay lookup, else create one)")
     up.add_argument("--relay", default=None, metavar="URL", help="relay URL, e.g. wss://relay.example.com/ws")
     up.add_argument("--name", default=None, help="display name (default: config, git user.name, OS user)")
     up.add_argument("--root", default=None, metavar="PATH", help=root_help)
     up.add_argument("--port", type=int, default=None, help=port_help)
     up.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
     up.add_argument("--no-hooks", action="store_true", help="do not install agent hooks")
+    up.add_argument(
+        "--no-agent-docs",
+        action="store_true",
+        help="do not add the Hivelane section to AGENTS.md / CLAUDE.md and other agent instruction files",
+    )
     up.add_argument(
         "--no-repo-lookup",
         action="store_true",
