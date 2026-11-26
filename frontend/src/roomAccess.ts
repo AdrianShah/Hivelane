@@ -29,6 +29,13 @@ import { livenessFromResponse, ownedRoomCodes, type RoomLiveness } from './dashb
 const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
 const MEMBER_TOKEN_PREFIX = 'hivelane:member-token:';
 const INVITE_PREFIX = 'hivelane:invite:';
+/**
+ * Invite secrets this page holds, in memory only: never written to any
+ * browser storage. A reload does not need them: whoever an invite let in
+ * already holds a member token, and owners get the secret back from the relay
+ * in room_access.
+ */
+const inviteSecrets = new Map<string, string>();
 
 /**
  * A token is kept per relay and room. It is only ever sent to the relay that
@@ -105,24 +112,18 @@ export function forgetMemberToken(roomId: string): void {
   }
 }
 
-/** The invite secret this tab holds for a room (from a share link), if any. */
+/** The invite secret this page holds for a room (from a share link), if any. */
 export function inviteSecret(roomId: string): string | null {
-  try {
-    return window.sessionStorage.getItem(scopedKey(INVITE_PREFIX, roomId));
-  } catch {
-    return null;
-  }
+  return inviteSecrets.get(scopedKey(INVITE_PREFIX, roomId)) ?? null;
 }
 
 export function rememberInviteSecret(roomId: string, secret: string): void {
-  try {
-    window.sessionStorage.setItem(scopedKey(INVITE_PREFIX, roomId), secret);
-  } catch {
-    // Used for this page only.
-  }
+  inviteSecrets.set(scopedKey(INVITE_PREFIX, roomId), secret);
 }
 
 export function forgetInviteSecret(roomId: string): void {
+  inviteSecrets.delete(scopedKey(INVITE_PREFIX, roomId));
+  // Earlier builds kept it in sessionStorage: clear any copy left there.
   try {
     window.sessionStorage.removeItem(scopedKey(INVITE_PREFIX, roomId));
   } catch {
@@ -133,7 +134,7 @@ export function forgetInviteSecret(roomId: string): void {
 /**
  * The invite secret for this page: from `#invite=` (then stripped from the
  * address bar and history, so a screenshot or a copied URL does not carry it,
- * and kept for this tab) or one this tab took earlier.
+ * and kept in memory for this page only) or one this page took earlier.
  */
 export function takeInviteSecret(roomId: string): string | null {
   if (typeof window !== 'undefined') {

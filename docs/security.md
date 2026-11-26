@@ -91,7 +91,9 @@ under `hivelane:member-token:<relay>|<CODE>`.
 under `invite_secrets` (the creator's, and any link pasted into `hivelane up
 --room` or `hivelane join`), never in `.hivelane.toml`; a project file that
 contains one is refused. The dashboard reads `#invite=` once, removes it from
-the address bar and history, and keeps it in `sessionStorage` for that tab.
+the address bar and history, and keeps it in memory only, never in browser
+storage. A reload does not need it again: the dashboard it let in holds a
+member token by then, and owners get the secret back in `room_access`.
 
 **Owner controls.** Owner sockets receive `room_access {invite_required,
 invite_secret, members}` in their catch-up and after every change. They may
