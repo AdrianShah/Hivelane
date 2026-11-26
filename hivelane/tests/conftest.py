@@ -50,6 +50,16 @@ def _no_desktop_bee(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_pending_scans(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A started daemon must not scan the git checkout the suite runs in for
+    unpushed work and send pending_changes into tests that count frames;
+    test_pending_changes turns it back on per daemon."""
+    from hivelane import daemon
+
+    monkeypatch.setattr(daemon, "PENDING_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
 def _no_local_relay_dashboard(monkeypatch: pytest.MonkeyPatch) -> None:
     """Room links probe a local relay for its own dashboard; a relay the
     developer happens to run on localhost:8000 must not change what a test

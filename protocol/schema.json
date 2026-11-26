@@ -18,7 +18,10 @@
     "task": "#/$defs/TaskRequest",
     "hold_release": "#/$defs/HoldRelease",
     "queue_order": "#/$defs/QueueOrder",
-    "nudge": "#/$defs/Nudge"
+    "nudge": "#/$defs/Nudge",
+    "pending_changes": "#/$defs/PendingChanges",
+    "invite_rotate": "#/$defs/InviteRotate",
+    "member_revoke": "#/$defs/MemberRevoke"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -48,7 +51,10 @@
     "task_update": "#/$defs/TaskUpdate",
     "nudged": "#/$defs/Nudged",
     "hold_released": "#/$defs/HoldReleased",
-    "queue_reordered": "#/$defs/QueueReordered"
+    "queue_reordered": "#/$defs/QueueReordered",
+    "pending_update": "#/$defs/PendingUpdate",
+    "member_token": "#/$defs/MemberToken",
+    "room_access": "#/$defs/RoomAccess"
   },
   "oneOf": [
     {
@@ -92,6 +98,15 @@
     },
     {
       "$ref": "#/$defs/Nudge"
+    },
+    {
+      "$ref": "#/$defs/PendingChanges"
+    },
+    {
+      "$ref": "#/$defs/InviteRotate"
+    },
+    {
+      "$ref": "#/$defs/MemberRevoke"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -176,6 +191,15 @@
     },
     {
       "$ref": "#/$defs/QueueReordered"
+    },
+    {
+      "$ref": "#/$defs/PendingUpdate"
+    },
+    {
+      "$ref": "#/$defs/MemberToken"
+    },
+    {
+      "$ref": "#/$defs/RoomAccess"
     }
   ],
   "$defs": {
@@ -606,7 +630,8 @@
             "intent",
             "plan",
             "branch",
-            "task"
+            "task",
+            "pending"
           ],
           "title": "Scope",
           "type": "string"
@@ -708,7 +733,8 @@
             "intent",
             "plan",
             "branch",
-            "task"
+            "task",
+            "pending"
           ],
           "title": "Scope",
           "type": "string"
@@ -1172,6 +1198,19 @@
       "title": "IntentUpdate",
       "type": "object"
     },
+    "InviteRotate": {
+      "description": "Owner -> relay: replace the invite secret; old links stop admitting\n(their holders wait for approval). Remembered members stay. On a room\nwithout invite links this switches them on. Ignored from non-owners.",
+      "properties": {
+        "type": {
+          "const": "invite_rotate",
+          "default": "invite_rotate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "InviteRotate",
+      "type": "object"
+    },
     "JoinDecision": {
       "description": "Owner -> relay: admit or decline a pending joiner. Ignored from a\nsocket that did not present the room's owner token.",
       "properties": {
@@ -1272,6 +1311,30 @@
           "default": false,
           "title": "Via Repo Lookup",
           "type": "boolean"
+        },
+        "invite_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invite Secret"
+        },
+        "member_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Token"
         }
       },
       "title": "JoinMessage",
@@ -1377,6 +1440,52 @@
         "outcome"
       ],
       "title": "JoinResolved",
+      "type": "object"
+    },
+    "MemberRevoke": {
+      "description": "Owner -> relay: forget a remembered member (its token stops working)\nand disconnect any socket it is connected with. Ignored from non-owners.",
+      "properties": {
+        "type": {
+          "const": "member_revoke",
+          "default": "member_revoke",
+          "title": "Type",
+          "type": "string"
+        },
+        "member_id": {
+          "maxLength": 64,
+          "title": "Member Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id"
+      ],
+      "title": "MemberRevoke",
+      "type": "object"
+    },
+    "MemberToken": {
+      "description": "Relay -> a joiner just admitted by approval or by invite link: a\nper-member secret to present as join.member_token next time, so a\nreconnect does not ask an owner again. Sent once; the relay keeps only\nits hash. member_id names the grant (what an owner revokes).",
+      "properties": {
+        "type": {
+          "const": "member_token",
+          "default": "member_token",
+          "title": "Type",
+          "type": "string"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "token": {
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "token"
+      ],
+      "title": "MemberToken",
       "type": "object"
     },
     "NameRejected": {
@@ -1521,7 +1630,8 @@
           "enum": [
             "edited",
             "planned",
-            "intent"
+            "intent",
+            "pending"
           ],
           "title": "Kind",
           "type": "string"
@@ -1538,6 +1648,167 @@
         "seconds_ago"
       ],
       "title": "PeerTouch",
+      "type": "object"
+    },
+    "PendingChanges": {
+      "description": "Client -> relay: the sender's full set of unpushed files in repo_id,\nreplacing its previous report. Sent when the set changes (and now and\nthen unchanged, as a refresh); an empty files list clears it.",
+      "properties": {
+        "type": {
+          "const": "pending_changes",
+          "default": "pending_changes",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "default": "",
+          "title": "User Id",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "base": {
+          "default": "",
+          "title": "Base",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PendingFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "title": "PendingChanges",
+      "type": "object"
+    },
+    "PendingFile": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "since": {
+          "default": 0,
+          "title": "Since",
+          "type": "number"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "PendingFile",
+      "type": "object"
+    },
+    "PendingUpdate": {
+      "description": "Relay -> dashboards: a member's current unpushed files in repo_id (an\nempty list: none). online is False for the last report of a member that\nhas since disconnected (kept, with its age, until it lapses).",
+      "properties": {
+        "type": {
+          "const": "pending_update",
+          "default": "pending_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "base": {
+          "default": "",
+          "title": "Base",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PendingFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "online": {
+          "default": true,
+          "title": "Online",
+          "type": "boolean"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "timestamp"
+      ],
+      "title": "PendingUpdate",
       "type": "object"
     },
     "PlanConflict": {
@@ -1890,6 +2161,83 @@
       "title": "RateLimited",
       "type": "object"
     },
+    "RememberedMember": {
+      "description": "One remembered person in room_access: who holds a member token.",
+      "properties": {
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "member",
+          "enum": [
+            "member",
+            "dashboard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "issued_at": {
+          "title": "Issued At",
+          "type": "number"
+        },
+        "online": {
+          "default": false,
+          "title": "Online",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "member_id",
+        "name",
+        "issued_at"
+      ],
+      "title": "RememberedMember",
+      "type": "object"
+    },
+    "RoomAccess": {
+      "description": "Relay -> owner sockets only: the room's invite link secret (so an\nowner can show the share link again) and the people it remembers. Sent in\nan owner's catch-up and after every change (rotation, a new remembered\nmember, a revocation). invite_secret is None for rooms without one\n(created before invite links), where the code alone still admits.",
+      "properties": {
+        "type": {
+          "const": "room_access",
+          "default": "room_access",
+          "title": "Type",
+          "type": "string"
+        },
+        "invite_required": {
+          "title": "Invite Required",
+          "type": "boolean"
+        },
+        "invite_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invite Secret"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/RememberedMember"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "invite_required"
+      ],
+      "title": "RoomAccess",
+      "type": "object"
+    },
     "RoomPolicy": {
       "description": "Owner -> relay: change who may join. Ignored from non-owners.",
       "properties": {
@@ -2152,6 +2500,35 @@
           "maxLength": 262144,
           "title": "E2E",
           "type": "string"
+        },
+        "source": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "agent_plan"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "lane": {
+          "default": "",
+          "title": "Lane",
+          "type": "string"
+        },
+        "active": {
+          "default": false,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "suggested_for": {
+          "default": "",
+          "title": "Suggested For",
+          "type": "string"
+        },
+        "dashboard_tag": {
+          "default": "",
+          "title": "Dashboard Tag",
+          "type": "string"
         }
       },
       "required": [
@@ -2273,7 +2650,8 @@
             "done",
             "release",
             "cancel",
-            "list"
+            "list",
+            "update"
           ],
           "title": "Op",
           "type": "string"
@@ -2342,6 +2720,56 @@
           "default": "",
           "maxLength": 262144,
           "title": "E2E",
+          "type": "string"
+        },
+        "claim": {
+          "default": false,
+          "title": "Claim",
+          "type": "boolean"
+        },
+        "source": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "agent_plan"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "lane": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Lane",
+          "type": "string"
+        },
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "suggested_for": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Suggested For",
+          "type": "string"
+        },
+        "as_name": {
+          "default": "",
+          "maxLength": 64,
+          "title": "As Name",
+          "type": "string"
+        },
+        "dashboard_key": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Dashboard Key",
           "type": "string"
         }
       },

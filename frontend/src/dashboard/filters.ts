@@ -57,6 +57,7 @@ export const FILTER_SCOPES: DecisionScope[] = [
   'branch',
   'intent',
   'task',
+  'pending',
 ];
 
 const MAX_TEXT = 200;

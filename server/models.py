@@ -54,10 +54,11 @@ RepoId = Annotated[str, Field(max_length=64)]
 
 
 # Granularity at which an edit check (or its broadcast) found the conflict.
-DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch", "task"]
+DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch", "task", "pending"]
 
-# How a peer is involved: edited the file, plans to, or only mentioned it.
-PeerKind = Literal["edited", "planned", "intent"]
+# How a peer is involved: edited the file, plans to, only mentioned it, or
+# has unpushed changes to it.
+PeerKind = Literal["edited", "planned", "intent", "pending"]
 
 
 # End-to-end encrypted payload: opaque base64 ciphertext a client produced with
@@ -130,6 +131,15 @@ class JoinMessage(BaseModel):
     # The relay enforces approval for any repo-bound room regardless of this flag so
     # a client cannot bypass approval by omitting it.
     via_repo_lookup: bool = False
+    # The invite secret from a share link (`#invite=` in the dashboard URL,
+    # personal config for the CLI). A join carrying the room's current one is
+    # admitted without approval in rooms that require an invite. A wrong or
+    # rotated secret is treated exactly like no secret.
+    invite_secret: Optional[str] = None
+    # The per-member token the relay sent in member_token after an earlier
+    # admission (approved or by invite). Presenting it skips approval until
+    # an owner revokes it. A wrong or revoked token counts as no token.
+    member_token: Optional[str] = None
 
     @property
     def is_spectator(self) -> bool:
@@ -348,15 +358,82 @@ class PlanUpdate(BaseModel):
     expires_at: float
     e2e: E2EBlob = ""
 
+# --- pending (unpushed) work ---------------------------------------------------
+# Live touches say who is typing now; pending changes say whose work is not
+# merged yet. A daemon reports, per repo, the files its user changed but has
+# not pushed (uncommitted edits plus commits ahead of the upstream branch, or
+# of the default branch's merge-base when there is no upstream). The relay
+# keeps the latest report per (member, repo) for as long as it holds, not for
+# the touch window, and warns (scope "pending") when someone else edits one of
+# those files. In an e2e room paths, symbols, branch and base are h: hashes
+# and the real values travel in the blob.
+
+# Files per pending_changes report: a daemon with more sends the first ones
+# and sets truncated; the relay keeps the first this many of a longer list.
+PENDING_MAX_FILES = 200
+
+
+class PendingFile(BaseModel):
+    path: str
+    # Definitions the unpushed changes touch, when the client could extract
+    # them; empty means "the file" (judged file-level).
+    symbols: list[str] = []
+    # Unix seconds the file has been pending since: its oldest unpushed
+    # commit, or when the client first saw it changed. 0 when unknown.
+    since: float = 0
+
+
+class PendingChanges(BaseModel):
+    """Client -> relay: the sender's full set of unpushed files in repo_id,
+    replacing its previous report. Sent when the set changes (and now and
+    then unchanged, as a refresh); an empty files list clears it."""
+
+    type: Literal["pending_changes"] = "pending_changes"
+    user_id: str = ""
+    repo_id: RepoId = ""
+    # The local branch and the ref its work is measured against
+    # ("origin/main"); "" when unknown.
+    branch: str = ""
+    base: str = ""
+    files: list[PendingFile] = []
+    # More files were pending than the report carries.
+    truncated: bool = False
+    e2e: E2EBlob = ""
+
+
+class PendingUpdate(BaseModel):
+    """Relay -> dashboards: a member's current unpushed files in repo_id (an
+    empty list: none). online is False for the last report of a member that
+    has since disconnected (kept, with its age, until it lapses)."""
+
+    type: Literal["pending_update"] = "pending_update"
+    user_id: str
+    agent: AgentKind = "unknown"
+    repo_id: RepoId = ""
+    branch: str = ""
+    base: str = ""
+    files: list[PendingFile] = []
+    truncated: bool = False
+    timestamp: float
+    online: bool = True
+    e2e: E2EBlob = ""
+
 # --- room tasks ----------------------------------------------------------------
 # A shared task list per room: members create tasks, claim them under a lease,
 # post notes and complete them. A claimed task's files are reserved: other
 # members' edit_checks on them are blocked (scope "task") until the task is
 # done, released or its lease lapses. In an e2e room titles, bodies and note
 # text travel only inside e2e blobs and files are h: hashes.
+#
+# source "agent_plan": a step of a coding agent's own plan (a Claude Code todo
+# list), created and kept in step by its daemon; `lane` names the agent lane
+# that wrote it and `active` marks the step it is on. Such a task reserves its
+# files only while active, and `claim` with next=true never picks one.
+# A task with repo_id "" belongs to every repo in the room.
 
 TaskStatus = Literal["open", "claimed", "done", "cancelled"]
-TaskOp = Literal["create", "claim", "renew", "note", "done", "release", "cancel", "list"]
+TaskOp = Literal["create", "claim", "renew", "note", "done", "release", "cancel", "list", "update"]
+TaskSource = Literal["manual", "agent_plan"]
 
 
 class TaskNote(BaseModel):
@@ -384,6 +461,17 @@ class Task(BaseModel):
     lease_until: Optional[float] = None
     notes: list[TaskNote] = []
     e2e: E2EBlob = ""
+    source: TaskSource = "manual"
+    lane: str = ""
+    active: bool = False
+    # A member the creator thinks should take it; claim next=true offers it
+    # to them first. Advisory: anyone may still claim it.
+    suggested_for: str = ""
+    # Non-empty when a dashboard created the task: a public tag of that
+    # dashboard's secret task key (see TaskRequest.dashboard_key), so the
+    # dashboard can tell its own tasks. created_by is then the name its
+    # viewer typed, which nobody verified.
+    dashboard_tag: str = ""
 
 
 class TaskRequest(BaseModel):
@@ -407,6 +495,18 @@ class TaskRequest(BaseModel):
     # list: done and cancelled tasks too.
     include_closed: bool = False
     e2e: E2EBlob = ""
+    # create: claim it for yourself at once (under lease_seconds).
+    claim: bool = False
+    source: TaskSource = "manual"
+    lane: str = Field("", max_length=64)
+    # create / update: the step the claimer is on now (agent_plan tasks).
+    # update leaves it as it is when None.
+    active: Optional[bool] = None
+    suggested_for: str = Field("", max_length=64)
+    # From a dashboard only: the name to credit (create) and the dashboard's
+    # own random secret, which create records and cancel must present.
+    as_name: str = Field("", max_length=64)
+    dashboard_key: str = Field("", max_length=128)
 
 
 class TaskReply(BaseModel):
@@ -414,7 +514,8 @@ class TaskReply(BaseModel):
     request_id: str
     ok: bool
     # Why not ("not_found", "not_ready", "claimed", "not_claimer", "not_owner",
-    # "closed", "none_ready", "limit", "rate_limited", "invalid"); "" when ok.
+    # "closed", "none_ready", "limit", "rate_limited", "invalid",
+    # "not_allowed"); "" when ok.
     reason: str = ""
     task: Optional[Task] = None
     tasks: list[Task] = []
@@ -551,6 +652,57 @@ class RoomPolicyUpdate(BaseModel):
 
     type: Literal["room_policy_update"] = "room_policy_update"
     require_approval: bool
+
+class MemberToken(BaseModel):
+    """Relay -> a joiner just admitted by approval or by invite link: a
+    per-member secret to present as join.member_token next time, so a
+    reconnect does not ask an owner again. Sent once; the relay keeps only
+    its hash. member_id names the grant (what an owner revokes)."""
+
+    type: Literal["member_token"] = "member_token"
+    member_id: str
+    token: str
+
+
+class RememberedMember(BaseModel):
+    """One remembered person in room_access: who holds a member token."""
+
+    member_id: str
+    name: str
+    # "member" for a daemon, "dashboard" for a dashboard viewer.
+    kind: Literal["member", "dashboard"] = "member"
+    issued_at: float
+    # True while a socket admitted with this grant is connected.
+    online: bool = False
+
+
+class RoomAccess(BaseModel):
+    """Relay -> owner sockets only: the room's invite link secret (so an
+    owner can show the share link again) and the people it remembers. Sent in
+    an owner's catch-up and after every change (rotation, a new remembered
+    member, a revocation). invite_secret is None for rooms without one
+    (created before invite links), where the code alone still admits."""
+
+    type: Literal["room_access"] = "room_access"
+    invite_required: bool
+    invite_secret: Optional[str] = None
+    members: list[RememberedMember] = Field(default_factory=list)
+
+
+class InviteRotate(BaseModel):
+    """Owner -> relay: replace the invite secret; old links stop admitting
+    (their holders wait for approval). Remembered members stay. On a room
+    without invite links this switches them on. Ignored from non-owners."""
+
+    type: Literal["invite_rotate"] = "invite_rotate"
+
+
+class MemberRevoke(BaseModel):
+    """Owner -> relay: forget a remembered member (its token stops working)
+    and disconnect any socket it is connected with. Ignored from non-owners."""
+
+    type: Literal["member_revoke"] = "member_revoke"
+    member_id: str = Field(max_length=64)
 
 
 class RateLimited(BaseModel):

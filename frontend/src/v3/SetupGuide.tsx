@@ -1,6 +1,7 @@
 import Bee from '../components/Bee';
 import Icon from '../components/Icon';
-import { INSTALL_COMMAND, roomLink, upCommand } from '../relayUrl';
+import { agentPrompt, projectFile, shareLink } from '../links';
+import { INSTALL_COMMAND, upCommand } from '../relayUrl';
 import type { V3Actions } from './model';
 
 /**
@@ -15,32 +16,57 @@ export default function SetupGuide({
   anyAgent,
   e2e,
   actions,
+  shareUrl,
 }: {
   roomId: string;
   connected: boolean;
   anyAgent: boolean;
   e2e: boolean;
   actions: V3Actions;
+  /** The link to send teammates (the invite link when known). */
+  shareUrl?: string;
 }) {
   const steps = [
     {
-      title: 'Install Hivelane, once per machine',
-      body: 'Needs Python 3.12 or newer. uv tool install works too.',
-      command: INSTALL_COMMAND,
+      title: 'Tell your coding agent to join',
+      body: 'Paste this into Claude Code, Cursor, Codex, Copilot, Gemini or any agent, in your repo. It installs Hivelane if needed and joins; send the same prompt to teammates.',
+      command: agentPrompt(roomId, shareUrl),
+      copyLabel: 'Agent prompt',
+      wrap: true,
       done: anyAgent,
     },
     {
-      title: 'Join this room from your repo',
+      title: 'Or do it by hand: install Hivelane, once per machine',
+      body: 'Needs Python 3.12 or newer. uv tool install works too.',
+      command: INSTALL_COMMAND,
+      copyLabel: 'Command',
+      wrap: false,
+      done: anyAgent,
+    },
+    {
+      title: 'Then join this room from your repo',
       body: 'Run it where your agent works. It sets up the agent hooks and the Hivelane daemon; your agent works exactly as before.',
-      command: upCommand(roomId),
+      command: upCommand(roomId, shareUrl),
+      copyLabel: 'Command',
+      wrap: false,
       done: anyAgent,
     },
     {
       title: 'Bring the team in',
       body: e2e
         ? 'Send the link, and the room key separately (hivelane key show prints it).'
-        : 'Anyone with the link or code can join, so share it with your team only.',
-      command: roomLink(roomId),
+        : 'Whoever opens the invite link joins right away; someone with only the code waits for your approval.',
+      command: shareUrl ?? shareLink(roomId),
+      copyLabel: 'Invite link',
+      wrap: false,
+      done: false,
+    },
+    {
+      title: 'Keep the team in this room',
+      body: 'Commit it as .hivelane.toml: everyone who clones the repo joins this room with a plain hivelane up. Without the invite link they wait for your approval the first time; after that they are remembered.',
+      command: projectFile(roomId),
+      copyLabel: '.hivelane.toml',
+      wrap: true,
       done: false,
     },
   ];
@@ -55,16 +81,16 @@ export default function SetupGuide({
         </button>
       </div>
       <ol className="v3-steps">
-        {steps.map((step, index) => (
+        {steps.map((step) => (
           <li key={step.title} className={step.done ? 'is-done' : undefined}>
             <div>
               <h3>{step.title}</h3>
-              <div className="v3-copy">
+              <div className={step.wrap ? 'v3-copy v3-copy--wrap' : 'v3-copy'}>
                 <code>{step.command}</code>
                 <button
                   type="button"
                   className="v3-btn v3-btn--ghost v3-btn--sm"
-                  onClick={() => actions.copyText(index === 2 ? 'Room link' : 'Command', step.command)}
+                  onClick={() => actions.copyText(step.copyLabel, step.command)}
                 >
                   <Icon name="copy" size={14} /> Copy
                 </button>

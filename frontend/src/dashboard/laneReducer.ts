@@ -13,11 +13,15 @@ import type {
   EditDecision,
   FileChange,
   IntentUpdate,
+  PendingFile,
+  PendingUpdate,
   PlanUpdate,
 } from '../types';
 
 /** Decisions kept per lane: newest first, one per file. */
 export const MAX_LANE_DECISIONS = 3;
+/** Repos whose unpushed work a lane keeps (the relay keeps 8 per member). */
+export const MAX_LANE_PENDING_REPOS = 8;
 
 /** The lane fields both views derive from feed events. */
 export interface LaneFields {
@@ -29,9 +33,44 @@ export interface LaneFields {
   branch: string;
   plan: PlanUpdate | null;
   decisions: EditDecision[];
+  /** Latest unpushed-work report per repo (pending_update); absent = none heard. */
+  pending?: PendingUpdate[];
 }
 
-export type LaneEvent = ActivityUpdate | IntentUpdate | PlanUpdate | EditDecision;
+export type LaneEvent = ActivityUpdate | IntentUpdate | PlanUpdate | EditDecision | PendingUpdate;
+
+/**
+ * Reports after `next`: its repo's earlier report is replaced, or dropped
+ * when `next` lists no files (everything was pushed).
+ */
+export function replacePending(prev: readonly PendingUpdate[] | undefined, next: PendingUpdate): PendingUpdate[] {
+  const repo = next.repo_id ?? '';
+  const without = (prev ?? []).filter((p) => (p.repo_id ?? '') !== repo);
+  if (next.files.length === 0) return without;
+  return [...without, next].slice(-MAX_LANE_PENDING_REPOS);
+}
+
+/** One lane's unpushed files across its repos, oldest work first, one per path. */
+export function pendingFiles(lane: Pick<LaneFields, 'pending'>): PendingFile[] {
+  const byPath = new Map<string, PendingFile>();
+  for (const report of lane.pending ?? []) {
+    for (const file of report.files) {
+      const prior = byPath.get(file.path);
+      if (!prior || (file.since ?? 0) < (prior.since ?? 0)) byPath.set(file.path, file);
+    }
+  }
+  return [...byPath.values()].sort((a, b) => (a.since ?? 0) - (b.since ?? 0) || a.path.localeCompare(b.path));
+}
+
+/** "Unpushed: 3 files" ("200+ files" when a report was cut at its cap). */
+export function unpushedText(count: number, truncated: boolean): string {
+  return `Unpushed: ${count}${truncated ? '+' : ''} ${count === 1 && !truncated ? 'file' : 'files'}`;
+}
+
+/** True when any of the lane's reports was cut at the daemon's or relay's cap. */
+export function pendingTruncated(lane: Pick<LaneFields, 'pending'>): boolean {
+  return (lane.pending ?? []).some((p) => p.truncated);
+}
 
 /** A relay default that means "not known" ("" branch, "unknown" agent) reads as absent. */
 export function known<T extends string>(value: T | null | undefined, unknown: string): T | undefined {
@@ -61,6 +100,8 @@ export function applyLaneEvent<L extends LaneFields>(prior: L, event: LaneEvent)
       return { ...prior, agent, intent: event.prompt };
     case 'plan_update':
       return { ...prior, agent, plan: event };
+    case 'pending_update':
+      return { ...prior, agent, pending: replacePending(prior.pending, event) };
     case 'edit_decision':
       return {
         ...prior,

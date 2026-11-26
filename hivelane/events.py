@@ -60,6 +60,13 @@ class NormalizedEvent(BaseModel):
     # Set when the hook fired inside a subagent: its id and type ("Explore").
     subagent_id: Optional[str] = None
     subagent_type: Optional[str] = None
+    # A plan event's steps, [{"content", "status"[, "id"]}] (status pending,
+    # in_progress, completed, removed, or "" for "as it was"): the agent's own
+    # to-do list, which the daemon mirrors as room tasks. plan_partial: these
+    # update single steps (Claude Code's TaskCreate / TaskUpdate) instead of
+    # listing the whole plan (TodoWrite, Codex's update_plan).
+    steps: Optional[list[dict[str, str]]] = None
+    plan_partial: Optional[bool] = None
 
     @field_validator(
         "session_id",
@@ -75,6 +82,7 @@ class NormalizedEvent(BaseModel):
         "symbols",
         "subagent_id",
         "subagent_type",
+        "steps",
     )
     @classmethod
     def _no_lone_surrogates(cls, value: Any) -> Any:

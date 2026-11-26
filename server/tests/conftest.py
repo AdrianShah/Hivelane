@@ -35,6 +35,23 @@ def _fast_feed_debounce(
 
 
 @pytest.fixture(autouse=True)
+def _code_only_rooms_unless_marked(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Most of the suite exercises what a room does once people are in, and
+    joins with the room code alone. A relay's default (HIVELANE_INVITE_LINKS
+    on) holds such joins for an owner's approval, so the suite creates rooms
+    without invite links; tests of invite links themselves opt back in with
+    @pytest.mark.invite_links (test_invite_links.py)."""
+    try:
+        from server import main
+    except ImportError:  # Render rootDir=server
+        import main  # type: ignore[no-redef]
+    if request.node.get_closest_marker("invite_links") is None:
+        monkeypatch.setattr(main, "INVITE_LINKS", False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_environment() -> Iterator[None]:
     """Restore os.environ afterwards so config-related env edits cannot leak
     into the next test."""

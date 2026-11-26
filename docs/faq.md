@@ -76,10 +76,15 @@ relay (except a room owner's webhooks, below).
 
 ## Who can join my room?
 
-Anyone with the room code, like a document share link. Codes are eight
-characters, rate-limited against guessing, and expire a week after the room
-is created. A room can also require the owner to approve each new member. See
-[Security](security.md) for the trust model and the controls.
+Whoever you send the invite link to (`hivelane up` prints it as the line to
+share; `hivelane invite` prints it again). The room code on its own, say from
+a committed `.hivelane.toml` or a screenshot, only lets someone ask: they wait
+until an owner clicks Approve. People let in once are remembered, so they are
+not asked again after a reconnect. Owners can remove someone and make a new
+link (old links then only ask) from the dashboard's Room access panel or with
+`hivelane invite --rotate`, and can require approval for everyone. Codes are
+eight characters, rate-limited against guessing, and expire a week after the
+room is created. See [Security](security.md#invite-links) for the details.
 
 ## Is the daemon reachable from the network?
 

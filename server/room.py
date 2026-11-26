@@ -47,6 +47,9 @@ try:
         JoinRequest,
         JoinResolved,
         PeerKind,
+        PendingChanges,
+        PendingFile,
+        PendingUpdate,
         PlanConflict,
         PlanMessage,
         PlanUpdate,
@@ -54,6 +57,8 @@ try:
         AgentKind,
         Decision,
         IntentUpdate,
+        RememberedMember,
+        RoomAccess,
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
@@ -83,6 +88,9 @@ except ImportError:  # Render rootDir=server
         JoinRequest,
         JoinResolved,
         PeerKind,
+        PendingChanges,
+        PendingFile,
+        PendingUpdate,
         PlanConflict,
         PlanMessage,
         PlanUpdate,
@@ -90,6 +98,8 @@ except ImportError:  # Render rootDir=server
         AgentKind,
         Decision,
         IntentUpdate,
+        RememberedMember,
+        RoomAccess,
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
@@ -101,6 +111,8 @@ log = logging.getLogger(__name__)
 # Task leases are swept when the soonest one lapses, but at least this often
 # (a renewal moves it later) and at most this often.
 TASK_SWEEP_MAX_SECONDS = 30.0
+# How much of a reserving task's title a block reason quotes.
+TASK_TITLE_IN_REASON = 80
 TASK_SWEEP_MIN_SECONDS = 0.5
 
 # Observers of room events (server/webhooks.py registers one): called with
@@ -206,6 +218,16 @@ MAX_RANGES_PER_TOUCH = 256
 # Plans and intents kept per member (one per repo; oldest evicted).
 MAX_PLANS_PER_MEMBER = 8
 MAX_INTENTS_PER_MEMBER = 8
+# Pending (unpushed) work reports, one per (member, repo), replaced by each
+# report and kept for as long as the work stays unpushed rather than for the
+# touch window. A member that disconnects keeps its last report (judged with
+# its age, marked offline) for PENDING_OFFLINE_SECONDS: unpushed work does not
+# go away when a laptop lid closes. Bounded per member, per room and in bytes
+# per room (oldest report dropped first), like the touch bounds above.
+PENDING_OFFLINE_SECONDS = _env_number("HIVELANE_PENDING_OFFLINE_SECONDS", 4 * 3600.0)
+MAX_PENDING_REPORTS_PER_MEMBER = 8
+MAX_PENDING_REPORTS_PER_ROOM = int(_env_number("HIVELANE_MAX_PENDING_REPORTS_PER_ROOM", 256))
+MAX_PENDING_BYTES_PER_ROOM = int(_env_number("HIVELANE_MAX_PENDING_BYTES_PER_ROOM", 16 * 1024 * 1024))
 # Joiners from one address that may wait for approval at once.
 MAX_PENDING_JOINS_PER_IP = int(_env_number("HIVELANE_MAX_PENDING_JOINS_PER_IP", 2))
 
@@ -239,6 +261,76 @@ def hash_owner_token(token: str) -> str:
     precompute, and a stolen hash cannot be replayed as a token.
     """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Invite links (see docs/security.md "Invite links"). The secret rides in a
+# share link's URL fragment; the relay keeps its hash to check joins against,
+# plus a copy wrapped under the owner token so an owner can be shown the link
+# again. Member tokens remember people an owner approved (or who came in by
+# invite), so a reconnect does not ask again.
+INVITE_SECRET_BYTES = 24  # 192 bits, 32 URL-safe characters
+MEMBER_TOKEN_BYTES = 32
+# Remembered members per room; the oldest grant is forgotten beyond this
+# (that person is simply asked again). HIVELANE_MAX_REMEMBERED_MEMBERS.
+MAX_REMEMBERED_MEMBERS = int(_env_number("HIVELANE_MAX_REMEMBERED_MEMBERS", 256))
+# Longer than any secret the relay hands out: anything bigger is not one, and
+# is not worth hashing.
+MAX_SECRET_CHARS = 256
+_WRAP_CONTEXT = b"hivelane-invite-wrap\x00"
+
+
+def new_invite_secret() -> str:
+    """A fresh invite secret: 24 random bytes, URL-safe base64."""
+    return secrets.token_urlsafe(INVITE_SECRET_BYTES)
+
+
+def new_member_token() -> str:
+    return secrets.token_urlsafe(MEMBER_TOKEN_BYTES)
+
+
+def _usable_secret(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str) or not value or len(value) > MAX_SECRET_CHARS:
+        return None
+    return value
+
+
+def _keystream(owner_token: str, nonce: bytes, size: int) -> bytes:
+    out = b""
+    counter = 0
+    while len(out) < size:
+        out += hashlib.sha256(
+            _WRAP_CONTEXT + nonce + counter.to_bytes(4, "big") + owner_token.encode("utf-8")
+        ).digest()
+        counter += 1
+    return out[:size]
+
+
+def wrap_invite_secret(secret: str, owner_token: str) -> dict[str, str]:
+    """The invite secret encrypted under the owner token (a fresh nonce each
+    time), for the store: useless without the token, which the relay never
+    keeps. Lets an owner who presents the token be shown the link again."""
+    nonce = secrets.token_bytes(16)
+    data = secret.encode("utf-8")
+    stream = _keystream(owner_token, nonce, len(data))
+    return {"nonce": nonce.hex(), "ct": bytes(a ^ b for a, b in zip(data, stream)).hex()}
+
+
+def unwrap_invite_secret(wrapped: object, owner_token: str) -> Optional[str]:
+    """wrap_invite_secret undone, or None for a malformed record."""
+    if not isinstance(wrapped, dict):
+        return None
+    try:
+        nonce = bytes.fromhex(str(wrapped.get("nonce", "")))
+        data = bytes.fromhex(str(wrapped.get("ct", "")))
+    except ValueError:
+        return None
+    if len(nonce) != 16 or not data or len(data) > MAX_SECRET_CHARS:
+        return None
+    stream = _keystream(owner_token, nonce, len(data))
+    try:
+        return bytes(a ^ b for a, b in zip(data, stream)).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 # Files where "different function" is no comfort: manifests, lockfiles and
 # config are edited as a whole, so they are always judged at file level.
@@ -395,6 +487,29 @@ class FileTouch:
             if ranges_near(ranges, [(start, end)], proximity)
         ]
         return max(times) if times else None
+
+
+@dataclass
+class PendingRecord:
+    """A member's latest pending_changes report for one repo, as broadcast,
+    with its files indexed by path. offline_since is set (Unix seconds) once
+    the member disconnects; a report from it again replaces the record."""
+
+    update: PendingUpdate
+    by_path: dict[str, PendingFile]
+    cost: int
+    offline_since: Optional[float] = None
+
+
+def _pending_age(seconds: float) -> str:
+    seconds = int(max(0.0, seconds))
+    if seconds < 60:
+        return f"{seconds}s ago"
+    if seconds < 3600:
+        return f"{seconds // 60} min ago"
+    if seconds < 172800:
+        return f"{seconds // 3600} h ago"
+    return f"{seconds // 86400} days ago"
 
 
 # Owner resolve actions (hold_release, queue_order). The member let through
@@ -618,6 +733,19 @@ class Room:
         self._repo_key: Optional[str] = None
         # Sockets (members or spectators) that presented the owner token.
         self._owner_sockets: set[WebSocket] = set()
+        # The owner token itself, in memory only, once an owner presented it
+        # (never stored): what unwraps the invite secret for owners.
+        self._owner_token: Optional[str] = None
+        # Invite links: SHA-256 of the current invite secret, and the secret
+        # wrapped under the owner token. None for rooms created before invite
+        # links (the code alone admits there, as it always did).
+        self._invite_hash: Optional[str] = None
+        self._invite_wrap: Optional[dict[str, str]] = None
+        # member_id -> {"hash", "name", "kind", "issued_at"}: people this room
+        # remembers (a member token was issued to them), oldest first.
+        self._remembered: OrderedDict[str, dict[str, object]] = OrderedDict()
+        # Socket -> the member_id it was admitted under (revocation kicks it).
+        self._socket_grants: dict[WebSocket, str] = {}
         # request_id -> joiner waiting for approval, oldest first.
         self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
         # Inbound member messages per minute, summed over every member in the
@@ -653,6 +781,10 @@ class Room:
         # the file pass the other members' touches (see go_first).
         self._held: OrderedDict[str, HeldEdit] = OrderedDict()
         self._overrides: dict[tuple[str, str, str], float] = {}
+        # (user_id, repo_id) -> that member's unpushed files (record_pending),
+        # least recently reported first: the eviction order for the bounds.
+        self._pending_work: OrderedDict[tuple[str, str], PendingRecord] = OrderedDict()
+        self._pending_bytes = 0
 
     # --- membership ----------------------------------------------------------
 
@@ -718,6 +850,7 @@ class Room:
         current = self._members.pop(user_id, None)
         if current is not None:
             self._owner_sockets.discard(current)
+            self._socket_grants.pop(current, None)
             self._stalled.discard(current)
             self._catching_up.pop(current, None)
         self._member_agents.pop(user_id, None)
@@ -736,6 +869,12 @@ class Room:
         # Its places in line and its claims; the files it held are released
         # by the next tick_file_queues().
         self.file_queues.remove_user(user_id)
+        if current is not None:
+            # Its unpushed work is still unpushed: kept, marked offline.
+            offline_at = time.time()
+            for key, record in self._pending_work.items():
+                if key[0] == user_id and record.offline_since is None:
+                    record.offline_since = offline_at
         return current is not None
 
     # --- settings ------------------------------------------------------------
@@ -811,6 +950,7 @@ class Room:
     def remove_spectator(self, socket: WebSocket) -> None:
         self._spectators.discard(socket)
         self._owner_sockets.discard(socket)
+        self._socket_grants.pop(socket, None)
         self._stalled.discard(socket)
         self._catching_up.pop(socket, None)
 
@@ -842,8 +982,11 @@ class Room:
 
     # --- access --------------------------------------------------------------
     #
-    # The room code admits anyone who has it. Rooms created with an owner
-    # token can additionally require an owner to approve each new joiner.
+    # Rooms created before owner tokens: the code admits anyone who has it.
+    # Rooms with an owner token can require an owner to approve each new
+    # joiner. Rooms with an invite secret (every room created since invite
+    # links) admit a join that presents the secret, the owner token or a
+    # member token directly, and hold a join with the code alone for approval.
 
     def set_owner_hash(self, owner_hash: Optional[str]) -> None:
         self._owner_hash = owner_hash
@@ -855,9 +998,13 @@ class Room:
     def verify_owner_token(self, token: Optional[str]) -> bool:
         """True if token is this room's owner token. Compared as hashes in
         constant time, so timing says nothing about how close a guess was."""
-        if not token or self._owner_hash is None:
+        token = _usable_secret(token)
+        if token is None or self._owner_hash is None:
             return False
-        return hmac.compare_digest(hash_owner_token(token), self._owner_hash)
+        if not hmac.compare_digest(hash_owner_token(token), self._owner_hash):
+            return False
+        self._owner_token = token
+        return True
 
     def add_owner(self, socket: WebSocket) -> None:
         self._owner_sockets.add(socket)
@@ -899,12 +1046,140 @@ class Room:
                 self.resolve_pending(pending.request_id, True)
         return self.policy_update()
 
+    # --- invite links and remembered members ---------------------------------
+
+    @property
+    def invite_required(self) -> bool:
+        """True when a join needs the invite secret (or a token) to skip
+        approval: every room created since invite links."""
+        return self._invite_hash is not None
+
+    def set_invite_secret(self, secret: str, owner_token: str) -> None:
+        """Make secret the room's invite secret (replacing any earlier one)."""
+        self._invite_hash = hash_owner_token(secret)
+        self._invite_wrap = wrap_invite_secret(secret, owner_token)
+
+    def verify_invite_secret(self, secret: Optional[str]) -> bool:
+        """True if secret is the current invite secret (constant time). A
+        rotated, wrong or missing one is False, all alike."""
+        secret = _usable_secret(secret)
+        if secret is None or self._invite_hash is None:
+            return False
+        return hmac.compare_digest(hash_owner_token(secret), self._invite_hash)
+
+    def invite_secret(self, owner_token: Optional[str] = None) -> Optional[str]:
+        """The current invite secret, unwrapped with the owner token (the one
+        given, else the one an owner socket presented). None without either,
+        or for a room without invite links."""
+        token = _usable_secret(owner_token) or self._owner_token
+        if token is None or self._invite_hash is None:
+            return None
+        secret = unwrap_invite_secret(self._invite_wrap, token)
+        if secret is None or not self.verify_invite_secret(secret):
+            return None
+        return secret
+
+    def rotate_invite(self, owner_token: Optional[str] = None) -> Optional[str]:
+        """A fresh invite secret replaces the old one, whose links then only
+        knock. Remembered members keep their tokens. None without the owner
+        token (it wraps the new secret)."""
+        token = _usable_secret(owner_token) or self._owner_token
+        if token is None or not self.has_owner:
+            return None
+        secret = new_invite_secret()
+        self.set_invite_secret(secret, token)
+        return secret
+
+    def verify_member_token(self, token: Optional[str]) -> Optional[str]:
+        """The member_id token was issued under, or None (wrong, revoked or
+        forgotten). Every grant is compared, in constant time each."""
+        token = _usable_secret(token)
+        if token is None or not self._remembered:
+            return None
+        wanted = hash_owner_token(token)
+        found: Optional[str] = None
+        for member_id, grant in self._remembered.items():
+            if hmac.compare_digest(wanted, str(grant.get("hash", ""))):
+                found = member_id
+        return found
+
+    def remember_member(
+        self, name: str, kind: str = "member", now: Optional[float] = None
+    ) -> tuple[str, str]:
+        """Issue a member token for someone just admitted: (member_id, token).
+        Only the token's hash is kept. The oldest grant is forgotten past
+        MAX_REMEMBERED_MEMBERS."""
+        token = new_member_token()
+        member_id = secrets.token_hex(8)
+        self._remembered[member_id] = {
+            "hash": hash_owner_token(token),
+            "name": name,
+            "kind": "dashboard" if kind == "dashboard" else "member",
+            "issued_at": time.time() if now is None else now,
+        }
+        while MAX_REMEMBERED_MEMBERS > 0 and len(self._remembered) > MAX_REMEMBERED_MEMBERS:
+            self._remembered.popitem(last=False)
+        return member_id, token
+
+    def rename_member(self, member_id: str, name: str) -> bool:
+        """Record the name a remembered member now uses. True if it changed."""
+        grant = self._remembered.get(member_id)
+        if grant is None or grant.get("name") == name:
+            return False
+        grant["name"] = name
+        return True
+
+    def bind_grant(self, socket: WebSocket, member_id: str) -> None:
+        self._socket_grants[socket] = member_id
+
+    def grant_of(self, socket: WebSocket) -> Optional[str]:
+        """The member_id socket was admitted under, if any."""
+        return self._socket_grants.get(socket)
+
+    def revoke_member(self, member_id: str) -> Optional[list[WebSocket]]:
+        """Forget a remembered member. Returns the sockets connected under
+        that grant (the caller disconnects them), or None for an unknown id."""
+        if self._remembered.pop(member_id, None) is None:
+            return None
+        sockets = [s for s, grant in self._socket_grants.items() if grant == member_id]
+        for socket in sockets:
+            self._socket_grants.pop(socket, None)
+        return sockets
+
+    def remembered_members(self) -> list[RememberedMember]:
+        online = set(self._socket_grants.values())
+        return [
+            RememberedMember(
+                member_id=member_id,
+                name=str(grant.get("name") or ""),
+                kind="dashboard" if grant.get("kind") == "dashboard" else "member",
+                issued_at=float(grant.get("issued_at") or 0.0),  # type: ignore[arg-type]
+                online=member_id in online,
+            )
+            for member_id, grant in self._remembered.items()
+        ]
+
+    def access_update(self) -> RoomAccess:
+        """The owners' view of who may come in (room_access)."""
+        return RoomAccess(
+            invite_required=self.invite_required,
+            invite_secret=self.invite_secret(),
+            members=self.remembered_members(),
+        )
+
     def access_record(self) -> dict[str, object]:
-        """What the store keeps about access. Never the token itself."""
-        return {
+        """What the store keeps about access. Never a token or secret itself
+        (the invite secret only wrapped under the owner token)."""
+        record: dict[str, object] = {
             "owner_hash": self._owner_hash,
             "require_approval": self._require_approval,
         }
+        if self._invite_hash is not None:
+            record["invite_hash"] = self._invite_hash
+            record["invite_wrap"] = dict(self._invite_wrap or {})
+        if self._remembered:
+            record["members"] = {k: dict(v) for k, v in self._remembered.items()}
+        return record
 
     def load_access(self, record: Optional[dict]) -> None:
         """Restore access_record() output from the store. Tolerates a missing
@@ -917,6 +1192,47 @@ class Room:
         )
         # Approval without an owner would hold every joiner until timeout.
         self._require_approval = bool(record.get("require_approval")) and self.has_owner
+        # Likewise an invite secret: with no owner, nobody could approve the
+        # code-only joins it holds.
+        invite_hash = record.get("invite_hash")
+        if self.has_owner and isinstance(invite_hash, str) and invite_hash:
+            self._invite_hash = invite_hash
+            wrap = record.get("invite_wrap")
+            self._invite_wrap = (
+                {"nonce": str(wrap.get("nonce", "")), "ct": str(wrap.get("ct", ""))}
+                if isinstance(wrap, dict)
+                else None
+            )
+        self._remembered = OrderedDict()
+        members = record.get("members")
+        if self.has_owner and isinstance(members, dict):
+            grants: list[tuple[float, str, dict[str, object]]] = []
+            for member_id, grant in members.items():
+                if not isinstance(member_id, str) or not isinstance(grant, dict):
+                    continue
+                token_hash = grant.get("hash")
+                if not isinstance(token_hash, str) or not token_hash:
+                    continue
+                raw_issued = grant.get("issued_at")
+                issued = (
+                    float(raw_issued)
+                    if isinstance(raw_issued, (int, float)) and not isinstance(raw_issued, bool)
+                    else 0.0
+                )
+                grants.append(
+                    (
+                        issued,
+                        member_id,
+                        {
+                            "hash": token_hash,
+                            "name": str(grant.get("name") or ""),
+                            "kind": "dashboard" if grant.get("kind") == "dashboard" else "member",
+                            "issued_at": issued,
+                        },
+                    )
+                )
+            for _, member_id, grant in sorted(grants, key=lambda g: g[0]):
+                self._remembered[member_id] = grant
 
     def open_pending(
         self,
@@ -1574,11 +1890,19 @@ class Room:
                 task_id=reserved.task_id,
                 task_lease_until=reserved.lease_until or now,
             )
+        mine = {user_id.lower(), *ignored, *(name.lower() for name in own_names)}
+        pending, pending_reason = self._pending_peers(
+            file_path, mine, now, repo_id, wanted_symbols, branch, always_warn
+        )
         if judged:
             # Same-branch peers first (stable sort keeps newest-first within):
             # a live edit matters more than a future merge conflict.
             judged.sort(key=lambda item: item[2] == "branch")
             peers = [touch for touch, _, _ in judged]
+            # Unpushed work rides along after the live peers; the live touch
+            # decides scope and reason.
+            live_ids = {touch.user_id for touch in peers}
+            peers.extend(touch for touch in pending if touch.user_id not in live_ids)
             if all(scope == "imports" for _, _, scope in judged):
                 who = f"{peers[0].user_id}'s {peers[0].agent}"
                 return EditVerdict(
@@ -1589,6 +1913,9 @@ class Room:
                 )
             scope = judged[0][2]
             return EditVerdict("warn", peers, "symbol" if scope == "imports" else scope)
+
+        if pending:
+            return EditVerdict("warn", pending, "pending", reason=pending_reason)
 
         planned = [
             touch
@@ -1606,6 +1933,153 @@ class Room:
         if mentions:
             return EditVerdict("warn", mentions, "intent")
         return EditVerdict("allow", [], "file")
+
+    # --- pending (unpushed) work ---------------------------------------------
+
+    def _pending_live(self, record: PendingRecord, now: float) -> bool:
+        """False once a disconnected member's report has lapsed."""
+        if self.is_active(record.update.user_id) or record.offline_since is None:
+            return True
+        return now - record.offline_since <= PENDING_OFFLINE_SECONDS
+
+    def _prune_pending(self, now: float) -> None:
+        for key in [k for k, r in self._pending_work.items() if not self._pending_live(r, now)]:
+            self._drop_pending(key)
+
+    def _drop_pending(self, key: tuple[str, str]) -> None:
+        record = self._pending_work.pop(key, None)
+        if record is not None:
+            self._pending_bytes -= record.cost
+
+    def record_pending(
+        self, message: PendingChanges, now: float, agent: AgentKind = "unknown"
+    ) -> PendingUpdate:
+        """Store message as its sender's unpushed files in its repo, replacing
+        the previous report (an empty list clears it). Returns the dashboards'
+        pending_update."""
+        update = PendingUpdate(
+            user_id=message.user_id,
+            agent=agent,
+            repo_id=message.repo_id,
+            branch=message.branch,
+            base=message.base,
+            files=[f.model_copy() for f in message.files],
+            truncated=message.truncated,
+            timestamp=now,
+            online=True,
+            e2e=message.e2e,
+        )
+        key = (message.user_id, message.repo_id)
+        self._drop_pending(key)
+        self._prune_pending(now)
+        if not update.files:
+            return update
+        cost = 256 + len(update.e2e) + len(update.branch) + len(update.base)
+        cost += sum(64 + len(f.path) + sum(len(s) for s in f.symbols) for f in update.files)
+        self._pending_work[key] = PendingRecord(
+            update=update, by_path={f.path: f for f in update.files}, cost=cost
+        )
+        self._pending_bytes += cost
+        own = [k for k in self._pending_work if k[0] == message.user_id]
+        for old in own[: max(0, len(own) - MAX_PENDING_REPORTS_PER_MEMBER)]:
+            self._drop_pending(old)
+        while self._pending_work and (
+            (MAX_PENDING_REPORTS_PER_ROOM > 0 and len(self._pending_work) > MAX_PENDING_REPORTS_PER_ROOM)
+            or (MAX_PENDING_BYTES_PER_ROOM > 0 and self._pending_bytes > MAX_PENDING_BYTES_PER_ROOM)
+        ):
+            self._drop_pending(next(iter(self._pending_work)))
+        return update
+
+    def pending_updates(self, now: Optional[float] = None) -> list[PendingUpdate]:
+        """Every unpushed-work report still held (spectator catch-up), online
+        saying whether its member is connected right now."""
+        now = time.time() if now is None else now
+        self._prune_pending(now)
+        return [
+            record.update.model_copy(update={"online": self.is_active(record.update.user_id)})
+            for record in self._pending_work.values()
+        ]
+
+    @property
+    def pending_report_count(self) -> int:
+        return len(self._pending_work)
+
+    @property
+    def pending_bytes(self) -> int:
+        return self._pending_bytes
+
+    def _pending_peers(
+        self,
+        file_path: str,
+        mine: set[str],
+        now: float,
+        repo_id: str,
+        symbols: list[str],
+        branch: str,
+        always_warn: bool,
+    ) -> tuple[list[FileTouch], str]:
+        """Other people's unpushed changes to file_path, oldest work first,
+        and the reason sentence for the first. mine: the requester's names,
+        lowercased (its own lanes and its daemon's main name are one person).
+        When both sides name symbols only shared ones count; a config file
+        counts whatever changed in it."""
+        found: list[tuple[FileTouch, list[str], bool]] = []
+        for (other_id, report_repo), record in list(self._pending_work.items()):
+            if report_repo != repo_id or other_id.lower() in mine:
+                continue
+            pending = record.by_path.get(file_path)
+            if pending is None:
+                continue
+            if not self._pending_live(record, now):
+                self._drop_pending((other_id, report_repo))
+                continue
+            shared: list[str] = []
+            if symbols and pending.symbols and not always_warn:
+                shared = [name for name in pending.symbols if name in symbols]
+                if not shared:
+                    continue
+            update = record.update
+            touch = FileTouch(
+                user_id=other_id,
+                file_path=file_path,
+                diff="",
+                prompt=None,
+                timestamp=pending.since or update.timestamp,
+                agent=update.agent,
+                repo_id=repo_id,
+                symbols=list(pending.symbols),
+                branch=update.branch,
+                kind="pending",
+                # No blob: a daemon that predates pending_changes cannot open
+                # a "pending" envelope, and the reason names the path anyway.
+            )
+            found.append((touch, shared, self.is_active(other_id)))
+        if not found:
+            return [], ""
+        found.sort(key=lambda item: item[0].timestamp)
+        touch, shared, online = found[0]
+        # In an e2e room names are hashes: only the shared ones (the
+        # requester's own) turn back into names on its side.
+        shown = shared or [n for n in touch.symbols if not n.startswith(suggest.HASH_PREFIX)]
+        names = f" ({', '.join(shown[:3])})" if shown else ""
+        age = _pending_age(now - touch.timestamp)
+        who = touch.user_id if online else f"{touch.user_id} (offline)"
+        if _branches_differ(branch, touch.branch):
+            where = (
+                "another branch"
+                if touch.branch.startswith(suggest.HASH_PREFIX)
+                else f"branch {touch.branch}"
+            )
+            reason = (
+                f"{who} has unpushed changes to {file_path}{names} on {where} "
+                f"from {age}, this will conflict at merge; coordinate first"
+            )
+        else:
+            reason = (
+                f"{who} has unpushed changes to {file_path}{names} from {age}; "
+                "pull or coordinate first"
+            )
+        return [item[0] for item in found], reason
 
     # --- plans ---------------------------------------------------------------
 
@@ -1855,8 +2329,13 @@ class Room:
             # reason points at the task instead.
             claimer = verdict.peers[0].user_id if verdict.peers else "a teammate"
             minutes = max(1, int((verdict.task_lease_until - now) // 60))
+            # The title, when the relay can read it (an e2e room's is sealed).
+            title = " ".join((verdict.peers[0].prompt or "").split()) if verdict.peers else ""
+            if len(title) > TASK_TITLE_IN_REASON:
+                title = title[: TASK_TITLE_IN_REASON - 1].rstrip() + "…"
+            named = f' "{title}"' if title else ""
             reason = (
-                f"{file_path} is reserved by {claimer}'s task {verdict.task_id} "
+                f"{file_path} is reserved by {claimer}'s task {verdict.task_id}{named} "
                 f"({minutes} min left on its lease)"
             )
             return QueueOutcome("block", verdict.peers, "task", reason=reason)
