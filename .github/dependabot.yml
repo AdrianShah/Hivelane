@@ -14,6 +14,10 @@ updates:
   # The hivelane CLI package: pyproject.toml's dependency ranges.
   - package-ecosystem: pip
     directory: "/"
+    # The / scan also finds server/requirements*.txt, which the relay entry
+    # below owns; without this every relay bump arrives as two identical PRs.
+    exclude-paths:
+      - "server/**"
     schedule:
       interval: weekly
       day: monday
