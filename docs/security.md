@@ -14,23 +14,96 @@ operator should not see your code.
 
 ### Trust model
 
-- **The room code is the key to the room.** Codes are 8 characters from a
-  32-letter alphabet (about 40 bits), valid for 7 days, and removed about 30
-  minutes after the last socket leaves. Anyone holding the code (or a dashboard
-  link, which contains it) can join as a member or watch as a dashboard, the
-  same trust model as a document share link. Guessing is throttled per client
-  IP: 30 WebSocket attempts a minute, 10 rooms created an hour (see
-  [client IPs](#client-ips-behind-a-proxy)).
-- **Optionally, an owner approves each newcomer.** The room's creator holds an
-  owner token and can switch on *require approval*; from then on a leaked code
-  alone gets nobody in.
+- **The room code names the room; the invite link lets people in.** Codes are
+  8 characters from a 32-letter alphabet (about 40 bits), valid for 7 days, and
+  removed about 30 minutes after the last socket leaves. A code is not secret:
+  it is in the committed `.hivelane.toml`, in screenshots, in dashboard URLs.
+  So in every room created since invite links, **the code alone only knocks**:
+  a join that presents nothing but the code waits until an owner approves it.
+- **Whoever was sent the invite link comes straight in.** Each room has an
+  invite secret (192 random bits). The share link carries it in the URL
+  fragment (`.../j/CODE#invite=SECRET`), which browsers never send to a
+  server, so it stays out of relay logs, proxies and `Referer`. A join that
+  presents it (or the owner token, or a member token, below) is admitted
+  without asking anyone. This is the same trust model as a document share
+  link, except that guessing or reading the code is not enough.
+- **People let in are remembered.** Whoever is admitted by approval or by the
+  link gets a per-member token, so a reconnect (laptop sleep, relay redeploy,
+  a dashboard reload) does not ask again. An owner can remove a remembered
+  person (disconnects them and invalidates the token) and rotate the invite
+  link (old links only knock from then on).
+- **An owner can still vet everyone.** *Require approval* holds every joiner
+  that is not an owner or a remembered member, invite link or not.
+- **Guessing is throttled and leaks nothing.** 30 WebSocket attempts a minute
+  and 10 rooms created an hour per client IP (see
+  [client IPs](#client-ips-behind-a-proxy)). A wrong or rotated invite secret
+  is treated exactly like none: the join waits for approval with the same
+  words, so the relay cannot be used to test secrets. The owner-only HTTP
+  endpoints answer an unknown room and a wrong owner token with the same 404.
+  (Whether a *code* exists is still visible, as before: an unknown code is
+  refused with `4404`, a known one queues the knock.)
 - **The relay cannot authenticate people.** Display names are chosen by
-  whoever joins; the relay only keeps them unique within a room. Approval is
-  where a human checks who is knocking.
+  whoever joins; the relay only keeps them unique within a room. The invite
+  link proves someone was sent the link; approval is where a human checks who
+  is knocking.
 - **Clients do not take the relay's word on encryption.** A daemon decides to
   encrypt from its own `.hivelane.toml`, never from the relay's `e2e` flag, so a
   hostile relay cannot talk it into cleartext. The relay keeps the flag one-way
   anyway: a join can switch `e2e` on, never off.
+- **Older rooms keep their rules.** A room created before invite links (or on
+  a relay started with `HIVELANE_INVITE_LINKS=false`) has no invite secret:
+  its code alone admits, as it always did, unless an owner turns on approval
+  or makes an invite link (rotating creates one).
+
+### Invite links
+
+`POST /rooms` returns `invite_secret` next to `owner_token`: 24 random bytes,
+URL-safe base64. The relay keeps its SHA-256 (`invite_hash` in the room's
+`access` record) to check joins against, in constant time, plus a copy
+encrypted under the owner token (`invite_wrap`: a SHA-256 keystream keyed by
+the owner token and a fresh nonce), so an owner who presents the token can be
+shown the link again. Without the owner token, which the relay never stores,
+the wrapped copy is useless.
+
+Who is admitted, for a room with an invite secret:
+
+| The join presents | `require_approval` off | `require_approval` on |
+| --- | --- | --- |
+| the owner token | admitted (owner) | admitted (owner) |
+| a valid member token | admitted | admitted |
+| the current invite secret | admitted, gets a member token | waits for approval |
+| the code only, a wrong or rotated secret, a revoked token | waits for approval | waits for approval |
+
+A room bound to a repository (below) follows the same table: the invite link
+admits even though the code is discoverable from the remote URL. A room
+without an invite secret admits the code alone unless approval is on or it is
+repository-bound.
+
+**Member tokens.** Anyone admitted other than an owner, in a room with an
+owner, is sent `member_token {member_id, token}` right after admission
+(32 random bytes; the relay keeps the hash and the name and kind it was issued
+to, at most 256 per room, oldest forgotten first). Presenting it as
+`join.member_token` skips approval until an owner revokes it. The CLI keeps it
+in the personal config under `member_tokens`; the dashboard in `localStorage`
+under `hivelane:member-token:<relay>|<CODE>`.
+
+**Where the invite secret lives.** The CLI keeps it in the personal config
+under `invite_secrets` (the creator's, and any link pasted into `hivelane up
+--room` or `hivelane join`), never in `.hivelane.toml`; a project file that
+contains one is refused. The dashboard reads `#invite=` once, removes it from
+the address bar and history, and keeps it in `sessionStorage` for that tab.
+
+**Owner controls.** Owner sockets receive `room_access {invite_required,
+invite_secret, members}` in their catch-up and after every change. They may
+send `invite_rotate` (a new secret; links sent before stop admitting, remembered
+members stay) and `member_revoke {member_id}` (the token stops working; any
+socket connected under it gets `room_rejected` "an owner removed you from this
+room" and close `4403`). Over HTTP, with the `X-Hivelane-Owner-Token` header:
+`GET /rooms/{code}/invite` and `POST /rooms/{code}/invite/rotate` (rate-limited
+like repository lookups; unknown room and wrong token are the same 404).
+
+Removing someone does not take the link away from them: if they still have
+it, rotate the link too.
 
 ### Owner tokens
 
@@ -40,8 +113,9 @@ memory and in the room store: the SQLite `access` column, or the Redis
 `access` hash), never the token, and compares hashes in constant time.
 
 A join (member or dashboard) that carries `owner_token` makes that socket an
-owner: it may send `room_policy` and `join_decision`, and it receives
-`join_request` / `join_resolved`. A wrong or stale token is treated exactly
+owner: it may send `room_policy`, `join_decision`, `invite_rotate` and
+`member_revoke`, and it receives `join_request` / `join_resolved` /
+`room_access`. A wrong or stale token is treated exactly
 like no token (no error, nothing revealed). Several sockets can be owners at
 once (the dashboard and the creator's daemon, two tabs).
 
@@ -49,16 +123,18 @@ Where tokens live: the CLI keeps the one for rooms it creates in the personal
 config (see [Daemon and hooks](#daemon-and-hooks)). The dashboard keeps the one
 for rooms it creates in `localStorage` under `hivelane:owner-token:<CODE>`, so
 anyone using that browser profile owns the room, and clearing site data gives
-the ownership up. There is no recovery or rotation: a lost token means a new
-room. Rooms created before owner tokens existed have no owner and cannot
+the ownership up. There is no recovery or rotation of the owner token: a
+lost token means a new room (the invite link, by contrast, can be rotated). Rooms created before owner tokens existed have no owner and cannot
 require approval.
 
 ### Join approval
 
-When an owner sends `{"type": "room_policy", "require_approval": true}`, the
-relay persists the policy with the room (it survives restarts), broadcasts
-`room_policy_update` to everyone, and from then on holds every joiner that does
-not present the owner token, members and dashboards alike:
+In a room with an invite secret, every join without the secret or a token is
+held as below. When an owner sends `{"type": "room_policy", "require_approval":
+true}`, the relay persists the policy with the room (it survives restarts),
+broadcasts `room_policy_update` to everyone, and from then on holds every
+joiner that does not present the owner token or a member token, invite link
+holders included, members and dashboards alike:
 
 1. The joiner gets `join_pending {request_id, reason}`. Its socket stays open;
    anything it sends while waiting is read and discarded.
@@ -66,8 +142,9 @@ not present the owner token, members and dashboards alike:
    (`name` is `"dashboard viewer"` for a dashboard). An owner who connects
    later gets the open requests in its catch-up.
 3. An owner answers `join_decision {request_id, approve}`. Approved: the joiner
-   gets `join_resolved {request_id, outcome: "approved"}` and then the room's
-   normal traffic; it must not send anything before that frame. Declined:
+   gets `join_resolved {request_id, outcome: "approved"}`, then a
+   `member_token` (so it is not asked again), then the room's normal traffic;
+   it must not send anything before `join_resolved`. Declined:
    `room_rejected` "an owner declined your request" and close code `4403`.
 4. Every owner gets `join_resolved` with the outcome (`approved`, `declined`,
    `timed_out`, or `withdrawn` when the joiner disconnected), so other owners'
@@ -81,9 +158,10 @@ Limits and edge cases:
   (close `4403`). With no owner connected, joiners simply wait until then.
 - People already connected stay connected when approval is switched on.
   Switching it off admits everyone waiting.
-- Approval is per connection: a daemon that reconnects (network blip, laptop
-  sleep, relay redeploy) asks again. Owners and their daemons, which present
-  the token, are never held.
+- Approval is remembered: the approved joiner's member token lets its
+  reconnects (network blip, laptop sleep, relay redeploy) straight in, until
+  an owner removes it. Owners and their daemons, which present the owner
+  token, are never held.
 - If the requested name was taken while the joiner waited, it gets
   `name_rejected` after approval and joins again under another name (which
   needs approval again).
@@ -121,6 +199,7 @@ remote URL can compute the same lookup key) — the relay enforces approval
   holds *all* non-owner joins on that room (including teammates who hold the
   `.hivelane.toml` room code) because the relay cannot cryptographically
   distinguish a client holding a committed code from one who looked it up.
+  Teammates sent the invite link (or already remembered) are not held.
   Teams using a public repository URL who do not want repo-based discovery should
   pass `--no-repo-lookup`.
 

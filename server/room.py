@@ -57,6 +57,8 @@ try:
         AgentKind,
         Decision,
         IntentUpdate,
+        RememberedMember,
+        RoomAccess,
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
@@ -96,6 +98,8 @@ except ImportError:  # Render rootDir=server
         AgentKind,
         Decision,
         IntentUpdate,
+        RememberedMember,
+        RoomAccess,
         RoomPolicyUpdate,
         RoomSettings,
         RoomSettingsUpdate,
@@ -257,6 +261,76 @@ def hash_owner_token(token: str) -> str:
     precompute, and a stolen hash cannot be replayed as a token.
     """
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+# Invite links (see docs/security.md "Invite links"). The secret rides in a
+# share link's URL fragment; the relay keeps its hash to check joins against,
+# plus a copy wrapped under the owner token so an owner can be shown the link
+# again. Member tokens remember people an owner approved (or who came in by
+# invite), so a reconnect does not ask again.
+INVITE_SECRET_BYTES = 24  # 192 bits, 32 URL-safe characters
+MEMBER_TOKEN_BYTES = 32
+# Remembered members per room; the oldest grant is forgotten beyond this
+# (that person is simply asked again). HIVELANE_MAX_REMEMBERED_MEMBERS.
+MAX_REMEMBERED_MEMBERS = int(_env_number("HIVELANE_MAX_REMEMBERED_MEMBERS", 256))
+# Longer than any secret the relay hands out: anything bigger is not one, and
+# is not worth hashing.
+MAX_SECRET_CHARS = 256
+_WRAP_CONTEXT = b"hivelane-invite-wrap\x00"
+
+
+def new_invite_secret() -> str:
+    """A fresh invite secret: 24 random bytes, URL-safe base64."""
+    return secrets.token_urlsafe(INVITE_SECRET_BYTES)
+
+
+def new_member_token() -> str:
+    return secrets.token_urlsafe(MEMBER_TOKEN_BYTES)
+
+
+def _usable_secret(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str) or not value or len(value) > MAX_SECRET_CHARS:
+        return None
+    return value
+
+
+def _keystream(owner_token: str, nonce: bytes, size: int) -> bytes:
+    out = b""
+    counter = 0
+    while len(out) < size:
+        out += hashlib.sha256(
+            _WRAP_CONTEXT + nonce + counter.to_bytes(4, "big") + owner_token.encode("utf-8")
+        ).digest()
+        counter += 1
+    return out[:size]
+
+
+def wrap_invite_secret(secret: str, owner_token: str) -> dict[str, str]:
+    """The invite secret encrypted under the owner token (a fresh nonce each
+    time), for the store: useless without the token, which the relay never
+    keeps. Lets an owner who presents the token be shown the link again."""
+    nonce = secrets.token_bytes(16)
+    data = secret.encode("utf-8")
+    stream = _keystream(owner_token, nonce, len(data))
+    return {"nonce": nonce.hex(), "ct": bytes(a ^ b for a, b in zip(data, stream)).hex()}
+
+
+def unwrap_invite_secret(wrapped: object, owner_token: str) -> Optional[str]:
+    """wrap_invite_secret undone, or None for a malformed record."""
+    if not isinstance(wrapped, dict):
+        return None
+    try:
+        nonce = bytes.fromhex(str(wrapped.get("nonce", "")))
+        data = bytes.fromhex(str(wrapped.get("ct", "")))
+    except ValueError:
+        return None
+    if len(nonce) != 16 or not data or len(data) > MAX_SECRET_CHARS:
+        return None
+    stream = _keystream(owner_token, nonce, len(data))
+    try:
+        return bytes(a ^ b for a, b in zip(data, stream)).decode("utf-8")
+    except UnicodeDecodeError:
+        return None
 
 # Files where "different function" is no comfort: manifests, lockfiles and
 # config are edited as a whole, so they are always judged at file level.
@@ -659,6 +733,19 @@ class Room:
         self._repo_key: Optional[str] = None
         # Sockets (members or spectators) that presented the owner token.
         self._owner_sockets: set[WebSocket] = set()
+        # The owner token itself, in memory only, once an owner presented it
+        # (never stored): what unwraps the invite secret for owners.
+        self._owner_token: Optional[str] = None
+        # Invite links: SHA-256 of the current invite secret, and the secret
+        # wrapped under the owner token. None for rooms created before invite
+        # links (the code alone admits there, as it always did).
+        self._invite_hash: Optional[str] = None
+        self._invite_wrap: Optional[dict[str, str]] = None
+        # member_id -> {"hash", "name", "kind", "issued_at"}: people this room
+        # remembers (a member token was issued to them), oldest first.
+        self._remembered: OrderedDict[str, dict[str, object]] = OrderedDict()
+        # Socket -> the member_id it was admitted under (revocation kicks it).
+        self._socket_grants: dict[WebSocket, str] = {}
         # request_id -> joiner waiting for approval, oldest first.
         self._pending: OrderedDict[str, PendingJoin] = OrderedDict()
         # Inbound member messages per minute, summed over every member in the
@@ -763,6 +850,7 @@ class Room:
         current = self._members.pop(user_id, None)
         if current is not None:
             self._owner_sockets.discard(current)
+            self._socket_grants.pop(current, None)
             self._stalled.discard(current)
             self._catching_up.pop(current, None)
         self._member_agents.pop(user_id, None)
@@ -862,6 +950,7 @@ class Room:
     def remove_spectator(self, socket: WebSocket) -> None:
         self._spectators.discard(socket)
         self._owner_sockets.discard(socket)
+        self._socket_grants.pop(socket, None)
         self._stalled.discard(socket)
         self._catching_up.pop(socket, None)
 
@@ -893,8 +982,11 @@ class Room:
 
     # --- access --------------------------------------------------------------
     #
-    # The room code admits anyone who has it. Rooms created with an owner
-    # token can additionally require an owner to approve each new joiner.
+    # Rooms created before owner tokens: the code admits anyone who has it.
+    # Rooms with an owner token can require an owner to approve each new
+    # joiner. Rooms with an invite secret (every room created since invite
+    # links) admit a join that presents the secret, the owner token or a
+    # member token directly, and hold a join with the code alone for approval.
 
     def set_owner_hash(self, owner_hash: Optional[str]) -> None:
         self._owner_hash = owner_hash
@@ -906,9 +998,13 @@ class Room:
     def verify_owner_token(self, token: Optional[str]) -> bool:
         """True if token is this room's owner token. Compared as hashes in
         constant time, so timing says nothing about how close a guess was."""
-        if not token or self._owner_hash is None:
+        token = _usable_secret(token)
+        if token is None or self._owner_hash is None:
             return False
-        return hmac.compare_digest(hash_owner_token(token), self._owner_hash)
+        if not hmac.compare_digest(hash_owner_token(token), self._owner_hash):
+            return False
+        self._owner_token = token
+        return True
 
     def add_owner(self, socket: WebSocket) -> None:
         self._owner_sockets.add(socket)
@@ -950,12 +1046,140 @@ class Room:
                 self.resolve_pending(pending.request_id, True)
         return self.policy_update()
 
+    # --- invite links and remembered members ---------------------------------
+
+    @property
+    def invite_required(self) -> bool:
+        """True when a join needs the invite secret (or a token) to skip
+        approval: every room created since invite links."""
+        return self._invite_hash is not None
+
+    def set_invite_secret(self, secret: str, owner_token: str) -> None:
+        """Make secret the room's invite secret (replacing any earlier one)."""
+        self._invite_hash = hash_owner_token(secret)
+        self._invite_wrap = wrap_invite_secret(secret, owner_token)
+
+    def verify_invite_secret(self, secret: Optional[str]) -> bool:
+        """True if secret is the current invite secret (constant time). A
+        rotated, wrong or missing one is False, all alike."""
+        secret = _usable_secret(secret)
+        if secret is None or self._invite_hash is None:
+            return False
+        return hmac.compare_digest(hash_owner_token(secret), self._invite_hash)
+
+    def invite_secret(self, owner_token: Optional[str] = None) -> Optional[str]:
+        """The current invite secret, unwrapped with the owner token (the one
+        given, else the one an owner socket presented). None without either,
+        or for a room without invite links."""
+        token = _usable_secret(owner_token) or self._owner_token
+        if token is None or self._invite_hash is None:
+            return None
+        secret = unwrap_invite_secret(self._invite_wrap, token)
+        if secret is None or not self.verify_invite_secret(secret):
+            return None
+        return secret
+
+    def rotate_invite(self, owner_token: Optional[str] = None) -> Optional[str]:
+        """A fresh invite secret replaces the old one, whose links then only
+        knock. Remembered members keep their tokens. None without the owner
+        token (it wraps the new secret)."""
+        token = _usable_secret(owner_token) or self._owner_token
+        if token is None or not self.has_owner:
+            return None
+        secret = new_invite_secret()
+        self.set_invite_secret(secret, token)
+        return secret
+
+    def verify_member_token(self, token: Optional[str]) -> Optional[str]:
+        """The member_id token was issued under, or None (wrong, revoked or
+        forgotten). Every grant is compared, in constant time each."""
+        token = _usable_secret(token)
+        if token is None or not self._remembered:
+            return None
+        wanted = hash_owner_token(token)
+        found: Optional[str] = None
+        for member_id, grant in self._remembered.items():
+            if hmac.compare_digest(wanted, str(grant.get("hash", ""))):
+                found = member_id
+        return found
+
+    def remember_member(
+        self, name: str, kind: str = "member", now: Optional[float] = None
+    ) -> tuple[str, str]:
+        """Issue a member token for someone just admitted: (member_id, token).
+        Only the token's hash is kept. The oldest grant is forgotten past
+        MAX_REMEMBERED_MEMBERS."""
+        token = new_member_token()
+        member_id = secrets.token_hex(8)
+        self._remembered[member_id] = {
+            "hash": hash_owner_token(token),
+            "name": name,
+            "kind": "dashboard" if kind == "dashboard" else "member",
+            "issued_at": time.time() if now is None else now,
+        }
+        while MAX_REMEMBERED_MEMBERS > 0 and len(self._remembered) > MAX_REMEMBERED_MEMBERS:
+            self._remembered.popitem(last=False)
+        return member_id, token
+
+    def rename_member(self, member_id: str, name: str) -> bool:
+        """Record the name a remembered member now uses. True if it changed."""
+        grant = self._remembered.get(member_id)
+        if grant is None or grant.get("name") == name:
+            return False
+        grant["name"] = name
+        return True
+
+    def bind_grant(self, socket: WebSocket, member_id: str) -> None:
+        self._socket_grants[socket] = member_id
+
+    def grant_of(self, socket: WebSocket) -> Optional[str]:
+        """The member_id socket was admitted under, if any."""
+        return self._socket_grants.get(socket)
+
+    def revoke_member(self, member_id: str) -> Optional[list[WebSocket]]:
+        """Forget a remembered member. Returns the sockets connected under
+        that grant (the caller disconnects them), or None for an unknown id."""
+        if self._remembered.pop(member_id, None) is None:
+            return None
+        sockets = [s for s, grant in self._socket_grants.items() if grant == member_id]
+        for socket in sockets:
+            self._socket_grants.pop(socket, None)
+        return sockets
+
+    def remembered_members(self) -> list[RememberedMember]:
+        online = set(self._socket_grants.values())
+        return [
+            RememberedMember(
+                member_id=member_id,
+                name=str(grant.get("name") or ""),
+                kind="dashboard" if grant.get("kind") == "dashboard" else "member",
+                issued_at=float(grant.get("issued_at") or 0.0),  # type: ignore[arg-type]
+                online=member_id in online,
+            )
+            for member_id, grant in self._remembered.items()
+        ]
+
+    def access_update(self) -> RoomAccess:
+        """The owners' view of who may come in (room_access)."""
+        return RoomAccess(
+            invite_required=self.invite_required,
+            invite_secret=self.invite_secret(),
+            members=self.remembered_members(),
+        )
+
     def access_record(self) -> dict[str, object]:
-        """What the store keeps about access. Never the token itself."""
-        return {
+        """What the store keeps about access. Never a token or secret itself
+        (the invite secret only wrapped under the owner token)."""
+        record: dict[str, object] = {
             "owner_hash": self._owner_hash,
             "require_approval": self._require_approval,
         }
+        if self._invite_hash is not None:
+            record["invite_hash"] = self._invite_hash
+            record["invite_wrap"] = dict(self._invite_wrap or {})
+        if self._remembered:
+            record["members"] = {k: dict(v) for k, v in self._remembered.items()}
+        return record
 
     def load_access(self, record: Optional[dict]) -> None:
         """Restore access_record() output from the store. Tolerates a missing
@@ -968,6 +1192,47 @@ class Room:
         )
         # Approval without an owner would hold every joiner until timeout.
         self._require_approval = bool(record.get("require_approval")) and self.has_owner
+        # Likewise an invite secret: with no owner, nobody could approve the
+        # code-only joins it holds.
+        invite_hash = record.get("invite_hash")
+        if self.has_owner and isinstance(invite_hash, str) and invite_hash:
+            self._invite_hash = invite_hash
+            wrap = record.get("invite_wrap")
+            self._invite_wrap = (
+                {"nonce": str(wrap.get("nonce", "")), "ct": str(wrap.get("ct", ""))}
+                if isinstance(wrap, dict)
+                else None
+            )
+        self._remembered = OrderedDict()
+        members = record.get("members")
+        if self.has_owner and isinstance(members, dict):
+            grants: list[tuple[float, str, dict[str, object]]] = []
+            for member_id, grant in members.items():
+                if not isinstance(member_id, str) or not isinstance(grant, dict):
+                    continue
+                token_hash = grant.get("hash")
+                if not isinstance(token_hash, str) or not token_hash:
+                    continue
+                raw_issued = grant.get("issued_at")
+                issued = (
+                    float(raw_issued)
+                    if isinstance(raw_issued, (int, float)) and not isinstance(raw_issued, bool)
+                    else 0.0
+                )
+                grants.append(
+                    (
+                        issued,
+                        member_id,
+                        {
+                            "hash": token_hash,
+                            "name": str(grant.get("name") or ""),
+                            "kind": "dashboard" if grant.get("kind") == "dashboard" else "member",
+                            "issued_at": issued,
+                        },
+                    )
+                )
+            for _, member_id, grant in sorted(grants, key=lambda g: g[0]):
+                self._remembered[member_id] = grant
 
     def open_pending(
         self,

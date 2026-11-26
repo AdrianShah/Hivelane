@@ -16,18 +16,21 @@ export default function SetupGuide({
   anyAgent,
   e2e,
   actions,
+  shareUrl,
 }: {
   roomId: string;
   connected: boolean;
   anyAgent: boolean;
   e2e: boolean;
   actions: V3Actions;
+  /** The link to send teammates (the invite link when known). */
+  shareUrl?: string;
 }) {
   const steps = [
     {
       title: 'Tell your coding agent to join',
       body: 'Paste this into Claude Code, Cursor, Codex, Copilot, Gemini or any agent, in your repo. It installs Hivelane if needed and joins; send the same prompt to teammates.',
-      command: agentPrompt(roomId),
+      command: agentPrompt(roomId, shareUrl),
       copyLabel: 'Agent prompt',
       wrap: true,
       done: anyAgent,
@@ -52,8 +55,8 @@ export default function SetupGuide({
       title: 'Bring the team in',
       body: e2e
         ? 'Send the link, and the room key separately (hivelane key show prints it).'
-        : 'Anyone with the link or code can join, so share it with your team only.',
-      command: shareLink(roomId),
+        : 'Whoever opens the invite link joins right away; someone with only the code waits for your approval.',
+      command: shareUrl ?? shareLink(roomId),
       copyLabel: 'Invite link',
       wrap: false,
       done: false,

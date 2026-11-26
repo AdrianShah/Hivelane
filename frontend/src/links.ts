@@ -7,6 +7,7 @@ import {
   normalizeRoomCode,
   relayIsThisOrigin,
   relayWsBase,
+  shareLink as buildRoomShareLink,
 } from './relayUrl.ts';
 
 /** Public documentation site (built from docs-site/). */
@@ -48,7 +49,9 @@ export function currentShareContext(): ShareContext {
  * (the start page, the invite sheet, the setup guide, the agent prompt)
  * builds it here and only here, mirroring hivelane/links.py share_link, so
  * what a share link carries can change in one place. Never carries an e2e
- * room key: that goes to teammates separately.
+ * room key: that goes to teammates separately. `shareLinkFor` is the
+ * invite-less shape (kept pure for tests); `shareLink` adds the room's
+ * invite secret when given, via relayUrl.ts buildShareLink.
  */
 export function shareLinkFor(roomId: string, ctx: ShareContext): string {
   const link = `${ctx.origin}${ctx.base}${invitePath(roomId)}`;
@@ -56,8 +59,8 @@ export function shareLinkFor(roomId: string, ctx: ShareContext): string {
   return `${link}?${RELAY_PARAM}=${encodeURIComponent(ctx.relayWs)}`;
 }
 
-export function shareLink(roomId: string): string {
-  return shareLinkFor(roomId, currentShareContext());
+export function shareLink(roomId: string, options: { invite?: string | null } = {}): string {
+  return buildRoomShareLink(roomId, { invite: options.invite });
 }
 
 /**
@@ -74,9 +77,11 @@ export function agentPromptFor(roomId: string, link: string, relayWs: string): s
   );
 }
 
-export function agentPrompt(roomId: string): string {
+/** The agent prompt; pass `link` (the invite link, when known) so whoever
+ * pastes it comes straight in instead of waiting for approval. */
+export function agentPrompt(roomId: string, link?: string): string {
   const ctx = currentShareContext();
-  return agentPromptFor(roomId, shareLinkFor(roomId, ctx), ctx.relayWs);
+  return agentPromptFor(roomId, link ?? shareLinkFor(roomId, ctx), ctx.relayWs);
 }
 
 /**

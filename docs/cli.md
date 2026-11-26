@@ -77,18 +77,26 @@ through the background daemon. Safe to re-run.
    half an hour); a decline or no answer at all stops it with a message, and
    `hivelane up` asks again. The resolved room and relay are remembered on this
    machine automatically—`.hivelane.toml` is optional and is not written unless
-   `--save-project` is passed. Use `hivelane invite` to share a fallback link
-   with teammates.
+   `--save-project` is passed. `--room` also takes the full invite link a
+   teammate sent: its `#invite=` secret (and `#key=`, if any) is saved to
+   `~/.hivelane/config.toml`, never `.hivelane.toml`, and lets you in without
+   waiting for approval. Creating a room saves its owner token and invite
+   secret there too. When `up` writes the room into `.hivelane.toml` it warns
+   that the committed code alone does not let anyone in: teammates with only
+   the code wait for an owner's approval, so send them the link.
 3. **Daemon**: starts the per-machine background daemon if needed, registers
    this repo with it, and waits until it is connected. It then prints the
    room, relay, your name, the dashboard link and how teammates can join:
    a prompt to paste into any coding agent,
-   `Join Hivelane room K7Q2XMAB in this repo: install hivelane if needed (...), then run hivelane up --room "<share link>" -y.`,
-   and the equivalent shell line.
+   `Join Hivelane room K7Q2XMAB in this repo: install hivelane if needed (...), then run hivelane up --room "<invite link>" -y.`,
+   and the invite link itself (`<dashboard>/j/<ROOM>#invite=...`) when this
+   machine has the room's invite secret. For a room you own, that is the
+   relay's current one (a rotation from the dashboard shows up here). Without
+   it, teammates who join with the code alone wait for your approval.
 
 | Option | Description |
 |--------|-------------|
-| `--room CODE_OR_LINK` | Join this room, given as a code or as a share / dashboard link (`.../j/<ROOM>?relay=...`, `.../r/<ROOM>`): the link's `?relay=` is used unless `--relay` is given, and a `#key=` fragment is saved as the room's e2e key, as with `join`. Default: `.hivelane.toml`, remembered room on this machine, relay lookup by repo identity, else create one. Asks before switching a repo that already has a different room. |
+| `--room CODE_OR_LINK` | Join this room, given as a code or as the invite / share link a teammate sent (`.../j/<ROOM>?relay=...#invite=...`, `.../r/<ROOM>`): the link's `?relay=` is used unless `--relay` is given, an `#invite=` secret lets you in without approval and a `#key=` fragment is saved as the room's e2e key, both in your personal config, never `.hivelane.toml`. Default: `.hivelane.toml`, remembered room on this machine, relay lookup by repo identity, else create one. Asks before switching a repo that already has a different room. |
 | `--relay URL` | Relay WebSocket base, e.g. `wss://relay.example.com/ws`. Default: config, `HIVELANE_RELAY`, else `ws://localhost:8000/ws`. |
 | `--name NAME` | Display name. Default: config / `HIVELANE_NAME`, then git `user.name`, then the OS user. An explicit name is saved to `~/.hivelane/config.toml`. |
 | `--root PATH` | Project directory (default: the git repo around the current directory). |
@@ -107,13 +115,18 @@ through the background daemon. Safe to re-run.
 ## hivelane invite
 
 ```text
-hivelane invite [--root PATH] [--room CODE] [--relay URL] [--no-key] [--copy] [--json]
+hivelane invite [--root PATH] [--room CODE] [--relay URL] [--no-key] [--copy] [--json] [--rotate]
 ```
 
 Prints a shareable `<dashboard>/j/<ROOM>` invite link for this repo's room
 (reading `.hivelane.toml` or the room remembered on this machine). Includes
-`?relay=<encoded>` when needed and `#key=<key>` when end-to-end encryption is
-enabled (URL fragments stay client-side and are never sent to any server).
+`?relay=<encoded>` when needed, `#invite=<secret>` so whoever opens it comes
+straight in, and `#key=<key>` when end-to-end encryption is enabled (URL
+fragments stay client-side and are never sent to any server). On a machine
+that owns the room the invite secret comes from the relay
+(`GET /rooms/<code>/invite`); otherwise it is the one saved from the link you
+joined with. Without one, the link still works but its holder waits for an
+owner's approval (the command says so).
 Opening the link in a browser shows a `/j/<ROOM>` landing page with a one-click
 **"Copy for your coding agent"** button.
 
@@ -124,7 +137,8 @@ Opening the link in a browser shows a `/j/<ROOM>` landing page with a one-click
 | `--relay URL` | Relay URL override. |
 | `--no-key` | Omit the `#key=` e2e passphrase fragment from the printed URL. |
 | `--copy` | Copy the invite URL to the system clipboard. |
-| `--json` | Print JSON with `room`, `relay`, `e2e`, and `url`. |
+| `--json` | Print JSON with `room`, `relay`, `e2e`, `invite` (the link carries an invite secret), `owner` and `url`. |
+| `--rotate` | Owner only: make a new invite link. Links sent before stop admitting (their holders wait for approval); people already let in stay. |
 
 ## hivelane join
 
@@ -136,10 +150,13 @@ hivelane join <LINK_OR_ROOM> [--relay URL] [--name NAME] [--root PATH]
 Joins a teammate's room from an invite link (from `hivelane invite` or the
 `/j/<ROOM>` page) or a bare room code:
 
-1. Parses the room code, optional `?relay=`, and optional `#key=` e2e key from
-   the URL fragment (also accepts `#k=<key>` or bare `#<key>`).
+1. Parses the room code, optional `?relay=`, the optional `#invite=` secret and
+   the optional `#key=` e2e key from the URL fragment (the key also as
+   `#k=<key>` or bare `#<key>`).
 2. Installs agent hooks (honouring `--no-hooks`, `--yes`, `--status-line`).
-3. Saves any e2e key into `~/.hivelane/config.toml` under `room_keys` and
+3. Saves the invite secret into `~/.hivelane/config.toml` under
+   `invite_secrets` (so the join is let in without approval), any e2e key under
+   `room_keys`, and
    remembers the `(room, relay)` for this repo on this machine—without writing
    anything into `.hivelane.toml`.
 4. Starts/connects the background daemon (or runs `--foreground`) and desktop bee.
@@ -315,9 +332,13 @@ hivelane room require-approval on|off [--root PATH] [--port PORT]
 ```
 
 Owner actions for a room this machine created (its owner token is stored in
-`~/.hivelane/config.toml` under `owner_tokens`). `require-approval on` holds every
-newcomer until an owner lets them in; pending requests and their ids appear in
-`hivelane status`. Owners can also approve from the dashboard.
+`~/.hivelane/config.toml` under `owner_tokens`). In a room with an invite link,
+anyone joining with only the room code already waits for an owner;
+`require-approval on` holds invite-link holders too (people already let in, who
+hold a member token, are not asked again). Pending requests and their ids
+appear in `hivelane status`. Owners can also approve, remove remembered people
+and rotate the invite link from the dashboard's Room access panel
+(`hivelane invite --rotate` rotates it from here).
 
 ## hivelane wait
 
@@ -432,8 +453,10 @@ plan_tasks = true             # false: agents' step plans do not become room tas
 ```
 
 **`~/.hivelane/config.toml`** (personal; `HIVELANE_HOME` moves the directory)
-holds `name`, `relay`, `agent`, per-repo remembered rooms (`rooms`), `room_keys`,
-and `owner_tokens`. It can't override `.hivelane.toml`'s room or conflict
+holds `name`, `relay`, `agent`, per-repo remembered rooms (`rooms`), and the
+per-room secrets that must never be committed: `room_keys`, `owner_tokens`,
+`invite_secrets` (from invite links) and `member_tokens` (issued by the relay
+once you were let in; the daemon writes these). It can't override `.hivelane.toml`'s room or conflict
 windows, so one person's file never splits them from the team.
 
 **Precedence**, highest first: command-line flags, environment variables,
