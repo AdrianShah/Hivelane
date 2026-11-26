@@ -29,6 +29,33 @@ export function rttLabel(ms: number | null | undefined): string | null {
 }
 
 /**
+ * What the relay says about a room this browser owns (GET /rooms/{code}).
+ * 'gone' only when the relay definitively says so; anything else we could
+ * not read (offline, rate-limited, a relay without the route) is 'unknown',
+ * and the room stays listed with its token kept.
+ */
+export type RoomLiveness = { state: 'alive'; expiresAt: number } | { state: 'gone' } | { state: 'unknown' };
+
+export function livenessFromResponse(status: number, body: unknown): RoomLiveness {
+  const record = body && typeof body === 'object' ? (body as Record<string, unknown>) : {};
+  if (status === 200 && record.alive === true) {
+    const expiresAt = typeof record.expires_at === 'number' && Number.isFinite(record.expires_at) ? record.expires_at : 0;
+    return { state: 'alive', expiresAt };
+  }
+  // A bare 404 also comes from a relay that predates the route: only the
+  // marked one means the room is gone (server/main.py room_info).
+  if (status === 404 && record.alive === false) return { state: 'gone' };
+  return { state: 'unknown' };
+}
+
+/** The "Your rooms" chip's second line: "Live · expires in 6 days", or null when not known alive. */
+export function livenessLabel(liveness: RoomLiveness | undefined, nowSeconds: number): string | null {
+  if (!liveness || liveness.state !== 'alive') return null;
+  const expiry = expiryLabel(liveness.expiresAt, nowSeconds);
+  return expiry ? `Live · ${expiry.charAt(0).toLowerCase()}${expiry.slice(1)}` : 'Live';
+}
+
+/**
  * Room codes this browser holds an owner token for on `relayBase`, newest
  * key last (storage order). Keys are `<prefix><relay>|<CODE>` (roomAccess.ts).
  */

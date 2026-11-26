@@ -1,16 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Bee from '../components/Bee';
 import Icon from '../components/Icon';
+import { livenessLabel, type RoomLiveness } from '../dashboard/roomLife';
 import { DOCS_URL } from '../links';
 import { isValidRoomCode, normalizeRoomCode, relayWsBase, roomPath } from '../relayUrl';
-import { createRoom, ownedRooms } from '../roomAccess';
+import { createRoom, ownedRooms, refreshOwnedRooms } from '../roomAccess';
 import SiteLayout from '../site/SiteLayout';
 import '../v3/v3.css';
 
 const FLOW = [
-  { title: 'Create a room', body: 'A code your team shares. It lasts a week.' },
-  { title: 'Run hivelane up', body: 'In each repo an agent works in: hooks and a daemon, nothing else changes.' },
+  { title: 'Create a room', body: 'A code your team shares. It lasts a week, or until 30 minutes after everyone leaves.' },
+  { title: 'Tell your agent', body: 'Paste the room’s prompt into any coding agent: it installs Hivelane and joins. Or run hivelane up yourself.' },
   { title: 'Watch the lanes', body: 'Every agent shows up live; overlapping edits are caught before they land.' },
 ];
 
@@ -21,6 +22,29 @@ export default function Start() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mine] = useState(() => ownedRooms());
+  // What the relay says about each owned room; rooms it reports gone are
+  // hidden (and their tokens dropped, see refreshOwnedRooms).
+  const [liveness, setLiveness] = useState<Record<string, RoomLiveness>>({});
+  const [checking, setChecking] = useState(() => mine.length > 0);
+  const [now, setNow] = useState(() => Date.now() / 1000);
+
+  useEffect(() => {
+    if (!mine.length) return undefined;
+    let cancelled = false;
+    void refreshOwnedRooms(mine, (code, result) => {
+      if (!cancelled) setLiveness((prev) => ({ ...prev, [code]: result }));
+    }).finally(() => {
+      if (!cancelled) {
+        setChecking(false);
+        setNow(Date.now() / 1000);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [mine]);
+
+  const visible = mine.filter((code) => liveness[code]?.state !== 'gone');
 
   const createWorkspace = async () => {
     setCreating(true);
@@ -92,15 +116,27 @@ export default function Start() {
           </p>
         ) : null}
 
-        {mine.length ? (
+        {visible.length ? (
           <div className="v3-start__rooms">
             <span className="v3-label">Your rooms</span>
             <div className="v3-actions">
-              {mine.map((code) => (
-                <button key={code} type="button" className="v3-btn v3-btn--secondary v3-btn--sm v3-mono" onClick={() => navigate(roomPath(code))}>
-                  {code}
-                </button>
-              ))}
+              {visible.map((code) => {
+                const status = liveness[code];
+                const label = livenessLabel(status, now) ?? (checking && !status ? 'Checking…' : null);
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    className="v3-btn v3-btn--secondary v3-btn--sm v3-start__room"
+                    onClick={() => navigate(roomPath(code))}
+                  >
+                    <span className="v3-mono">{code}</span>
+                    {label ? (
+                      <span className={status?.state === 'alive' ? 'v3-start__room-live' : 'v3-faint'}>{label}</span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </div>
         ) : null}

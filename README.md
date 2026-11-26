@@ -84,21 +84,29 @@ The first teammate creates the room and commits its config:
 
 ```bash
 cd your-repo
-hivelane up --relay wss://relay.example.com/ws
-git add .hivelane.toml
+hivelane up --relay wss://relay.example.com/ws --save-project
+git add .hivelane.toml AGENTS.md CLAUDE.md
 git commit -m "Add Hivelane room"
 ```
 
-Everyone else pulls the repository and runs:
+`hivelane up` installs the agent hooks, joins (or creates) the room and starts
+the background daemon. With your consent it also adds a short Hivelane section
+to the repo's agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`,
+Copilot's and Cursor's rules), which tells any coding agent to run
+`hivelane up -y` itself when the repo is not connected.
 
-```bash
-hivelane up
+Everyone else needs no command: they open the repository in their coding agent
+and it connects from those instructions. Or they paste the prompt `hivelane up`
+printed (also on the dashboard's invite sheet) into any agent:
+
+```text
+Join Hivelane room K7Q2XMAB in this repo: install hivelane if needed
+(`pipx install git+https://github.com/AdrianShah/Hivelane`), then run
+`hivelane up --room "<share link>" -y`.
 ```
 
-`hivelane up` installs the agent hooks, joins the room recorded in
-`.hivelane.toml` and starts the background daemon. Use `hivelane open` to view
-the dashboard, `hivelane status` to inspect the daemon and `hivelane doctor` to
-diagnose problems.
+Use `hivelane open` to view the dashboard, `hivelane status` to inspect the
+daemon and `hivelane doctor` to diagnose problems.
 
 > [!WARNING]
 > Do not expose the daemon port (4600) publicly or through a tunnel. It is
