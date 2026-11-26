@@ -40,8 +40,8 @@ and the hooks call.
 ## hivelane up
 
 ```text
-hivelane up [--room CODE] [--relay URL] [--name NAME] [--root PATH]
-           [--port PORT] [-y] [--no-hooks] [--no-repo-lookup]
+hivelane up [--room CODE_OR_LINK] [--relay URL] [--name NAME] [--root PATH]
+           [--port PORT] [-y] [--no-hooks] [--no-agent-docs] [--no-repo-lookup]
            [--foreground] [--insecure] [--e2e] [--save-project]
 ```
 
@@ -51,6 +51,17 @@ through the background daemon. Safe to re-run.
 1. **Hooks**: for every detected agent Hivelane has an adapter for, plus Claude
    Code even when it isn't detected (asks first). Hooks go into the repo's
    own settings, e.g. `.claude/settings.json`.
+   **Agent instructions** (asks first; `--yes` accepts, `--no-agent-docs`
+   skips): a short Hivelane section, between `<!-- hivelane:begin -->` and
+   `<!-- hivelane:end -->` markers, in each of `AGENTS.md`, `CLAUDE.md`,
+   `GEMINI.md` and `.github/copilot-instructions.md` that exists (`AGENTS.md`
+   is created when none does; `CLAUDE.md` too where Claude Code is set up, as
+   it does not read `AGENTS.md`), plus `.cursor/rules/hivelane.mdc` in a repo
+   with a `.cursor/` directory. It tells any coding agent to run
+   `hivelane status`, and `hivelane up -y` (installing Hivelane first if
+   needed) when the repo is not connected, so a teammate who opens the repo
+   in their agent needs no command. Re-running `up` rewrites the section in
+   place and leaves the rest of each file alone. Commit the files.
 2. **Room**: `--room`, else `.hivelane.toml` (when present), else the room
    remembered for this repo on this machine (`~/.hivelane/config.toml`), else an
    automatic lookup on the relay by hashed repository identity
@@ -70,17 +81,21 @@ through the background daemon. Safe to re-run.
    with teammates.
 3. **Daemon**: starts the per-machine background daemon if needed, registers
    this repo with it, and waits until it is connected. It then prints the
-   room, relay, your name, the dashboard link and how teammates can join.
+   room, relay, your name, the dashboard link and how teammates can join:
+   a prompt to paste into any coding agent,
+   `Join Hivelane room K7Q2XMAB in this repo: install hivelane if needed (...), then run hivelane up --room "<share link>" -y.`,
+   and the equivalent shell line.
 
 | Option | Description |
 |--------|-------------|
-| `--room CODE` | Join this room. Default: `.hivelane.toml`, remembered room on this machine, relay lookup by repo identity, else create one. Asks before switching a repo that already has a different room. |
+| `--room CODE_OR_LINK` | Join this room, given as a code or as a share / dashboard link (`.../j/<ROOM>?relay=...`, `.../r/<ROOM>`): the link's `?relay=` is used unless `--relay` is given, and a `#key=` fragment is saved as the room's e2e key, as with `join`. Default: `.hivelane.toml`, remembered room on this machine, relay lookup by repo identity, else create one. Asks before switching a repo that already has a different room. |
 | `--relay URL` | Relay WebSocket base, e.g. `wss://relay.example.com/ws`. Default: config, `HIVELANE_RELAY`, else `ws://localhost:8000/ws`. |
 | `--name NAME` | Display name. Default: config / `HIVELANE_NAME`, then git `user.name`, then the OS user. An explicit name is saved to `~/.hivelane/config.toml`. |
 | `--root PATH` | Project directory (default: the git repo around the current directory). |
 | `--port PORT` | Daemon loopback port (default `4600`, or `HIVELANE_PORT`). |
 | `-y`, `--yes` | Answer yes to every question (scripts, CI). |
 | `--no-hooks` | Do not install agent hooks. |
+| `--no-agent-docs` | Do not add or update the Hivelane section in the repo's agent instruction files. |
 | `--no-repo-lookup` | Do not look up an existing room by repo identity or bind a newly created room to it. |
 | `--status-line` / `--no-status-line` | Show Hivelane in Claude Code's status line (the project's `.claude/settings.json`). Without either flag `up` asks on a terminal (default no) and never replaces a status line you set; `--yes` alone does not turn it on. |
 | `--bee` / `--no-bee` | Show the desktop bee (default on): room status in the menu bar, system tray or screen edge; see [`bee`](#hivelane-bee). |
@@ -445,7 +460,7 @@ hivelane mcp [--agent ID] [--port PORT] [--print-config] [--agents-md]
 
 Runs an MCP server over stdio (protocol `2025-11-25`; also accepts
 `2025-06-18`, `2025-03-26`, `2024-11-05`) for agents that have no native
-hooks. Tools: `check_file(path)` (asks whether a teammate is in the file),
+hooks. Tools: `room_status(root?)` (is this repo connected, to which room, who is there, and the prompt to hand a teammate; works with the daemon stopped), `join_room(room?, root?, name?, switch?)` (connects the repo as `hivelane up -y` does, starting the daemon if needed; `room` is a code or a share link, and without one `up` finds the repo's room or creates one; a repo already in another room is only moved with `switch: true`), `check_file(path)` (asks whether a teammate is in the file),
 `declare_intent(text, files?)`, `who_is_here()` and `report_edit(path)`, plus
 the [room task](tasks.md) tools `task_list(all?)`, `task_add(title, body?,
 files?, after?)`, `task_claim(task_id? | next?, lease_minutes?)`,
