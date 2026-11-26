@@ -46,13 +46,17 @@ its `join`. Owners can approve joiners and change the room's join policy.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token", "invite_secret"}`. Both secrets are returned only here, once; the relay keeps only their hashes (and the invite secret wrapped under the owner token). `invite_secret` is absent on a relay started with `HIVELANE_INVITE_LINKS=false`. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `GET` | `/rooms/{code}/invite` | Owner only (`X-Hivelane-Owner-Token` header): `{"room_id", "invite_required", "invite_secret"}`, the current invite secret (`null` for a room without one). An unknown room and a wrong token are the same `404`. Rate-limited like repository lookups. |
+| `POST` | `/rooms/{code}/invite/rotate` | Owner only, as above: a new invite secret replaces the old one (links carrying the old one only ask for approval from then on). Same answer shape. |
 | `GET` | `/health` | Liveness: `{"status": "ok", "rooms": N}`. |
 | `GET` | `/readyz` | Readiness and configuration, including `version` (the hivelane release), `commit` (the build's commit when the deploy sets `HIVELANE_COMMIT`, else `""`), `protocol_version` and `min_supported_protocol`. |
 | `GET` | `/metrics` | Prometheus counters and gauges. Aggregates only, no room codes or names. |
 
-Room creation is not authenticated: the room code is the shared secret. See
-[Security](security.md) for the trust model.
+Room creation is not authenticated. The room code names a room; in rooms with
+an invite secret it only lets a joiner ask an owner, while the share link's
+`#invite=` secret (or a token) lets it straight in. See
+[Security](security.md#invite-links) for the trust model.
 
 ## Connection lifecycle
 
@@ -82,19 +86,23 @@ client                                        relay
    - `version_rejected`: this client speaks a protocol older than the relay's
      `MIN_SUPPORTED_PROTOCOL`. The socket closes with 4426. Spectators are
      never version-checked.
-   - `join_pending`: the room requires approval and this join had no owner
-     token. Keep the socket open. Within five minutes it is either admitted,
+   - `join_pending`: this join needs an owner's approval: it presented no
+     owner token, member token or (in a room with invite links) invite
+     secret, or the room requires approval of everyone else. Keep the socket open. Within five minutes it is either admitted,
      and the normal catch-up follows, or refused with `room_rejected` and
      closed with 4403. A name can be taken while waiting, in which case a
      `name_rejected` follows the approval.
+   - `member_token`: a join admitted by approval (after its `join_resolved`)
+     or by invite secret (as its first frame) is handed a token to present as
+     `join.member_token` next time. Keep it with the client's other secrets.
 4. **Catch-up.** A member first receives a `user_joined` for every member
    already present; then the whole room, the new member included, gets a
    `user_joined` for it, and a `room_settings` if its join carried settings.
    A spectator receives, in order: `room_settings`, `room_policy_update`, a
    `user_joined` per member, the latest `intent_update` per member, every
    active `plan_update`, and the latest `activity_update` per member. A
-   connection that joined with the owner token also receives the open
-   `join_request`s (and, as a member, a `room_policy_update`).
+   connection that joined with the owner token also receives a `room_access`
+   and the open `join_request`s (and, as a member, a `room_policy_update`).
 5. **Traffic** until either side closes. When a member disconnects, the room
    gets a `user_left`. A room whose last connection goes is kept for 30
    minutes after the *latest* departure; if nobody is connected (or joining,
@@ -146,6 +154,8 @@ arrived on its own.
 | [`decision_feedback`](#decision_feedback) | members and spectators | `decision_feedback_update` broadcast |
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
+| [`invite_rotate`](#invite_rotate-member_revoke) | owners | `room_access` to every owner |
+| [`member_revoke`](#invite_rotate-member_revoke) | owners | `room_rejected` and close 4403 to the revoked member's sockets; `room_access` to every owner |
 | [`history_request`](#history_request) | members and spectators | `history_chunk` frames to the sender |
 | [`task`](#task) | members | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
 
@@ -167,6 +177,9 @@ The first frame on every connection.
 | `repo_id` | string (at most 64 chars) | `""` | Opaque id of the repository the member works in; see [step 6](#writing-a-client-in-another-language) for how the reference client computes it. |
 | `settings` | [RoomSettings](#roomsettings) or `null` | `null` | The team's committed conflict windows, applied room-wide when this member is admitted. Invalid settings are ignored, not fatal. |
 | `owner_token` | string or `null` | `null` | The `owner_token` returned by `POST /rooms`. A matching token makes this socket a room owner; a wrong one is treated as none. |
+| `invite_secret` | string or `null` | `null` | The share link's invite secret (`#invite=`). The current one admits without approval (unless the room requires approval of everyone); a wrong or rotated one is treated exactly as none. |
+| `member_token` | string or `null` | `null` | The token from an earlier `member_token`. Admits without approval until an owner revokes it; a wrong or revoked one is treated as none. |
+| `via_repo_lookup` | boolean | `false` | The client found the room code with `GET /rooms/by-repo`. Repo-bound rooms hold code-only joins regardless. |
 
 #### RoomSettings
 
@@ -350,7 +363,21 @@ off admits everyone waiting.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `require_approval` | boolean | required | `true`: every new joiner without the owner token waits for an owner's approval. |
+| `require_approval` | boolean | required | `true`: every new joiner without the owner token or a member token waits for an owner's approval, invite link or not. |
+
+### invite_rotate, member_revoke
+
+Owner frames, ignored from non-owners. `invite_rotate` (no fields) replaces
+the room's invite secret: links carrying the old one only ask from then on;
+remembered members stay. On a room without invite links it creates one.
+`member_revoke` forgets a remembered member: its token stops working, and any
+socket connected under it gets `room_rejected` "an owner removed you from this
+room" and close 4403. Both are persisted and answered with a `room_access` to
+every owner.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `member_id` | string (at most 64 chars) | required | `member_revoke` only: the `member_id` from `room_access`. |
 
 ### hold_release, queue_order, nudge
 
@@ -626,6 +653,28 @@ The running tally of votes on one decision, broadcast after each vote.
 | `useful_count` | integer | `0` | Votes that it was useful. |
 | `noise_count` | integer | `0` | Votes that it was noise. |
 
+### member_token
+
+Sent once to a joiner admitted by approval or by invite secret (never to an
+owner). Present the token as `join.member_token` on later joins.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `member_id` | string | required | Names this grant (what an owner revokes). |
+| `token` | string | required | The secret. The relay keeps only its hash. |
+
+### room_access
+
+Owners only: sent in an owner's catch-up and after every rotation, admission
+of a remembered member, revocation, and when a remembered member connects or
+leaves.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `invite_required` | boolean | required | The room has invite links: code-only joins wait for approval. |
+| `invite_secret` | string or `null` | `null` | The current invite secret, to build the share link (`null` for a room without one). |
+| `members` | list of `{member_id, name, kind, issued_at, online}` | `[]` | People holding a member token, oldest first. `kind` is `"member"` or `"dashboard"`. |
+
 ### join_pending
 
 Sent to a joiner held for approval. Keep the socket open and wait.
@@ -676,8 +725,8 @@ close 4426.
 
 ### room_rejected
 
-The room code is unknown or expired (close 4404), or an approval-required
-room did not admit this joiner (close 4403).
+The room code is unknown or expired (close 4404), an approval-required
+room did not admit this joiner, or an owner removed it (close 4403).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
