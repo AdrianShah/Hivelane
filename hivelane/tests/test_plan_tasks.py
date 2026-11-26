@@ -302,6 +302,14 @@ def test_plan_step_requests_are_sealed_in_an_e2e_room() -> None:
     assert (kind, envelope["title"], envelope["files"]) == ("task", "Add the limiter", ["server/api.py"])
 
 
+def test_agents_are_told_how_to_grab_the_next_task() -> None:
+    from hivelane import mcp_server
+
+    assert "next task" in mcp_server.AGENTS_MD and "`next: true`" in mcp_server.AGENTS_MD
+    claim = next(t for t in mcp_server.TOOLS if t["name"] == "task_claim")
+    assert "grab" in claim["description"]
+
+
 # --- the daemon hands plans over without waiting ------------------------------------
 
 
