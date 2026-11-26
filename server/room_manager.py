@@ -106,8 +106,11 @@ DEFAULT_EMPTY_ROOM_GRACE_SECONDS = 30 * 60
 
 
 def redact_code(code: str) -> str:
-    """Room codes are the join credential: logs carry only a short prefix."""
-    return f"{code[:3]}…" if code else "?"
+    """Room codes are the join credential: logs carry only a short prefix.
+    The code comes from the request path, so line breaks are dropped too:
+    a forged code cannot start a fake log line."""
+    prefix = code[:3].replace("\r", "").replace("\n", "") if code else ""
+    return f"{prefix}…" if prefix else "?"
 
 
 # How long a room lease outlives the last socket in the room on this instance

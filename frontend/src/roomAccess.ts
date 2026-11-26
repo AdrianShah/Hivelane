@@ -15,6 +15,7 @@
  */
 
 import {
+  isValidRoomCode,
   normalizeRoomCode,
   parseInviteFragment,
   relayHttpOrigin,
@@ -210,6 +211,9 @@ const checked = new Map<string, { at: number; liveness: RoomLiveness }>();
 /** Asks the relay whether one owned room is still alive (needs its owner token). */
 export async function checkOwnedRoom(roomId: string): Promise<RoomLiveness | 'rate-limited'> {
   const code = normalizeRoomCode(roomId);
+  // Only a well-formed code goes into the request path (codes come from this
+  // browser's own storage, but never trust a stored key into a URL).
+  if (!isValidRoomCode(code)) return { state: 'unknown' };
   const token = ownerToken(code);
   if (!token) return { state: 'unknown' };
   const cacheKey = `${relayWsBase()}|${code}`;

@@ -434,7 +434,6 @@ TRUST_CLOUDFLARE: bool = SETTINGS.trust_cloudflare
 BEHIND_FLY: bool = SETTINGS.behind_fly
 ROOM_MESSAGE_LIMIT: int = SETTINGS.room_message_limit
 HSTS_ENABLED: bool = SETTINGS.hsts_enabled
-INVITE_LINKS: bool = SETTINGS.invite_links
 # Capacity limits (0 = unlimited). Each module copies the ones it enforces
 # into a constant of its own at import, so a test can patch that constant.
 MAX_ROOMS: int = SETTINGS.max_rooms

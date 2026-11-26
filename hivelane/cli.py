@@ -717,6 +717,7 @@ def cmd_daemon(args: argparse.Namespace) -> int:
         server=args.server,
         port=resolve_port(args.port),
         root=resolve_root(args.root),
+        invite_secret=args.invite or os.environ.get("HIVELANE_INVITE") or None,
     )
     try:
         return asyncio.run(daemon.run())
@@ -2948,6 +2949,13 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--agent", default="claude-code", choices=AGENT_KINDS, help="agent you are driving")
     run.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
     run.add_argument("--port", type=int, default=None, help=f"loopback port (default {DEFAULT_PORT})")
+    run.add_argument(
+        "--invite",
+        default=None,
+        metavar="SECRET",
+        help="the room's invite secret (the #invite= part of an invite link; also HIVELANE_INVITE), "
+        "so this daemon is let in without an owner's approval",
+    )
     run.add_argument(
         "--root",
         default=None,

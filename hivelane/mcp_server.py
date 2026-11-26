@@ -18,6 +18,16 @@ from typing import Any, Callable, Optional, TextIO
 
 from hivelane import __version__ as _VERSION  # type: ignore[attr-defined]
 
+
+def _cli() -> Any:
+    """hivelane.cli, loaded on first use. `hivelane mcp` lives in the CLI, which
+    imports this module, so a module-level import either way would be a cycle;
+    importlib keeps the two independent at import time."""
+    import importlib
+
+    return importlib.import_module("hivelane.cli")
+
+
 PROTOCOL_VERSION = "2025-11-25"
 SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 HTTP_TIMEOUT = 5.0
@@ -441,13 +451,11 @@ class McpServer:
     def _repo_root(self, args: dict[str, Any]) -> Path:
         """The git repo around `root` (default: this server's cwd). Raises
         ValueError outside git: `up` would refuse too, and say less."""
-        from hivelane.cli import find_git_root
-
         raw = args.get("root")
         start = Path(os.path.expanduser(str(raw))) if raw else Path(self.cwd)
         if not start.is_absolute():
             start = Path(self.cwd) / start
-        found = find_git_root(start)
+        found = _cli().find_git_root(start)
         if found is None:
             raise ValueError(
                 f"{start} is not inside a git repository; pass `root` with the repo's directory"
@@ -456,13 +464,11 @@ class McpServer:
 
     def _entry_for(self, root: Path) -> tuple[bool, Optional[dict[str, Any]]]:
         """(daemon answered, this repo's status entry or None)."""
-        from hivelane.cli import find_repo_entry
-
         try:
             status = self.client.status()
         except DaemonDown:
             return False, None
-        return True, find_repo_entry(status, root)
+        return True, _cli().find_repo_entry(status, root)
 
     @staticmethod
     def _describe(entry: dict[str, Any]) -> list[str]:
@@ -507,7 +513,7 @@ class McpServer:
         return "\n".join([f"Repo {root}:", *self._describe(entry)])
 
     def join_room(self, args: dict[str, Any]) -> str:
-        from hivelane.cli import ConfigError, room_argument
+        cli = _cli()
 
         try:
             root = self._repo_root(args)
@@ -517,8 +523,8 @@ class McpServer:
         wanted: Optional[str] = None
         if raw_room:
             try:
-                wanted = room_argument(raw_room)[0]
-            except ConfigError as exc:
+                wanted = cli.room_argument(raw_room)[0]
+            except cli.ConfigError as exc:
                 return f"Not joined: {exc}"
         _, entry = self._entry_for(root)
         current = str(entry.get("room") or "") if entry else ""
