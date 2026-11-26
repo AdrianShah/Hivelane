@@ -6,4 +6,4 @@
 # single-instance install does not need it. Listed here (not inline in the
 # Dockerfile) so Dependabot and audit.yml see the pin.
 -r requirements.txt
-redis==8.1.0
+redis==8.2.0
