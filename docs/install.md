@@ -28,6 +28,21 @@ Then, in a repository you work in:
 hivelane up
 ```
 
+You do not have to type either yourself. Your coding agent can: paste the
+prompt `hivelane up` prints, or that the dashboard's invite sheet copies, into
+Claude Code, Cursor, Codex, Copilot, Gemini or any other agent:
+
+```text
+Join Hivelane room K7Q2XMAB in this repo: install hivelane if needed
+(`pipx install git+https://github.com/AdrianShah/Hivelane`), then run
+`hivelane up --room "<share link>" -y`.
+```
+
+In a repo where a teammate already ran `hivelane up`, the Hivelane section it
+added to `AGENTS.md` / `CLAUDE.md` tells your agent the same thing, so opening
+the repo is enough. An agent that only has MCP tools (`hivelane mcp`) uses
+the `join_room` tool instead; see [`hivelane mcp`](cli.md#hivelane-mcp).
+
 ## Why "persistent" matters
 
 `hivelane up` installs agent hooks (for Claude Code, into `.claude/settings.json`)
