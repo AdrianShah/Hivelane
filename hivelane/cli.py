@@ -1689,13 +1689,13 @@ def print_summary(config: HivelaneConfig, name_source: str) -> None:
     invite = config.invite_secret(room)
     insecure_relay = bool(transport_problem(config.relay, False))
     if invite:
-        say("Share with teammates (the line to share; it lets them in without waiting for your approval):")
+        say("Share with teammates (the line to share; it lets them in, anyone with just the code waits for you):")
+        say(f"  {share_link(config.relay, room, invite)}")
     else:
         say("Share with teammates (they will wait for your approval; `hivelane invite` prints a link that skips it):")
-    say("  paste into their coding agent, any agent:")
+        say(f"  {share_command(room, config.relay)}")
+    say("  or have them paste this into their coding agent, any agent:")
     say(f"  {agent_join_prompt(config.relay, room, insecure=insecure_relay, invite=invite)}")
-    say("  or open the link / run it themselves:")
-    say(f"  {share_link(config.relay, room, invite) if invite else share_command(room, config.relay)}")
     if config.e2e:
         say(f"  and, separately (not in the same message), the room key: `hivelane key show {room}`")
 
