@@ -195,7 +195,7 @@ export function InviteContent({
         wrap
       />
       <CopyRow label={linkLabel} value={link} onCopy={onCopy} />
-      <CopyRow label="One-line setup (run in their repo)" value={setupCommand(roomId)} onCopy={onCopy} />
+      <CopyRow label="One-line setup (run in their repo)" value={setupCommand(roomId, hasInvite ? link : undefined)} onCopy={onCopy} />
       <div className="grid gap-3 grid-cols-[minmax(0,1fr)]">
         <span className="v3-title">Or step by step</span>
         <ol className="v3-steps">
@@ -209,7 +209,11 @@ export function InviteContent({
           <li>
             <div>
               <h3>Join this room from the repo</h3>
-              <CopyRow label="" value={upCommand(roomId)} onCopy={() => onCopy('Command', upCommand(roomId))} />
+              <CopyRow
+                label=""
+                value={upCommand(roomId, hasInvite ? link : undefined)}
+                onCopy={() => onCopy('Command', upCommand(roomId, hasInvite ? link : undefined))}
+              />
               <p>Sets up the agent hooks and the daemon. Check it with hivelane status.</p>
             </div>
           </li>
