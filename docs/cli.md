@@ -324,7 +324,8 @@ coordinate, there is nothing to wait for and it exits 0 at once.
 ## hivelane task
 
 ```text
-hivelane task add TITLE [--body TEXT] [--files A,B] [--after T1,T2]
+hivelane task add TITLE [--body TEXT] [--files A,B] [--after T1,T2] [--for NAME]
+hivelane task import-github --label LABEL [--limit N]
 hivelane task list [--all] [--mine] [--json]
 hivelane task show ID [--json]
 hivelane task claim [ID | --next] [--wait DURATION] [--lease DURATION]
@@ -339,8 +340,12 @@ The room's shared task list. A claimed task reserves its files: teammates'
 agents are blocked from editing them until the task is done, released, or its
 lease (default 30 minutes, renewed by your own edits to those files) runs
 out. Exit status is 0 on success and 1 when the relay refuses (for example,
-nothing is ready, or the task is someone else's). Details and rules are in
-[Room tasks](tasks.md).
+nothing is ready, or the task is someone else's). `--for` suggests a task for
+a teammate (`claim --next` offers it to them first). `import-github` adds the
+repo's open issues with a label as tasks through the GitHub CLI (`gh`),
+skipping issues already on the list. `list` marks the steps of agents' own
+plans (`[step of adrian-claude's plan, current step]`). Details and rules are
+in [Room tasks](tasks.md).
 
 ## hivelane relay
 
@@ -408,6 +413,7 @@ block_window_seconds = 20.0   # a teammate's edit this recent blocks yours
 warn_window_seconds = 60.0    # this recent warns
 ignore = ["*.lock", "dist/"]  # gitignore-style globs kept out of coordination entirely
 share_diffs = true            # false: send which files changed, keep the diffs local
+plan_tasks = true             # false: agents' step plans do not become room tasks
 ```
 
 **`~/.hivelane/config.toml`** (personal; `HIVELANE_HOME` moves the directory)

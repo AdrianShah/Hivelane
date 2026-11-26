@@ -92,6 +92,7 @@ The event dict fields:
 | `tool` | The agent's tool name, for display. |
 | `edit_hints` | Optional, for string-replacement edits: `[{"old", "new"}]` (`base.string_hints`), so the daemon can predict the touched lines before the edit happens. |
 | `summary`, `files`, `symbols` | For `plan`: the plan text and the candidate files and symbols in it (`base.plan_event` fills these in). |
+| `steps`, `plan_partial` | For `plan`: the plan's steps as `[{"content", "status"[, "id"]}]` (status `pending`, `in_progress`, `completed`, `removed`; build them with `base.plan_steps` / `base.plan_step`), which the daemon mirrors as [room tasks](tasks.md#agent-plans). `plan_partial: true` when they update single steps rather than list the whole plan. |
 
 `base.make_event(agent, kind, session_id, cwd, **fields)` builds a dict with
 every field present, and `base.ack_decision`, `base.ack_message` and
