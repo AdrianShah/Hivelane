@@ -18,7 +18,8 @@
     "task": "#/$defs/TaskRequest",
     "hold_release": "#/$defs/HoldRelease",
     "queue_order": "#/$defs/QueueOrder",
-    "nudge": "#/$defs/Nudge"
+    "nudge": "#/$defs/Nudge",
+    "pending_changes": "#/$defs/PendingChanges"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -48,7 +49,8 @@
     "task_update": "#/$defs/TaskUpdate",
     "nudged": "#/$defs/Nudged",
     "hold_released": "#/$defs/HoldReleased",
-    "queue_reordered": "#/$defs/QueueReordered"
+    "queue_reordered": "#/$defs/QueueReordered",
+    "pending_update": "#/$defs/PendingUpdate"
   },
   "oneOf": [
     {
@@ -92,6 +94,9 @@
     },
     {
       "$ref": "#/$defs/Nudge"
+    },
+    {
+      "$ref": "#/$defs/PendingChanges"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -176,6 +181,9 @@
     },
     {
       "$ref": "#/$defs/QueueReordered"
+    },
+    {
+      "$ref": "#/$defs/PendingUpdate"
     }
   ],
   "$defs": {
@@ -606,7 +614,8 @@
             "intent",
             "plan",
             "branch",
-            "task"
+            "task",
+            "pending"
           ],
           "title": "Scope",
           "type": "string"
@@ -708,7 +717,8 @@
             "intent",
             "plan",
             "branch",
-            "task"
+            "task",
+            "pending"
           ],
           "title": "Scope",
           "type": "string"
@@ -1521,7 +1531,8 @@
           "enum": [
             "edited",
             "planned",
-            "intent"
+            "intent",
+            "pending"
           ],
           "title": "Kind",
           "type": "string"
@@ -1538,6 +1549,167 @@
         "seconds_ago"
       ],
       "title": "PeerTouch",
+      "type": "object"
+    },
+    "PendingChanges": {
+      "description": "Client -> relay: the sender's full set of unpushed files in repo_id,\nreplacing its previous report. Sent when the set changes (and now and\nthen unchanged, as a refresh); an empty files list clears it.",
+      "properties": {
+        "type": {
+          "const": "pending_changes",
+          "default": "pending_changes",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "default": "",
+          "title": "User Id",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "base": {
+          "default": "",
+          "title": "Base",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PendingFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "title": "PendingChanges",
+      "type": "object"
+    },
+    "PendingFile": {
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "symbols": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "since": {
+          "default": 0,
+          "title": "Since",
+          "type": "number"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "PendingFile",
+      "type": "object"
+    },
+    "PendingUpdate": {
+      "description": "Relay -> dashboards: a member's current unpushed files in repo_id (an\nempty list: none). online is False for the last report of a member that\nhas since disconnected (kept, with its age, until it lapses).",
+      "properties": {
+        "type": {
+          "const": "pending_update",
+          "default": "pending_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "title": "User Id",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "repo_id": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Repo Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "",
+          "title": "Branch",
+          "type": "string"
+        },
+        "base": {
+          "default": "",
+          "title": "Base",
+          "type": "string"
+        },
+        "files": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PendingFile"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "number"
+        },
+        "online": {
+          "default": true,
+          "title": "Online",
+          "type": "boolean"
+        },
+        "e2e": {
+          "default": "",
+          "maxLength": 262144,
+          "title": "E2E",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "timestamp"
+      ],
+      "title": "PendingUpdate",
       "type": "object"
     },
     "PlanConflict": {
