@@ -334,6 +334,49 @@ export interface RoomPolicyUpdate {
   require_approval: boolean;
 }
 
+/**
+ * Relay → a joiner just let in (approved, or by invite link): a per-member
+ * token to present as `member_token` next time, so a reload is not asked
+ * again. Sent once; the relay keeps only its hash.
+ */
+export interface MemberToken {
+  type: 'member_token';
+  member_id: string;
+  token: string;
+}
+
+/** One person the room remembers (holds a member token). */
+export interface RememberedMember {
+  member_id: string;
+  name: string;
+  kind: 'member' | 'dashboard';
+  issued_at: number;
+  online: boolean;
+}
+
+/**
+ * Relay → owner sockets only: the invite secret (to show the share link
+ * again; null for rooms from before invite links) and who the room remembers.
+ * In an owner's catch-up and after every rotation, admission or revocation.
+ */
+export interface RoomAccess {
+  type: 'room_access';
+  invite_required: boolean;
+  invite_secret?: string | null;
+  members: RememberedMember[];
+}
+
+/** Owner → relay: replace the invite link; old links stop admitting. */
+export interface InviteRotate {
+  type: 'invite_rotate';
+}
+
+/** Owner → relay: forget a remembered member and disconnect it. */
+export interface MemberRevoke {
+  type: 'member_revoke';
+  member_id: string;
+}
+
 /** Spectator → relay: replay the room's kept events newer than `since` (0 = all). */
 /** Owner -> relay: let a held (blocked) edit go ahead (server/models.py HoldRelease). */
 export interface HoldRelease {
@@ -449,6 +492,10 @@ export interface JoinMessage {
   owner_token?: string | null;
   /** True when discovered via GET /rooms/by-repo; repo-bound rooms enforce approval regardless. */
   via_repo_lookup?: boolean;
+  /** The invite secret from a share link (`#invite=`): admitted without approval. */
+  invite_secret?: string | null;
+  /** The token from an earlier member_token: skips approval until revoked. */
+  member_token?: string | null;
 }
 
 export type ServerMessage =
@@ -467,6 +514,8 @@ export type ServerMessage =
   | JoinPending
   | JoinRequest
   | JoinResolved
+  | MemberToken
+  | RoomAccess
   | UserJoined
   | UserLeft
   | NameRejected

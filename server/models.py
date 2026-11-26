@@ -130,6 +130,15 @@ class JoinMessage(BaseModel):
     # The relay enforces approval for any repo-bound room regardless of this flag so
     # a client cannot bypass approval by omitting it.
     via_repo_lookup: bool = False
+    # The invite secret from a share link (`#invite=` in the dashboard URL,
+    # personal config for the CLI). A join carrying the room's current one is
+    # admitted without approval in rooms that require an invite. A wrong or
+    # rotated secret is treated exactly like no secret.
+    invite_secret: Optional[str] = None
+    # The per-member token the relay sent in member_token after an earlier
+    # admission (approved or by invite). Presenting it skips approval until
+    # an owner revokes it. A wrong or revoked token counts as no token.
+    member_token: Optional[str] = None
 
     @property
     def is_spectator(self) -> bool:
@@ -551,6 +560,57 @@ class RoomPolicyUpdate(BaseModel):
 
     type: Literal["room_policy_update"] = "room_policy_update"
     require_approval: bool
+
+class MemberToken(BaseModel):
+    """Relay -> a joiner just admitted by approval or by invite link: a
+    per-member secret to present as join.member_token next time, so a
+    reconnect does not ask an owner again. Sent once; the relay keeps only
+    its hash. member_id names the grant (what an owner revokes)."""
+
+    type: Literal["member_token"] = "member_token"
+    member_id: str
+    token: str
+
+
+class RememberedMember(BaseModel):
+    """One remembered person in room_access: who holds a member token."""
+
+    member_id: str
+    name: str
+    # "member" for a daemon, "dashboard" for a dashboard viewer.
+    kind: Literal["member", "dashboard"] = "member"
+    issued_at: float
+    # True while a socket admitted with this grant is connected.
+    online: bool = False
+
+
+class RoomAccess(BaseModel):
+    """Relay -> owner sockets only: the room's invite link secret (so an
+    owner can show the share link again) and the people it remembers. Sent in
+    an owner's catch-up and after every change (rotation, a new remembered
+    member, a revocation). invite_secret is None for rooms without one
+    (created before invite links), where the code alone still admits."""
+
+    type: Literal["room_access"] = "room_access"
+    invite_required: bool
+    invite_secret: Optional[str] = None
+    members: list[RememberedMember] = Field(default_factory=list)
+
+
+class InviteRotate(BaseModel):
+    """Owner -> relay: replace the invite secret; old links stop admitting
+    (their holders wait for approval). Remembered members stay. On a room
+    without invite links this switches them on. Ignored from non-owners."""
+
+    type: Literal["invite_rotate"] = "invite_rotate"
+
+
+class MemberRevoke(BaseModel):
+    """Owner -> relay: forget a remembered member (its token stops working)
+    and disconnect any socket it is connected with. Ignored from non-owners."""
+
+    type: Literal["member_revoke"] = "member_revoke"
+    member_id: str = Field(max_length=64)
 
 
 class RateLimited(BaseModel):
