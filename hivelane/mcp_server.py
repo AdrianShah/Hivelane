@@ -212,6 +212,7 @@ TOOLS: list[dict[str, Any]] = [
                 "body": {"type": "string"},
                 "files": {"type": "array", "items": {"type": "string"}},
                 "after": {"type": "array", "items": {"type": "string"}, "description": "task ids that must be done first"},
+                "for": {"type": "string", "description": "a teammate's name to suggest it for (optional)"},
             },
             "required": ["title"],
         },
@@ -377,6 +378,7 @@ class McpServer:
             body=str(args.get("body") or ""),
             files=[str(f) for f in (args.get("files") or [])],
             depends_on=[str(t) for t in (args.get("after") or [])],
+            suggested_for=str(args.get("for") or "")[:64],
         )
         if not reply.get("ok"):
             return self._task_refusal(reply)
