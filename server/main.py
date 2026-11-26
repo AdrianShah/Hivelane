@@ -24,7 +24,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, ValidationError, model_validator
 
 try:
@@ -630,12 +630,12 @@ async def lookup_room_by_repo(repo_key: str, request: Request) -> dict[str, str]
     return {"room_id": room_id}
 
 
-@app.get("/rooms/{code}")
+@app.get("/rooms/{code}", response_model=None)
 async def room_info(
     code: str,
     request: Request,
     x_hivelane_owner_token: Optional[str] = Header(default=None),
-) -> dict[str, object]:
+) -> JSONResponse | dict[str, object]:
     """Whether a room this caller owns is still alive, and when it expires.
 
     For the dashboard's "Your rooms" list, which keeps owner tokens for codes
@@ -656,7 +656,10 @@ async def room_info(
     except StoreReadError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
     if expires_at is None:
-        raise HTTPException(status_code=404, detail="Room not found")
+        # "alive": false, not just a 404: a relay that predates this endpoint
+        # also answers 404 (no such route), and the dashboard must not take
+        # that for "gone" and throw away owner tokens of rooms that are fine.
+        return JSONResponse(status_code=404, content={"detail": "Room not found", "alive": False})
     return {"alive": True, "expires_at": expires_at}
 
 
