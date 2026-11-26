@@ -210,7 +210,7 @@ export function basePath(): string {
 }
 
 /** True when the relay is the server this page was loaded from. */
-function relayIsThisOrigin(): boolean {
+export function relayIsThisOrigin(): boolean {
   if (typeof window === 'undefined') return false;
   try {
     return new URL(relayHttpOrigin()).host === window.location.host;
@@ -245,7 +245,7 @@ export function upCommand(roomId: string): string {
  * --insecure (e.g. `hivelane relay` on a LAN), so a copied line must carry it.
  * Mirrors transport_problem in hivelane/config.py.
  */
-function needsInsecure(wsBase: string): boolean {
+export function needsInsecure(wsBase: string): boolean {
   if (!/^ws:\/\//i.test(wsBase)) return false;
   let host: string;
   try {
