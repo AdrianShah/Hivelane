@@ -630,6 +630,36 @@ async def lookup_room_by_repo(repo_key: str, request: Request) -> dict[str, str]
     return {"room_id": room_id}
 
 
+@app.get("/rooms/{code}")
+async def room_info(
+    code: str,
+    request: Request,
+    x_hivelane_owner_token: Optional[str] = Header(default=None),
+) -> dict[str, object]:
+    """Whether a room this caller owns is still alive, and when it expires.
+
+    For the dashboard's "Your rooms" list, which keeps owner tokens for codes
+    that may have expired or finished long ago. Owner only, and deliberately
+    one answer for every failure: an unknown code, a dead one and a wrong or
+    missing token all get the same 404, so the endpoint cannot be used to
+    find out which codes exist. Rate-limited with the repository lookups.
+    Never revives a room (room_manager.owner_room_expiry reads the store)."""
+    allowance = await check_repo_lookup_async(request)
+    if not allowance.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many room requests from this address. Try again later.",
+            headers={"Retry-After": str(allowance.retry_after_seconds)},
+        )
+    try:
+        expires_at = room_manager.owner_room_expiry(code, x_hivelane_owner_token)
+    except StoreReadError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from None
+    if expires_at is None:
+        raise HTTPException(status_code=404, detail="Room not found")
+    return {"alive": True, "expires_at": expires_at}
+
+
 @app.post("/rooms/{code}/repo")
 async def bind_room_repo(
     code: str,
