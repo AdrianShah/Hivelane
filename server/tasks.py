@@ -12,6 +12,20 @@ the requester's own names (its daemon's main name or agent lanes).
 A disconnect does not release a claim (a daemon reconnects under the same
 name); only done, release, cancel or the lease ending does.
 
+Agent-plan tasks (source "agent_plan") are the steps of a coding agent's own
+plan, which its daemon creates already claimed and keeps in step with the
+agent's todo list (hivelane/plan_tasks.py). They reserve their files only
+while `active` (the step the agent is on), and claim-next never offers them.
+
+A dashboard may create a task and cancel the ones it created (server/main.py
+decides who may send what). Its tasks carry a dashboard_tag; the secret key
+behind the tag is kept here, never on the Task, and a dashboard's cancel must
+present it. A member may cancel or edit a dashboard's task only once it has
+claimed it: the name a dashboard gives is the viewer's word, not an identity.
+
+A task with repo_id "" belongs to every repo in the room: it reserves its
+files in each, and claim-next offers it in each.
+
 Pure bookkeeping, like file_queue.py: no sockets and no clock of its own.
 Room supplies `now` and broadcasts the tasks each call returns.
 """
@@ -19,6 +33,8 @@ Room supplies `now` and broadcasts the tasks each call returns.
 from __future__ import annotations
 
 import builtins
+import hashlib
+import hmac
 from collections.abc import Iterable
 from typing import Optional
 
@@ -33,6 +49,9 @@ MAX_OPEN_TASKS = 200
 MAX_CLOSED_TASKS = 50
 # Notes per task (the oldest are dropped).
 MAX_NOTES = 20
+# Of the open tasks, how many dashboards may have created: a viewer holding
+# only the room code cannot fill the whole list.
+MAX_DASHBOARD_OPEN = 50
 # Lease bounds (seconds); TaskRequest enforces the same range.
 DEFAULT_LEASE_SECONDS = 1800.0
 MIN_LEASE_SECONDS = 60.0
@@ -60,6 +79,27 @@ def normalize_id(raw: str) -> str:
     return text
 
 
+def dashboard_tag(key: str) -> str:
+    """The public tag of a dashboard's task key: the first 16 hex digits of
+    its SHA-256 (the dashboard computes the same to spot its own tasks)."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+
+
+def _digest(key: str) -> str:
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def _same_repo(task: Task, repo_id: str) -> bool:
+    """task belongs to repo_id (a task without a repo belongs to every one)."""
+    return not task.repo_id or task.repo_id == repo_id
+
+
+def _may_change(task: Task, user_id: str) -> bool:
+    """The claimer may; so may the creator, unless a dashboard created it
+    (its created_by is a name the viewer typed, which anyone could match)."""
+    return user_id == task.claimer or (not task.dashboard_tag and user_id == task.created_by)
+
+
 class TaskBoard:
     def __init__(
         self,
@@ -67,14 +107,18 @@ class TaskBoard:
         max_open: int = MAX_OPEN_TASKS,
         max_closed: int = MAX_CLOSED_TASKS,
         max_notes: int = MAX_NOTES,
+        max_dashboard_open: int = MAX_DASHBOARD_OPEN,
     ) -> None:
         self.max_open = max_open
         self.max_closed = max_closed
         self.max_notes = max_notes
+        self.max_dashboard_open = max_dashboard_open
         # Insertion order is creation order: "oldest ready" is the first match.
         self._tasks: dict[str, Task] = {}
         self._lease_seconds: dict[str, float] = {}
         self._announced_lease: dict[str, float] = {}
+        # task_id -> SHA-256 of the key of the dashboard that created it.
+        self._dashboard_keys: dict[str, str] = {}
         self._next = 1
 
     # --- reading -------------------------------------------------------------
@@ -92,7 +136,7 @@ class TaskBoard:
         return [
             task
             for task in self._tasks.values()
-            if (repo_id is None or task.repo_id == repo_id)
+            if (repo_id is None or task.repo_id == repo_id or not task.repo_id)
             and (include_closed or task.status not in _CLOSED)
         ]
 
@@ -114,12 +158,14 @@ class TaskBoard:
         self, repo_id: str, path: str, requester: str, exempt: Iterable[str], now: float
     ) -> Optional[Task]:
         """The live claimed task reserving path for someone other than the
-        requester (or anyone in exempt), or None."""
+        requester (or anyone in exempt), or None. An agent's plan step
+        reserves only while it is the active one."""
         mine = {requester.lower(), *(name.lower() for name in exempt)}
         for task in self._tasks.values():
             if (
                 task.status == "claimed"
-                and task.repo_id == repo_id
+                and _same_repo(task, repo_id)
+                and (task.source != "agent_plan" or task.active)
                 and path in task.files
                 and (task.lease_until or 0) > now
                 and (task.claimer or "").lower() not in mine
@@ -140,10 +186,22 @@ class TaskBoard:
         files: Iterable[str] = (),
         depends_on: Iterable[str] = (),
         e2e: str = "",
+        claim: bool = False,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+        source: str = "manual",
+        lane: str = "",
+        active: bool = False,
+        suggested_for: str = "",
+        dashboard_key: str = "",
     ) -> Task:
+        """A new task; with claim, claimed by user_id at once (an agent's plan
+        step). dashboard_key: a dashboard created it (see the module doc)."""
         if not title.strip() and not e2e:
             raise TaskError("invalid")
-        if len(self.list()) >= self.max_open:
+        open_tasks = self.list()
+        if len(open_tasks) >= self.max_open:
+            raise TaskError("limit")
+        if dashboard_key and sum(1 for t in open_tasks if t.dashboard_tag) >= self.max_dashboard_open:
             raise TaskError("limit")
         deps: list[str] = []
         for raw in depends_on:
@@ -163,9 +221,53 @@ class TaskBoard:
             created_at=now,
             updated_at=now,
             e2e=e2e,
+            source="agent_plan" if source == "agent_plan" else "manual",
+            lane=lane,
+            active=bool(active and claim),
+            suggested_for=suggested_for,
+            dashboard_tag=dashboard_tag(dashboard_key) if dashboard_key else "",
         )
         self._next += 1
         self._tasks[task.task_id] = task
+        if dashboard_key:
+            self._dashboard_keys[task.task_id] = _digest(dashboard_key)
+        if claim:
+            self._take(task, user_id, now, lease_seconds)
+        return task
+
+    def update(
+        self,
+        user_id: str,
+        now: float,
+        *,
+        task_id: str,
+        title: str = "",
+        body: str = "",
+        files: Iterable[str] = (),
+        e2e: str = "",
+        active: Optional[bool] = None,
+        lease_seconds: float = DEFAULT_LEASE_SECONDS,
+    ) -> Task:
+        """Replace what an open or claimed task says (title, body and files
+        together, as one e2e blob carries them) and, when active is given,
+        whether it is the step its claimer is on. The claimer's update also
+        renews its lease to lease_seconds."""
+        task = self.get(task_id)
+        if task.status in _CLOSED:
+            raise TaskError("closed")
+        if not _may_change(task, user_id):
+            raise TaskError("not_owner")
+        if not title.strip() and not e2e:
+            raise TaskError("invalid")
+        task.title = title.strip()
+        task.body = body
+        task.files = list(dict.fromkeys(f for f in files if f))
+        task.e2e = e2e
+        if active is not None:
+            task.active = bool(active) and task.status == "claimed"
+        if task.status == "claimed" and task.claimer == user_id:
+            self._set_lease(task, now, lease_seconds)
+        task.updated_at = now
         return task
 
     def claim(
@@ -179,10 +281,7 @@ class TaskBoard:
         lease_seconds: float = DEFAULT_LEASE_SECONDS,
     ) -> Task:
         if next_ready:
-            task = next(
-                (t for t in self._tasks.values() if t.repo_id == repo_id and self.is_ready(t)),
-                None,
-            )
+            task = self._next_ready(user_id, repo_id)
             if task is None:
                 raise TaskError("none_ready")
         else:
@@ -193,25 +292,15 @@ class TaskBoard:
                 raise TaskError("claimed")
             if not self.is_ready(task):
                 raise TaskError("not_ready")
-        lease = _clamp(lease_seconds)
-        task.status = "claimed"
-        task.claimer = user_id
-        task.claimed_at = now
-        task.lease_until = now + lease
-        task.updated_at = now
-        self._lease_seconds[task.task_id] = lease
-        self._announced_lease[task.task_id] = task.lease_until
+        self._take(task, user_id, now, lease_seconds)
         return task
 
     def renew(
         self, user_id: str, now: float, *, task_id: str, lease_seconds: float = DEFAULT_LEASE_SECONDS
     ) -> Task:
         task = self._claimed_by(user_id, task_id)
-        lease = _clamp(lease_seconds)
-        task.lease_until = now + lease
+        self._set_lease(task, now, lease_seconds)
         task.updated_at = now
-        self._lease_seconds[task.task_id] = lease
-        self._announced_lease[task.task_id] = task.lease_until
         return task
 
     def release(self, user_id: str, now: float, *, task_id: str) -> Task:
@@ -228,14 +317,26 @@ class TaskBoard:
         task = self.get(task_id)
         if task.status in _CLOSED:
             raise TaskError("closed")
-        if user_id not in (task.created_by, task.claimer):
+        if not _may_change(task, user_id):
             raise TaskError("not_owner")
         self._close(task, "cancel", user_id, now, text, e2e)
         return task
 
+    def cancel_from_dashboard(self, dashboard_key: str, now: float, *, task_id: str) -> Task:
+        """A dashboard cancels a task it created: it must present the key the
+        task was created with."""
+        task = self.get(task_id)
+        if task.status in _CLOSED:
+            raise TaskError("closed")
+        stored = self._dashboard_keys.get(task.task_id)
+        if not dashboard_key or stored is None or not hmac.compare_digest(stored, _digest(dashboard_key)):
+            raise TaskError("not_owner")
+        self._close(task, "cancel", task.created_by, now, "", "")
+        return task
+
     def note(self, user_id: str, now: float, *, task_id: str, text: str = "", e2e: str = "") -> Task:
         task = self.get(task_id)
-        if user_id not in (task.created_by, task.claimer):
+        if not _may_change(task, user_id):
             raise TaskError("not_owner")
         if not text.strip() and not e2e:
             raise TaskError("invalid")
@@ -251,7 +352,7 @@ class TaskBoard:
         for task in self._tasks.values():
             if (
                 task.status == "claimed"
-                and task.repo_id == repo_id
+                and _same_repo(task, repo_id)
                 and path in task.files
                 and (task.claimer or "").lower() in mine
                 and (task.lease_until or 0) > now
@@ -282,6 +383,37 @@ class TaskBoard:
 
     # --- internals -------------------------------------------------------------
 
+    def _next_ready(self, user_id: str, repo_id: str) -> Optional[Task]:
+        """The oldest ready task of the repo: one suggested for user_id
+        first, then one suggested for nobody, then any. Never a step of an
+        agent's plan: that is its own to-do list."""
+        ready = [
+            t
+            for t in self._tasks.values()
+            if _same_repo(t, repo_id) and t.source != "agent_plan" and self.is_ready(t)
+        ]
+        me = user_id.lower()
+        for task in ready:
+            if task.suggested_for.lower() == me:
+                return task
+        for task in ready:
+            if not task.suggested_for:
+                return task
+        return ready[0] if ready else None
+
+    def _take(self, task: Task, user_id: str, now: float, lease_seconds: float) -> None:
+        task.status = "claimed"
+        task.claimer = user_id
+        task.claimed_at = now
+        task.updated_at = now
+        self._set_lease(task, now, lease_seconds)
+
+    def _set_lease(self, task: Task, now: float, lease_seconds: float) -> None:
+        lease = _clamp(lease_seconds)
+        task.lease_until = now + lease
+        self._lease_seconds[task.task_id] = lease
+        self._announced_lease[task.task_id] = task.lease_until
+
     def _claimed_by(self, user_id: str, task_id: str) -> Task:
         task = self.get(task_id)
         if task.status != "claimed" or task.claimer != user_id:
@@ -290,6 +422,7 @@ class TaskBoard:
 
     def _reopen(self, task: Task, now: float) -> None:
         task.status = "open"
+        task.active = False
         task.claimer = None
         task.claimed_at = None
         task.lease_until = None
@@ -301,6 +434,7 @@ class TaskBoard:
         if text.strip() or e2e:
             self._add_note(task, TaskNote(user_id=user_id, text=text, timestamp=now, kind=kind, e2e=e2e))  # type: ignore[arg-type]
         task.status = "done" if kind == "done" else "cancelled"
+        task.active = False
         task.lease_until = None
         task.updated_at = now
         self._lease_seconds.pop(task.task_id, None)
@@ -318,6 +452,7 @@ class TaskBoard:
         )
         for task in closed[: max(0, len(closed) - self.max_closed)]:
             del self._tasks[task.task_id]
+            self._dashboard_keys.pop(task.task_id, None)
 
 
 def _clamp(lease_seconds: float) -> float:

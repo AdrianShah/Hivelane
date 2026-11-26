@@ -501,6 +501,7 @@ def registration(
         "settings": settings,
         "ignore": list(config.ignore),
         "share_diffs": config.share_diffs,
+        "plan_tasks": config.plan_tasks,
         "redact": config.redact,
         "redact_patterns": list(config.redact_patterns),
         "via_repo_lookup": bool(via_repo_lookup),

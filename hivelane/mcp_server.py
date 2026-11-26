@@ -43,6 +43,9 @@ tools tell you who is where:
   `next: true` for the oldest ready task) claims one and reserves its files
   for you; post progress with `task_note` and finish with `task_done`. If an
   edit is blocked because a teammate's task reserves the file, pick other work.
+- When you are told to grab, take or pick up the next task (or you are idle
+  and asked to find work), call `task_claim` with `next: true` (from a shell:
+  `hivelane task claim --next`), then work on the task it returns.
 """
 
 
@@ -241,13 +244,14 @@ TOOLS: list[dict[str, Any]] = [
                 "body": {"type": "string"},
                 "files": {"type": "array", "items": {"type": "string"}},
                 "after": {"type": "array", "items": {"type": "string"}, "description": "task ids that must be done first"},
+                "for": {"type": "string", "description": "a teammate's name to suggest it for (optional)"},
             },
             "required": ["title"],
         },
     },
     {
         "name": "task_claim",
-        "description": "Claims a task (task_id, or next=true for the oldest ready one). Its files are reserved for you until you finish or the lease (default 30 min, renewed by your edits) runs out.",
+        "description": "Claims a task (task_id, or next=true for the oldest ready one: use next=true when asked to grab or pick up the next task). Its files are reserved for you until you finish or the lease (default 30 min, renewed by your edits) runs out.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -573,6 +577,7 @@ class McpServer:
             body=str(args.get("body") or ""),
             files=[str(f) for f in (args.get("files") or [])],
             depends_on=[str(t) for t in (args.get("after") or [])],
+            suggested_for=str(args.get("for") or "")[:64],
         )
         if not reply.get("ok"):
             return self._task_refusal(reply)

@@ -16,6 +16,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 from typing import Any, Callable
 
@@ -78,6 +80,14 @@ def register(sub: Any, port_help: str, run: Callable[[argparse.Namespace], int])
     add.add_argument("--body", default="", help="more detail")
     add.add_argument("--files", type=_csv, default=[], metavar="A,B", help="files the task covers (reserved while claimed)")
     add.add_argument("--after", type=_csv, default=[], metavar="T1,T2", help="tasks that must be done first")
+    add.add_argument("--for", dest="suggested_for", default="", metavar="NAME", help="suggest it for a teammate (`claim --next` offers it to them first)")
+
+    gh = actions.add_parser(
+        "import-github", parents=[common],
+        help="add the repo's open GitHub issues with a label as tasks (needs the gh CLI)",
+    )
+    gh.add_argument("--label", required=True, help="the issue label to import")
+    gh.add_argument("--limit", type=int, default=30, help="at most this many issues (default 30)")
 
     listing = actions.add_parser("list", parents=[common], help="list open and claimed tasks")
     listing.add_argument("--all", action="store_true", help="include done and cancelled tasks")
@@ -137,6 +147,11 @@ def task_line(task: dict[str, Any]) -> str:
         who = f" [{task.get('claimer')}, {_left(task)}]"
     elif status == "open" and task.get("depends_on"):
         who = f" [after {', '.join(task['depends_on'])}]"
+    if task.get("source") == "agent_plan":
+        current = ", current step" if task.get("active") else ""
+        who += f" [step of {task.get('lane') or task.get('created_by')}'s plan{current}]"
+    elif status == "open" and task.get("suggested_for"):
+        who += f" [for {task['suggested_for']}]"
     files = task.get("files") or []
     shown = f"  ({', '.join(files[:3])}{', …' if len(files) > 3 else ''})" if files else ""
     return f"{task.get('task_id', '?'):>4}  {status:<9} {task.get('title') or '(encrypted)'}{who}{shown}"
@@ -192,9 +207,15 @@ def cmd_task(
         say("\n".join(task_line(t) for t in tasks))
         return 0
 
+    if action == "import-github":
+        return _import_github(args, cwd, call=call, say=say)
+
     body: dict[str, Any] = {"cwd": cwd, "op": action, "task_id": task_id}
     if action == "add":
-        body.update(op="create", title=args.title, body=args.body, files=args.files, depends_on=args.after)
+        body.update(
+            op="create", title=args.title, body=args.body, files=args.files, depends_on=args.after,
+            suggested_for=args.suggested_for,
+        )
     elif action == "claim":
         if not task_id and not args.next:
             say("hivelane: name a task to claim, or use --next", err=True)
@@ -244,4 +265,68 @@ def cmd_task(
         say(f"hivelane: released {tid}; it is open again")
     elif action == "cancel":
         say(f"hivelane: cancelled {tid}")
+    return 0
+
+
+GH_TIMEOUT = 30.0
+
+
+def _import_github(
+    args: argparse.Namespace,
+    cwd: str,
+    *,
+    call: Callable[[dict[str, Any]], dict[str, Any]],
+    say: Callable[..., None],
+) -> int:
+    """Open issues labelled args.label (from `gh issue list`) become tasks
+    titled "#123 <issue title>". An issue that already has a task, open or
+    finished, by that title prefix is skipped, so running it again only adds
+    new issues."""
+    gh = shutil.which("gh")
+    if gh is None:
+        say("hivelane: import-github needs the GitHub CLI (gh), signed in with `gh auth login`", err=True)
+        return 1
+    command = [
+        gh, "issue", "list", "--label", args.label, "--state", "open",
+        "--limit", str(max(1, min(args.limit, 200))), "--json", "number,title,body,url",
+    ]
+    try:
+        out = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=GH_TIMEOUT, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        say(f"hivelane: gh failed: {exc}", err=True)
+        return 1
+    if out.returncode != 0:
+        say(f"hivelane: gh failed: {(out.stderr or out.stdout or '').strip()[:300]}", err=True)
+        return 1
+    try:
+        issues = json.loads(out.stdout or "[]")
+    except ValueError:
+        say("hivelane: gh printed something that is not JSON", err=True)
+        return 1
+    listed = call({"cwd": cwd, "op": "list", "include_closed": True})
+    if not listed.get("ok"):
+        say(refusal(listed, ""), err=True)
+        return 1
+    titles = [str(t.get("title") or "") for t in listed.get("tasks") or []]
+    added = skipped = 0
+    for issue in issues if isinstance(issues, list) else []:
+        if not isinstance(issue, dict) or issue.get("number") is None:
+            continue
+        prefix = f"#{issue['number']} "
+        if any(title.startswith(prefix) for title in titles):
+            skipped += 1
+            continue
+        parts = (str(issue.get("url") or ""), str(issue.get("body") or "")[:1500])
+        reply = call({
+            "cwd": cwd, "op": "create",
+            "title": prefix + str(issue.get("title") or "").strip(),
+            "body": "\n\n".join(part for part in parts if part),
+        })
+        if not reply.get("ok"):
+            say(refusal(reply, ""), err=True)
+            return 1
+        added += 1
+        say(f"hivelane: created {(reply.get('task') or {}).get('task_id', '?')}: {prefix}{issue.get('title')}")
+    tail = f" ({skipped} already on the list)" if skipped else ""
+    say(f"hivelane: imported {added} issue{'' if added == 1 else 's'} labelled {args.label}{tail}")
     return 0
