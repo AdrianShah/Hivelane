@@ -1689,7 +1689,7 @@ def print_summary(config: HivelaneConfig, name_source: str) -> None:
     invite = config.invite_secret(room)
     insecure_relay = bool(transport_problem(config.relay, False))
     if invite:
-        say("Share with teammates (lets them in without waiting for your approval):")
+        say("Share with teammates (the line to share; it lets them in without waiting for your approval):")
     else:
         say("Share with teammates (they will wait for your approval; `hivelane invite` prints a link that skips it):")
     say("  paste into their coding agent, any agent:")
