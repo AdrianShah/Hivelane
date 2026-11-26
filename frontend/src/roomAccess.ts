@@ -207,8 +207,6 @@ export function isApprovalRefusal(reason: string, wasWaiting: boolean): boolean 
 const ROOM_CHECK_LIMIT = 8;
 /** Answers are reused for this long (moving between pages re-renders the list). */
 const ROOM_CHECK_TTL_MS = 60_000;
-/** Every character a room code may hold (isValidRoomCode: [A-Z0-9]). */
-const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const checked = new Map<string, { at: number; liveness: RoomLiveness }>();
 
 /** Asks the relay whether one owned room is still alive (needs its owner token). */
@@ -222,12 +220,12 @@ export async function checkOwnedRoom(roomId: string): Promise<RoomLiveness | 'ra
   const cacheKey = `${relayWsBase()}|${code}`;
   const hit = checked.get(cacheKey);
   if (hit && Date.now() - hit.at < ROOM_CHECK_TTL_MS) return hit.liveness;
-  // The path segment is rebuilt from a fixed alphabet, so nothing read from
-  // storage reaches the URL as-is (isValidRoomCode already allows only these).
-  const pathCode = Array.from(code, (c) => ROOM_CODE_ALPHABET[ROOM_CODE_ALPHABET.indexOf(c)] ?? '').join('');
+  // The relay is the one this dashboard uses (a ?relay= link can pick it, by
+  // design), and owner tokens are stored per relay, so a token only ever goes
+  // back to the relay that issued it.
   let response: Response;
   try {
-    response = await fetch(`${relayHttpOrigin()}/rooms/${pathCode}`, {
+    response = await fetch(`${relayHttpOrigin()}/rooms/${encodeURIComponent(code)}`, {
       headers: { 'X-Hivelane-Owner-Token': token },
     });
   } catch {
