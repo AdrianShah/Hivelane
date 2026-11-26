@@ -314,9 +314,13 @@ export function stripInviteFragment(hash: string): string {
  * Connects the current repo's agent to a room. --relay is only spelled out
  * when this dashboard talks to a relay other than the CLI default.
  */
-export function upCommand(roomId: string): string {
-  const relay = isDefaultRelay() ? '' : ` --relay ${relayWsBase()}`;
+export function upCommand(roomId: string, link?: string): string {
   const insecure = needsInsecure(relayWsBase()) ? ' --insecure' : '';
+  // An invite link carries the relay and the invite secret, so whoever runs
+  // it (the room's creator included: their CLI has no owner token) comes
+  // straight in instead of waiting for approval. Quoted: `?` globs in zsh.
+  if (link) return `hivelane up --room "${link}"${insecure}`;
+  const relay = isDefaultRelay() ? '' : ` --relay ${relayWsBase()}`;
   return `hivelane up --room ${normalizeRoomCode(roomId)}${relay}${insecure}`;
 }
 
@@ -347,8 +351,8 @@ export function needsInsecure(wsBase: string): boolean {
 export const INSTALL_COMMAND = 'pipx install git+https://github.com/AdrianShah/Hivelane';
 
 /** The one line a teammate pastes to install Hivelane and join a room. */
-export function setupCommand(roomId: string): string {
-  return `${INSTALL_COMMAND} && ${upCommand(roomId)}`;
+export function setupCommand(roomId: string, link?: string): string {
+  return `${INSTALL_COMMAND} && ${upCommand(roomId, link)}`;
 }
 
 /** CLI command to join an invite link directly (`hivelane join "<url>"`). */

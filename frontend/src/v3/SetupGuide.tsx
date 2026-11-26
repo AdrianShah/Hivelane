@@ -46,7 +46,7 @@ export default function SetupGuide({
     {
       title: 'Then join this room from your repo',
       body: 'Run it where your agent works. It sets up the agent hooks and the Hivelane daemon; your agent works exactly as before.',
-      command: upCommand(roomId),
+      command: upCommand(roomId, shareUrl),
       copyLabel: 'Command',
       wrap: false,
       done: anyAgent,
@@ -63,7 +63,7 @@ export default function SetupGuide({
     },
     {
       title: 'Keep the team in this room',
-      body: 'Commit it as .hivelane.toml: everyone who clones the repo joins this room with a plain hivelane up.',
+      body: 'Commit it as .hivelane.toml: everyone who clones the repo joins this room with a plain hivelane up. Without the invite link they wait for your approval the first time; after that they are remembered.',
       command: projectFile(roomId),
       copyLabel: '.hivelane.toml',
       wrap: true,
