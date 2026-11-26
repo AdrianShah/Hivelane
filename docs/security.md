@@ -318,6 +318,34 @@ broadcasts without opening; the details are in
 [End-to-end encryption](#end-to-end-encryption). Either way it sees who is
 connected, when, from which IP, and how much they send.
 
+### Tasks from dashboards
+
+A dashboard is a spectator, not a member, but it may add tasks to the room's
+[task list](tasks.md#on-the-dashboard) and cancel the ones it added. Nothing
+else: claiming, finishing, notes and edits are members' (the relay answers
+anything else from a dashboard with `not_allowed`). The rules:
+
+- **Who.** Any dashboard admitted to the room: anyone holding the room code,
+  or, with [join approval](#join-approval) on, only dashboards an owner let
+  in. That is the same group that can already watch the room, and could join
+  it as a member and add tasks from the CLI.
+- **Attribution.** The task is credited to a name the viewer types. The relay
+  cleans it like a member name but cannot check it, so every such task
+  carries a `dashboard_tag` and shows as added from a dashboard. A member
+  with the same name gets no rights over it: a member may note, edit or
+  cancel a dashboard's task only after claiming it.
+- **Cancelling.** Each browser keeps a random task key in `localStorage` and
+  sends it with each task it adds. The relay keeps only the key's SHA-256
+  with the task, never on the wire, and a dashboard's cancel must present the
+  same key. The public `dashboard_tag` (16 hex digits of that hash) lets the
+  dashboard recognise its own tasks without revealing the key.
+- **Limits.** One task change a second per dashboard socket (on top of the
+  spectator frame quota), and at most 50 of a room's 200 open tasks may come
+  from dashboards, so a viewer with only the code cannot fill the list.
+- **Encrypted rooms.** A dashboard adds a task only with the room key, sealed
+  like a daemon's (title and body in the blob, files hashed). The relay
+  refuses a dashboard's task with readable text in an e2e room.
+
 ### History and webhooks
 
 Both are off until someone turns them on: history by the team's committed

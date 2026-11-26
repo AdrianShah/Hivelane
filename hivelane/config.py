@@ -55,6 +55,7 @@ _PROJECT_KEYS = (
     "history_hours",
     "ignore",
     "share_diffs",
+    "plan_tasks",
     "e2e",
     "redact",
     "redact_patterns",
@@ -88,6 +89,8 @@ class HivelaneConfig:
     history_hours: Optional[float] = None
     ignore: tuple[str, ...] = ()
     share_diffs: bool = True
+    # Agents' own plans (a Claude Code todo list) become room tasks.
+    plan_tasks: bool = True
     # End-to-end encryption (the team's choice: project file only).
     e2e: bool = False
     # Secret redaction before anything leaves the machine (hivelane.redact).
@@ -349,6 +352,9 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
         if not isinstance(data["share_diffs"], bool):
             raise ConfigFileError(f"{path}: share_diffs must be true or false")
         base["share_diffs"] = data["share_diffs"]
+    plan_tasks = _bool(data, "plan_tasks", path)
+    if plan_tasks is not None:
+        base["plan_tasks"] = plan_tasks
     e2e = _bool(data, "e2e", path)
     if e2e is not None and project:
         base["e2e"] = e2e  # the team's decision, like the room

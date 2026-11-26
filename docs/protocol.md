@@ -150,7 +150,7 @@ arrived on its own.
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
 | [`history_request`](#history_request) | members and spectators | `history_chunk` frames to the sender |
-| [`task`](#task) | members | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
+| [`task`](#task) | members; spectators (`create` and `cancel` only) | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
 
 The relay ignores fields it does not know, frames that are not JSON objects,
 messages with an unknown `type`, and messages that fail validation (they are
@@ -427,17 +427,39 @@ to one every 0.2 s per member.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `request_id` | string (at most 128 chars) | required | Echoed on the reply. |
-| `op` | `"create"`, `"claim"`, `"renew"`, `"note"`, `"done"`, `"release"`, `"cancel"`, `"list"` | required | The operation. |
+| `op` | `"create"`, `"claim"`, `"renew"`, `"note"`, `"done"`, `"release"`, `"cancel"`, `"list"`, `"update"` | required | The operation. |
 | `task_id` | string | `""` | The task (`"T12"`; `"12"` and `"t12"` also work). |
-| `next` | boolean | `false` | `claim`: the oldest ready task of `repo_id` instead of `task_id`. |
-| `title` / `body` | string | `""` | `create`. At most 200 / 2,000 bytes. Required (title or `e2e`). |
-| `files` | string[] | `[]` | `create`: repo-relative paths (hashes in e2e rooms) reserved while claimed. At most 50. |
+| `next` | boolean | `false` | `claim`: the oldest ready task of `repo_id` instead of `task_id`: one suggested for the sender first, then one suggested for nobody, then any. Never an `agent_plan` task. |
+| `title` / `body` | string | `""` | `create` / `update`. At most 200 / 2,000 bytes. Required (title or `e2e`). |
+| `files` | string[] | `[]` | `create` / `update`: repo-relative paths (hashes in e2e rooms) reserved while claimed. At most 50. |
 | `depends_on` | string[] | `[]` | `create`: tasks that must be done or cancelled first. At most 10. |
-| `repo_id` | string | `""` | The repository (as on `edit_check`). |
-| `lease_seconds` | number (60 to 28,800) | `1800` | `claim` / `renew`. |
+| `repo_id` | string | `""` | The repository (as on `edit_check`). A task created with `""` belongs to every repo in the room. |
+| `lease_seconds` | number (60 to 28,800) | `1800` | `claim` / `renew`, `create` with `claim`, and the claimer's `update`. |
 | `text` | string | `""` | `note` / `done` / `cancel`: the note, result or reason. At most 500 bytes. |
 | `include_closed` | boolean | `false` | `list`: also done and cancelled tasks. |
 | `e2e` | string | `""` | In an e2e room: a `"task"` envelope with `title`, `body`, `text` and `files`. |
+| `claim` | boolean | `false` | `create`: claim the new task for the sender at once. |
+| `source` | `"manual"`, `"agent_plan"` | `"manual"` | `create`: `agent_plan` for a step of an agent's own plan (its daemon keeps it in step, see [Room tasks](tasks.md#agent-plans)). |
+| `lane` | string (at most 64 chars) | `""` | `create`: the agent lane whose plan it is. |
+| `active` | boolean or `null` | `null` | `create` / `update`: the step the claimer is on now. `null` on `update` leaves it as it is. An `agent_plan` task reserves its files only while active. |
+| `suggested_for` | string (at most 64 chars) | `""` | `create`: a member the task is suggested for. |
+| `as_name` | string (at most 64 chars) | `""` | Dashboards only, `create`: the name to credit (sanitized like a member name; required). |
+| `dashboard_key` | string (16 to 128 chars) | `""` | Dashboards only: the dashboard's own random secret. `create` records its hash; `cancel` must present the same key. |
+
+`update` replaces a task's `title`, `body`, `files` and `e2e` together (the
+whole of what one e2e envelope carries) and, when `active` is given, whether
+it is the active step. The creator or the claimer of an open or claimed task
+may send it; the claimer's update also renews its lease to `lease_seconds`.
+
+A **dashboard** (spectator socket) admitted to the room may send `create`
+and `cancel` only; anything else is answered `not_allowed`. Its `create`
+needs `as_name` and a `dashboard_key`, takes `title`, `body`, `files`,
+`depends_on`, `repo_id` and `suggested_for`, and in an e2e room must carry the
+text sealed (a clear `title` or `body`, or no `e2e`, is `invalid`). Its
+`cancel` succeeds only with the key the task was created with. Dashboards are
+limited to one task change a second per socket, and to 50 of a room's open
+tasks. A task a dashboard created can be noted, updated or cancelled by a
+member only once that member has claimed it.
 
 ## Relay to client
 
@@ -485,13 +507,13 @@ One peer's recent involvement with the checked file.
 
 ### task_reply
 
-The answer to a `task`, sent only to the member who asked.
+The answer to a `task`, sent only to the member or dashboard that asked.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `request_id` | string | required | The request's id. |
 | `ok` | boolean | required | Whether the operation happened. |
-| `reason` | string | `""` | Why not: `not_found`, `not_ready`, `claimed`, `not_claimer`, `not_owner`, `closed`, `none_ready`, `limit`, `rate_limited` or `invalid`. |
+| `reason` | string | `""` | Why not: `not_found`, `not_ready`, `claimed`, `not_claimer`, `not_owner`, `closed`, `none_ready`, `limit`, `rate_limited`, `invalid` or `not_allowed` (an operation a dashboard may not send). |
 | `task` | [Task](#task_update) or `null` | `null` | The task after the operation. |
 | `tasks` | Task[] | `[]` | `list`: the tasks of `repo_id`. |
 
@@ -512,6 +534,9 @@ after its catch-up.
 | `task.created_at`, `task.updated_at`, `task.claimed_at`, `task.lease_until` | number (or `null`) | Unix seconds. |
 | `task.notes` | `{user_id, text, timestamp, kind, e2e}`[] | `kind` is `note`, `done` (the result) or `cancel`. At most 20. |
 | `task.e2e` | string | The creator's `"task"` envelope, in e2e rooms. |
+| `task.source`, `task.lane`, `task.active` | string, string, boolean | `agent_plan` steps: the lane whose plan it is and whether it is the step being worked on. |
+| `task.suggested_for` | string | Who the creator suggested it for (`""`: anyone). |
+| `task.dashboard_tag` | string | Non-empty when a dashboard created the task: the first 16 hex digits of the SHA-256 of its `dashboard_key`, so that dashboard can find its own tasks. `created_by` is then the name its viewer typed. |
 
 ### plan_conflicts
 

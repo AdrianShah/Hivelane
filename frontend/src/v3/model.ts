@@ -57,6 +57,8 @@ export interface LaneView {
   currentFile: string | null;
   inConflict: boolean;
   claimedTasks: Task[];
+  /** This lane's agent plan (its todo list as room tasks): the step it is on and how far it is. */
+  planProgress: { current: Task | null; done: number; total: number } | null;
 }
 
 /** An edit Hivelane is holding right now (blocked, not released). */

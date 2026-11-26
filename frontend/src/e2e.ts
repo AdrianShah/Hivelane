@@ -459,6 +459,29 @@ export class E2EDecoder {
     return this.state === 'bad-key' ? `can't decrypt·${tag}` : `🔒 ${tag}`;
   }
 
+  /** Whether this decoder holds a room key (so it can seal what it sends). */
+  get hasKey(): boolean {
+    return this.key != null;
+  }
+
+  /**
+   * A task the dashboard adds, in its e2e form (as hivelane/daemon.py
+   * _seal does for a TaskRequest): title and body only in a "task" blob,
+   * files hashed so the relay can still match reservations.
+   */
+  async sealTask(task: { title: string; body: string; files: string[] }): Promise<{ e2e: string; files: string[] }> {
+    if (!this.key) throw new DecryptError('no room key');
+    const key = await this.key;
+    const e2e = await sealEnvelope(key, 'task', { v: 1, title: task.title, body: task.body, text: '', files: task.files });
+    const files: string[] = [];
+    for (const file of task.files) {
+      const token = await hashName(key, file);
+      this.names.set(token, file);
+      files.push(token);
+    }
+    return { e2e, files };
+  }
+
   /** Every h-token in free text (relay reasons, conflict explanations) replaced. */
   text(value: string): string {
     return value.includes('h:') ? value.replace(HASH_TOKEN, (token) => this.name(token)) : value;
