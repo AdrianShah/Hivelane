@@ -22,6 +22,8 @@ import {
   applyLaneEvent,
   conflictKey,
   isActionableConflict,
+  pendingFiles,
+  pendingTruncated,
   replaceConflict,
 } from './dashboard/laneReducer';
 import { laneState } from './dashboard/laneState';
@@ -54,6 +56,7 @@ import type {
   JoinRequest,
   LaneState as WireLaneState,
   Nudge,
+  PendingUpdate,
   PlanUpdate,
   QueueOrder,
   RoomPolicy,
@@ -121,6 +124,8 @@ type LaneEntry = WireLaneState & {
   plan: PlanUpdate | null;
   /** Branch from the latest activity_update; empty when unknown. */
   branch: string;
+  /** Latest unpushed-work report per repo (pending_update). */
+  pending?: PendingUpdate[];
 };
 
 const BLANK_ENTRY: LaneEntry = {
@@ -615,6 +620,18 @@ export default function App() {
               });
               break;
 
+            case 'pending_update':
+              // Unpushed work (laneReducer.ts). A report the relay kept for a
+              // member who has left opens their lane greyed out, so the work
+              // they still have to push stays visible.
+              setUsers((prev) => {
+                const prior = prev[item.user_id];
+                const base = prior ?? (item.online === false ? { ...BLANK_ENTRY, offlineSince: Date.now() } : BLANK_ENTRY);
+                if (!prior && item.files.length === 0) return prev;
+                return withEntry(prev, item.user_id, applyLaneEvent(base, item));
+              });
+              break;
+
             case 'room_settings':
               setRoomSettings(item);
               break;
@@ -707,6 +724,7 @@ export default function App() {
           case 'intent_update':
           case 'edit_decision':
           case 'plan_update':
+          case 'pending_update':
           case 'decision_feedback_update':
           case 'room_policy_update':
           case 'task_update':
@@ -918,6 +936,8 @@ export default function App() {
         changes: entry.changes,
         decisions: entry.decisions,
         plan: entry.plan,
+        pendingFiles: pendingFiles(entry),
+        pendingTruncated: pendingTruncated(entry),
         branch: entry.branch,
         offlineSince: entry.offlineSince,
         derived,

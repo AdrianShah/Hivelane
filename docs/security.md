@@ -139,7 +139,9 @@ the room, so the relay bounds it:
 | Line ranges per file change or edit check | 256 | first 256 kept |
 | `e2e` blob | 256 KB | message dropped (ciphertext cannot be truncated) |
 | Messages per room, all sockets together | 600 a minute (`ROOM_MESSAGE_LIMIT`), bursts up to that | dropped |
-| Activity, intent and plan messages per member | one each per 0.5 s | dropped |
+| Activity, intent, plan and pending_changes messages per member | one each per 0.5 s | dropped |
+| Unpushed-files report (`pending_changes`) | 200 files, 32 symbols per file, paths up to `HIVELANE_MAX_PATH_CHARS`; one report per member and repo, 8 repos per member | extra files and symbols cut, over-long paths dropped, oldest repo's report dropped |
+| Unpushed-files reports per room | 256 reports and 16 MiB (`HIVELANE_MAX_PENDING_REPORTS_PER_ROOM`, `HIVELANE_MAX_PENDING_BYTES_PER_ROOM`) | oldest reports dropped |
 
 Sizes are UTF-8 bytes. Dropped messages are counted in
 `hivelane_messages_dropped_total{reason}`: `room_quota`, `invalid` (fails
@@ -278,7 +280,11 @@ thread, so a slow Redis does not stall every room on the instance.
   symbols, line ranges, diffs), swept once older than the room's warn window
   (at least 60 s); the last 1,000 warn/block decision ids with their vote
   tallies; for a short time after each passed edit check, the functions it
-  predicted (until the edit is reported, at most 30 s); the room's [tasks](tasks.md) (titles, bodies, notes and file paths
+  predicted (until the edit is reported, at most 30 s); each member's
+  latest list of unpushed files per repo (paths, symbols, branch and base
+  ref; hashes and ciphertext in an e2e room), replaced by each report and
+  kept for 4 hours after the member leaves
+  ([unpushed work](conflict-detection.md#unpushed-work)); the room's [tasks](tasks.md) (titles, bodies, notes and file paths
   in a cleartext room; only ciphertext and hashed paths in an e2e room; up to
   200 open plus the 50 most recently finished, kept until the room is
   dropped, not when a member leaves); pending join requests (at most 5 minutes); in a room with

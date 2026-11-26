@@ -54,10 +54,11 @@ RepoId = Annotated[str, Field(max_length=64)]
 
 
 # Granularity at which an edit check (or its broadcast) found the conflict.
-DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch", "task"]
+DecisionScope = Literal["symbol", "lines", "file", "intent", "plan", "branch", "task", "pending"]
 
-# How a peer is involved: edited the file, plans to, or only mentioned it.
-PeerKind = Literal["edited", "planned", "intent"]
+# How a peer is involved: edited the file, plans to, only mentioned it, or
+# has unpushed changes to it.
+PeerKind = Literal["edited", "planned", "intent", "pending"]
 
 
 # End-to-end encrypted payload: opaque base64 ciphertext a client produced with
@@ -346,6 +347,66 @@ class PlanUpdate(BaseModel):
     branch: str = ""
     timestamp: float
     expires_at: float
+    e2e: E2EBlob = ""
+
+# --- pending (unpushed) work ---------------------------------------------------
+# Live touches say who is typing now; pending changes say whose work is not
+# merged yet. A daemon reports, per repo, the files its user changed but has
+# not pushed (uncommitted edits plus commits ahead of the upstream branch, or
+# of the default branch's merge-base when there is no upstream). The relay
+# keeps the latest report per (member, repo) for as long as it holds, not for
+# the touch window, and warns (scope "pending") when someone else edits one of
+# those files. In an e2e room paths, symbols, branch and base are h: hashes
+# and the real values travel in the blob.
+
+# Files per pending_changes report: a daemon with more sends the first ones
+# and sets truncated; the relay keeps the first this many of a longer list.
+PENDING_MAX_FILES = 200
+
+
+class PendingFile(BaseModel):
+    path: str
+    # Definitions the unpushed changes touch, when the client could extract
+    # them; empty means "the file" (judged file-level).
+    symbols: list[str] = []
+    # Unix seconds the file has been pending since: its oldest unpushed
+    # commit, or when the client first saw it changed. 0 when unknown.
+    since: float = 0
+
+
+class PendingChanges(BaseModel):
+    """Client -> relay: the sender's full set of unpushed files in repo_id,
+    replacing its previous report. Sent when the set changes (and now and
+    then unchanged, as a refresh); an empty files list clears it."""
+
+    type: Literal["pending_changes"] = "pending_changes"
+    user_id: str = ""
+    repo_id: RepoId = ""
+    # The local branch and the ref its work is measured against
+    # ("origin/main"); "" when unknown.
+    branch: str = ""
+    base: str = ""
+    files: list[PendingFile] = []
+    # More files were pending than the report carries.
+    truncated: bool = False
+    e2e: E2EBlob = ""
+
+
+class PendingUpdate(BaseModel):
+    """Relay -> dashboards: a member's current unpushed files in repo_id (an
+    empty list: none). online is False for the last report of a member that
+    has since disconnected (kept, with its age, until it lapses)."""
+
+    type: Literal["pending_update"] = "pending_update"
+    user_id: str
+    agent: AgentKind = "unknown"
+    repo_id: RepoId = ""
+    branch: str = ""
+    base: str = ""
+    files: list[PendingFile] = []
+    truncated: bool = False
+    timestamp: float
+    online: bool = True
     e2e: E2EBlob = ""
 
 # --- room tasks ----------------------------------------------------------------

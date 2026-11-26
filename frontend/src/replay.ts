@@ -168,6 +168,7 @@ export function foldUntil(events: readonly FeedEvent[], at: number): ReplayState
       case 'activity_update':
       case 'intent_update':
       case 'plan_update':
+      case 'pending_update':
       case 'edit_decision': {
         lanes.set(event.user_id, {
           ...applyLaneEvent(lane(event.user_id), event),

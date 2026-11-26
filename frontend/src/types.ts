@@ -30,7 +30,7 @@ export interface FileChange {
 }
 
 /** Granularity at which the relay found a conflict. */
-export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch' | 'task';
+export type DecisionScope = 'symbol' | 'lines' | 'file' | 'intent' | 'plan' | 'branch' | 'task' | 'pending';
 
 /**
  * Opaque repository identity from the daemon (hash of the normalized origin
@@ -113,7 +113,37 @@ export interface PlanUpdate {
   e2e?: string;
 }
 
-export type TaskStatus = 'open' | 'claimed' | 'done' | 'cancelled';
+/** One file a member changed but has not pushed (pending_update). */
+export interface PendingFile {
+  path: string;
+  /** Definitions the unpushed changes touch; empty = the whole file. */
+  symbols?: string[];
+  /** Unix seconds it has been pending since (oldest unpushed commit, or first seen changed); 0 = unknown. */
+  since?: number;
+}
+
+/**
+ * A member's unpushed work in one repo: uncommitted changes plus commits
+ * ahead of its upstream. Replaces the previous one for (user_id, repo_id);
+ * an empty files list clears it. online is false for the last report of a
+ * member that has left. In an e2e room paths, symbols, branch and base are
+ * h: hashes and the real values are in the blob.
+ */
+export interface PendingUpdate {
+  type: 'pending_update';
+  user_id: string;
+  agent?: AgentKind;
+  repo_id?: RepoId;
+  branch?: string;
+  base?: string;
+  files: PendingFile[];
+  truncated?: boolean;
+  timestamp: number;
+  online?: boolean;
+  e2e?: string;
+}
+
+export type TaskStatus ='open' | 'claimed' | 'done' | 'cancelled';
 
 /** A note on a room task (kind "done" is the result, "cancel" the reason). */
 export interface TaskNote {
@@ -414,6 +444,7 @@ export type FeedEvent =
   | EditDecision
   | IntentUpdate
   | PlanUpdate
+  | PendingUpdate
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | RoomPolicyUpdate
@@ -459,6 +490,7 @@ export type ServerMessage =
   | EditDecision
   | IntentUpdate
   | PlanUpdate
+  | PendingUpdate
   | PlanConflicts
   | TaskUpdate
   | DecisionFeedbackUpdate
