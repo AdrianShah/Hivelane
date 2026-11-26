@@ -354,9 +354,16 @@ class PlanUpdate(BaseModel):
 # members' edit_checks on them are blocked (scope "task") until the task is
 # done, released or its lease lapses. In an e2e room titles, bodies and note
 # text travel only inside e2e blobs and files are h: hashes.
+#
+# source "agent_plan": a step of a coding agent's own plan (a Claude Code todo
+# list), created and kept in step by its daemon; `lane` names the agent lane
+# that wrote it and `active` marks the step it is on. Such a task reserves its
+# files only while active, and `claim` with next=true never picks one.
+# A task with repo_id "" belongs to every repo in the room.
 
 TaskStatus = Literal["open", "claimed", "done", "cancelled"]
-TaskOp = Literal["create", "claim", "renew", "note", "done", "release", "cancel", "list"]
+TaskOp = Literal["create", "claim", "renew", "note", "done", "release", "cancel", "list", "update"]
+TaskSource = Literal["manual", "agent_plan"]
 
 
 class TaskNote(BaseModel):
@@ -384,6 +391,17 @@ class Task(BaseModel):
     lease_until: Optional[float] = None
     notes: list[TaskNote] = []
     e2e: E2EBlob = ""
+    source: TaskSource = "manual"
+    lane: str = ""
+    active: bool = False
+    # A member the creator thinks should take it; claim next=true offers it
+    # to them first. Advisory: anyone may still claim it.
+    suggested_for: str = ""
+    # Non-empty when a dashboard created the task: a public tag of that
+    # dashboard's secret task key (see TaskRequest.dashboard_key), so the
+    # dashboard can tell its own tasks. created_by is then the name its
+    # viewer typed, which nobody verified.
+    dashboard_tag: str = ""
 
 
 class TaskRequest(BaseModel):
@@ -407,6 +425,18 @@ class TaskRequest(BaseModel):
     # list: done and cancelled tasks too.
     include_closed: bool = False
     e2e: E2EBlob = ""
+    # create: claim it for yourself at once (under lease_seconds).
+    claim: bool = False
+    source: TaskSource = "manual"
+    lane: str = Field("", max_length=64)
+    # create / update: the step the claimer is on now (agent_plan tasks).
+    # update leaves it as it is when None.
+    active: Optional[bool] = None
+    suggested_for: str = Field("", max_length=64)
+    # From a dashboard only: the name to credit (create) and the dashboard's
+    # own random secret, which create records and cancel must present.
+    as_name: str = Field("", max_length=64)
+    dashboard_key: str = Field("", max_length=128)
 
 
 class TaskReply(BaseModel):
@@ -414,7 +444,8 @@ class TaskReply(BaseModel):
     request_id: str
     ok: bool
     # Why not ("not_found", "not_ready", "claimed", "not_claimer", "not_owner",
-    # "closed", "none_ready", "limit", "rate_limited", "invalid"); "" when ok.
+    # "closed", "none_ready", "limit", "rate_limited", "invalid",
+    # "not_allowed"); "" when ok.
     reason: str = ""
     task: Optional[Task] = None
     tasks: list[Task] = []

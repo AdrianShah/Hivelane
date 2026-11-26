@@ -2152,6 +2152,35 @@
           "maxLength": 262144,
           "title": "E2E",
           "type": "string"
+        },
+        "source": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "agent_plan"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "lane": {
+          "default": "",
+          "title": "Lane",
+          "type": "string"
+        },
+        "active": {
+          "default": false,
+          "title": "Active",
+          "type": "boolean"
+        },
+        "suggested_for": {
+          "default": "",
+          "title": "Suggested For",
+          "type": "string"
+        },
+        "dashboard_tag": {
+          "default": "",
+          "title": "Dashboard Tag",
+          "type": "string"
         }
       },
       "required": [
@@ -2273,7 +2302,8 @@
             "done",
             "release",
             "cancel",
-            "list"
+            "list",
+            "update"
           ],
           "title": "Op",
           "type": "string"
@@ -2342,6 +2372,56 @@
           "default": "",
           "maxLength": 262144,
           "title": "E2E",
+          "type": "string"
+        },
+        "claim": {
+          "default": false,
+          "title": "Claim",
+          "type": "boolean"
+        },
+        "source": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "agent_plan"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "lane": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Lane",
+          "type": "string"
+        },
+        "active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active"
+        },
+        "suggested_for": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Suggested For",
+          "type": "string"
+        },
+        "as_name": {
+          "default": "",
+          "maxLength": 64,
+          "title": "As Name",
+          "type": "string"
+        },
+        "dashboard_key": {
+          "default": "",
+          "maxLength": 128,
+          "title": "Dashboard Key",
           "type": "string"
         }
       },

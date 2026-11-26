@@ -337,6 +337,8 @@ metrics.register_gauge(
 ACTIVITY_MIN_INTERVAL_SECONDS = 0.5
 # Task operations per member (list is free): a script cannot churn the board.
 TASK_MIN_INTERVAL_SECONDS = 0.2
+# A dashboard's task changes (create, cancel): a person clicking, not a script.
+DASHBOARD_TASK_MIN_INTERVAL_SECONDS = 1.0
 
 # Keep empty rooms around so a shared Vercel link / daemon reconnect still
 # works after a brief disconnect (Render free-tier blips, laptop sleep, etc.).
@@ -1271,6 +1273,24 @@ async def handle_task(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
                     files=message.files,
                     depends_on=message.depends_on,
                     e2e=message.e2e,
+                    claim=message.claim,
+                    lease_seconds=message.lease_seconds,
+                    source=message.source,
+                    lane=_task_name(message.lane),
+                    active=bool(message.active),
+                    suggested_for=_task_name(message.suggested_for),
+                )
+            elif message.op == "update":
+                task = board.update(
+                    user_id,
+                    now,
+                    task_id=message.task_id,
+                    title=message.title,
+                    body=message.body,
+                    files=message.files,
+                    e2e=message.e2e,
+                    active=message.active,
+                    lease_seconds=message.lease_seconds,
                 )
             elif message.op == "claim":
                 task = board.claim(
@@ -1298,6 +1318,74 @@ async def handle_task(room: Room, socket: WebSocket, user_id: str, raw: dict) ->
         log.debug("task %s %s by %s", message.op, reply.task.task_id, user_id)
         await room.broadcast(TaskUpdate(task=reply.task), spectators_only=True)
         room.ensure_task_sweeper()
+
+
+def _task_name(raw: str) -> str:
+    """A member name carried on a task (lane, suggested_for), or "" when it
+    is not one a member could have."""
+    try:
+        return sanitize_name(raw) if raw.strip() else ""
+    except ValueError:
+        return ""
+
+
+async def handle_dashboard_task(room: Room, socket: WebSocket, raw: dict) -> None:
+    """A task operation from a dashboard (spectator) socket.
+
+    Any dashboard admitted to the room may create a task and cancel the ones
+    it created; nothing else (claims belong to members, whose agents the
+    reservation exempts). The task is credited to `as_name`, the name the
+    viewer typed, which nobody verifies: the task carries a dashboard_tag so
+    everyone can see where it came from, and only the dashboard holding the
+    key it was created with (or a member who claims it) may cancel it. In an
+    e2e room the text must come sealed: a dashboard without the room key
+    cannot add tasks there."""
+    try:
+        message = TaskRequest.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("task", "dashboard", exc)
+        await _answer_task(room, socket, raw, reason="invalid")
+        return
+    if message.op not in ("create", "cancel"):
+        await _answer_task(room, socket, raw, reason="not_allowed")
+        return
+    cap_task(message)
+    if len(message.dashboard_key) < 16:
+        await _answer_task(room, socket, raw, reason="invalid")
+        return
+    if room.is_activity_rate_limited(
+        f"dashboard:{id(socket)}", DASHBOARD_TASK_MIN_INTERVAL_SECONDS, channel="task"
+    ):
+        await _answer_task(room, socket, raw, reason="rate_limited")
+        return
+    now = time.time()
+    board = room.tasks
+    try:
+        if message.op == "create":
+            name = _task_name(message.as_name)
+            if not name or (room.settings.e2e and (message.title or message.body or not message.e2e)):
+                raise TaskError("invalid")
+            task = board.create(
+                name,
+                now,
+                repo_id=message.repo_id,
+                title=message.title,
+                body=message.body,
+                files=message.files,
+                depends_on=message.depends_on,
+                e2e=message.e2e,
+                suggested_for=_task_name(message.suggested_for),
+                dashboard_key=message.dashboard_key,
+            )
+        else:
+            task = board.cancel_from_dashboard(message.dashboard_key, now, task_id=message.task_id)
+        reply = TaskReply(request_id=message.request_id, ok=True, task=task)
+    except TaskError as exc:
+        reply = TaskReply(request_id=message.request_id, ok=False, reason=exc.reason)
+    await room.send(socket, reply)
+    if reply.ok and reply.task is not None:
+        log.debug("dashboard task %s %s", message.op, reply.task.task_id)
+        await room.broadcast(TaskUpdate(task=reply.task), spectators_only=True)
 
 
 async def handle_decision_feedback(room: Room, voter: str, raw: dict) -> None:
@@ -1837,7 +1925,8 @@ async def _reject_unknown_room(socket: WebSocket) -> None:
 async def serve_spectator(
     socket: WebSocket, room: Room, room_id: str, admission: Admission
 ) -> None:
-    """A dashboard: catch-up, then votes and (for owners) access decisions."""
+    """A dashboard: catch-up, then votes, its own tasks (create, cancel) and
+    (for owners) access decisions."""
     # Added and snapshotted with no await in between; feeds that arrive while
     # the catch-up is being sent are held and sent after it (finish_catch_up).
     room.add_spectator(socket)
@@ -1892,6 +1981,8 @@ async def serve_spectator(
                 await handle_queue_order(room, socket, raw)
             elif kind == "nudge":
                 await handle_nudge(room, socket, raw)
+            elif kind == "task":
+                await handle_dashboard_task(room, socket, raw)
     except FrameTooLarge:
         metrics.messages_dropped_total.inc("frame_too_large")
         await _close_frame_too_large(socket)

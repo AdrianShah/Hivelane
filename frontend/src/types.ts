@@ -125,10 +125,12 @@ export interface TaskNote {
 }
 
 /**
- * A room task: created and claimed from the CLI or MCP. While claimed its
- * files are reserved (others' edits to them are blocked, scope "task").
- * In an e2e room title, body and note text live in the blobs and files are
- * h: hashes.
+ * A room task: created and claimed from the CLI, MCP or a dashboard, or one
+ * step of an agent's own plan (source "agent_plan", kept in step by its
+ * daemon; `lane` wrote it, `active` is the step it is on). While claimed its
+ * files are reserved (others' edits to them are blocked, scope "task"); a
+ * plan step reserves only while active. In an e2e room title, body and note
+ * text live in the blobs and files are h: hashes.
  */
 export interface Task {
   task_id: string;
@@ -146,12 +148,51 @@ export interface Task {
   lease_until?: number | null;
   notes: TaskNote[];
   e2e?: string;
+  source?: TaskSource;
+  lane?: string;
+  active?: boolean;
+  /** Who the creator thinks should take it (claim --next offers it to them first). */
+  suggested_for?: string;
+  /** Set when a dashboard created it: a public tag of that dashboard's task key. */
+  dashboard_tag?: string;
 }
+
+export type TaskSource = 'manual' | 'agent_plan';
 
 /** A task changed (dashboards only), also sent in the join catch-up. */
 export interface TaskUpdate {
   type: 'task_update';
   task: Task;
+}
+
+/**
+ * What a dashboard may send about tasks: create one (credited to `as_name`)
+ * or cancel one it created. `dashboard_key` is this browser's own secret.
+ */
+export interface TaskRequest {
+  type: 'task';
+  request_id: string;
+  op: 'create' | 'cancel';
+  task_id?: string;
+  title?: string;
+  body?: string;
+  files?: string[];
+  depends_on?: string[];
+  repo_id?: RepoId;
+  suggested_for?: string;
+  as_name?: string;
+  dashboard_key: string;
+  e2e?: string;
+}
+
+/** The relay's answer to one task request. */
+export interface TaskReply {
+  type: 'task_reply';
+  request_id: string;
+  ok: boolean;
+  reason?: string;
+  task?: Task | null;
+  tasks?: Task[];
 }
 
 export interface PlanConflict {
@@ -461,6 +502,7 @@ export type ServerMessage =
   | PlanUpdate
   | PlanConflicts
   | TaskUpdate
+  | TaskReply
   | DecisionFeedbackUpdate
   | RoomSettingsUpdate
   | RoomPolicyUpdate

@@ -101,6 +101,8 @@ log = logging.getLogger(__name__)
 # Task leases are swept when the soonest one lapses, but at least this often
 # (a renewal moves it later) and at most this often.
 TASK_SWEEP_MAX_SECONDS = 30.0
+# How much of a reserving task's title a block reason quotes.
+TASK_TITLE_IN_REASON = 80
 TASK_SWEEP_MIN_SECONDS = 0.5
 
 # Observers of room events (server/webhooks.py registers one): called with
@@ -1855,8 +1857,13 @@ class Room:
             # reason points at the task instead.
             claimer = verdict.peers[0].user_id if verdict.peers else "a teammate"
             minutes = max(1, int((verdict.task_lease_until - now) // 60))
+            # The title, when the relay can read it (an e2e room's is sealed).
+            title = " ".join((verdict.peers[0].prompt or "").split()) if verdict.peers else ""
+            if len(title) > TASK_TITLE_IN_REASON:
+                title = title[: TASK_TITLE_IN_REASON - 1].rstrip() + "…"
+            named = f' "{title}"' if title else ""
             reason = (
-                f"{file_path} is reserved by {claimer}'s task {verdict.task_id} "
+                f"{file_path} is reserved by {claimer}'s task {verdict.task_id}{named} "
                 f"({minutes} min left on its lease)"
             )
             return QueueOutcome("block", verdict.peers, "task", reason=reason)
