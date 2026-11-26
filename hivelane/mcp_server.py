@@ -30,6 +30,9 @@ AGENTS_MD = """\
 Teammates' AI agents may be editing this repo at the same time. Hivelane's MCP
 tools tell you who is where:
 
+- If a tool says the daemon is down or this repo is not connected, call
+  `room_status`, then `join_room` (with the room code or share link a
+  teammate gave you, if any) to connect the repo.
 - At the start of every task, call `declare_intent` with a one-line summary of
   what you are about to do (and the files you expect to touch).
 - Before editing any file, call `check_file` with its path. If it reports a
@@ -64,6 +67,7 @@ class DaemonClient:
     (HIVELANE_HOME/token, read per request; hivelane.auth)."""
 
     def __init__(self, port: int, timeout: float = HTTP_TIMEOUT, token: Optional[str] = None) -> None:
+        self.port = port
         self.base = f"http://127.0.0.1:{port}"
         self.timeout = timeout
         # An explicit token (tests) is used as given; otherwise the file is read.
@@ -160,6 +164,34 @@ def format_ack(ack: dict[str, Any], path: str) -> str:
 
 TOOLS: list[dict[str, Any]] = [
     {
+        "name": "room_status",
+        "description": "Shows whether this repo is connected to a Hivelane room (room, state, teammates, dashboard and share links). Works with the daemon stopped.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"root": {"type": "string", "description": "repo directory (default: the server's working directory)"}},
+        },
+    },
+    {
+        "name": "join_room",
+        "description": (
+            "Connects this repo to a Hivelane room, as `hivelane up -y` does: installs the agent hooks, "
+            "starts the daemon if needed and joins. Pass the room code or the share link a teammate gave you; "
+            "without one it rejoins this repo's room (or finds or creates it)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "room": {"type": "string", "description": "room code (K7Q2XMAB) or a dashboard / share link"},
+                "root": {"type": "string", "description": "repo directory (default: the server's working directory)"},
+                "name": {"type": "string", "description": "display name in the room (default: git user.name)"},
+                "switch": {
+                    "type": "boolean",
+                    "description": "allow moving a repo that is already connected to a different room",
+                },
+            },
+        },
+    },
+    {
         "name": "check_file",
         "description": "Call BEFORE editing a file: reports whether a teammate's agent is working in it.",
         "inputSchema": {
@@ -255,15 +287,71 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
+# `hivelane up` may create a room, install hooks and start the daemon: it
+# normally answers within seconds, but a relay waking from sleep can take a
+# while (its own HTTP calls wait up to 10 s each).
+JOIN_TIMEOUT = 120.0
+_ANSI = None  # compiled lazily: re is not needed by the other tools
+
+
+def _plain(text: str) -> str:
+    global _ANSI
+    if _ANSI is None:
+        import re
+
+        _ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+    return _ANSI.sub("", text)
+
+
+Runner = Callable[[list[str], str, dict[str, str]], tuple[int, str]]
+
+
+def run_cli(argv: list[str], cwd: str, env: dict[str, str]) -> tuple[int, str]:
+    """Run `hivelane <argv>` with this interpreter (the install serving MCP),
+    in a child process: the CLI prints to stdout, which here is the JSON-RPC
+    channel, so it must never run in this process. stdin is closed, so any
+    question the CLI would ask takes its default; callers pass -y."""
+    import subprocess
+
+    code = "import sys; from hivelane.cli import main; sys.exit(main(sys.argv[1:]))"
+    try:
+        done = subprocess.run(
+            [sys.executable, "-c", code, *argv],
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=JOIN_TIMEOUT,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return 1, f"`hivelane {' '.join(argv)}` did not finish within {JOIN_TIMEOUT:.0f}s"
+    except OSError as exc:
+        return 1, f"could not run hivelane ({exc})"
+    return done.returncode, (done.stdout or "") + (done.stderr or "")
+
+
 class McpServer:
-    def __init__(self, client: DaemonClient, agent: str = "unknown", cwd: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        client: DaemonClient,
+        agent: str = "unknown",
+        cwd: Optional[str] = None,
+        runner: Optional[Runner] = None,
+    ) -> None:
         from hivelane.constants import AGENT_KINDS
 
         self.client = client
         self.agent = agent if agent in AGENT_KINDS or agent == "unknown" else "unknown"
         self.cwd = str(Path(cwd or os.getcwd()).resolve())
         self.session_id = f"mcp-{uuid.uuid4().hex[:12]}"
+        self.runner: Runner = runner or run_cli
         self.handlers: dict[str, Callable[[dict[str, Any]], str]] = {
+            "room_status": self.room_status,
+            "join_room": self.join_room,
             "check_file": self.check_file,
             "declare_intent": self.declare_intent,
             "who_is_here": self.who_is_here,
@@ -343,6 +431,117 @@ class McpServer:
             else:
                 lines.append("- no teammates present")
         return "\n".join(lines)
+
+    # --- joining ----------------------------------------------------------------
+
+    def _repo_root(self, args: dict[str, Any]) -> Path:
+        """The git repo around `root` (default: this server's cwd). Raises
+        ValueError outside git: `up` would refuse too, and say less."""
+        from hivelane.cli import find_git_root
+
+        raw = args.get("root")
+        start = Path(os.path.expanduser(str(raw))) if raw else Path(self.cwd)
+        if not start.is_absolute():
+            start = Path(self.cwd) / start
+        found = find_git_root(start)
+        if found is None:
+            raise ValueError(
+                f"{start} is not inside a git repository; pass `root` with the repo's directory"
+            )
+        return found
+
+    def _entry_for(self, root: Path) -> tuple[bool, Optional[dict[str, Any]]]:
+        """(daemon answered, this repo's status entry or None)."""
+        from hivelane.cli import find_repo_entry
+
+        try:
+            status = self.client.status()
+        except DaemonDown:
+            return False, None
+        return True, find_repo_entry(status, root)
+
+    @staticmethod
+    def _describe(entry: dict[str, Any]) -> list[str]:
+        from hivelane import links
+
+        room = str(entry.get("room") or "?")
+        relay = str(entry.get("relay") or "")
+        if entry.get("fatal"):
+            state = f"refused by the relay: {entry['fatal']}"
+        elif entry.get("connected"):
+            state = "connected"
+        elif entry.get("awaiting_approval"):
+            state = "waiting for the room owner to let you in (the daemon keeps trying)"
+        else:
+            state = "connecting (the daemon keeps retrying)"
+        lines = [f"Room {room}: {state}."]
+        peers = entry.get("peers") or []
+        if peers:
+            names = [str(p.get("user_id", p)) if isinstance(p, dict) else str(p) for p in peers]
+            lines.append(f"Teammates present: {', '.join(names)}.")
+        if relay and room != "?":
+            lines.append(f"Dashboard: {links.room_url(relay, room)}")
+            from hivelane.config import transport_problem
+
+            prompt = links.agent_join_prompt(relay, room, insecure=bool(transport_problem(relay, False)))
+            lines.append(f"To bring a teammate in, give them: {prompt}")
+        return lines
+
+    def room_status(self, args: dict[str, Any]) -> str:
+        try:
+            root = self._repo_root(args)
+        except ValueError as exc:
+            return str(exc)
+        answered, entry = self._entry_for(root)
+        if not answered:
+            return (
+                f"The hivelane daemon is not running, so {root} is not connected to a room. "
+                "Call join_room (with the room code or link if a teammate gave you one) to connect it."
+            )
+        if entry is None:
+            return f"{root} is not connected to a Hivelane room. Call join_room to connect it."
+        return "\n".join([f"Repo {root}:", *self._describe(entry)])
+
+    def join_room(self, args: dict[str, Any]) -> str:
+        from hivelane.cli import ConfigError, room_argument
+
+        try:
+            root = self._repo_root(args)
+        except ValueError as exc:
+            return str(exc)
+        raw_room = str(args.get("room") or "").strip()
+        wanted: Optional[str] = None
+        if raw_room:
+            try:
+                wanted = room_argument(raw_room)[0]
+            except ConfigError as exc:
+                return f"Not joined: {exc}"
+        _, entry = self._entry_for(root)
+        current = str(entry.get("room") or "") if entry else ""
+        if wanted and current and current != wanted and not args.get("switch"):
+            return (
+                f"Not joined: {root} is already in room {current}. Ask the user whether to move it "
+                f"to {wanted}; if they agree, call join_room again with switch=true."
+            )
+        argv = ["up", "-y", "--root", str(root)]
+        if raw_room:
+            argv += ["--room", raw_room]
+        if args.get("name"):
+            argv += ["--name", str(args["name"])]
+        env = dict(os.environ)
+        # The same daemon this server talks to.
+        port = getattr(self.client, "port", None)
+        if port is not None:
+            env["HIVELANE_PORT"] = str(port)
+        code, output = self.runner(argv, str(root), env)
+        output = _plain(output).strip()
+        if len(output) > 6000:
+            output = "…" + output[-6000:]
+        if code != 0:
+            return f"`hivelane up` failed (exit {code}):\n{output}"
+        _, entry = self._entry_for(root)
+        summary = self._describe(entry) if entry else ["Joined; the daemon has not reported the repo yet."]
+        return "\n".join(["Connected this repo through `hivelane up -y`.", *summary, "", "hivelane up output:", output])
 
     # --- room tasks ------------------------------------------------------------
 
@@ -458,7 +657,7 @@ class McpServer:
                 return {"content": [{"type": "text", "text": f"missing argument: {exc}"}], "isError": True}
             except DaemonDown as exc:
                 return {
-                    "content": [{"type": "text", "text": f"{exc}. Start it with `hivelane up`; until then, proceed without coordination."}],
+                    "content": [{"type": "text", "text": f"{exc}. Call the join_room tool (or run `hivelane up`) to start it; until then, proceed without coordination."}],
                     "isError": True,
                 }
             except Exception as exc:  # never crash the server
