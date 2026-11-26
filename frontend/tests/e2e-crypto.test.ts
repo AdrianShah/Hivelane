@@ -179,6 +179,30 @@ test('the right key overlays real paths, diffs and prompts', async () => {
   assert.equal(alert.explanation, 'both edited server/room.py');
 });
 
+test('a pending_update shows real paths, symbols, branch and base', async () => {
+  const passphrase = 'correct horse battery staple';
+  const room = 'K7Q2XM';
+  const key = await deriveRoomKey(passphrase, room);
+  const decoder = new E2EDecoder(passphrase, room, () => {});
+  const out = await decoder.decode({
+    type: 'pending_update',
+    user_id: 'adrian',
+    branch: await hashName(key, 'feat/nav'),
+    base: await hashName(key, 'origin/main'),
+    files: [{ path: await hashName(key, 'web/Header.tsx'), symbols: [await hashName(key, 'renderNav')], since: 5 }],
+    timestamp: 10,
+    e2e: await sealEnvelope(key, 'pending', {
+      v: 1,
+      files: [{ path: 'web/Header.tsx', symbols: ['renderNav'] }],
+      branch: 'feat/nav',
+      base: 'origin/main',
+    }),
+  });
+  assert.deepEqual(out.files, [{ path: 'web/Header.tsx', symbols: ['renderNav'], since: 5 }]);
+  assert.equal(out.branch, 'feat/nav');
+  assert.equal(out.base, 'origin/main');
+});
+
 test("a wrong key shows can't decrypt, never garbage", async () => {
   const vector = VECTORS.vectors[0];
   const key = await deriveRoomKey(vector.passphrase, vector.room);

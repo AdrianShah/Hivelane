@@ -15,6 +15,7 @@ import type {
   ConflictAlert,
   EditDecision,
   FileChange,
+  PendingFile,
   PlanUpdate,
   RoomSettingsUpdate,
   Task,
@@ -43,6 +44,10 @@ export interface LaneView {
   changes: FileChange[];
   decisions: EditDecision[];
   plan: PlanUpdate | null;
+  /** Files changed but not pushed yet, across the lane's repos, oldest first. */
+  pendingFiles: PendingFile[];
+  /** A report was cut at its cap: there are more than pendingFiles shows. */
+  pendingTruncated: boolean;
   branch: string;
   offlineSince: number | null;
   derived: LaneDerived;
