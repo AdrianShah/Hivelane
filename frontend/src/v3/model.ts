@@ -16,6 +16,7 @@ import type {
   EditDecision,
   FileChange,
   PlanUpdate,
+  RoomAccess,
   RoomSettingsUpdate,
   Task,
 } from '../types';
@@ -108,6 +109,11 @@ export interface V3Model {
   isOwner: boolean;
   settings: RoomSettingsUpdate | null;
   requireApproval: boolean | null;
+  /** The link to send teammates: the invite link when this tab knows the
+   *  room's invite secret, else the plain room link (which only asks). */
+  shareUrl?: string;
+  /** Owners only: the relay's room_access (invite link, remembered people). */
+  access?: RoomAccess | null;
   accessNotice: string | null;
   lanes: LaneView[];
   onlineIds: string[];

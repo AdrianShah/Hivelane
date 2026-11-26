@@ -338,11 +338,15 @@ export function SettingsView({
   joinRequests,
   onSetRequireApproval,
   onDecide,
+  onRotateInvite,
+  onRevokeMember,
 }: {
   model: V3Model;
   joinRequests: JoinRequest[];
   onSetRequireApproval: (value: boolean) => void;
   onDecide: (requestId: string, approve: boolean) => void;
+  onRotateInvite?: () => void;
+  onRevokeMember?: (memberId: string) => void;
 }) {
   const { actions } = model;
   const expiry = expiryLabel(model.settings?.expires_at, model.nowSeconds);
@@ -425,6 +429,11 @@ export function SettingsView({
             connected={model.status === 'connected'}
             onSetRequireApproval={onSetRequireApproval}
             onDecide={onDecide}
+            access={model.access ?? null}
+            shareUrl={model.access?.invite_secret ? model.shareUrl : undefined}
+            onCopy={(value) => actions.copyText('Invite link', value)}
+            onRotateInvite={onRotateInvite}
+            onRevokeMember={onRevokeMember}
           />
         </section>
         <section className="v3-section">

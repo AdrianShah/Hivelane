@@ -4,15 +4,30 @@
  * and presents it in its spectator join, which makes that tab an owner: it can
  * require approval to join and approve or deny people waiting.
  *
+ * Everyone else gets in with the share link's invite secret (`#invite=`, read
+ * from the URL once, then kept for this tab in sessionStorage) or, after the
+ * first admission, with the member token the relay hands back (localStorage,
+ * keyed like the owner token), so a reload is not asked again. The room code
+ * alone only asks an owner to let this tab in.
+ *
  * localStorage may be unavailable (private windows, blocked storage); every
  * access is wrapped so the dashboard then simply works as a non-owner.
  */
 
-import { normalizeRoomCode, relayHttpOrigin, relaySource, relayWsBase } from './relayUrl';
+import {
+  normalizeRoomCode,
+  parseInviteFragment,
+  relayHttpOrigin,
+  relaySource,
+  relayWsBase,
+  stripInviteFragment,
+} from './relayUrl';
 import type { JoinMessage } from './types';
 import { ownedRoomCodes } from './dashboard/roomLife';
 
 const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
+const MEMBER_TOKEN_PREFIX = 'hivelane:member-token:';
+const INVITE_PREFIX = 'hivelane:invite:';
 
 /**
  * A token is kept per relay and room. It is only ever sent to the relay that
@@ -20,6 +35,10 @@ const OWNER_TOKEN_PREFIX = 'hivelane:owner-token:';
  */
 function storageKey(roomId: string): string {
   return `${OWNER_TOKEN_PREFIX}${relayWsBase()}|${normalizeRoomCode(roomId)}`;
+}
+
+function scopedKey(prefix: string, roomId: string): string {
+  return `${prefix}${relayWsBase()}|${normalizeRoomCode(roomId)}`;
 }
 
 /** Key used before tokens were bound to a relay (room code only). */
@@ -60,28 +79,113 @@ export function forgetOwnerToken(roomId: string): void {
   }
 }
 
+/** The member token the relay issued to this browser for a room, if any. */
+export function memberToken(roomId: string): string | null {
+  try {
+    return window.localStorage.getItem(scopedKey(MEMBER_TOKEN_PREFIX, roomId));
+  } catch {
+    return null;
+  }
+}
+
+export function rememberMemberToken(roomId: string, token: string): void {
+  try {
+    window.localStorage.setItem(scopedKey(MEMBER_TOKEN_PREFIX, roomId), token);
+  } catch {
+    // Not remembered: the next visit asks again (or uses the link).
+  }
+}
+
+export function forgetMemberToken(roomId: string): void {
+  try {
+    window.localStorage.removeItem(scopedKey(MEMBER_TOKEN_PREFIX, roomId));
+  } catch {
+    // Nothing stored.
+  }
+}
+
+/** The invite secret this tab holds for a room (from a share link), if any. */
+export function inviteSecret(roomId: string): string | null {
+  try {
+    return window.sessionStorage.getItem(scopedKey(INVITE_PREFIX, roomId));
+  } catch {
+    return null;
+  }
+}
+
+export function rememberInviteSecret(roomId: string, secret: string): void {
+  try {
+    window.sessionStorage.setItem(scopedKey(INVITE_PREFIX, roomId), secret);
+  } catch {
+    // Used for this page only.
+  }
+}
+
+export function forgetInviteSecret(roomId: string): void {
+  try {
+    window.sessionStorage.removeItem(scopedKey(INVITE_PREFIX, roomId));
+  } catch {
+    // Nothing stored.
+  }
+}
+
 /**
- * Create a room on the relay and keep its owner token. Returns the room code;
+ * The invite secret for this page: from `#invite=` (then stripped from the
+ * address bar and history, so a screenshot or a copied URL does not carry it,
+ * and kept for this tab) or one this tab took earlier.
+ */
+export function takeInviteSecret(roomId: string): string | null {
+  if (typeof window !== 'undefined') {
+    const fromUrl = parseInviteFragment(window.location.hash);
+    if (fromUrl) {
+      try {
+        const url = window.location.pathname + window.location.search + stripInviteFragment(window.location.hash);
+        window.history.replaceState(window.history.state, '', url);
+      } catch {
+        /* the secret stays in the address bar */
+      }
+      rememberInviteSecret(roomId, fromUrl);
+      return fromUrl;
+    }
+  }
+  return inviteSecret(roomId);
+}
+
+/**
+ * Create a room on the relay and keep its owner token (and invite secret,
+ * which the relay also sends owners in room_access). Returns the room code;
  * throws with the HTTP status when the relay refuses.
  */
 export async function createRoom(): Promise<string> {
   const response = await fetch(`${relayHttpOrigin()}/rooms`, { method: 'POST' });
   if (!response.ok) throw new Error(`Server returned ${response.status}`);
-  const data = (await response.json()) as { room_id: string; owner_token?: string };
+  const data = (await response.json()) as { room_id: string; owner_token?: string; invite_secret?: string };
   if (data.owner_token) rememberOwnerToken(data.room_id, data.owner_token);
+  if (data.invite_secret) rememberInviteSecret(data.room_id, data.invite_secret);
   return data.room_id;
 }
 
-/** The dashboard's join: a spectator, carrying the owner token when it has one. */
+/**
+ * The dashboard's join: a spectator, carrying the owner token when it has
+ * one, else the member token and the invite secret it holds (either lets it in
+ * without an owner's approval; the relay treats a stale one as none).
+ */
 export function spectatorJoin(roomId: string): JoinMessage {
   const token = ownerToken(roomId);
+  if (token) return { type: 'join', name: null, role: 'spectator', owner_token: token };
+  const member = memberToken(roomId);
+  const invite = inviteSecret(roomId);
   return {
     type: 'join',
     name: null,
     role: 'spectator',
-    ...(token ? { owner_token: token } : {}),
+    ...(member ? { member_token: member } : {}),
+    ...(invite ? { invite_secret: invite } : {}),
   };
 }
+
+/** room_rejected reason when an owner revoked this browser's grant (server/main.py REASON_MEMBER_REVOKED). */
+export const MEMBER_REVOKED_REASON = 'an owner removed you from this room';
 
 /**
  * Whether a room_rejected means "not let in" (approval-required room) rather
@@ -90,7 +194,7 @@ export function spectatorJoin(roomId: string): JoinMessage {
  * REASON_APPROVAL_QUEUE_FULL).
  */
 export function isApprovalRefusal(reason: string, wasWaiting: boolean): boolean {
-  return wasWaiting || reason.includes('waiting for approval');
+  return wasWaiting || reason.includes('waiting for approval') || reason === MEMBER_REVOKED_REASON;
 }
 
 /** Room codes this browser owns on the relay in use (the header's room switcher). */
