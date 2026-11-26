@@ -487,4 +487,5 @@ how many messages each daemon keeps per room while the relay is unreachable.
 | `HIVELANE_REDIS_URL` | unset | Redis for room codes, room leases and rate limits shared by several instances. |
 | `HIVELANE_ROOM_STORE` | `redis` when `HIVELANE_REDIS_URL` is set | `local` keeps room codes on this instance even with Redis. |
 | `HIVELANE_INSTANCE_ID` | `FLY_MACHINE_ID`, else hostname-pid | This instance's name in room leases. |
+| `HIVELANE_INVITE_LINKS` | `true` | New rooms get an invite secret, so a join with the room code alone waits for an owner's approval ([invite links](security.md#invite-links)). `false` creates rooms where the code alone admits, as before invite links (a trusted LAN, say). Existing rooms keep what they have. |
 | `PORT` | `8000` | Port the image listens on. |
