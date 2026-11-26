@@ -66,6 +66,8 @@ def test_unknown_dead_and_unowned_rooms_look_the_same(relay: RoomManager) -> Non
     answers.append(client.get(f"/rooms/{room_id}", headers={HEADER: token}))
     assert {a.status_code for a in answers} == {404}
     assert len({a.text for a in answers}) == 1
+    # Marked, so a client can tell it from the bare 404 of a relay without this route.
+    assert answers[0].json()["alive"] is False
 
 
 def test_asking_does_not_revive_a_room(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
