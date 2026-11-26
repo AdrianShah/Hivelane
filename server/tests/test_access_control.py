@@ -437,12 +437,14 @@ def test_spectators_need_approval_too(relay: RoomManager) -> None:
             owner.send_json(
                 {"type": "join_decision", "request_id": request["request_id"], "approve": True}
             )
-            # Admitted: told so, then the normal spectator catch-up follows.
+            # Admitted: told so, handed a member token (so a reload is not
+            # asked again), then the normal spectator catch-up follows.
             assert viewer.receive_json() == {
                 "type": "join_resolved",
                 "request_id": request["request_id"],
                 "outcome": "approved",
             }
+            assert viewer.receive_json()["type"] == "member_token"
             assert viewer.receive_json()["type"] == "room_settings"
             assert viewer.receive_json()["require_approval"] is True
 

@@ -100,6 +100,7 @@ include = ["/hivelane", "/server", "/pyproject.toml", "/README.md"]
 testpaths = ["hivelane/tests", "server/tests", "tests/e2e"]
 markers = [
     "real_feed_debounce: keep the relay's production BROADCAST_FLUSH_SECONDS (server/tests/conftest.py shortens it for every other test)",
+    "invite_links: create rooms with invite links, the relay default (server/tests/conftest.py and tests/e2e/conftest.py turn them off for every other test)",
 ]
 
 [tool.coverage.run]

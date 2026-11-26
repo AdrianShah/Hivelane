@@ -142,6 +142,9 @@ BACKOFF_JITTER = 0.2
 APPROVAL_TIMED_OUT = "approval timed out"
 APPROVAL_DECLINED = "an owner declined your request"
 APPROVAL_QUEUE_FULL_PREFIX = "too many join requests are waiting"
+# An owner revoked the grant this connection was admitted under
+# (server/main.py REASON_MEMBER_REVOKED).
+MEMBER_REVOKED = "an owner removed you from this room"
 APPROVAL_RETRY_SECONDS = 60.0
 APPROVAL_ATTEMPTS = 6
 REPO_ROOT_CACHE_SIZE = 64
@@ -1038,6 +1041,9 @@ class RoomConnection:
         e2e_key: Optional[crypto.RoomKey] = None,
         owner_token: Optional[str] = None,
         via_repo_lookup: bool = False,
+        invite_secret: Optional[str] = None,
+        member_token: Optional[str] = None,
+        remember_tokens: bool = False,
     ) -> None:
         self.room = room
         self.name = name
@@ -1068,6 +1074,16 @@ class RoomConnection:
         # it): an owner socket is asked to approve joins.
         self.owner_token = owner_token
         self.via_repo_lookup = via_repo_lookup
+        # The share link's invite secret (lets this join in without an
+        # owner's approval) and the member token the relay issued once we were
+        # let in (skips approval on every reconnect). remember_tokens: keep an
+        # issued token in the personal config, so the next daemon has it too.
+        self.invite_secret = invite_secret
+        self.member_token = member_token
+        self.remember_tokens = remember_tokens
+        # As an owner: the relay's latest room_access (invite secret and
+        # remembered members).
+        self.room_access: Optional[dict[str, Any]] = None
         # Set while the relay holds this join for an owner's approval, and
         # kept between asks when the hold timed out and we ask again.
         self.awaiting_approval: Optional[dict[str, Any]] = None
@@ -2189,6 +2205,8 @@ class RoomConnection:
             settings=self.settings,
             owner_token=self.owner_token,
             via_repo_lookup=self.via_repo_lookup,
+            invite_secret=self.invite_secret,
+            member_token=self.member_token,
         ).model_dump(mode="json")
         settings = payload.get("settings")
         if isinstance(settings, dict) and not settings.get("e2e"):
@@ -2204,8 +2222,9 @@ class RoomConnection:
             # Sent only when the .hivelane.toml sets it: the relay then keeps
             # the room's history setting (and what it has kept) as it was.
             settings.pop("history_hours", None)
-        if payload.get("owner_token") is None:
-            payload.pop("owner_token", None)
+        for secret in ("owner_token", "invite_secret", "member_token"):
+            if payload.get(secret) is None:
+                payload.pop(secret, None)
         if not payload.get("via_repo_lookup"):
             payload.pop("via_repo_lookup", None)
         return json.dumps(payload, separators=(",", ":"))
@@ -2609,6 +2628,33 @@ class RoomConnection:
             if isinstance(other, str) and other and other not in self._self_ids:
                 self._peers.add(other)
 
+    def _on_member_token(self, data: dict[str, Any]) -> None:
+        """The relay let us in (approved, or by invite link) and hands us a
+        token so the next connection is not asked again."""
+        token = data.get("token")
+        if not isinstance(token, str) or not token:
+            return
+        self.member_token = token
+        self._store_member_token(token)
+
+    def _store_member_token(self, token: Optional[str]) -> None:
+        """Keep (or with None forget) this room's member token in the
+        personal config, next to owner_tokens. Never the project file."""
+        if not token:
+            self.member_token = None
+        if not self.remember_tokens:
+            return
+        from hivelane.config import set_personal_secret
+
+        try:
+            set_personal_secret("member_tokens", self.room, token)
+        except (ConfigFileError, OSError, ValueError) as exc:
+            print(
+                f"hivelane: room {self.room}: could not save the member token ({exc}); "
+                "the next reconnect may ask an owner again",
+                file=sys.stderr,
+            )
+
     def _on_join_request(self, data: dict[str, Any]) -> None:
         """Someone waits at the door of a room we own: keep it for `hivelane
         status` / `hivelane room approve`, and say so in the log (one plain
@@ -2684,6 +2730,15 @@ class RoomConnection:
 
         if kind == "room_policy_update":
             self.require_approval = bool(data.get("require_approval"))
+            return
+
+        if kind == "member_token":
+            self._on_member_token(data)
+            return
+
+        if kind == "room_access":
+            if self.owner_token:
+                self.room_access = data
             return
 
         if kind == "file_released":
@@ -2779,6 +2834,14 @@ class RoomConnection:
             )
         elif kind == "room_rejected":
             if self._approval_unanswered(str(data.get("reason") or "")):
+                return
+            if str(data.get("reason") or "") == MEMBER_REVOKED:
+                self.awaiting_approval = None
+                self._store_member_token(None)
+                self._set_fatal(
+                    f"an owner of room {self.room} removed this machine from the room.\n"
+                    "Ask them for a fresh invite link, then run `hivelane up --room <link>`."
+                )
                 return
             if str(data.get("reason") or "") == APPROVAL_DECLINED:
                 self.awaiting_approval = None
@@ -2938,6 +3001,10 @@ class RepoRegistration(BaseModel):
     owner_token: Optional[str] = None
     # True when this room was found automatically via relay repo lookup.
     via_repo_lookup: bool = False
+    # The share link's invite secret and the member token the relay issued
+    # earlier, from the personal config. Never echoed back by /status.
+    invite_secret: Optional[str] = None
+    member_token: Optional[str] = None
 
 
 class RepoRef(BaseModel):
@@ -3337,6 +3404,8 @@ class Daemon:
                     room_key=body.room_key,
                     owner_token=body.owner_token,
                     via_repo_lookup=body.via_repo_lookup,
+                    invite_secret=body.invite_secret,
+                    member_token=body.member_token,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc)) from None
@@ -3676,6 +3745,8 @@ class Daemon:
                 # daemon: it is one room's key, and this may be another room.
                 room_key=config.room_key(generic_env=False),
                 owner_token=config.owner_token(),
+                invite_secret=config.invite_secret(),
+                member_token=config.member_token(),
                 auto=True,
             )
         except ValueError as exc:
@@ -3719,12 +3790,18 @@ class Daemon:
         owner_token: Optional[str] = None,
         via_repo_lookup: bool = False,
         plan_tasks: bool = True,
+        invite_secret: Optional[str] = None,
+        member_token: Optional[str] = None,
     ) -> RepoBinding:
         """Coordinate the repo at root in room (replacing any earlier
         registration of it). Raises ValueError for an unusable registration.
 
         `room_key` is the e2e passphrase (used only when settings say e2e);
-        `owner_token` marks this machine as the room's owner on join."""
+        `owner_token` marks this machine as the room's owner on join;
+        `invite_secret` (from a share link) and `member_token` (issued after an
+        earlier admission) let the join in without an owner's approval. Those
+        two are not part of the registration's identity: a token the daemon
+        itself saved must not make the next `hivelane up` bounce the link."""
         try:
             key = Path(root).expanduser().resolve()
         except (OSError, ValueError) as exc:
@@ -3809,6 +3886,8 @@ class Daemon:
                 conn.fail(problem)
             conn.owner_token = conn.owner_token or owner_token
             conn.via_repo_lookup = conn.via_repo_lookup or via_repo_lookup
+            conn.invite_secret = invite_secret or conn.invite_secret
+            conn.member_token = conn.member_token or member_token
         if conn is None:
             conn = RoomConnection(
                 room,
@@ -3825,6 +3904,9 @@ class Daemon:
                 e2e_key=e2e_key,
                 owner_token=owner_token,
                 via_repo_lookup=via_repo_lookup,
+                invite_secret=invite_secret,
+                member_token=member_token,
+                remember_tokens=True,
             )
             conn.repo_id = repo_id
             conn.repo_root = key

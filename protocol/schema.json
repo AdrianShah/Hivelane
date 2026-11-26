@@ -19,7 +19,9 @@
     "hold_release": "#/$defs/HoldRelease",
     "queue_order": "#/$defs/QueueOrder",
     "nudge": "#/$defs/Nudge",
-    "pending_changes": "#/$defs/PendingChanges"
+    "pending_changes": "#/$defs/PendingChanges",
+    "invite_rotate": "#/$defs/InviteRotate",
+    "member_revoke": "#/$defs/MemberRevoke"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -50,7 +52,9 @@
     "nudged": "#/$defs/Nudged",
     "hold_released": "#/$defs/HoldReleased",
     "queue_reordered": "#/$defs/QueueReordered",
-    "pending_update": "#/$defs/PendingUpdate"
+    "pending_update": "#/$defs/PendingUpdate",
+    "member_token": "#/$defs/MemberToken",
+    "room_access": "#/$defs/RoomAccess"
   },
   "oneOf": [
     {
@@ -97,6 +101,12 @@
     },
     {
       "$ref": "#/$defs/PendingChanges"
+    },
+    {
+      "$ref": "#/$defs/InviteRotate"
+    },
+    {
+      "$ref": "#/$defs/MemberRevoke"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -184,6 +194,12 @@
     },
     {
       "$ref": "#/$defs/PendingUpdate"
+    },
+    {
+      "$ref": "#/$defs/MemberToken"
+    },
+    {
+      "$ref": "#/$defs/RoomAccess"
     }
   ],
   "$defs": {
@@ -1182,6 +1198,19 @@
       "title": "IntentUpdate",
       "type": "object"
     },
+    "InviteRotate": {
+      "description": "Owner -> relay: replace the invite secret; old links stop admitting\n(their holders wait for approval). Remembered members stay. On a room\nwithout invite links this switches them on. Ignored from non-owners.",
+      "properties": {
+        "type": {
+          "const": "invite_rotate",
+          "default": "invite_rotate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "InviteRotate",
+      "type": "object"
+    },
     "JoinDecision": {
       "description": "Owner -> relay: admit or decline a pending joiner. Ignored from a\nsocket that did not present the room's owner token.",
       "properties": {
@@ -1282,6 +1311,30 @@
           "default": false,
           "title": "Via Repo Lookup",
           "type": "boolean"
+        },
+        "invite_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invite Secret"
+        },
+        "member_token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Token"
         }
       },
       "title": "JoinMessage",
@@ -1387,6 +1440,52 @@
         "outcome"
       ],
       "title": "JoinResolved",
+      "type": "object"
+    },
+    "MemberRevoke": {
+      "description": "Owner -> relay: forget a remembered member (its token stops working)\nand disconnect any socket it is connected with. Ignored from non-owners.",
+      "properties": {
+        "type": {
+          "const": "member_revoke",
+          "default": "member_revoke",
+          "title": "Type",
+          "type": "string"
+        },
+        "member_id": {
+          "maxLength": 64,
+          "title": "Member Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id"
+      ],
+      "title": "MemberRevoke",
+      "type": "object"
+    },
+    "MemberToken": {
+      "description": "Relay -> a joiner just admitted by approval or by invite link: a\nper-member secret to present as join.member_token next time, so a\nreconnect does not ask an owner again. Sent once; the relay keeps only\nits hash. member_id names the grant (what an owner revokes).",
+      "properties": {
+        "type": {
+          "const": "member_token",
+          "default": "member_token",
+          "title": "Type",
+          "type": "string"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "token": {
+          "title": "Token",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "token"
+      ],
+      "title": "MemberToken",
       "type": "object"
     },
     "NameRejected": {
@@ -2060,6 +2159,83 @@
         "retry_after"
       ],
       "title": "RateLimited",
+      "type": "object"
+    },
+    "RememberedMember": {
+      "description": "One remembered person in room_access: who holds a member token.",
+      "properties": {
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "kind": {
+          "default": "member",
+          "enum": [
+            "member",
+            "dashboard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "issued_at": {
+          "title": "Issued At",
+          "type": "number"
+        },
+        "online": {
+          "default": false,
+          "title": "Online",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "member_id",
+        "name",
+        "issued_at"
+      ],
+      "title": "RememberedMember",
+      "type": "object"
+    },
+    "RoomAccess": {
+      "description": "Relay -> owner sockets only: the room's invite link secret (so an\nowner can show the share link again) and the people it remembers. Sent in\nan owner's catch-up and after every change (rotation, a new remembered\nmember, a revocation). invite_secret is None for rooms without one\n(created before invite links), where the code alone still admits.",
+      "properties": {
+        "type": {
+          "const": "room_access",
+          "default": "room_access",
+          "title": "Type",
+          "type": "string"
+        },
+        "invite_required": {
+          "title": "Invite Required",
+          "type": "boolean"
+        },
+        "invite_secret": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invite Secret"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/RememberedMember"
+          },
+          "title": "Members",
+          "type": "array"
+        }
+      },
+      "required": [
+        "invite_required"
+      ],
+      "title": "RoomAccess",
       "type": "object"
     },
     "RoomPolicy": {

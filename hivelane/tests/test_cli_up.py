@@ -214,6 +214,9 @@ def test_bad_relay_flag_is_a_config_error(machine: Machine, bad: str) -> None:
 
 def test_bad_room_flag_is_a_config_error(machine: Machine, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["up", "--room", "a/b"]) == 2
+    # Anything with a slash is read as an invite link; it has no room code.
+    assert "room code" in capsys.readouterr().err
+    assert cli.main(["up", "--room", "not a code!"]) == 2
     assert "not a room code" in capsys.readouterr().err
 
 
@@ -569,6 +572,8 @@ def test_invite_prints_link_from_remembered_room_and_includes_e2e_key(
         "room": "K7Q2XM",
         "relay": "wss://relay.example/ws",
         "e2e": True,
+        "invite": False,
+        "owner": False,
         "url": "https://adrianshah.github.io/Hivelane/j/K7Q2XM?relay=wss%3A%2F%2Frelay.example%2Fws",
     }
 

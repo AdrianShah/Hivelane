@@ -24,6 +24,7 @@ from websockets.sync.client import ClientConnection
 from websockets.sync.client import connect as ws_connect
 
 from server import limits
+from server import main as relay_main
 from server.main import app as relay_app
 from hivelane import auth
 from hivelane.daemon import Daemon
@@ -31,6 +32,17 @@ from hivelane.daemon import Daemon
 LOOPBACK = "127.0.0.1"
 STARTUP_TIMEOUT = 10.0
 SHUTDOWN_TIMEOUT = 10.0
+
+
+@pytest.fixture(autouse=True)
+def _code_only_rooms_unless_marked(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Teammates here join with the room code alone, which the relay's
+    default (invite links) holds for approval; tests of invite links opt in
+    with @pytest.mark.invite_links."""
+    if request.node.get_closest_marker("invite_links") is None:
+        monkeypatch.setattr(relay_main, "INVITE_LINKS", False)
 
 
 @pytest.fixture(autouse=True)

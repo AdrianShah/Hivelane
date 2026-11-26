@@ -6,9 +6,11 @@ import { copyText } from '../clipboard';
 import { parseKeyFragment, rememberRoomKey } from '../e2e';
 import {
   RELAY_PARAM,
+  INVITE_PARAM,
   agentJoinPrompt,
   basePath,
-  invitePath,
+  buildShareLink,
+  parseInviteFragment,
   isValidRoomCode,
   joinCommand,
   normalizeRelayUrl,
@@ -37,6 +39,9 @@ export default function InviteJoin() {
   const valid = isValidRoomCode(roomId);
 
   const e2eKey = useMemo(() => parseKeyFragment(hash), [hash]);
+  // The invite secret: lets the teammate (agent or dashboard) in without an
+  // owner's approval. Stays in the fragment; never sent to a server here.
+  const invite = useMemo(() => parseInviteFragment(hash), [hash]);
   const queryRelay = useMemo(() => {
     const raw = new URLSearchParams(search).get(RELAY_PARAM);
     return raw ? normalizeRelayUrl(raw) : null;
@@ -49,16 +54,16 @@ export default function InviteJoin() {
 
   const fullInviteUrl = useMemo(() => {
     if (typeof window === 'undefined' || !valid) return '';
-    const url = new URL(`${window.location.origin}${basePath()}${invitePath(roomId)}`);
     const params = new URLSearchParams(search);
-    if (nonDefaultRelay || params.has(RELAY_PARAM)) {
-      url.searchParams.set(RELAY_PARAM, relayWs);
-    }
-    if (e2eKey) {
-      url.hash = `key=${encodeURIComponent(e2eKey)}`;
-    }
-    return url.toString();
-  }, [e2eKey, nonDefaultRelay, relayWs, roomId, search, valid]);
+    return buildShareLink({
+      origin: window.location.origin,
+      base: basePath(),
+      roomId,
+      relayWs: nonDefaultRelay || params.has(RELAY_PARAM) ? relayWs : null,
+      e2eKey,
+      invite,
+    });
+  }, [e2eKey, invite, nonDefaultRelay, relayWs, roomId, search, valid]);
 
   const rawJoinCommand = useMemo(
     () => (fullInviteUrl ? joinCommand(fullInviteUrl, relayWs) : ''),
@@ -127,6 +132,9 @@ export default function InviteJoin() {
           Connects your repo&apos;s coding agent to this room on this machine—no{' '}
           <code className="v3-mono">.hivelane.toml</code> commit needed.
           {e2eKey ? ' Your room key stays in the URL fragment and is never sent to any server.' : ''}
+          {invite
+            ? ' This link lets you in straight away.'
+            : ' This link has no invite, so an owner of the room has to approve you. Ask them for their invite link to skip that.'}
         </p>
 
         <div className="v3-start__actions">
@@ -142,7 +150,13 @@ export default function InviteJoin() {
             to={{
               pathname: roomPath(roomId),
               search,
-              hash: e2eKey ? `#k=${encodeURIComponent(e2eKey)}` : '',
+              hash: [
+                e2eKey ? `k=${encodeURIComponent(e2eKey)}` : '',
+                invite ? `${INVITE_PARAM}=${encodeURIComponent(invite)}` : '',
+              ]
+                .filter(Boolean)
+                .map((part, i) => (i === 0 ? `#${part}` : part))
+                .join('&'),
             }}
             onClick={() => {
               if (e2eKey) rememberRoomKey(roomId, e2eKey);
