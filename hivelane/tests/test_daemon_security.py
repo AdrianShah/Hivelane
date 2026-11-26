@@ -419,12 +419,30 @@ def test_owner_token_join_requests_and_policy(tmp_path: Path) -> None:
                 assert entry["join_requests"] == [{"request_id": "req1", "name": "eve", "agent": "cursor", "timestamp": 1.0}]
                 assert "owner-secret-123" not in json.dumps((await http.get("/status")).json())
 
+                # GET /bee exposes pending requests both per room and at top level.
+                bee_view = (await http.get("/bee")).json()
+                expected_req = {"request_id": "req1", "room": "OWNED", "name": "eve", "agent": "cursor"}
+                assert bee_view["join_requests"] == [expected_req]
+                assert bee_view["rooms"][0]["join_requests"] == [expected_req]
+
+                # /rooms/decide rejects unauthenticated calls just like every other endpoint.
+                async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=5.0, trust_env=False) as unauth:
+                    assert (await unauth.post("/rooms/decide", json={"request_id": "req1", "approve": True})).status_code == 401
+
                 reply = await http.post("/rooms/decide", json={"request_id": "req1", "approve": True})
                 assert reply.json() == {"sent": True, "room": "OWNED", "approve": True}
                 await wait_for(lambda: relay.of_type("OWNED", "join_decision"), "the decision")
                 assert relay.of_type("OWNED", "join_decision")[0] == {
                     "type": "join_decision", "request_id": "req1", "approve": True}
                 assert (await http.post("/rooms/decide", json={"request_id": "req1", "approve": False})).status_code == 404
+
+                # Another owner (or relay resolution) clears stale join_requests via join_resolved.
+                await relay.push("OWNED", {"type": "join_request", "request_id": "req2",
+                                           "name": "bob", "agent": "claude-code", "timestamp": 2.0})
+                await wait_for(lambda: (_entry(daemon)["join_requests"] or [None])[0], "the second request")
+                await relay.push("OWNED", {"type": "join_resolved", "request_id": "req2", "outcome": "approved"})
+                await wait_for(lambda: _entry(daemon)["join_requests"] == [], "request cleared")
+                assert (await http.get("/bee")).json()["join_requests"] == []
 
                 reply = await http.post("/rooms/policy", json={"root": str(repo), "require_approval": True})
                 assert reply.status_code == 200
@@ -460,6 +478,21 @@ def test_a_non_owner_cannot_set_policy_and_a_held_join_waits(tmp_path: Path) -> 
             await relay.push("HELD", {"type": "user_joined", "user_id": "sam", "agent": "cursor"})
             await wait_for(lambda: _entry(daemon)["connected"], "the approval")
             assert _entry(daemon)["awaiting_approval"] is None
+            await daemon.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_via_repo_lookup_is_sent_on_join(tmp_path: Path) -> None:
+    repo = make_repo(tmp_path / "repo")
+
+    async def scenario() -> None:
+        async with ScriptedRelay() as relay:
+            daemon = Daemon(batch_seconds=0.05)
+            await daemon.start()
+            await daemon.register(repo, "LOOKEDUP", relay=relay.url, name="ada", via_repo_lookup=True)
+            await wait_for(lambda: relay.joins["LOOKEDUP"], "the join")
+            assert relay.joins["LOOKEDUP"][0]["via_repo_lookup"] is True
             await daemon.aclose()
 
     asyncio.run(scenario())

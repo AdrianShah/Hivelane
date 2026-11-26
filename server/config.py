@@ -24,6 +24,8 @@ DEFAULT_ROOM_CREATE_LIMIT = 10
 DEFAULT_ROOM_CREATE_WINDOW_SECONDS = 3600
 DEFAULT_WS_ATTEMPT_LIMIT = 30
 DEFAULT_WS_ATTEMPT_WINDOW_SECONDS = 60
+DEFAULT_REPO_LOOKUP_LIMIT = 30
+DEFAULT_REPO_LOOKUP_WINDOW_SECONDS = 60
 DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS = 4096
 # Inbound WebSocket messages per minute per room, summed over every socket in
 # it (a token bucket, so short bursts up to this many are fine).
@@ -110,6 +112,8 @@ class Settings:
     ws_attempt_window_seconds: int
     rate_limit_max_tracked_ips: int
     redis_url: str | None
+    repo_lookup_limit: int = DEFAULT_REPO_LOOKUP_LIMIT
+    repo_lookup_window_seconds: int = DEFAULT_REPO_LOOKUP_WINDOW_SECONDS
     trusted_proxy_hops: int = DEFAULT_TRUSTED_PROXY_HOPS
     trust_cloudflare: bool = False
     behind_fly: bool = False
@@ -140,6 +144,11 @@ class Settings:
     # http://localhost). Off unless HIVELANE_WEBHOOKS_ALLOW_PRIVATE is set, in
     # every environment; production refuses it.
     webhooks_allow_private: bool = False
+    # New rooms get an invite secret: a join with the room code alone waits
+    # for an owner's approval, a join from the share link (or with a member
+    # or owner token) comes straight in. HIVELANE_INVITE_LINKS=false creates
+    # rooms where the code alone admits, as before invite links.
+    invite_links: bool = True
 
     @property
     def is_production(self) -> bool:
@@ -375,6 +384,10 @@ def load_settings(env: Mapping[str, str]) -> Settings:
         ws_attempt_window_seconds=_positive_int(
             env, "WS_ATTEMPT_WINDOW_SECONDS", DEFAULT_WS_ATTEMPT_WINDOW_SECONDS
         ),
+        repo_lookup_limit=_limit(env, "REPO_LOOKUP_LIMIT", DEFAULT_REPO_LOOKUP_LIMIT),
+        repo_lookup_window_seconds=_positive_int(
+            env, "REPO_LOOKUP_WINDOW_SECONDS", DEFAULT_REPO_LOOKUP_WINDOW_SECONDS
+        ),
         rate_limit_max_tracked_ips=_limit(
             env, "RATE_LIMIT_MAX_TRACKED_IPS", DEFAULT_RATE_LIMIT_MAX_TRACKED_IPS
         ),
@@ -395,6 +408,7 @@ def load_settings(env: Mapping[str, str]) -> Settings:
             env, "HIVELANE_MAX_WEBHOOKS_PER_ROOM", DEFAULT_MAX_WEBHOOKS_PER_ROOM
         ),
         webhooks_allow_private=allow_private,
+        invite_links=_bool(env.get("HIVELANE_INVITE_LINKS"), default=True),
         **limits,
     )
 
@@ -411,6 +425,8 @@ ROOM_CREATE_LIMIT: int = SETTINGS.room_create_limit
 ROOM_CREATE_WINDOW_SECONDS: int = SETTINGS.room_create_window_seconds
 WS_ATTEMPT_LIMIT: int = SETTINGS.ws_attempt_limit
 WS_ATTEMPT_WINDOW_SECONDS: int = SETTINGS.ws_attempt_window_seconds
+REPO_LOOKUP_LIMIT: int = SETTINGS.repo_lookup_limit
+REPO_LOOKUP_WINDOW_SECONDS: int = SETTINGS.repo_lookup_window_seconds
 RATE_LIMIT_MAX_TRACKED_IPS: int = SETTINGS.rate_limit_max_tracked_ips
 REDIS_URL: str | None = SETTINGS.redis_url
 TRUSTED_PROXY_HOPS: int = SETTINGS.trusted_proxy_hops
@@ -451,6 +467,7 @@ def limits_summary(settings: Settings = SETTINGS) -> dict[str, int]:
         max_webhooks_per_room=settings.max_webhooks_per_room,
         room_create_limit=settings.room_create_limit,
         ws_attempt_limit=settings.ws_attempt_limit,
+        repo_lookup_limit=settings.repo_lookup_limit,
         room_message_limit=settings.room_message_limit,
         rate_limit_max_tracked_ips=settings.rate_limit_max_tracked_ips,
     )

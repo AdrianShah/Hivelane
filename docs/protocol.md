@@ -46,13 +46,18 @@ its `join`. Owners can approve joiners and change the room's join policy.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token"}`. `owner_token` is returned only here, once; the relay keeps only its hash. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `POST` | `/rooms` | Create a room. Optional body `{"settings": {"block_window_seconds", "warn_window_seconds", "history_hours"}}` ([RoomSettings](#roomsettings)). Returns `{"room_id", "settings", "owner_token", "invite_secret"}`. Both secrets are returned only here, once; the relay keeps only their hashes (and the invite secret wrapped under the owner token). `invite_secret` is absent on a relay started with `HIVELANE_INVITE_LINKS=false`. `422` for settings out of range, `429` (with `Retry-After`) when this address has created too many rooms, `503` when the relay is full. |
+| `GET` | `/rooms/{code}/invite` | Owner only (`X-Hivelane-Owner-Token` header): `{"room_id", "invite_required", "invite_secret"}`, the current invite secret (`null` for a room without one). An unknown room and a wrong token are the same `404`. Rate-limited like repository lookups. |
+| `POST` | `/rooms/{code}/invite/rotate` | Owner only, as above: a new invite secret replaces the old one (links carrying the old one only ask for approval from then on). Same answer shape. |
+| `GET` | `/rooms/{code}` | Owner only: send the room's owner token as `X-Hivelane-Owner-Token`. Returns `{"alive": true, "expires_at": <epoch seconds>}` while the room exists. An unknown, expired or finished room and a missing or wrong token all get the same `404` with body `{"detail": "Room not found", "alive": false}` (the `alive` field tells it apart from a relay that predates this route), so the endpoint does not reveal which codes exist; `429` (with `Retry-After`) shares the repository-lookup budget (`HIVELANE_REPO_LOOKUP_LIMIT`, default 30 a minute per address); `503` when the room registry cannot be read. Asking never revives a room. The dashboard uses it for "Your rooms". |
 | `GET` | `/health` | Liveness: `{"status": "ok", "rooms": N}`. |
 | `GET` | `/readyz` | Readiness and configuration, including `version` (the hivelane release), `commit` (the build's commit when the deploy sets `HIVELANE_COMMIT`, else `""`), `protocol_version` and `min_supported_protocol`. |
 | `GET` | `/metrics` | Prometheus counters and gauges. Aggregates only, no room codes or names. |
 
-Room creation is not authenticated: the room code is the shared secret. See
-[Security](security.md) for the trust model.
+Room creation is not authenticated. The room code names a room; in rooms with
+an invite secret it only lets a joiner ask an owner, while the share link's
+`#invite=` secret (or a token) lets it straight in. See
+[Security](security.md#invite-links) for the trust model.
 
 ## Connection lifecycle
 
@@ -82,19 +87,24 @@ client                                        relay
    - `version_rejected`: this client speaks a protocol older than the relay's
      `MIN_SUPPORTED_PROTOCOL`. The socket closes with 4426. Spectators are
      never version-checked.
-   - `join_pending`: the room requires approval and this join had no owner
-     token. Keep the socket open. Within five minutes it is either admitted,
+   - `join_pending`: this join needs an owner's approval: it presented no
+     owner token, member token or (in a room with invite links) invite
+     secret, or the room requires approval of everyone else. Keep the socket open. Within five minutes it is either admitted,
      and the normal catch-up follows, or refused with `room_rejected` and
      closed with 4403. A name can be taken while waiting, in which case a
      `name_rejected` follows the approval.
+   - `member_token`: a join admitted by approval (after its `join_resolved`)
+     or by invite secret (as its first frame) is handed a token to present as
+     `join.member_token` next time. Keep it with the client's other secrets.
 4. **Catch-up.** A member first receives a `user_joined` for every member
    already present; then the whole room, the new member included, gets a
    `user_joined` for it, and a `room_settings` if its join carried settings.
    A spectator receives, in order: `room_settings`, `room_policy_update`, a
    `user_joined` per member, the latest `intent_update` per member, every
-   active `plan_update`, and the latest `activity_update` per member. A
-   connection that joined with the owner token also receives the open
-   `join_request`s (and, as a member, a `room_policy_update`).
+   active `plan_update`, every kept `pending_update`, and the latest
+   `activity_update` per member. A connection that joined with the owner token
+   also receives a `room_access` and the open `join_request`s (and, as a
+   member, a `room_policy_update`).
 5. **Traffic** until either side closes. When a member disconnects, the room
    gets a `user_left`. A room whose last connection goes is kept for 30
    minutes after the *latest* departure; if nobody is connected (or joining,
@@ -143,11 +153,14 @@ arrived on its own.
 | [`edit_check`](#edit_check) | members | `edit_check_response` to the sender; an `edit_decision` broadcast for warn/block |
 | [`file_request`](#file_request) | members | `file_released` to the sender when the file is (or becomes) theirs; `file_requested` to its holders |
 | [`plan`](#plan) | members | `plan_conflicts` to the sender; a `plan_update` broadcast |
+| [`pending_changes`](#pending_changes) | members | a `pending_update` to dashboards; no reply |
 | [`decision_feedback`](#decision_feedback) | members and spectators | `decision_feedback_update` broadcast |
 | [`join_decision`](#join_decision) | owners | `join_resolved` to every owner |
 | [`room_policy`](#room_policy) | owners | `room_policy_update` broadcast |
+| [`invite_rotate`](#invite_rotate-member_revoke) | owners | `room_access` to every owner |
+| [`member_revoke`](#invite_rotate-member_revoke) | owners | `room_rejected` and close 4403 to the revoked member's sockets; `room_access` to every owner |
 | [`history_request`](#history_request) | members and spectators | `history_chunk` frames to the sender |
-| [`task`](#task) | members | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
+| [`task`](#task) | members; spectators (`create` and `cancel` only) | `task_reply` to the sender; a `task_update` to dashboards when a task changes |
 
 The relay ignores fields it does not know, frames that are not JSON objects,
 messages with an unknown `type`, and messages that fail validation (they are
@@ -167,6 +180,9 @@ The first frame on every connection.
 | `repo_id` | string (at most 64 chars) | `""` | Opaque id of the repository the member works in; see [step 6](#writing-a-client-in-another-language) for how the reference client computes it. |
 | `settings` | [RoomSettings](#roomsettings) or `null` | `null` | The team's committed conflict windows, applied room-wide when this member is admitted. Invalid settings are ignored, not fatal. |
 | `owner_token` | string or `null` | `null` | The `owner_token` returned by `POST /rooms`. A matching token makes this socket a room owner; a wrong one is treated as none. |
+| `invite_secret` | string or `null` | `null` | The share link's invite secret (`#invite=`). The current one admits without approval (unless the room requires approval of everyone); a wrong or rotated one is treated exactly as none. |
+| `member_token` | string or `null` | `null` | The token from an earlier `member_token`. Admits without approval until an owner revokes it; a wrong or revoked one is treated as none. |
+| `via_repo_lookup` | boolean | `false` | The client found the room code with `GET /rooms/by-repo`. Repo-bound rooms hold code-only joins regardless. |
 
 #### RoomSettings
 
@@ -321,6 +337,43 @@ files, and `"<imports>"` is never matched across files.
 | `request_id` | string (at most 128 chars) | `""` | Client-chosen id, echoed in the `plan_conflicts` reply. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
+### pending_changes
+
+The sender's full set of files changed but not pushed in one repo:
+uncommitted working-tree changes plus the files of commits ahead of the
+branch's upstream (or of the merge-base with the default remote branch). It
+replaces the sender's previous report for that `repo_id`; an empty `files`
+list clears it. The relay keeps it for as long as it holds, not for the touch
+window, and after the sender disconnects for 4 more hours, marked offline.
+Another person's `edit_check` of one of the files gets a `warn` with
+`scope: "pending"` (see [conflict detection](conflict-detection.md#unpushed-work)).
+Clients send it when the set changes, at most every 0.5 s per repo (faster
+ones are dropped), and may re-send it unchanged as a refresh.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `user_id` | string | `""` | Ignored: the relay substitutes the connection's own name. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
+| `branch` | string | `""` | The local branch; `""` if unknown. A different known branch turns the reason into a merge-conflict warning. |
+| `base` | string | `""` | The ref the work is measured against (`"origin/main"`); `""` when there is none. Display only. |
+| `files` | [PendingFile](#pendingfile)[] | `[]` | The pending files, oldest work first. The relay keeps the first 200. |
+| `truncated` | boolean | `false` | More files were pending than the report carries. |
+| `e2e` | string (at most 262,144 chars) | `""` | In an e2e room: a `"pending"` envelope with `files` (`{path, symbols}`), `branch` and `base`. |
+
+#### PendingFile
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `path` | string | required | Repo-relative path. Paths longer than the relay's path cap are dropped. |
+| `symbols` | string[] | `[]` | Definitions the unpushed changes touch; `[]` means the whole file. The relay keeps 32. When both a report and an `edit_check` name symbols, only shared ones warn. |
+| `since` | number | `0` | Unix time the file has been pending since: its oldest unpushed commit, or when the client first saw it changed. `0` if unknown. |
+
+```json
+{"type": "pending_changes", "repo_id": "3f9c0a1b2d4e5f60", "branch": "main",
+ "base": "origin/main", "truncated": false,
+ "files": [{"path": "web/Header.tsx", "symbols": ["renderNav"], "since": 1764100000.0}]}
+```
+
 ### decision_feedback
 
 A vote on whether a warn/block decision was useful. One vote per socket per
@@ -350,7 +403,21 @@ off admits everyone waiting.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `require_approval` | boolean | required | `true`: every new joiner without the owner token waits for an owner's approval. |
+| `require_approval` | boolean | required | `true`: every new joiner without the owner token or a member token waits for an owner's approval, invite link or not. |
+
+### invite_rotate, member_revoke
+
+Owner frames, ignored from non-owners. `invite_rotate` (no fields) replaces
+the room's invite secret: links carrying the old one only ask from then on;
+remembered members stay. On a room without invite links it creates one.
+`member_revoke` forgets a remembered member: its token stops working, and any
+socket connected under it gets `room_rejected` "an owner removed you from this
+room" and close 4403. Both are persisted and answered with a `room_access` to
+every owner.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `member_id` | string (at most 64 chars) | required | `member_revoke` only: the `member_id` from `room_access`. |
 
 ### hold_release, queue_order, nudge
 
@@ -387,17 +454,39 @@ to one every 0.2 s per member.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `request_id` | string (at most 128 chars) | required | Echoed on the reply. |
-| `op` | `"create"`, `"claim"`, `"renew"`, `"note"`, `"done"`, `"release"`, `"cancel"`, `"list"` | required | The operation. |
+| `op` | `"create"`, `"claim"`, `"renew"`, `"note"`, `"done"`, `"release"`, `"cancel"`, `"list"`, `"update"` | required | The operation. |
 | `task_id` | string | `""` | The task (`"T12"`; `"12"` and `"t12"` also work). |
-| `next` | boolean | `false` | `claim`: the oldest ready task of `repo_id` instead of `task_id`. |
-| `title` / `body` | string | `""` | `create`. At most 200 / 2,000 bytes. Required (title or `e2e`). |
-| `files` | string[] | `[]` | `create`: repo-relative paths (hashes in e2e rooms) reserved while claimed. At most 50. |
+| `next` | boolean | `false` | `claim`: the oldest ready task of `repo_id` instead of `task_id`: one suggested for the sender first, then one suggested for nobody, then any. Never an `agent_plan` task. |
+| `title` / `body` | string | `""` | `create` / `update`. At most 200 / 2,000 bytes. Required (title or `e2e`). |
+| `files` | string[] | `[]` | `create` / `update`: repo-relative paths (hashes in e2e rooms) reserved while claimed. At most 50. |
 | `depends_on` | string[] | `[]` | `create`: tasks that must be done or cancelled first. At most 10. |
-| `repo_id` | string | `""` | The repository (as on `edit_check`). |
-| `lease_seconds` | number (60 to 28,800) | `1800` | `claim` / `renew`. |
+| `repo_id` | string | `""` | The repository (as on `edit_check`). A task created with `""` belongs to every repo in the room. |
+| `lease_seconds` | number (60 to 28,800) | `1800` | `claim` / `renew`, `create` with `claim`, and the claimer's `update`. |
 | `text` | string | `""` | `note` / `done` / `cancel`: the note, result or reason. At most 500 bytes. |
 | `include_closed` | boolean | `false` | `list`: also done and cancelled tasks. |
 | `e2e` | string | `""` | In an e2e room: a `"task"` envelope with `title`, `body`, `text` and `files`. |
+| `claim` | boolean | `false` | `create`: claim the new task for the sender at once. |
+| `source` | `"manual"`, `"agent_plan"` | `"manual"` | `create`: `agent_plan` for a step of an agent's own plan (its daemon keeps it in step, see [Room tasks](tasks.md#agent-plans)). |
+| `lane` | string (at most 64 chars) | `""` | `create`: the agent lane whose plan it is. |
+| `active` | boolean or `null` | `null` | `create` / `update`: the step the claimer is on now. `null` on `update` leaves it as it is. An `agent_plan` task reserves its files only while active. |
+| `suggested_for` | string (at most 64 chars) | `""` | `create`: a member the task is suggested for. |
+| `as_name` | string (at most 64 chars) | `""` | Dashboards only, `create`: the name to credit (sanitized like a member name; required). |
+| `dashboard_key` | string (16 to 128 chars) | `""` | Dashboards only: the dashboard's own random secret. `create` records its hash; `cancel` must present the same key. |
+
+`update` replaces a task's `title`, `body`, `files` and `e2e` together (the
+whole of what one e2e envelope carries) and, when `active` is given, whether
+it is the active step. The creator or the claimer of an open or claimed task
+may send it; the claimer's update also renews its lease to `lease_seconds`.
+
+A **dashboard** (spectator socket) admitted to the room may send `create`
+and `cancel` only; anything else is answered `not_allowed`. Its `create`
+needs `as_name` and a `dashboard_key`, takes `title`, `body`, `files`,
+`depends_on`, `repo_id` and `suggested_for`, and in an e2e room must carry the
+text sealed (a clear `title` or `body`, or no `e2e`, is `invalid`). Its
+`cancel` succeeds only with the key the task was created with. Dashboards are
+limited to one task change a second per socket, and to 50 of a room's open
+tasks. A task a dashboard created can be noted, updated or cancelled by a
+member only once that member has claimed it.
 
 ## Relay to client
 
@@ -412,7 +501,7 @@ The answer to an `edit_check`, sent only to the member who asked.
 | `file_path` | string | required | The checked path, as sent. |
 | `others` | [PeerTouch](#peertouch)[] | `[]` | The peers that drove the decision, most relevant first. |
 | `reason` | string | `""` | One sentence about the peer that drove the decision; `""` for allow. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"`, `"pending"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, `task` (the file is reserved by a claimed [room task](#task)) or `pending` (someone else has [unpushed changes](#pending_changes) to it; warn only). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | The sender's place in the file's [wait queue](#wait-queues) after this check, `1` being next; `0` when not queued (allowed, or the queue was full). |
 | `suggestion` | string | `""` | For warn/block, one short thing to do instead, built from room state: another file nobody active is in (this module's tests, the sender's own plan, a neighbour in the same directory) and, for a block, how long to wait. `""` when there is nothing to offer. Paths are never suggested in encrypted rooms. |
@@ -429,7 +518,7 @@ One peer's recent involvement with the checked file.
 | `prompt` | string or `null` | `null` | The peer's intent, if known. |
 | `symbols` | string[] | `[]` | Symbols the peer touched. |
 | `branch` | string | `""` | Git branch the work is on; `""` if unknown. Different known branches turn a block into a merge-conflict warning. |
-| `kind` | `"edited"`, `"planned"`, `"intent"` | `"edited"` | `edited` the file, `planned` to, or only mentioned it in its `intent`. |
+| `kind` | `"edited"`, `"planned"`, `"intent"`, `"pending"` | `"edited"` | `edited` the file, `planned` to, only mentioned it in its `intent`, or has `pending` (unpushed) changes to it; for `pending`, `seconds_ago` counts from when the file became pending and `e2e` is always `""`. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
 ```json
@@ -445,13 +534,13 @@ One peer's recent involvement with the checked file.
 
 ### task_reply
 
-The answer to a `task`, sent only to the member who asked.
+The answer to a `task`, sent only to the member or dashboard that asked.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `request_id` | string | required | The request's id. |
 | `ok` | boolean | required | Whether the operation happened. |
-| `reason` | string | `""` | Why not: `not_found`, `not_ready`, `claimed`, `not_claimer`, `not_owner`, `closed`, `none_ready`, `limit`, `rate_limited` or `invalid`. |
+| `reason` | string | `""` | Why not: `not_found`, `not_ready`, `claimed`, `not_claimer`, `not_owner`, `closed`, `none_ready`, `limit`, `rate_limited`, `invalid` or `not_allowed` (an operation a dashboard may not send). |
 | `task` | [Task](#task_update) or `null` | `null` | The task after the operation. |
 | `tasks` | Task[] | `[]` | `list`: the tasks of `repo_id`. |
 
@@ -472,6 +561,9 @@ after its catch-up.
 | `task.created_at`, `task.updated_at`, `task.claimed_at`, `task.lease_until` | number (or `null`) | Unix seconds. |
 | `task.notes` | `{user_id, text, timestamp, kind, e2e}`[] | `kind` is `note`, `done` (the result) or `cancel`. At most 20. |
 | `task.e2e` | string | The creator's `"task"` envelope, in e2e rooms. |
+| `task.source`, `task.lane`, `task.active` | string, string, boolean | `agent_plan` steps: the lane whose plan it is and whether it is the step being worked on. |
+| `task.suggested_for` | string | Who the creator suggested it for (`""`: anyone). |
+| `task.dashboard_tag` | string | Non-empty when a dashboard created the task: the first 16 hex digits of the SHA-256 of its `dashboard_key`, so that dashboard can find its own tasks. `created_by` is then the name its viewer typed. |
 
 ### plan_conflicts
 
@@ -542,6 +634,27 @@ expired.
 | `expires_at` | number | required | Unix time after which the plan no longer counts. |
 | `e2e` | string (at most 262,144 chars) | `""` | End-to-end encrypted payload (base64url), copied through untouched; `""` outside [encrypted rooms](#end-to-end-encrypted-rooms). |
 
+### pending_update
+
+A member's unpushed files in one repo, as its last
+[`pending_changes`](#pending_changes) reported them (an empty `files` list:
+everything was pushed). Sent to dashboards only, and in their catch-up for
+every report the relay still keeps, including those of members who have left
+(`online: false`, kept for 4 hours after they disconnect).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `user_id` | string | required | The member. |
+| `agent` | [agent kind](#agent-kinds) | `"unknown"` | The agent behind the member. Labelling only; never used for decisions. |
+| `repo_id` | string (at most 64 chars) | `""` | Opaque repository id. |
+| `branch` | string | `""` | The member's local branch. |
+| `base` | string | `""` | The ref its work is measured against. |
+| `files` | [PendingFile](#pendingfile)[] | `[]` | As reported, after the relay's caps. |
+| `truncated` | boolean | `false` | More files were pending than listed. |
+| `timestamp` | number | required | Server time of the report. |
+| `online` | boolean | `true` | `false` for the kept report of a member no longer connected. |
+| `e2e` | string (at most 262,144 chars) | `""` | The member's `"pending"` envelope, in e2e rooms. |
+
 ### edit_decision
 
 An `edit_check` that came back warn or block, broadcast so dashboards can
@@ -557,7 +670,7 @@ show it. Allowed edits are not broadcast.
 | `reason` | string | `""` | Human-readable explanation, safe to show verbatim. |
 | `timestamp` | number | now | Unix time in seconds. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque repository id; the relay only compares overlaps between equal ids. `""` means unknown and matches only other `""`. |
-| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, or `task` (the file is reserved by a claimed [room task](#task)). |
+| `scope` | `"symbol"`, `"lines"`, `"file"`, `"intent"`, `"plan"`, `"branch"`, `"task"`, `"pending"` | `"file"` | Granularity of the decision: `symbol`, `lines`, `file`, `intent`, `plan`, `branch`, `task` (the file is reserved by a claimed [room task](#task)) or `pending` (someone else has [unpushed changes](#pending_changes) to it; warn only). |
 | `decision_id` | string | `""` | Id of a warn/block decision, for `decision_feedback`; `""` for allow. |
 | `queue_position` | integer | `0` | As in `edit_check_response`: the member's place in the file's wait queue. |
 | `suggestion` | string | `""` | As in `edit_check_response`. |
@@ -626,6 +739,28 @@ The running tally of votes on one decision, broadcast after each vote.
 | `useful_count` | integer | `0` | Votes that it was useful. |
 | `noise_count` | integer | `0` | Votes that it was noise. |
 
+### member_token
+
+Sent once to a joiner admitted by approval or by invite secret (never to an
+owner). Present the token as `join.member_token` on later joins.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `member_id` | string | required | Names this grant (what an owner revokes). |
+| `token` | string | required | The secret. The relay keeps only its hash. |
+
+### room_access
+
+Owners only: sent in an owner's catch-up and after every rotation, admission
+of a remembered member, revocation, and when a remembered member connects or
+leaves.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `invite_required` | boolean | required | The room has invite links: code-only joins wait for approval. |
+| `invite_secret` | string or `null` | `null` | The current invite secret, to build the share link (`null` for a room without one). |
+| `members` | list of `{member_id, name, kind, issued_at, online}` | `[]` | People holding a member token, oldest first. `kind` is `"member"` or `"dashboard"`. |
+
 ### join_pending
 
 Sent to a joiner held for approval. Keep the socket open and wait.
@@ -676,8 +811,8 @@ close 4426.
 
 ### room_rejected
 
-The room code is unknown or expired (close 4404), or an approval-required
-room did not admit this joiner (close 4403).
+The room code is unknown or expired (close 4404), an approval-required
+room did not admit this joiner, or an owner removed it (close 4403).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -839,6 +974,8 @@ and clients should not depend on the exact numbers.
 | Joiners waiting for approval, per address | 2 | `room_rejected`, close 4403 |
 | Tracked file touches per room (`HIVELANE_MAX_TOUCHES_PER_ROOM`, `HIVELANE_MAX_TOUCH_BYTES_PER_ROOM`) | 5,000 touches, 64 MB | Least recently updated touches are forgotten |
 | Plans and intents per member | one per repo, up to 8 repos | Oldest dropped |
+| `pending_changes` from one member, per `repo_id` | one per 0.5 s | Dropped silently |
+| Pending reports | one per member and repo, up to 8 repos; 200 files and 32 symbols per file; 256 reports and 16 MB per room (`HIVELANE_MAX_PENDING_REPORTS_PER_ROOM`, `HIVELANE_MAX_PENDING_BYTES_PER_ROOM`); kept 4 h after the member leaves (`HIVELANE_PENDING_OFFLINE_SECONDS`) | Extra files and symbols cut (`truncated` set); oldest reports dropped |
 | Connection attempts per address (`WS_ATTEMPT_LIMIT`) | 30 per minute | `rate_limited`, close 4429 |
 | Members per room (`HIVELANE_MAX_MEMBERS`) | unlimited by default | `name_rejected` "Room full" |
 | Joiners waiting for approval, per room | 10 | `room_rejected`, close 4403 |
@@ -929,7 +1066,10 @@ relay only ever compares values for equality:
   broadcasts (and onto `PeerTouch` and `PlanConflict` entries derived from
   that member's messages) for key holders to decrypt. A `file_request`
   carries an `edit_check` envelope; `file_requested` and `file_released`
-  carry the blob of the request that queued the member.
+  carry the blob of the request that queued the member. A `pending_changes`
+  carries a `"pending"` envelope, copied onto its `pending_update` only (a
+  `PeerTouch` of kind `pending` has none: daemons older than it could not
+  open one).
 
 Keys come from a passphrase that never reaches the relay or the repository.
 The key schedule and the blob format are specified in

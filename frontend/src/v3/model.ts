@@ -15,7 +15,9 @@ import type {
   ConflictAlert,
   EditDecision,
   FileChange,
+  PendingFile,
   PlanUpdate,
+  RoomAccess,
   RoomSettingsUpdate,
   Task,
 } from '../types';
@@ -43,6 +45,10 @@ export interface LaneView {
   changes: FileChange[];
   decisions: EditDecision[];
   plan: PlanUpdate | null;
+  /** Files changed but not pushed yet, across the lane's repos, oldest first. */
+  pendingFiles: PendingFile[];
+  /** A report was cut at its cap: there are more than pendingFiles shows. */
+  pendingTruncated: boolean;
   branch: string;
   offlineSince: number | null;
   derived: LaneDerived;
@@ -52,6 +58,8 @@ export interface LaneView {
   currentFile: string | null;
   inConflict: boolean;
   claimedTasks: Task[];
+  /** This lane's agent plan (its todo list as room tasks): the step it is on and how far it is. */
+  planProgress: { current: Task | null; done: number; total: number } | null;
 }
 
 /** An edit Hivelane is holding right now (blocked, not released). */
@@ -108,6 +116,11 @@ export interface V3Model {
   isOwner: boolean;
   settings: RoomSettingsUpdate | null;
   requireApproval: boolean | null;
+  /** The link to send teammates: the invite link when this tab knows the
+   *  room's invite secret, else the plain room link (which only asks). */
+  shareUrl?: string;
+  /** Owners only: the relay's room_access (invite link, remembered people). */
+  access?: RoomAccess | null;
   accessNotice: string | null;
   lanes: LaneView[];
   onlineIds: string[];

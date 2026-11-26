@@ -380,8 +380,8 @@ def test_open_launches_the_room_url(
 
     assert cli.main(["open"]) == 0
 
-    assert opened == ["http://localhost:5173/r/TEAM42"]
-    assert "http://localhost:5173/r/TEAM42" in capsys.readouterr().out
+    assert opened == ["https://adrianshah.github.io/Hivelane/r/TEAM42?relay=ws%3A%2F%2Flocalhost%3A8000%2Fws"]
+    assert opened[0] in capsys.readouterr().out
 
 
 def test_open_with_a_remote_relay(machine: Machine, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -439,3 +439,12 @@ def test_help_works(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None
         cli.main(argv)
     assert exc.value.code == 0
     assert "usage: hivelane" in capsys.readouterr().out
+
+
+def test_join_with_the_old_daemon_flags_points_at_hivelane_daemon(
+    machine: Machine, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """`join` used to be another name for the single-room daemon; scripts
+    still calling it that way get told where it went, not an argparse error."""
+    assert cli.main(["join", "TEAM42", "--name", "ada", "--server", "ws://127.0.0.1:8000/ws", "--agent", "cursor"]) == 2
+    assert "hivelane daemon TEAM42" in capsys.readouterr().err

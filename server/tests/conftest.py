@@ -35,6 +35,23 @@ def _fast_feed_debounce(
 
 
 @pytest.fixture(autouse=True)
+def _code_only_rooms_unless_marked(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Most of the suite exercises what a room does once people are in, and
+    joins with the room code alone. A relay's default (HIVELANE_INVITE_LINKS
+    on) holds such joins for an owner's approval, so the suite creates rooms
+    without invite links; tests of invite links themselves opt back in with
+    @pytest.mark.invite_links (test_invite_links.py)."""
+    try:
+        from server import main
+    except ImportError:  # Render rootDir=server
+        import main  # type: ignore[no-redef]
+    if request.node.get_closest_marker("invite_links") is None:
+        monkeypatch.setattr(main, "INVITE_LINKS", False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_environment() -> Iterator[None]:
     """Restore os.environ afterwards so config-related env edits cannot leak
     into the next test."""
@@ -49,9 +66,11 @@ def _reset_rate_limits() -> Iterator[None]:
     """The limiters are process-global, so every test starts with a full budget
     and leaves nothing behind."""
     limits.room_creation_limiter.reset()
+    limits.repo_lookup_limiter.reset()
     limits.ws_attempt_limiter.reset()
     yield
     limits.room_creation_limiter.reset()
+    limits.repo_lookup_limiter.reset()
     limits.ws_attempt_limiter.reset()
 
 

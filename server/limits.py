@@ -358,6 +358,14 @@ ws_attempt_limiter: RateLimiter = build_limiter(
     store=redis_store,
 )
 
+repo_lookup_limiter: RateLimiter = build_limiter(
+    "repo_lookup",
+    limit=config.REPO_LOOKUP_LIMIT,
+    window_seconds=config.REPO_LOOKUP_WINDOW_SECONDS,
+    max_keys=config.RATE_LIMIT_MAX_TRACKED_IPS,
+    store=redis_store,
+)
+
 
 def _forwarded_client(header: str, trusted_hops: int) -> str:
     """The X-Forwarded-For entry written by the outermost proxy we trust.
@@ -477,6 +485,10 @@ def check_ws_attempt(connection: HTTPConnection) -> RateLimitResult:
     return ws_attempt_limiter.check(rate_key(connection))
 
 
+def check_repo_lookup(connection: HTTPConnection) -> RateLimitResult:
+    return repo_lookup_limiter.check(rate_key(connection))
+
+
 async def check_room_creation_async(connection: HTTPConnection) -> RateLimitResult:
     """check_room_creation off the event loop (see check_async)."""
     return await check_async(room_creation_limiter, rate_key(connection))
@@ -485,3 +497,8 @@ async def check_room_creation_async(connection: HTTPConnection) -> RateLimitResu
 async def check_ws_attempt_async(connection: HTTPConnection) -> RateLimitResult:
     """check_ws_attempt off the event loop (see check_async)."""
     return await check_async(ws_attempt_limiter, rate_key(connection))
+
+
+async def check_repo_lookup_async(connection: HTTPConnection) -> RateLimitResult:
+    """check_repo_lookup off the event loop (see check_async)."""
+    return await check_async(repo_lookup_limiter, rate_key(connection))

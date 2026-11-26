@@ -83,11 +83,9 @@ function Switch({
 
 function BrowserNotifications({ roomId }: { roomId: string }) {
   const [permission, setPermission] = useState<PermissionState>(() => permissionState());
+  // Keyed by roomId where it is rendered, so a room switch starts this
+  // component afresh with that room's saved prefs.
   const [prefs, setPrefs] = useState<NotificationPrefs>(() => loadPrefs(roomId));
-
-  useEffect(() => {
-    setPrefs(loadPrefs(roomId));
-  }, [roomId]);
 
   const update = (next: Partial<NotificationPrefs>) => {
     const merged = { ...prefs, ...next };
@@ -226,9 +224,25 @@ function Webhooks({ roomId, e2e }: { roomId: string; e2e: boolean }) {
     }
   }, [origin, roomId, token]);
 
+  // First load. The reply is dropped if the room changed or the view closed
+  // while it was in flight, so one room's hooks never show under another.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!token) return;
+    let live = true;
+    listWebhooks(origin, roomId, token).then(
+      (list) => {
+        if (!live) return;
+        setHooks(list);
+        setError(null);
+      },
+      (err: unknown) => {
+        if (live) setError(err instanceof Error ? err.message : 'Could not reach the relay');
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [origin, roomId, token]);
 
   if (!token) {
     return (
@@ -419,7 +433,7 @@ export default function NotificationsSettings({ roomId, e2e = false }: Notificat
           Hear about blocked edits and conflicts without watching the board.
         </p>
       </div>
-      <BrowserNotifications roomId={roomId} />
+      <BrowserNotifications key={roomId} roomId={roomId} />
       <Webhooks roomId={roomId} e2e={e2e} />
     </div>
   );

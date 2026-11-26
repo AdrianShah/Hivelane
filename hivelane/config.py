@@ -1,14 +1,16 @@
-"""Project and personal configuration: `.hivelane.toml` plus `~/.hivelane/config.toml`.
+"""Project and personal configuration: optional `.hivelane.toml` plus `~/.hivelane/config.toml`.
 
-The project file is committed, so a teammate who pulls the repo joins the same
-room with the same conflict windows. The personal file holds what differs per
-person (display name, a private relay) and the secrets that must never be
-committed: e2e room keys (`room_keys`) and room owner tokens (`owner_tokens`),
-both tables keyed by room code, the file kept owner-only (0600). Precedence,
-highest first: explicit overrides (CLI flags) > environment > personal file >
-project file > defaults, except `room`, the windows, `e2e` and
-`history_hours`, which the project file owns so one person's personal config
-cannot silently split them from the team.
+The project file may be committed so a teammate who pulls the repo shares
+conflict windows, `ignore`, or `e2e`. The personal file holds what lives per
+person and per machine: display name, a private relay, remembered rooms per
+repo (`rooms`), and the secrets that must never be committed: e2e room keys
+(`room_keys`), room owner tokens (`owner_tokens`), invite-link secrets
+(`invite_secrets`) and the member tokens a relay issues once someone is let in
+(`member_tokens`), kept owner-only (0600).
+Precedence, highest first: explicit overrides (CLI flags) > environment >
+personal file > project file > defaults, except `room`, the windows, `e2e` and
+`history_hours`, which the project file owns when present so one person's
+personal config cannot silently split them from the team.
 
 Stdlib only (tomllib for reading, a tiny writer for the handful of keys we
 emit), because the hook path may import this on its lazy-start branch.
@@ -55,16 +57,27 @@ _PROJECT_KEYS = (
     "history_hours",
     "ignore",
     "share_diffs",
+    "plan_tasks",
     "e2e",
     "redact",
     "redact_patterns",
     "insecure",
 )
 # What write_personal_config emits: the per-person keys.
-_PERSONAL_KEYS = ("name", "relay", "agent", "insecure", "room_keys", "owner_tokens")
+_PERSONAL_KEYS = (
+    "name",
+    "relay",
+    "agent",
+    "insecure",
+    "room_keys",
+    "owner_tokens",
+    "invite_secrets",
+    "member_tokens",
+    "rooms",
+)
 # Secrets: personal file only. One found in the committed project file has
 # already leaked to everyone with the repo, so it is an error, not ignored.
-_SECRET_TABLES = ("room_keys", "owner_tokens")
+_SECRET_TABLES = ("room_keys", "owner_tokens", "invite_secrets", "member_tokens")
 
 # A room code ends up in the relay's WebSocket path, so keep it path-safe.
 _ROOM_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -88,6 +101,8 @@ class HivelaneConfig:
     history_hours: Optional[float] = None
     ignore: tuple[str, ...] = ()
     share_diffs: bool = True
+    # Agents' own plans (a Claude Code todo list) become room tasks.
+    plan_tasks: bool = True
     # End-to-end encryption (the team's choice: project file only).
     e2e: bool = False
     # Secret redaction before anything leaves the machine (hivelane.redact).
@@ -98,6 +113,10 @@ class HivelaneConfig:
     # Personal secrets by room code: ((ROOM, value), ...).
     room_keys: tuple[tuple[str, str], ...] = ()
     owner_tokens: tuple[tuple[str, str], ...] = ()
+    # The invite secret from a share link (`#invite=`), and the member token
+    # the relay issued after this machine was let in, per room.
+    invite_secrets: tuple[tuple[str, str], ...] = ()
+    member_tokens: tuple[tuple[str, str], ...] = ()
     # Directory holding the project file, or None when there is none.
     root: Optional[Path] = None
     # Which files contributed, for `hivelane doctor`.
@@ -146,6 +165,15 @@ class HivelaneConfig:
     def owner_token(self, room: Optional[str] = None) -> Optional[str]:
         """The owner token `hivelane up` stored when it created room."""
         return _lookup(self.owner_tokens, room or self.room)
+
+    def invite_secret(self, room: Optional[str] = None) -> Optional[str]:
+        """The invite secret from the share link this machine joined with
+        (or that `hivelane up` got back when it created room)."""
+        return _lookup(self.invite_secrets, room or self.room)
+
+    def member_token(self, room: Optional[str] = None) -> Optional[str]:
+        """The member token the relay issued once this machine was let in."""
+        return _lookup(self.member_tokens, room or self.room)
 
 
 # Mirrors hivelane.crypto.normalize_room (the relay's rule): whitespace and
@@ -284,6 +312,27 @@ def _secret_table(data: dict[str, Any], key: str, path: Path) -> tuple[tuple[str
     return tuple(pairs)
 
 
+def _rooms_table(data: dict[str, Any], path: Path) -> dict[str, tuple[str, str]]:
+    table = data["rooms"]
+    if not isinstance(table, dict):
+        raise ConfigFileError(f'{path}: rooms must be a table of repo_id = {{ room = "...", relay = "..." }}')
+    parsed: dict[str, tuple[str, str]] = {}
+    for repo_id, entry in table.items():
+        if not isinstance(repo_id, str) or not repo_id.strip():
+            raise ConfigFileError(f"{path}: rooms has an empty repo_id ({repo_id!r})")
+        if not isinstance(entry, dict):
+            raise ConfigFileError(f"{path}: rooms.{repo_id} must be a table with room and relay")
+        room = entry.get("room")
+        relay = entry.get("relay")
+        if not isinstance(room, str) or not _ROOM_RE.match(room.strip()):
+            raise ConfigFileError(f"{path}: rooms.{repo_id}.room must be a valid room code ({room!r})")
+        if not isinstance(relay, str) or not relay.strip():
+            raise ConfigFileError(f"{path}: rooms.{repo_id}.relay must be a non-empty relay URL")
+        relay_url = _check_relay(relay.strip(), f"{path}: rooms.{repo_id}")
+        parsed[repo_id.strip()] = (canonical_room(room), relay_url)
+    return parsed
+
+
 def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: bool) -> None:
     if project:
         leaked = [key for key in _SECRET_TABLES if key in data]
@@ -328,6 +377,9 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
         if not isinstance(data["share_diffs"], bool):
             raise ConfigFileError(f"{path}: share_diffs must be true or false")
         base["share_diffs"] = data["share_diffs"]
+    plan_tasks = _bool(data, "plan_tasks", path)
+    if plan_tasks is not None:
+        base["plan_tasks"] = plan_tasks
     e2e = _bool(data, "e2e", path)
     if e2e is not None and project:
         base["e2e"] = e2e  # the team's decision, like the room
@@ -349,6 +401,8 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
         for key in _SECRET_TABLES:
             if key in data:
                 base[key] = _secret_table(data, key, path)
+        if "rooms" in data:
+            _rooms_table(data, path)
 
 
 def load_config(
@@ -588,7 +642,8 @@ def personal_values() -> dict[str, Any]:
 
 def set_personal_secret(table: str, room: str, value: Optional[str]) -> Path:
     """Set (or with None remove) `table`.ROOM in the personal file, keeping
-    the table's other rooms. table is "room_keys" or "owner_tokens"."""
+    the table's other rooms. table is one of _SECRET_TABLES: "room_keys",
+    "owner_tokens", "invite_secrets" or "member_tokens"."""
     if table not in _SECRET_TABLES:
         raise ValueError(f"not a secret table: {table!r}")
     if not _ROOM_RE.match(room.strip()):
@@ -603,6 +658,63 @@ def set_personal_secret(table: str, room: str, value: Optional[str]) -> Path:
     else:
         merged[code] = value
     return write_personal_config(**{table: merged})
+
+
+def remembered_room(repo_id: str) -> Optional[tuple[str, str]]:
+    """Return `(room, relay)` remembered on this machine for `repo_id`, or None."""
+    key = (repo_id or "").strip()
+    if not key:
+        return None
+    path = personal_config_path()
+    data = personal_values()
+    if "rooms" not in data:
+        return None
+    return _rooms_table(data, path).get(key)
+
+
+def remember_room(repo_id: str, room: str, relay: str) -> None:
+    """Remember `(room, relay)` for `repo_id` in the personal config."""
+    key = (repo_id or "").strip()
+    if not key:
+        return
+    if not isinstance(room, str) or not _ROOM_RE.match(room.strip()):
+        raise ConfigFileError(f"{room!r} is not a room code")
+    code = canonical_room(room)
+    if not isinstance(relay, str) or not relay.strip():
+        raise ConfigFileError("relay must be a non-empty string")
+    relay_url = _check_relay(relay.strip(), "relay")
+    path = personal_config_path()
+    current = personal_values().get("rooms") or {}
+    if not isinstance(current, dict):
+        raise ConfigFileError(f'{path}: rooms must be a table of repo_id = {{ room = "...", relay = "..." }}')
+    merged: dict[str, Any] = {}
+    for k, entry in current.items():
+        if isinstance(entry, dict):
+            merged[str(k)] = dict(entry)
+    desired = {"room": code, "relay": relay_url}
+    if merged.get(key) == desired:
+        return
+    merged[key] = desired
+    write_personal_config(rooms=merged)
+
+
+def forget_room(repo_id: str) -> bool:
+    """Remove `repo_id` from remembered rooms in the personal config. True if removed."""
+    key = (repo_id or "").strip()
+    if not key:
+        return False
+    path = personal_config_path()
+    data = personal_values()
+    if "rooms" not in data:
+        return False
+    current = data["rooms"]
+    if not isinstance(current, dict):
+        raise ConfigFileError(f'{path}: rooms must be a table of repo_id = {{ room = "...", relay = "..." }}')
+    if key not in current:
+        return False
+    merged = {str(k): dict(v) if isinstance(v, dict) else v for k, v in current.items() if str(k) != key}
+    write_personal_config(rooms=merged)
+    return True
 
 
 def _update_file(

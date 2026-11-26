@@ -2,7 +2,8 @@ import { useCallback, useRef, useState, type ReactNode } from 'react';
 import Icon from '../components/Icon';
 import { matchCommands } from '../dashboard/commands';
 import { useDialogFocus } from '../dashboard/useDialogFocus';
-import { INSTALL_COMMAND, roomLink, setupCommand, upCommand } from '../relayUrl';
+import { agentPrompt, projectFile, shareLink } from '../links';
+import { INSTALL_COMMAND, setupCommand, upCommand } from '../relayUrl';
 import { DEFAULT_ROOM_SETTINGS, describeSettingsSource, describeWindows } from '../roomSettings';
 import type { RoomSettingsUpdate } from '../types';
 import type { MenuCommand } from './menuCommands';
@@ -118,11 +119,21 @@ export function CommandMenu({
 
 // --- invite -------------------------------------------------------------------
 
-function CopyRow({ label, value, onCopy }: { label: string; value: string; onCopy: (label: string, value: string) => void }) {
+function CopyRow({
+  label,
+  value,
+  onCopy,
+  wrap = false,
+}: {
+  label: string;
+  value: string;
+  onCopy: (label: string, value: string) => void;
+  wrap?: boolean;
+}) {
   return (
     <div className="grid gap-1.5 grid-cols-[minmax(0,1fr)]">
-      <span className="v3-label">{label}</span>
-      <div className="v3-copy">
+      {label ? <span className="v3-label">{label}</span> : null}
+      <div className={wrap ? 'v3-copy v3-copy--wrap' : 'v3-copy'}>
         <code>{value}</code>
         <button type="button" className="v3-btn v3-btn--ghost v3-btn--sm" onClick={() => onCopy(label, value)}>
           <Icon name="copy" size={14} /> Copy
@@ -141,13 +152,21 @@ export function InviteContent({
   roomId,
   settings,
   requireApproval,
+  shareUrl,
+  hasInvite = false,
   onCopy,
 }: {
   roomId: string;
   settings: RoomSettingsUpdate | null;
   requireApproval: boolean | null;
+  /** The link to send (relayUrl.ts shareLink); defaults to the room link. */
+  shareUrl?: string;
+  /** True when shareUrl carries the room's invite secret. */
+  hasInvite?: boolean;
   onCopy: (label: string, value: string) => void;
 }) {
+  const link = shareUrl ?? shareLink(roomId);
+  const linkLabel = hasInvite ? 'Invite link' : 'Room link';
   return (
     <div className="grid gap-6 grid-cols-[minmax(0,1fr)]">
       <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -155,20 +174,28 @@ export function InviteContent({
           <span className="v3-label">Room code</span>
           <div className="v3-code-big">{roomId || '-'}</div>
         </div>
-        <button type="button" className="v3-btn v3-btn--primary" onClick={() => onCopy('Room link', roomLink(roomId))}>
-          <Icon name="link" size={15} /> Copy link
+        <button type="button" className="v3-btn v3-btn--primary" onClick={() => onCopy('Agent prompt', agentPrompt(roomId, link))}>
+          <Icon name="copy" size={15} /> Copy prompt for an agent
         </button>
       </div>
       <p className="v3-sub m-0">
         {requireApproval
-          ? 'People with the code can ask to join; an owner approves each request.'
-          : 'Anyone with the code can join, so share it with your team only.'}
+          ? 'People with the code or link can ask to join; an owner approves each request.'
+          : hasInvite
+            ? 'Whoever opens the invite link comes straight in, so share it with your team only. The room code alone only asks an owner to let them in.'
+            : 'Anyone with the code can join, so share it with your team only.'}
         {settings?.e2e
           ? ` This room is end-to-end encrypted: send the room key separately (hivelane key show prints it); teammates run hivelane key set ${roomId}.`
           : ''}
       </p>
-      <CopyRow label="Room link" value={roomLink(roomId)} onCopy={onCopy} />
-      <CopyRow label="One-line setup (run in their repo)" value={setupCommand(roomId)} onCopy={onCopy} />
+      <CopyRow
+        label="Paste into any coding agent (Claude Code, Cursor, Codex, Copilot, Gemini…) in their repo"
+        value={agentPrompt(roomId, link)}
+        onCopy={() => onCopy('Agent prompt', agentPrompt(roomId, link))}
+        wrap
+      />
+      <CopyRow label={linkLabel} value={link} onCopy={onCopy} />
+      <CopyRow label="One-line setup (run in their repo)" value={setupCommand(roomId, hasInvite ? link : undefined)} onCopy={onCopy} />
       <div className="grid gap-3 grid-cols-[minmax(0,1fr)]">
         <span className="v3-title">Or step by step</span>
         <ol className="v3-steps">
@@ -182,12 +209,17 @@ export function InviteContent({
           <li>
             <div>
               <h3>Join this room from the repo</h3>
-              <CopyRow label="" value={upCommand(roomId)} onCopy={() => onCopy('Command', upCommand(roomId))} />
+              <CopyRow
+                label=""
+                value={upCommand(roomId, hasInvite ? link : undefined)}
+                onCopy={() => onCopy('Command', upCommand(roomId, hasInvite ? link : undefined))}
+              />
               <p>Sets up the agent hooks and the daemon. Check it with hivelane status.</p>
             </div>
           </li>
         </ol>
       </div>
+      <ProjectFileRow roomId={roomId} onCopy={onCopy} />
       <div className="v3-listening">
         <Icon name="timer" size={18} />
         <div>
@@ -196,6 +228,22 @@ export function InviteContent({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The .hivelane.toml to commit: every clone then joins this room with a plain
+ * `hivelane up`, which the agent instructions `up` adds tell agents to run.
+ */
+export function ProjectFileRow({ roomId, onCopy }: { roomId: string; onCopy: (label: string, value: string) => void }) {
+  const snippet = projectFile(roomId);
+  return (
+    <CopyRow
+      label="Or commit this as .hivelane.toml, so everyone who clones the repo joins this room"
+      value={snippet}
+      onCopy={() => onCopy('.hivelane.toml', snippet)}
+      wrap
+    />
   );
 }
 

@@ -20,7 +20,15 @@ from hivelane.hook_fast import DEFAULT_PORT
 
 # Dashboard links live in links.py, so the desktop bee can build them without
 # importing the CLI.
-from hivelane.links import DASHBOARD_ENV, room_url
+from hivelane.links import (
+    DASHBOARD_ENV,
+    INSTALL_COMMAND,
+    agent_join_prompt,
+    invite_url,
+    parse_invite_link,
+    room_url,
+    share_link,
+)
 
 # Type checkers treat any name TYPE_CHECKING as True.
 TYPE_CHECKING = False
@@ -47,8 +55,6 @@ MAX_CLOCK_SKEW = 5.0
 # `hivelane wait`: default overall timeout, and how long one daemon call waits.
 WAIT_TIMEOUT = 90.0
 WAIT_SLICE = 5.0
-
-INSTALL_COMMAND = "pipx install git+https://github.com/AdrianShah/Hivelane"
 
 # Mirrors server/sanitize.py, which is authoritative: a display name the relay
 # keeps is lowercase [a-z0-9_-], 1..MAX_LENGTH long, with no blocked substring.
@@ -420,17 +426,150 @@ def create_room(relay: str) -> str:
     return create_room_with_owner(relay)[0]
 
 
-def create_room_with_owner(relay: str) -> tuple[str, Optional[str]]:
-    """(room code, owner token or None) from POST /rooms. The token makes
-    whoever holds it the room's owner (join approvals); a relay that predates
-    ownership sends none."""
+def looks_like_link(raw: str) -> bool:
+    """True for a pasted invite link rather than a bare room code."""
+    return any(mark in raw for mark in ("://", "/", "#", "?"))
+
+
+def room_and_link(raw: str) -> tuple[str, Any]:
+    """(room code, parsed InviteTarget or None) from `--room`, which takes a
+    room code or a full invite link (whose #invite= secret lets this machine
+    in without an owner's approval)."""
+    if not looks_like_link(raw):
+        return normalize_room(raw), None
+    try:
+        target = parse_invite_link(raw)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+    return normalize_room(target.room), target
+
+
+def save_secret(table: str, room: str, value: Optional[str]) -> Path:
+    """A per-room secret into the personal config (never .hivelane.toml)."""
+    from hivelane import config as cfg
+
+    try:
+        return cfg.set_personal_secret(table, room, value)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+
+
+def fetch_invite_secret(
+    relay: str, room: str, owner_token: str, *, rotate: bool = False
+) -> Optional[str]:
+    """The room's invite secret from the relay, for its owner (GET
+    /rooms/<code>/invite), or a fresh one (POST .../invite/rotate). Reading
+    is best-effort (None when the relay cannot say); rotating raises."""
+    import httpx
+
+    origin = http_origin(relay)
+    url = f"{origin}/rooms/{room}/invite" + ("/rotate" if rotate else "")
+    headers = {"X-Hivelane-Owner-Token": owner_token}
+    try:
+        with http_client(timeout=HTTP_TIMEOUT if rotate else 3.0) as client:
+            response = client.post(url, headers=headers) if rotate else client.get(url, headers=headers)
+    except httpx.HTTPError as exc:
+        if not rotate:
+            return None
+        raise ConfigError(f"cannot reach the relay at {origin} ({exc.__class__.__name__}: {exc})") from None
+    if response.status_code != 200:
+        if not rotate:
+            return None
+        if response.status_code == 404:
+            raise ConfigError(
+                f"the relay does not know room {room} with this machine's owner token "
+                "(the room expired, or another machine owns it)"
+            )
+        raise ConfigError(f"the relay at {origin} refused to rotate the invite link (HTTP {response.status_code})")
+    try:
+        secret = response.json().get("invite_secret")
+    except (ValueError, AttributeError):
+        return None
+    return secret if isinstance(secret, str) and secret else None
+
+
+def current_invite_secret(config: HivelaneConfig, relay: str, room: str) -> Optional[str]:
+    """The invite secret to put in this room's share link: the relay's
+    current one when this machine owns the room (a rotation from the
+    dashboard shows up here), else the one saved from a link. A fresher one
+    from the relay is saved over the old."""
+    saved = config.invite_secret(room)
+    owner = config.owner_token(room)
+    if owner:
+        fetched = fetch_invite_secret(relay, room, owner)
+        if fetched and fetched != saved:
+            save_secret("invite_secrets", room, fetched)
+            return fetched
+    return saved
+
+
+def repo_lookup_key_for(root: Path) -> tuple[str, Optional[str]]:
+    """(repo_id, hashed relay lookup key) for `root`, or ("", None) outside git/remotes."""
+    from hivelane import gitinfo
+
+    repo_id = repo_id_for_root(root)
+    if not repo_id:
+        return "", None
+    return repo_id, gitinfo.repo_lookup_key(repo_id)
+
+
+def lookup_room_by_repo(relay: str, repo_key: str) -> Optional[str]:
+    """Ask the relay whether a room is already bound to `repo_key`."""
+    import httpx
+
+    origin = http_origin(relay)
+    url = f"{origin}/rooms/by-repo/{repo_key}"
+    try:
+        with http_client() as client:
+            response = client.get(url)
+    except httpx.TimeoutException:
+        raise ConfigError(
+            f"the relay at {origin} did not answer within {HTTP_TIMEOUT:.0f}s. "
+            "Check your network, or point at another relay with --relay URL."
+        ) from None
+    except httpx.HTTPError as exc:
+        raise ConfigError(
+            f"cannot reach the relay at {origin} ({exc.__class__.__name__}: {exc}). "
+            "Is it running? Point at another one with --relay URL, or join an "
+            "existing room with --room CODE."
+        ) from None
+    if response.status_code in (404, 405, 501):
+        return None
+    if response.status_code == 429:
+        raise ConfigError(
+            "the relay is rate-limiting repository lookups from your address. "
+            f"{_retry_hint(response.headers.get('Retry-After'))}, or pass "
+            "`hivelane up --room CODE`."
+        )
+    if response.status_code >= 400:
+        raise ConfigError(
+            f"the relay at {origin} refused repository lookup (HTTP {response.status_code})"
+        )
+    try:
+        body = response.json()
+        room = body["room_id"]
+    except (ValueError, KeyError, TypeError):
+        raise ConfigError(f"unexpected answer from {url}: no room_id in the response") from None
+    if not isinstance(room, str) or not room.strip():
+        raise ConfigError(f"unexpected answer from {url}: room_id is not a string")
+    return normalize_room(room)
+
+
+def create_room_with_owner(
+    relay: str, *, repo_key: Optional[str] = None
+) -> tuple[str, Optional[str], Optional[str]]:
+    """(room code, owner token or None, invite secret or None) from POST
+    /rooms. The token makes whoever holds it the room's owner (join
+    approvals); the invite secret goes in the share link and lets whoever
+    opens it in without approval. A relay that predates either sends none."""
     import httpx
 
     origin = http_origin(relay)
     url = f"{origin}/rooms"
+    post_kwargs: dict[str, Any] = {"json": {"repo_key": repo_key}} if repo_key else {}
     try:
         with http_client() as client:
-            response = client.post(url)
+            response = client.post(url, **post_kwargs)
     except httpx.TimeoutException:
         raise ConfigError(
             f"the relay at {origin} did not answer within {HTTP_TIMEOUT:.0f}s. "
@@ -448,6 +587,11 @@ def create_room_with_owner(relay: str) -> tuple[str, Optional[str]]:
             f"{_retry_hint(response.headers.get('Retry-After'))}, or join a "
             "teammate's room with `hivelane up --room CODE`."
         )
+    if response.status_code == 409:
+        raise ConfigError(
+            "this repository already has a room on the relay; re-run `hivelane up` "
+            "to find and join it, or pass `--no-repo-lookup` for a separate room."
+        )
     if response.status_code == 503:
         raise ConfigError(
             f"the relay at {origin} is full and cannot create rooms right now. "
@@ -464,7 +608,12 @@ def create_room_with_owner(relay: str) -> tuple[str, Optional[str]]:
     if not isinstance(room, str):
         raise ConfigError(f"unexpected answer from {url}: room_id is not a string")
     owner = body.get("owner_token") if isinstance(body, dict) else None
-    return normalize_room(room), owner if isinstance(owner, str) and owner else None
+    invite = body.get("invite_secret") if isinstance(body, dict) else None
+    return (
+        normalize_room(room),
+        owner if isinstance(owner, str) and owner else None,
+        invite if isinstance(invite, str) and invite else None,
+    )
 
 
 # --- daemon status helpers -------------------------------------------------------
@@ -496,33 +645,25 @@ def find_repo_entry(status: Any, root: Path) -> Optional[dict[str, Any]]:
     return None
 
 
-# How long `hivelane up` keeps waiting while the relay holds the join for an
-# owner's approval (the relay gives up after 5 minutes; this is a little longer).
-APPROVAL_WAIT = 330.0
-
-
 def wait_for_repo(svc: Any, port: int, root: Path, timeout: Optional[float] = None) -> Optional[dict[str, Any]]:
-    """Poll the daemon until this repo reports connected or fatal, or time runs
-    out. Returns the last entry seen (None if it never appeared). A join the
-    relay holds for an owner's approval is reported once and waited out."""
+    """Poll the daemon until this repo reports connected, fatal or held for
+    an owner's approval, or time runs out. Returns the last entry seen (None
+    if it never appeared).
+
+    A held join returns at once: `hivelane up` is often run by an agent in a
+    tool call, and an owner may take minutes (or be away), so the command must
+    not sit there. The daemon finishes the join in the background, asking the
+    owner again if the relay's hold times out (daemon.APPROVAL_*)."""
     import time
 
     deadline = time.monotonic() + (CONNECT_WAIT if timeout is None else timeout)
     entry: Optional[dict[str, Any]] = None
-    told = False
     while True:
         found = find_repo_entry(svc.status(port), root)
         if found is not None:
             entry = found
-            if entry.get("connected") or entry.get("fatal"):
+            if entry.get("connected") or entry.get("fatal") or entry.get("awaiting_approval"):
                 return entry
-            if entry.get("awaiting_approval") and not told:
-                told = True
-                say(
-                    f"  {mark('info')} waiting for an owner to approve this join "
-                    f"(room {entry.get('room')}); Ctrl+C to stop waiting, the daemon keeps trying"
-                )
-                deadline = max(deadline, time.monotonic() + APPROVAL_WAIT)
         if time.monotonic() >= deadline:
             return entry
         time.sleep(POLL_INTERVAL)
@@ -549,17 +690,21 @@ def report_connection(entry: Optional[dict[str, Any]], name: str, log_hint: str)
         say(f"  {mark('ok')} connected as {entry.get('name') or name} ({_peers_text(entry.get('peers'))})")
         return True
     if entry.get("awaiting_approval"):
-        say(f"  {mark('info')} still waiting for an owner to approve this join; check `hivelane status`")
+        say(f"  {mark('info')} waiting for the owner of room {entry.get('room')} to let you in")
+        say(
+            "      you can keep working: the daemon joins in the background as soon as they do,\n"
+            "      and the desktop bee or `hivelane status` shows when you are in"
+        )
         return True
     say(f"  {mark('info')} still connecting to the relay; the daemon keeps retrying in the background")
     say("      check progress with `hivelane status`")
     return True
 
 
-# --- join / daemon (single room, foreground) ---------------------------------
+# --- daemon / single-room (foreground) -----------------------------------------
 
 
-def cmd_join(args: argparse.Namespace) -> int:
+def cmd_daemon(args: argparse.Namespace) -> int:
     import asyncio
 
     from hivelane.daemon import Daemon
@@ -572,6 +717,7 @@ def cmd_join(args: argparse.Namespace) -> int:
         server=args.server,
         port=resolve_port(args.port),
         root=resolve_root(args.root),
+        invite_secret=args.invite or os.environ.get("HIVELANE_INVITE") or None,
     )
     try:
         return asyncio.run(daemon.run())
@@ -662,7 +808,9 @@ def route_hook(rest: Sequence[str]) -> Optional[int]:
         return run_hook_fast_path(rest[1:], rest[0])
     try:
         known = ", ".join(REGISTRY)
-        what = f"unknown agent {rest[0]!r}" if rest else "no agent given"
+        # The unknown id is not echoed: argv can carry secrets (`--invite`),
+        # and the list of known agents says enough.
+        what = "unknown agent" if rest else "no agent given"
         print(
             f"hivelane: hook: {what} (this hivelane knows: {known}), proceeding without coordination",
             file=sys.stderr,
@@ -855,6 +1003,45 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, {hint}")
 
 
+def setup_agent_docs(root: Path, *, skip: bool, assume_yes: bool) -> None:
+    """Keep the Hivelane section in the repo's agent instruction files
+    (hivelane/agent_docs.py), so a teammate's agent connects the repo on its
+    own. Asks first, like the hooks: these files are committed and shared.
+    Never fatal: a file that cannot be written is reported and `up` goes on."""
+    from hivelane import agent_docs
+
+    if skip:
+        return
+    try:
+        todo = agent_docs.pending(root)
+    except OSError as exc:
+        say(f"  {mark('warn')} agent instructions: could not read them ({exc})")
+        return
+    if not todo:
+        names = ", ".join(display_path(p, root) for p, _ in agent_docs.targets(root))
+        say(f"  {mark('ok')} agent instructions: Hivelane section already in {names}")
+        return
+    names = ", ".join(display_path(p, root) for p in todo)
+    if not confirm(
+        f"Add a short Hivelane section to {names}, so any teammate's coding agent can connect this repo itself?",
+        assume_yes=assume_yes,
+    ):
+        say(f"  {mark('skip')} agent instructions: not changed (`hivelane up --no-agent-docs` skips this question)")
+        return
+    try:
+        changes = agent_docs.apply(root)
+    except (OSError, UnicodeError) as exc:
+        say(f"  {mark('warn')} agent instructions: could not update them ({exc})")
+        return
+    for change in changes:
+        if change.action == "unchanged":
+            continue
+        verb = {"created": "created", "added": "added the Hivelane section to", "updated": "updated the Hivelane section in"}[
+            change.action
+        ]
+        say(f"  {mark('ok')} agent instructions: {verb} {display_path(change.path, root)} (commit it for your team)")
+
+
 STATUS_LINE_ARGS = "status --line"
 
 
@@ -923,108 +1110,61 @@ def project_file_values(root: Path) -> dict[str, Any]:
         raise ConfigError(f"{path} is not valid TOML ({exc})") from None
 
 
-def cmd_up(args: argparse.Namespace) -> int:
+def repo_id_for_root(root: Optional[Path]) -> str:
+    """Compute the git-derived repo_id for `root` (or "" outside git / no identity)."""
+    if root is None or not (root / ".git").exists():
+        return ""
+    from hivelane import gitinfo
+
+    return gitinfo.compute_repo_id(root)
+
+
+def _resolve_repo_room(
+    root: Optional[Path], config: HivelaneConfig
+) -> tuple[Optional[str], str]:
+    """(canonical room or None, relay) from `.hivelane.toml`, else remembered on this machine."""
     from hivelane import config as cfg
 
-    root = project_root(args.root)
-    port = resolve_port(args.port)
-    relay_flag = normalize_relay(args.relay) if args.relay else None
-    room_flag = normalize_room(args.room) if args.room else None
-    try:
-        config = cfg.load_config(root, relay=relay_flag)
-    except cfg.ConfigFileError as exc:
-        raise ConfigError(str(exc)) from None
-    insecure = bool(getattr(args, "insecure", False)) or config.insecure
-    check_transport(config.relay, insecure)
-    name, name_source = resolve_name(args.name, config.name, root)
-    svc = load_service()
+    if config.room:
+        return cfg.canonical_room(config.room), config.relay
+    if root is not None:
+        repo_id = repo_id_for_root(root)
+        remembered = cfg.remembered_room(repo_id) if repo_id else None
+        if remembered is not None:
+            return remembered
+    return None, config.relay
 
-    say(f"hivelane: setting up {root}")
 
-    # 1. agent hooks
-    setup_hooks(root, skip=args.no_hooks, assume_yes=args.yes)
-    if not args.no_hooks:
-        offer_status_line(root, choice=args.status_line)
+def _effective_e2e(
+    config: HivelaneConfig,
+    room: str,
+    project_vals: dict[str, Any],
+    *,
+    explicit_e2e: bool = False,
+) -> bool:
+    """Whether `room` uses end-to-end encryption on this connection."""
+    if explicit_e2e or config.e2e:
+        return True
+    if "e2e" in project_vals:
+        return bool(project_vals["e2e"])
+    return config.room_key(room, generic_env=False) is not None
 
-    # 2. the room: --room > .hivelane.toml > a new one from the relay
-    existing = config.room.upper() if config.room else None
-    created_room = False
-    if room_flag is not None:
-        room = room_flag
-        if existing and existing != room and not confirm(
-            f"{cfg.PROJECT_FILE} says room {existing}. Switch this repo to {room}?",
-            assume_yes=args.yes,
-        ):
-            raise CommandFailed(f"kept room {existing}; nothing else changed")
-        say(f"  {mark('ok')} joining room {room}" + (f" (was {existing})" if existing and existing != room else ""))
-    elif existing:
-        room = existing
-        say(f"  {mark('ok')} joining room {room} from {cfg.PROJECT_FILE}")
-    else:
-        room, owner_token = create_room_with_owner(config.relay)
-        created_room = True
-        say(f"  {mark('ok')} created room {room} on {config.relay}")
-        if owner_token:
-            try:
-                cfg.set_personal_secret("owner_tokens", room, owner_token)
-            except cfg.ConfigFileError as exc:
-                raise ConfigError(str(exc)) from None
-            say(
-                f"  {mark('ok')} you own room {room} (owner token saved to {cfg.personal_config_path()}); "
-                "`hivelane room require-approval on` makes newcomers wait for you"
-            )
 
-    on_file = project_file_values(root)
-    updates: dict[str, Any] = {}
-    if str(on_file.get("room", "")).upper() != room:
-        updates["room"] = room
-    if getattr(args, "e2e", False) and on_file.get("e2e") is not True:
-        updates["e2e"] = True
-    # The relay is recorded when asked for, or when a new room lives on a
-    # non-default relay: teammates can only join it there.
-    if relay_flag is not None or ("room" in updates and config.relay != cfg.DEFAULT_RELAY):
-        if on_file.get("relay") != config.relay:
-            updates["relay"] = config.relay
-    if updates:
-        try:
-            path = cfg.write_project_config(root, **updates)
-        except cfg.ConfigFileError as exc:
-            raise ConfigError(str(exc)) from None
-        say(
-            f"  {mark('ok')} wrote {', '.join(updates)} to {display_path(path, root)} "
-            "(commit it so teammates join the same room)"
-        )
-
-    # An explicit --name is remembered, or the next plain `hivelane up` would
-    # quietly rename you back to your git identity.
-    if args.name is not None and normalize_name(config.name or "") != name:
-        try:
-            path = cfg.write_personal_config(name=name)
-        except cfg.ConfigFileError as exc:
-            raise ConfigError(str(exc)) from None
-        say(f"  {mark('ok')} saved name {name} to {path} (used in every repo)")
-
-    try:
-        config = cfg.load_config(root, relay=relay_flag, room=room, name=name)
-    except cfg.ConfigFileError as exc:
-        raise ConfigError(str(exc)) from None
-
-    # A key is generated only for a room this run made e2e (it created the
-    # room, or just wrote `e2e = true`): anyone else is joining a team that
-    # already has one, and a fresh key would silently split them from it.
-    may_generate = created_room or "e2e" in updates
-    if config.e2e and ensure_room_key(config, room, may_generate=may_generate):
-        # A key was just generated into the personal file: the registration
-        # below must carry it.
-        try:
-            config = cfg.load_config(root, relay=relay_flag, room=room, name=name)
-        except cfg.ConfigFileError as exc:
-            raise ConfigError(str(exc)) from None
-
+def _connect_and_finish(
+    args: argparse.Namespace,
+    root: Path,
+    port: int,
+    config: HivelaneConfig,
+    name: str,
+    name_source: str,
+    svc: Any,
+    *,
+    via_repo_lookup: bool = False,
+) -> int:
     # 3. the daemon
     if args.foreground:
         print_summary(config, name_source)
-        return run_foreground(svc, port, root, config)
+        return run_foreground(svc, port, root, config, via_repo_lookup=via_repo_lookup)
 
     if is_single_room(svc.status(port)):
         raise CommandFailed(
@@ -1035,7 +1175,7 @@ def cmd_up(args: argparse.Namespace) -> int:
         pid = svc.start_background(port)
     say(f"  {mark('ok')} daemon running on port {port} (pid {pid})")
     with service_errors(svc, f"could not connect {root} to the daemon"):
-        svc.connect_repo(port, root, config)
+        svc.connect_repo(port, root, config, via_repo_lookup=via_repo_lookup)
     entry = wait_for_repo(svc, port, root)
     ok = report_connection(entry, name, str(svc.log_path()))
     if not ok:
@@ -1051,6 +1191,410 @@ def cmd_up(args: argparse.Namespace) -> int:
     return 0
 
 
+def room_argument(raw: Optional[str]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """(room, relay, e2e key) from `--room`, which takes a bare code or a
+    whole share link: the dashboard and `hivelane up` hand people a link, and
+    an agent told to run `hivelane up --room <link>` should not have to pick
+    the code out of it. relay and key are None for a bare code."""
+    if not raw:
+        return None, None, None
+    text = raw.strip()
+    if "/" not in text and "?" not in text and "#" not in text:
+        return normalize_room(text), None, None
+    try:
+        target = parse_invite_link(text)
+    except ValueError as exc:
+        raise ConfigError(f"--room {raw!r} is not a room code or a share link: {exc}") from None
+    return normalize_room(target.room), target.relay, target.key
+
+
+def cmd_up(args: argparse.Namespace) -> int:
+    from hivelane import config as cfg
+
+    root = project_root(args.root)
+    port = resolve_port(args.port)
+    room_flag, link = room_and_link(args.room) if args.room else (None, None)
+    if args.relay:
+        relay_flag: Optional[str] = normalize_relay(args.relay)
+    elif link is not None and link.relay:
+        relay_flag = normalize_relay(link.relay)
+    else:
+        relay_flag = None
+    link_key = link.key if link is not None else None
+    try:
+        config = cfg.load_config(root, relay=relay_flag)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+    insecure = bool(getattr(args, "insecure", False)) or config.insecure
+    check_transport(config.relay, insecure)
+    name, name_source = resolve_name(args.name, config.name, root)
+    svc = load_service()
+
+    say(f"hivelane: setting up {root}")
+
+    # 1. agent hooks
+    setup_hooks(root, skip=args.no_hooks, assume_yes=args.yes)
+    if not args.no_hooks:
+        offer_status_line(root, choice=args.status_line)
+    setup_agent_docs(root, skip=getattr(args, "no_agent_docs", False), assume_yes=args.yes)
+
+    # 2. the room: --room > .hivelane.toml > remembered on this machine > relay lookup > create a new room
+    repo_id, lookup_key_raw = repo_lookup_key_for(root)
+    lookup_key = None if getattr(args, "no_repo_lookup", False) else lookup_key_raw
+    try:
+        remembered = cfg.remembered_room(repo_id) if repo_id else None
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+    existing_file = cfg.canonical_room(config.room) if config.room else None
+    existing = existing_file or (remembered[0] if remembered is not None else None)
+    effective_relay = config.relay
+    created_room = False
+    from_lookup = False
+    if room_flag is not None:
+        room = room_flag
+        if existing and existing != room:
+            source_desc = (
+                f"{cfg.PROJECT_FILE} says room {existing}"
+                if existing_file
+                else f"this repo is remembered in room {existing}"
+            )
+            if not confirm(f"{source_desc}. Switch this repo to {room}?", assume_yes=args.yes):
+                raise CommandFailed(f"kept room {existing}; nothing else changed")
+        say(f"  {mark('ok')} joining room {room}" + (f" (was {existing})" if existing and existing != room else ""))
+        # A pasted invite link: its secrets go to the personal config only,
+        # never .hivelane.toml (which is committed).
+        if link is not None and link.invite:
+            path = save_secret("invite_secrets", room, link.invite)
+            say(f"  {mark('ok')} saved the invite from the link to {path}; you will be let in without waiting")
+        if link is not None and link.key:
+            warn_weak_key(link.key, f"the key for room {room}")
+            path = save_secret("room_keys", room, link.key)
+            say(f"  {mark('ok')} saved end-to-end room key for {room} to {path}")
+    elif existing_file:
+        room = existing_file
+        say(f"  {mark('ok')} joining room {room} from {cfg.PROJECT_FILE}")
+    elif remembered is not None:
+        room, remembered_relay = remembered
+        if relay_flag is None and not os.environ.get(cfg.RELAY_ENV, "").strip():
+            effective_relay = remembered_relay
+            check_transport(effective_relay, insecure)
+        say(f"  {mark('ok')} joining remembered room {room} on {effective_relay}")
+    else:
+        looked_up = lookup_room_by_repo(effective_relay, lookup_key) if lookup_key is not None else None
+        if looked_up is not None:
+            room = looked_up
+            from_lookup = True
+            say(f"  {mark('info')} found your team's room {room} for this repo; asking the owner to let you in")
+        else:
+            room, owner_token, invite_secret = create_room_with_owner(effective_relay, repo_key=lookup_key)
+            created_room = True
+            say(f"  {mark('ok')} created room {room} on {effective_relay}")
+            if lookup_key is not None:
+                say("      teammates who clone this repo will find it automatically")
+            if owner_token:
+                save_secret("owner_tokens", room, owner_token)
+                say(
+                    f"  {mark('ok')} you own room {room} (owner token saved to {cfg.personal_config_path()}); "
+                    + (
+                        "teammates you send the invite link come straight in, anyone with just the code waits for you"
+                        if invite_secret
+                        else "`hivelane room require-approval on` makes newcomers wait for you"
+                    )
+                )
+            if invite_secret:
+                save_secret("invite_secrets", room, invite_secret)
+
+    on_file = project_file_values(root)
+    save_project = bool(getattr(args, "save_project", False))
+    e2e_flag = bool(getattr(args, "e2e", False))
+    updates: dict[str, Any] = {}
+    if save_project or ("room" in on_file and str(on_file.get("room", "")).upper() != room):
+        if str(on_file.get("room", "")).upper() != room:
+            updates["room"] = room
+        if e2e_flag and on_file.get("e2e") is not True:
+            updates["e2e"] = True
+        # The relay is recorded when asked for, or when a new room lives on a
+        # non-default relay: teammates can only join it there.
+        if save_project and (relay_flag is not None or ("room" in updates and effective_relay != cfg.DEFAULT_RELAY)):
+            if on_file.get("relay") != effective_relay:
+                updates["relay"] = effective_relay
+    if updates:
+        try:
+            path = cfg.write_project_config(root, **updates)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        say(
+            f"  {mark('ok')} wrote {', '.join(updates)} to {display_path(path, root)} "
+            "(commit it so teammates join the same room)"
+        )
+        if "room" in updates:
+            say(
+                f"  {mark('info')} the committed room code alone does not let anyone in: they wait for "
+                "an owner's approval. Send teammates the invite link below instead."
+            )
+
+    # An explicit --name is remembered, or the next plain `hivelane up` would
+    # quietly rename you back to your git identity.
+    if args.name is not None and normalize_name(config.name or "") != name:
+        try:
+            path = cfg.write_personal_config(name=name)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        say(f"  {mark('ok')} saved name {name} to {path} (used in every repo)")
+
+    relay_override = effective_relay if (relay_flag is not None or effective_relay != config.relay) else None
+    if not created_room and config.owner_token(room):
+        # An owner's share link carries the relay's current invite secret
+        # (it may have been rotated from the dashboard since).
+        current_invite_secret(config, effective_relay, room)
+    e2e_active = _effective_e2e(config, room, on_file, explicit_e2e=e2e_flag or bool(link_key))
+    try:
+        config = cfg.load_config(
+            root,
+            relay=relay_override,
+            room=room,
+            name=name,
+            e2e=True if e2e_active else None,
+        )
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+
+    # A key is generated only for a room this run made e2e (it created the
+    # room, or just enabled --e2e): anyone else is joining a team that already
+    # has one, and a fresh key would silently split them from it.
+    may_generate = created_room or e2e_flag or ("e2e" in updates)
+    if config.e2e and ensure_room_key(config, room, may_generate=may_generate):
+        # A key was just generated into the personal file: the registration
+        # below must carry it.
+        try:
+            config = cfg.load_config(
+                root,
+                relay=relay_override,
+                room=room,
+                name=name,
+                e2e=True,
+            )
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+
+    if repo_id:
+        try:
+            cfg.remember_room(repo_id, room, config.relay)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+
+    return _connect_and_finish(args, root, port, config, name, name_source, svc, via_repo_lookup=from_lookup)
+
+
+def _copy_to_clipboard(text: str) -> bool:
+    """Copy `text` to the OS clipboard when a standard tool is available."""
+    import shutil
+    import subprocess
+
+    commands: list[list[str]] = []
+    if sys.platform == "darwin":
+        commands.append(["pbcopy"])
+    elif os.name == "nt":
+        commands.append(["clip"])
+    else:
+        commands.extend([["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]])
+    for cmd in commands:
+        if shutil.which(cmd[0]) is None:
+            continue
+        try:
+            done = subprocess.run(cmd, input=text, text=True, capture_output=True, timeout=3, check=False)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0:
+            return True
+    return False
+
+
+def cmd_invite(args: argparse.Namespace) -> int:
+    import json
+
+    from hivelane import config as cfg
+
+    try:
+        start: Optional[Path] = project_root(args.root)
+    except ConfigError:
+        if args.root is not None:
+            raise
+        start = None
+
+    relay_flag = normalize_relay(args.relay) if args.relay else None
+    try:
+        config = cfg.load_config(start, relay=relay_flag)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+
+    if args.room:
+        room: Optional[str] = normalize_room(args.room)
+        relay = config.relay
+    else:
+        try:
+            room, relay = _resolve_repo_room(start, config)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        if relay_flag is not None:
+            relay = relay_flag
+
+    if not room:
+        raise ConfigError("no room configured here; run `hivelane up` first (or pass --room CODE)")
+
+    on_file = project_file_values(start) if start is not None else {}
+    e2e_active = _effective_e2e(config, room, on_file)
+    key = None if args.no_key else config.room_key(room)
+    if e2e_active and key is None and not args.no_key:
+        say(
+            f"hivelane: warning: room {room} is end-to-end encrypted, but this machine has no key for it; "
+            "the invite link omits #key=",
+            err=True,
+        )
+
+    owner = config.owner_token(room)
+    if getattr(args, "rotate", False):
+        if not owner:
+            raise ConfigError(
+                f"only an owner can rotate room {room}'s invite link, and this machine has no owner token for it"
+            )
+        invite: Optional[str] = fetch_invite_secret(relay, room, owner, rotate=True)
+        if invite:
+            save_secret("invite_secrets", room, invite)
+        say("hivelane: rotated the invite link; links sent before now only ask an owner to let them in", err=True)
+    else:
+        invite = current_invite_secret(config, relay, room)
+    if invite is None:
+        say(
+            f"hivelane: note: no invite secret for room {room} on this machine; whoever uses this link "
+            "waits for an owner's approval" + ("" if owner else " (ask the room's owner for their link)"),
+            err=True,
+        )
+
+    url = invite_url(relay, room, key=key, invite=invite)
+    if args.copy:
+        if _copy_to_clipboard(url):
+            say("hivelane: copied invite link to clipboard", err=True)
+        else:
+            say("hivelane: could not access system clipboard; copy the link below", err=True)
+
+    if args.json:
+        say(
+            json.dumps(
+                {
+                    "room": room,
+                    "relay": relay,
+                    "e2e": bool(e2e_active or key),
+                    "invite": invite is not None,
+                    "owner": bool(owner),
+                    "url": url,
+                }
+            )
+        )
+        return 0
+
+    say(url)
+    note = f'Teammates run: hivelane join "{url}"'
+    if key or invite:
+        note += " (the #fragment stays in the browser and is never sent to any server)"
+    say(note, err=True)
+    return 0
+
+
+def cmd_join(args: argparse.Namespace) -> int:
+    from hivelane import config as cfg
+
+    if args.server is not None or args.agent is not None:
+        raise ConfigError(
+            "`hivelane join` now joins from an invite link; the single-room foreground daemon "
+            f"is `hivelane daemon {args.target} --name NAME --server URL --agent AGENT`"
+        )
+
+    try:
+        target = parse_invite_link(args.target)
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from None
+
+    room = normalize_room(target.room)
+    root = project_root(args.root)
+    port = resolve_port(args.port)
+
+    if args.relay:
+        relay_override: Optional[str] = normalize_relay(args.relay)
+    elif target.relay:
+        relay_override = normalize_relay(target.relay)
+    else:
+        relay_override = None
+
+    try:
+        config = cfg.load_config(root, relay=relay_override)
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+    insecure = bool(getattr(args, "insecure", False)) or config.insecure
+    check_transport(config.relay, insecure)
+    name, name_source = resolve_name(args.name, config.name, root)
+    svc = load_service()
+
+    on_file = project_file_values(root)
+    existing_file = cfg.canonical_room(config.room) if config.room else None
+    if existing_file and existing_file != room and not confirm(
+        f"{cfg.PROJECT_FILE} says room {existing_file}. Join {room} instead?",
+        assume_yes=args.yes,
+    ):
+        raise CommandFailed(f"kept room {existing_file}; nothing else changed")
+
+    say(f"hivelane: joining room {room} in {root}")
+
+    # 1. agent hooks
+    setup_hooks(root, skip=args.no_hooks, assume_yes=args.yes)
+    if not args.no_hooks:
+        offer_status_line(root, choice=args.status_line)
+
+    # 2. save the invite secret and optional e2e key from the fragment & remember
+    # the room on this machine (never writes .hivelane.toml)
+    if target.invite:
+        invite_path = save_secret("invite_secrets", room, target.invite)
+        say(f"  {mark('ok')} saved the invite for {room} to {invite_path}; you will be let in without waiting")
+    if target.key:
+        warn_weak_key(target.key, f"the key for room {room}")
+        try:
+            key_path = cfg.set_personal_secret("room_keys", room, target.key)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        say(f"  {mark('ok')} saved end-to-end room key for {room} to {key_path}")
+
+    if args.name is not None and normalize_name(config.name or "") != name:
+        try:
+            path = cfg.write_personal_config(name=name)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+        say(f"  {mark('ok')} saved name {name} to {path} (used in every repo)")
+
+    e2e_active = _effective_e2e(config, room, on_file, explicit_e2e=bool(target.key))
+    try:
+        config = cfg.load_config(
+            root,
+            relay=relay_override,
+            room=room,
+            name=name,
+            e2e=True if e2e_active else None,
+        )
+    except cfg.ConfigFileError as exc:
+        raise ConfigError(str(exc)) from None
+
+    if config.e2e:
+        ensure_room_key(config, room, may_generate=False)
+
+    repo_id = repo_id_for_root(root)
+    if repo_id:
+        try:
+            cfg.remember_room(repo_id, room, config.relay)
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
+
+    return _connect_and_finish(args, root, port, config, name, name_source, svc)
+
+
 def cmd_bee(args: argparse.Namespace) -> int:
     from hivelane import bee
 
@@ -1060,9 +1604,9 @@ def cmd_bee(args: argparse.Namespace) -> int:
         return 0 if shown.startswith("on") else 1
     if args.action == "off":
         bee.stop(hide=True)
-        say("hivelane: desktop bee off (`hivelane up` leaves it off until `hivelane bee on`)")
+        say("hivelane: desktop bee off (`hivelane bee on` brings it back; `hivelane up` leaves it off until then)")
         return 0
-    say(f"hivelane: desktop bee {'on' if bee.running_pid() else 'off'}")
+    say(f"hivelane: desktop bee {bee.describe()}")
     return 0
 
 
@@ -1143,13 +1687,25 @@ def print_summary(config: HivelaneConfig, name_source: str) -> None:
     if config.e2e:
         say("  e2e        on: paths, diffs and prompts are encrypted; the relay sees hashes")
     say()
-    say("Share with teammates:")
-    say(f"  {share_command(room, config.relay)}")
+    from hivelane.config import transport_problem
+
+    invite = config.invite_secret(room)
+    insecure_relay = bool(transport_problem(config.relay, False))
+    if invite:
+        say("Share with teammates (the line to share; it lets them in, anyone with just the code waits for you):")
+        say(f"  {share_link(config.relay, room, invite)}")
+    else:
+        say("Share with teammates (they will wait for your approval; `hivelane invite` prints a link that skips it):")
+        say(f"  {share_command(room, config.relay)}")
+    say("  or have them paste this into their coding agent, any agent:")
+    say(f"  {agent_join_prompt(config.relay, room, insecure=insecure_relay, invite=invite)}")
     if config.e2e:
         say(f"  and, separately (not in the same message), the room key: `hivelane key show {room}`")
 
 
-def run_foreground(svc: Any, port: int, root: Path, config: HivelaneConfig) -> int:
+def run_foreground(
+    svc: Any, port: int, root: Path, config: HivelaneConfig, *, via_repo_lookup: bool = False
+) -> int:
     """Serve in this process; register the repo from a helper thread once the
     daemon answers, since serve() only returns on shutdown."""
     import threading
@@ -1169,7 +1725,7 @@ def run_foreground(svc: Any, port: int, root: Path, config: HivelaneConfig) -> i
                 return
             time.sleep(POLL_INTERVAL)
         try:
-            svc.connect_repo(port, root, config)
+            svc.connect_repo(port, root, config, via_repo_lookup=via_repo_lookup)
         except Exception as exc:  # reported, never fatal to the serving thread
             say(f"hivelane: could not connect {root}: {exc}", err=True)
             return
@@ -1226,9 +1782,20 @@ def cmd_leave(args: argparse.Namespace) -> int:
         say(f"hivelane: no daemon running on port {port}; nothing to disconnect")
 
     if args.forget:
+        repo_id = repo_id_for_root(root)
+        try:
+            forgot_personal = cfg.forget_room(repo_id) if repo_id else False
+        except cfg.ConfigFileError as exc:
+            raise ConfigError(str(exc)) from None
         project = cfg.find_project_config(root)
         if project is None:
-            say(f"hivelane: no {cfg.PROJECT_FILE} to forget")
+            if forgot_personal:
+                say(
+                    f"hivelane: forgot the remembered room for {root}; the next `hivelane up` "
+                    "creates a new one"
+                )
+            else:
+                say(f"hivelane: no {cfg.PROJECT_FILE} or remembered room to forget")
             return 0
         try:
             forgotten = cfg.remove_project_keys(project.parent, "room")
@@ -1239,6 +1806,8 @@ def cmd_leave(args: argparse.Namespace) -> int:
                 f"hivelane: removed the room from {project}; the next `hivelane up` "
                 "creates a new one (commit the change to move the whole team)"
             )
+        elif forgot_personal:
+            say(f"hivelane: forgot the remembered room for {root}")
         else:
             say(f"hivelane: {project} has no room set")
     return 0
@@ -1257,11 +1826,12 @@ def cmd_open(args: argparse.Namespace) -> int:
         start = None
     try:
         config = cfg.load_config(start)
+        room, relay = _resolve_repo_room(start, config)
     except cfg.ConfigFileError as exc:
         raise ConfigError(str(exc)) from None
-    if not config.room:
-        raise ConfigError(f"no room configured here (no {cfg.PROJECT_FILE} with a room); run `hivelane up` first")
-    url = room_url(config.relay, config.room)
+    if not room:
+        raise ConfigError(f"no room configured here (no {cfg.PROJECT_FILE} or remembered room); run `hivelane up` first")
+    url = room_url(relay, room)
     say(f"hivelane: opening {url}")
     if not webbrowser.open(url):
         say("hivelane: could not open a browser; visit the URL above")
@@ -1340,6 +1910,8 @@ def _format_repo(repo: dict[str, Any]) -> list[str]:
     elif repo.get("connected"):
         since = _ago(repo.get("connected_since"))
         state, kind = "connected" + (f" since {since}" if since else ""), "ok"
+    elif repo.get("awaiting_approval"):
+        state, kind = "waiting for the owner to let you in", "info"
     else:
         state, kind = "connecting to the relay", "info"
     lines = [f"  {mark(kind)} {repo.get('root') or '(no root)'}"]
@@ -1428,6 +2000,8 @@ def format_status_line(status: Any, cwd: Path, *, color: bool) -> str:
     if repo.get("fatal"):
         return f"{LINE_MARK} {dot('error')} {room} stopped"
     if not repo.get("connected"):
+        if repo.get("awaiting_approval"):
+            return f"{LINE_MARK} {dot('error')} {room} waiting for the owner to let you in"
         return f"{LINE_MARK} {dot('off')} {room} connecting"
     peers = repo.get("peers")
     agents = (len(peers) if isinstance(peers, list) else 0) + 1
@@ -1476,6 +2050,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     else:
         for line in lines:
             say(line)
+        from hivelane import bee
+
+        say(f"  desktop bee: {bee.describe()}")
     return 0
 
 
@@ -1597,11 +2174,29 @@ def run_doctor_checks(root_arg: Optional[str], port: int) -> list[Check]:
         checks.append(Check("Git repository", "fail", str(exc), "cd into your project's git checkout, or pass --root PATH"))
 
     config: Optional[HivelaneConfig] = None
+    remembered: Optional[tuple[str, str]] = None
     project = cfg.find_project_config(root) if root is not None else cfg.find_project_config()
     if project is None:
-        checks.append(
-            Check(f"{cfg.PROJECT_FILE} found", "fail", "no project config", "run `hivelane up` (or pull it from your team's repo)")
-        )
+        if root is not None:
+            try:
+                remembered = cfg.remembered_room(repo_id_for_root(root))
+            except cfg.ConfigFileError as exc:
+                checks.append(Check(f"{cfg.PROJECT_FILE} valid", "fail", str(exc), f"fix {cfg.personal_config_path()}, then run `hivelane up`"))
+                remembered = None
+        if remembered is not None:
+            rem_room, rem_relay = remembered
+            try:
+                base_cfg = cfg.load_config(root)
+                has_key = base_cfg.room_key(rem_room, generic_env=False) is not None
+                config = cfg.load_config(root, root=root, room=rem_room, relay=rem_relay, e2e=True if has_key else None)
+            except cfg.ConfigFileError as exc:
+                checks.append(Check(f"{cfg.PROJECT_FILE} valid", "fail", str(exc), f"fix {cfg.personal_config_path()}, then run `hivelane up`"))
+            else:
+                checks.append(Check(f"{cfg.PROJECT_FILE} / room", "ok", f"remembered room {rem_room} on {rem_relay}"))
+        elif not checks or not checks[-1].label.startswith(cfg.PROJECT_FILE):
+            checks.append(
+                Check(f"{cfg.PROJECT_FILE} found", "fail", "no project config or remembered room", "run `hivelane up` (or `hivelane join <invite-link>`)")
+            )
     else:
         try:
             config = cfg.load_config(project.parent)
@@ -1992,7 +2587,7 @@ def cmd_relay(args: argparse.Namespace) -> int:
 
 
 def _room_for(args: argparse.Namespace) -> str:
-    """ROOM from the command line, else the current repo's configured room."""
+    """ROOM from the command line, else the current repo's configured or remembered room."""
     from hivelane import config as cfg
 
     if getattr(args, "room", None):
@@ -2002,9 +2597,10 @@ def _room_for(args: argparse.Namespace) -> str:
     except ConfigError:
         start = None
     config = cfg.load_config(start)
-    if not config.room:
+    room, _ = _resolve_repo_room(start, config)
+    if not room:
         raise ConfigError("no room given and none configured here; pass the room code")
-    return normalize_room(config.room)
+    return normalize_room(room)
 
 
 def cmd_key(args: argparse.Namespace) -> int:
@@ -2174,13 +2770,29 @@ def build_parser() -> argparse.ArgumentParser:
         description="Install agent hooks, create or join this repo's room, and connect "
         "it through the background daemon. Safe to re-run.",
     )
-    up.add_argument("--room", default=None, metavar="CODE", help="join this room (default: .hivelane.toml, else create one)")
+    up.add_argument(
+        "--room",
+        default=None,
+        metavar="CODE_OR_LINK",
+        help="join this room: a code, or the invite link a teammate sent (lets you in without waiting for approval; "
+        "default: .hivelane.toml, remembered room, relay lookup, else create one)",
+    )
     up.add_argument("--relay", default=None, metavar="URL", help="relay URL, e.g. wss://relay.example.com/ws")
     up.add_argument("--name", default=None, help="display name (default: config, git user.name, OS user)")
     up.add_argument("--root", default=None, metavar="PATH", help=root_help)
     up.add_argument("--port", type=int, default=None, help=port_help)
     up.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
     up.add_argument("--no-hooks", action="store_true", help="do not install agent hooks")
+    up.add_argument(
+        "--no-agent-docs",
+        action="store_true",
+        help="do not add the Hivelane section to AGENTS.md / CLAUDE.md and other agent instruction files",
+    )
+    up.add_argument(
+        "--no-repo-lookup",
+        action="store_true",
+        help="do not look up or bind a room by this repository's identity",
+    )
     up.add_argument(
         "--status-line",
         action=argparse.BooleanOptionalAction,
@@ -2198,9 +2810,68 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument(
         "--e2e",
         action="store_true",
-        help="turn on end-to-end encryption for this repo's room (writes e2e = true to .hivelane.toml)",
+        help="turn on end-to-end encryption for this repo's room",
+    )
+    up.add_argument(
+        "--save-project",
+        action="store_true",
+        help="write room, relay, and --e2e to .hivelane.toml (optional; off by default)",
     )
     up.set_defaults(func=cmd_up)
+
+    invite_cmd = sub.add_parser(
+        "invite",
+        help="print a shareable invite link for this repo's room",
+        description="Print a `<dashboard>/j/<ROOM>` invite link for teammates (carries ?relay= "
+        "when needed, #invite= so they come straight in without approval, and #key= when e2e is enabled). "
+        "An owner's link carries the relay's current invite secret.",
+    )
+    invite_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    invite_cmd.add_argument("--room", default=None, metavar="CODE", help="room code (default: this repo's)")
+    invite_cmd.add_argument("--relay", default=None, metavar="URL", help="relay URL override")
+    invite_cmd.add_argument("--no-key", action="store_true", help="omit the e2e room key fragment from the invite link")
+    invite_cmd.add_argument("--copy", action="store_true", help="copy the invite link to the system clipboard")
+    invite_cmd.add_argument("--json", action="store_true", help="output JSON with room, relay, e2e, invite, owner and url")
+    invite_cmd.add_argument(
+        "--rotate",
+        action="store_true",
+        help="owner only: replace the invite link (links sent before only ask for approval; people already let in stay)",
+    )
+    invite_cmd.set_defaults(func=cmd_invite)
+
+    join_cmd = sub.add_parser(
+        "join",
+        help="join a room from an invite link or room code",
+        description="Join a teammate's room from an invite link (`hivelane invite`) or room code: "
+        "installs hooks, saves any e2e key from the #key= fragment, remembers the room on this machine "
+        "(without writing .hivelane.toml), and connects the daemon.",
+    )
+    join_cmd.add_argument("target", metavar="LINK_OR_ROOM", help="invite link (from `hivelane invite`) or room code")
+    join_cmd.add_argument("--relay", default=None, metavar="URL", help="relay URL (default: link's ?relay=, else config/default)")
+    join_cmd.add_argument("--name", default=None, help="display name (default: config, git user.name, OS user)")
+    join_cmd.add_argument("--root", default=None, metavar="PATH", help=root_help)
+    join_cmd.add_argument("--port", type=int, default=None, help=port_help)
+    join_cmd.add_argument("-y", "--yes", action="store_true", help="answer yes to every question")
+    join_cmd.add_argument("--no-hooks", action="store_true", help="do not install agent hooks")
+    join_cmd.add_argument(
+        "--status-line",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="show Hivelane in Claude Code's status line (default: ask; never replaces your own)",
+    )
+    join_cmd.add_argument(
+        "--bee",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="show the desktop bee (default: on; HIVELANE_BEE=0 also turns it off)",
+    )
+    join_cmd.add_argument("--foreground", action="store_true", help="run the daemon in this terminal (debugging, CI)")
+    join_cmd.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
+    # The single-room foreground daemon used to answer to `join` too; it is
+    # `hivelane daemon` now. Its flags are kept (hidden) to say so.
+    join_cmd.add_argument("--server", default=None, help=argparse.SUPPRESS)
+    join_cmd.add_argument("--agent", default=None, help=argparse.SUPPRESS)
+    join_cmd.set_defaults(func=cmd_join)
 
     bee_cmd = sub.add_parser("bee", help="show or hide the desktop bee (menu bar, system tray or screen-edge room status)")
     bee_cmd.add_argument("action", choices=["on", "off", "status"], nargs="?", default="status")
@@ -2273,22 +2944,28 @@ def build_parser() -> argparse.ArgumentParser:
     service_uninstall = service_sub.add_parser("uninstall", help="remove the login item")
     service_uninstall.set_defaults(func=cmd_service_uninstall)
 
-    for verb in ("join", "daemon"):
-        run = sub.add_parser(verb, help="run a single-room daemon in the foreground (advanced)")
-        run.add_argument("room", help="room code, e.g. TEAM42")
-        run.add_argument("--name", required=True, help="your display name in the room")
-        run.add_argument("--server", default=DEFAULT_SERVER, help=f"relay ws base (default {DEFAULT_SERVER})")
-        run.add_argument("--agent", default="claude-code", choices=AGENT_KINDS, help="agent you are driving")
-        run.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
-        run.add_argument("--port", type=int, default=None, help=f"loopback port (default {DEFAULT_PORT})")
-        run.add_argument(
-            "--root",
-            default=None,
-            metavar="PATH",
-            help="project directory file paths are keyed against (default: the git repo "
-            "around each agent's cwd); outside git, every teammate must pass one",
-        )
-        run.set_defaults(func=cmd_join)
+    run = sub.add_parser("daemon", help="run a single-room daemon in the foreground (advanced)")
+    run.add_argument("room", help="room code, e.g. TEAM42")
+    run.add_argument("--name", required=True, help="your display name in the room")
+    run.add_argument("--server", default=DEFAULT_SERVER, help=f"relay ws base (default {DEFAULT_SERVER})")
+    run.add_argument("--agent", default="claude-code", choices=AGENT_KINDS, help="agent you are driving")
+    run.add_argument("--insecure", action="store_true", help="allow a plaintext ws:// relay on another machine")
+    run.add_argument("--port", type=int, default=None, help=f"loopback port (default {DEFAULT_PORT})")
+    run.add_argument(
+        "--invite",
+        default=None,
+        metavar="SECRET",
+        help="the room's invite secret (the #invite= part of an invite link; also HIVELANE_INVITE), "
+        "so this daemon is let in without an owner's approval",
+    )
+    run.add_argument(
+        "--root",
+        default=None,
+        metavar="PATH",
+        help="project directory file paths are keyed against (default: the git repo "
+        "around each agent's cwd); outside git, every teammate must pass one",
+    )
+    run.set_defaults(func=cmd_daemon)
 
     key = sub.add_parser(
         "key",

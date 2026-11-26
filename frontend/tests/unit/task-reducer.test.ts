@@ -10,8 +10,15 @@ import {
   applyTaskEvent,
   claimedBy,
   groupTasks,
+  isMine,
   isReady,
+  laneProgress,
   leaseLabel,
+  planGroups,
+  planLabel,
+  splitList,
+  taskIds,
+  taskRefusal,
   taskResult,
 } from '../../src/dashboard/taskReducer.ts';
 import type { Task, TaskUpdate } from '../../src/types.ts';
@@ -93,4 +100,64 @@ test('lease labels and results', () => {
   });
   assert.equal(taskResult(done), 'PR #12');
   assert.equal(taskResult(task('T2')), '');
+});
+
+function step(id: string, fields: Partial<Task> = {}): Task {
+  return task(id, {
+    source: 'agent_plan',
+    lane: 'adrian-claude',
+    created_by: 'adrian',
+    claimer: 'adrian',
+    status: 'claimed',
+    ...fields,
+  });
+}
+
+test('agent plan steps are grouped by lane, out of the team columns and lane task lists', () => {
+  const tasks: Record<string, Task> = {
+    T1: step('T1', { status: 'done', updated_at: T0 + 1 }),
+    T2: step('T2', { active: true }),
+    T3: step('T3'),
+    T4: step('T4', { status: 'cancelled' }),
+    T5: task('T5', { status: 'claimed', claimer: 'adrian' }),
+    T6: step('T6', { lane: 'sam-codex', created_by: 'sam', claimer: 'sam', status: 'done', updated_at: T0 + 9 }),
+  };
+  const groups = groupTasks(tasks);
+  assert.deepEqual(groups.claimed.map((t) => t.task_id), ['T5']);
+  assert.deepEqual(groups.closed, []);
+  assert.deepEqual(claimedBy(tasks, 'adrian').map((t) => t.task_id), ['T5']);
+
+  const plans = planGroups(tasks);
+  // Plans with work left come first, finished ones after.
+  assert.deepEqual(plans.map((p) => [p.label, p.done, p.total, p.finished]), [
+    ["adrian's claude", 1, 3, false],
+    ["sam's codex", 1, 1, true],
+  ]);
+  assert.equal(plans[0].current?.task_id, 'T2');
+  assert.deepEqual(plans[0].steps.map((t) => t.task_id), ['T1', 'T2', 'T3', 'T4']);
+
+  assert.deepEqual(laneProgress(tasks, 'adrian-claude'), { current: tasks.T2, done: 1, total: 3 });
+  // A finished plan is no longer a lane's progress.
+  assert.equal(laneProgress(tasks, 'sam-codex'), null);
+  assert.equal(laneProgress(tasks, 'nobody'), null);
+});
+
+test('plan labels', () => {
+  assert.equal(planLabel('adrian-claude', 'adrian'), "adrian's claude");
+  assert.equal(planLabel('adrian', 'adrian'), 'adrian');
+  assert.equal(planLabel('ci-bot', 'adrian'), "adrian's ci-bot");
+});
+
+test('a dashboard spots its own tasks by tag', () => {
+  assert.equal(isMine(task('T1', { dashboard_tag: 'abc' }), 'abc'), true);
+  assert.equal(isMine(task('T1', { dashboard_tag: 'abc' }), 'xyz'), false);
+  assert.equal(isMine(task('T1'), null), false);
+  assert.equal(isMine(task('T1', { dashboard_tag: '' }), ''), false);
+});
+
+test('form fields: file lists and task ids', () => {
+  assert.deepEqual(splitList(' a.py, b.py,\na.py ,, '), ['a.py', 'b.py']);
+  assert.deepEqual(taskIds('t3, 4, T5, nope, T3'), ['T3', 'T4', 'T5']);
+  assert.match(taskRefusal('limit'), /full/);
+  assert.match(taskRefusal('something_new'), /something_new/);
 });

@@ -70,6 +70,11 @@ EVENT_FIELDS: tuple[str, ...] = (
     # Inside a subagent: which one (see hivelane.events.NormalizedEvent).
     "subagent_id",
     "subagent_type",
+    # A plan event's steps ([{"content", "status"[, "id"]}], see plan_step),
+    # which become the agent's room tasks; plan_partial: they update single
+    # steps instead of listing the whole plan.
+    "steps",
+    "plan_partial",
 )
 
 DECISIONS: tuple[str, ...] = ("allow", "warn", "block")
@@ -192,15 +197,71 @@ def plan_candidates(text: str) -> tuple[list[str], list[str]]:
     return files[:MAX_PLAN_ITEMS], found[:MAX_PLAN_ITEMS]
 
 
-def plan_event(agent: str, session_id: str, cwd: str, summary: str, tool: Any = None) -> Optional[dict[str, Any]]:
+def plan_event(
+    agent: str,
+    session_id: str,
+    cwd: str,
+    summary: str,
+    tool: Any = None,
+    steps: Optional[list[dict[str, str]]] = None,
+    partial: bool = False,
+) -> Optional[dict[str, Any]]:
+    """A `plan` event. steps (from plan_steps) become the agent's room
+    tasks; partial means they update single steps rather than list the
+    whole plan (a step missing from a whole list was removed)."""
     summary = summary.strip()
-    if not summary:
+    if not summary and not steps:
         return None
-    files, symbols = plan_candidates(summary)
-    return make_event(
-        agent, "plan", session_id, cwd, summary=summary[:MAX_PLAN_TEXT], files=files,
-        symbols=symbols, tool=tool,
+    files, symbols = plan_candidates(summary) if summary else ([], [])
+    event = make_event(
+        agent, "plan", session_id, cwd, summary=summary[:MAX_PLAN_TEXT] if summary else None,
+        files=files, symbols=symbols, tool=tool,
     )
+    if steps:
+        event["steps"] = steps
+        event["plan_partial"] = True if partial else None
+    return event
+
+
+# Steps of one plan event, and how much of each step's text is kept.
+MAX_PLAN_STEPS = 50
+MAX_STEP_CHARS = 200
+STEP_STATUSES = ("pending", "in_progress", "completed", "removed")
+_STEP_STATUS_ALIASES = {"deleted": "removed", "cancelled": "removed", "done": "completed", "active": "in_progress"}
+
+
+def plan_step(content: Any, status: Any, step_id: Any = None) -> Optional[dict[str, str]]:
+    """One step as the daemon reads it: {"content", "status"[, "id"]}.
+    content may be empty when an id says which step (an update of its
+    status alone); None when there is nothing to go on."""
+    text = " ".join(content.split())[:MAX_STEP_CHARS] if isinstance(content, str) else ""
+    state = status.strip().lower() if isinstance(status, str) else "pending"
+    state = _STEP_STATUS_ALIASES.get(state, state)
+    if state not in STEP_STATUSES:
+        state = "pending"
+    ident = str(step_id).strip()[:64] if isinstance(step_id, (str, int)) and not isinstance(step_id, bool) else ""
+    if not text and not ident:
+        return None
+    step = {"content": text, "status": state}
+    if ident:
+        step["id"] = ident
+    return step
+
+
+def plan_steps(items: Any, content_key: str = "content", status_key: str = "status", id_key: str = "id") -> list[dict[str, str]]:
+    """plan_step for each dict in a native todo / plan list (capped)."""
+    if not isinstance(items, list):
+        return []
+    steps: list[dict[str, str]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        step = plan_step(item.get(content_key), item.get(status_key), item.get(id_key))
+        if step is not None and step["content"]:
+            steps.append(step)
+        if len(steps) >= MAX_PLAN_STEPS:
+            break
+    return steps
 
 
 # Files larger than this, or binary (a NUL in the first BINARY_SNIFF_BYTES),

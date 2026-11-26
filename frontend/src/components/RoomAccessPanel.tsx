@@ -1,10 +1,11 @@
-import type { JoinRequest } from '../types';
+import type { JoinRequest, RoomAccess } from '../types';
 import JoinRequestRow from './JoinRequestRow';
 
 /**
  * Who may join this room, in the Settings view. Owners (the dashboard that
- * created the room, or any tab given its owner token) switch approval on and
- * off and answer requests; everyone else sees the policy in force.
+ * created the room, or any tab given its owner token) see the invite link and
+ * can rotate it, switch approval on and off, answer requests and remove
+ * people the room remembers; everyone else sees the policy in force.
  */
 
 interface RoomAccessPanelProps {
@@ -15,6 +16,22 @@ interface RoomAccessPanelProps {
   connected: boolean;
   onSetRequireApproval: (value: boolean) => void;
   onDecide: (requestId: string, approve: boolean) => void;
+  /** Owners: the relay's room_access (null until it arrives, or not an owner). */
+  access?: RoomAccess | null;
+  /** Owners: the invite link to show (built by relayUrl.ts shareLink). */
+  shareUrl?: string;
+  onCopy?: (value: string) => void;
+  onRotateInvite?: () => void;
+  onRevokeMember?: (memberId: string) => void;
+}
+
+function issuedLabel(seconds: number): string {
+  if (!seconds) return '';
+  try {
+    return new Date(seconds * 1000).toLocaleDateString();
+  } catch {
+    return '';
+  }
 }
 
 export default function RoomAccessPanel({
@@ -24,17 +41,62 @@ export default function RoomAccessPanel({
   connected,
   onSetRequireApproval,
   onDecide,
+  access = null,
+  shareUrl,
+  onCopy,
+  onRotateInvite,
+  onRevokeMember,
 }: RoomAccessPanelProps) {
   const on = requireApproval === true;
+  const invites = access?.invite_required === true;
   const policy =
     requireApproval == null
       ? 'Waiting for the relay…'
       : on
-        ? 'New members and dashboards wait until an owner approves them.'
-        : 'Anyone with the room code or link can join.';
+        ? 'New members and dashboards wait until an owner approves them, invite link or not.'
+        : invites
+          ? 'People with the invite link come straight in. Anyone with only the room code waits for an owner.'
+          : 'Anyone with the room code or link can join.';
+  const members = access?.members ?? [];
 
   return (
     <div>
+      {isOwner && access ? (
+        <div className="mb-5">
+          <span className="section-label">Invite link</span>
+          {access.invite_secret && shareUrl ? (
+            <>
+              <div className="flex items-center gap-2 mt-2">
+                <code className="v3-mono text-[12px] truncate min-w-0 flex-1" title="Send this to teammates">
+                  {shareUrl}
+                </code>
+                {onCopy ? (
+                  <button type="button" className="v3-btn v3-btn--secondary v3-btn--sm" onClick={() => onCopy(shareUrl)}>
+                    Copy
+                  </button>
+                ) : null}
+              </div>
+              <p className="text-[12px] text-on-muted mt-1 mb-0">
+                Whoever opens this link is let in without asking. Share it with your team only.
+              </p>
+            </>
+          ) : (
+            <p className="text-[12px] text-on-muted mt-2 mb-0">
+              This room has no invite link yet: the code alone lets people in. Make one to require it.
+            </p>
+          )}
+          {onRotateInvite ? (
+            <button
+              type="button"
+              className="v3-btn v3-btn--ghost v3-btn--sm mt-2"
+              disabled={!connected}
+              onClick={onRotateInvite}
+            >
+              {access.invite_secret ? 'Make a new link (old links stop working)' : 'Make an invite link'}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <label className="section-label" htmlFor={isOwner ? 'require-approval' : undefined}>
         Join approval
       </label>
@@ -68,7 +130,7 @@ export default function RoomAccessPanel({
           </button>
         ) : null}
       </div>
-      {isOwner && on ? (
+      {isOwner && (on || invites || requests.length > 0) ? (
         <div className="mt-3">
           <p className="text-[12px] text-on-muted m-0">
             {requests.length === 0
@@ -82,6 +144,41 @@ export default function RoomAccessPanel({
               ))}
             </ul>
           ) : null}
+        </div>
+      ) : null}
+      {isOwner && members.length > 0 ? (
+        <div className="mt-5">
+          <span className="section-label">Remembered people</span>
+          <p className="text-[12px] text-on-muted mt-1 mb-0">
+            Let in before (approved or by link), so they are not asked again. Removing someone disconnects them;
+            make a new link too if they still have the old one.
+          </p>
+          <ul className="m-0 mt-2 p-0 list-none divide-y divide-outline-soft/50">
+            {members.map((member) => (
+              <li key={member.member_id} className="flex items-center justify-between gap-3 py-2">
+                <span className="min-w-0 text-[13px] truncate">
+                  <span className={`v3-dot ${member.online ? 'is-ok' : ''}`} aria-hidden="true" /> {member.name}
+                  <span className="text-on-muted text-[12px]">
+                    {' '}
+                    {member.kind === 'dashboard' ? 'dashboard' : 'agent'}
+                    {issuedLabel(member.issued_at) ? ` · since ${issuedLabel(member.issued_at)}` : ''}
+                    {member.online ? ' · online' : ''}
+                  </span>
+                </span>
+                {onRevokeMember ? (
+                  <button
+                    type="button"
+                    className="v3-btn v3-btn--ghost v3-btn--sm"
+                    disabled={!connected}
+                    aria-label={`Remove ${member.name}`}
+                    onClick={() => onRevokeMember(member.member_id)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : null}
     </div>
