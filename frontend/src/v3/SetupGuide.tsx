@@ -15,12 +15,15 @@ export default function SetupGuide({
   anyAgent,
   e2e,
   actions,
+  shareUrl,
 }: {
   roomId: string;
   connected: boolean;
   anyAgent: boolean;
   e2e: boolean;
   actions: V3Actions;
+  /** The link to send teammates (the invite link when known). */
+  shareUrl?: string;
 }) {
   const steps = [
     {
@@ -40,7 +43,7 @@ export default function SetupGuide({
       body: e2e
         ? 'Send the link, and the room key separately (hivelane key show prints it).'
         : 'Anyone with the link or code can join, so share it with your team only.',
-      command: roomLink(roomId),
+      command: shareUrl ?? roomLink(roomId),
       done: false,
     },
   ];

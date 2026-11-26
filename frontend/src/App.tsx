@@ -39,9 +39,20 @@ import {
 } from './detection';
 import { E2EDecoder, forgetRoomKey, rememberRoomKey, takeRoomKey, type E2EState } from './e2e';
 import { notifyFeedEvent } from './notifications';
-import { normalizeRoomCode, relayHttpOrigin, roomLink, roomPath, roomWsUrl } from './relayUrl';
+import { normalizeRoomCode, relayHttpOrigin, roomLink, roomPath, roomWsUrl, shareLink } from './relayUrl';
 import { publishHistoryChunk } from './replay';
-import { createRoom, isApprovalRefusal, ownerToken, spectatorJoin } from './roomAccess';
+import {
+  MEMBER_REVOKED_REASON,
+  createRoom,
+  forgetInviteSecret,
+  forgetMemberToken,
+  inviteSecret,
+  isApprovalRefusal,
+  ownerToken,
+  rememberMemberToken,
+  spectatorJoin,
+  takeInviteSecret,
+} from './roomAccess';
 import { hasSafeKeys, withEntry } from './safeKey';
 import { observeServerTimestamp, serverNowSeconds } from './serverClock';
 import type {
@@ -50,8 +61,11 @@ import type {
   DecisionScope,
   FeedEvent,
   HoldRelease,
+  InviteRotate,
   JoinDecision,
   JoinRequest,
+  MemberRevoke,
+  RoomAccess,
   LaneState as WireLaneState,
   Nudge,
   PlanUpdate,
@@ -233,6 +247,11 @@ export default function App() {
   // Room access: this tab owns the room when it holds the owner token that
   // POST /rooms returned (see roomAccess.ts).
   const [isOwner, setIsOwner] = useState(() => ownerToken(roomId) != null);
+  // The share link's #invite= secret, taken from the address bar on the first
+  // render (and stripped from it) so the first join already carries it.
+  const [tabInvite, setTabInvite] = useState<string | null>(() => takeInviteSecret(roomId));
+  // Owners only: the relay's room_access (invite secret, remembered people).
+  const [access, setAccess] = useState<RoomAccess | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   // The relay's words while waiting for approval, or after being refused.
@@ -277,7 +296,7 @@ export default function App() {
     return ws;
   };
 
-  const sendAccessFrame = (frame: JoinDecision | RoomPolicy): boolean => {
+  const sendAccessFrame = (frame: JoinDecision | RoomPolicy | InviteRotate | MemberRevoke): boolean => {
     const ws = liveSocket();
     if (!ws) return false;
     ws.send(JSON.stringify(frame));
@@ -309,9 +328,33 @@ export default function App() {
 
   const setApprovalPolicy = (value: boolean) => {
     if (sendAccessFrame({ type: 'room_policy', require_approval: value })) {
-      showToast(value ? 'Joining now needs your approval' : 'Anyone with the code can join');
+      showToast(
+        value
+          ? 'Joining now needs your approval, invite link or not'
+          : access?.invite_required
+            ? 'People with the invite link come straight in again'
+            : 'Anyone with the code can join',
+      );
     }
   };
+
+  const rotateInvite = () => {
+    if (sendAccessFrame({ type: 'invite_rotate' })) {
+      showToast('New invite link made; links sent before now only ask to join');
+    }
+  };
+
+  const revokeMember = (memberId: string) => {
+    if (sendAccessFrame({ type: 'member_revoke', member_id: memberId })) {
+      showToast('Removed: they need a fresh link or your approval to come back');
+    }
+  };
+
+  // The link to send teammates: with the room's invite secret (owners get
+  // it from the relay; a tab opened from a share link holds it too) whoever
+  // opens it comes straight in. Without one, the room link only asks.
+  const inviteForLink = access?.invite_secret ?? tabInvite;
+  const shareUrl = inviteForLink ? shareLink(roomId, { invite: inviteForLink }) : roomLink(roomId);
 
   const sendVoteNow = (decisionId: string, vote: Vote) => {
     if (myVotes[decisionId]) return;
@@ -668,6 +711,12 @@ export default function App() {
 
         switch (msg.type) {
           case 'room_rejected':
+            if (msg.reason === MEMBER_REVOKED_REASON) {
+              // An owner removed this browser: what let it in no longer works.
+              forgetMemberToken(roomId);
+              forgetInviteSecret(roomId);
+              setTabInvite(null);
+            }
             if (isApprovalRefusal(msg.reason, awaitingApproval)) {
               refused = true;
               awaitingApproval = false;
@@ -737,6 +786,16 @@ export default function App() {
             setJoinRequests((prev) => (prev.some((r) => r.request_id === msg.request_id) ? prev : [...prev, msg]));
             break;
 
+          case 'member_token':
+            // Let in (approved, or by invite link): remembered, so a reload
+            // or a reconnect is not asked again.
+            rememberMemberToken(roomId, msg.token);
+            break;
+
+          case 'room_access':
+            setAccess(msg);
+            break;
+
           case 'rate_limited':
             console.warn('rate_limited:', String(msg.reason).slice(0, 200));
             retryAfterMs = Math.max(0, (msg.retry_after ?? 0) * 1000);
@@ -794,6 +853,8 @@ export default function App() {
       setRoomSettings(null);
       setStatus('connecting');
       setIsOwner(ownerToken(roomId) != null);
+      setTabInvite(inviteSecret(roomId));
+      setAccess(null);
       setRequireApproval(null);
       setJoinRequests([]);
       setAccessNotice(null);
@@ -932,7 +993,7 @@ export default function App() {
 
   const actions: V3Actions = {
     navigate: navigateTo,
-    copyLink: () => copyText('Room link', roomLink(roomId)),
+    copyLink: () => copyText(inviteForLink ? 'Invite link' : 'Room link', shareUrl),
     copyText,
     newRoom: () => {
       if (!creatingRoom) void createNewRoom();
@@ -986,6 +1047,8 @@ export default function App() {
     isOwner,
     settings: roomSettings,
     requireApproval,
+    shareUrl,
+    access,
     accessNotice,
     lanes,
     onlineIds: onlineUserIds,
@@ -1129,6 +1192,7 @@ export default function App() {
             anyAgent={false}
             e2e={roomSettings?.e2e ?? false}
             actions={actions}
+            shareUrl={shareUrl}
           />
         )}
       </div>
@@ -1143,7 +1207,14 @@ export default function App() {
           sub="Each teammate joins once from their repo; their agent then shows up as a lane."
         />
         <section className="v3-section" style={{ maxWidth: 720 }}>
-          <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+          <InviteContent
+            roomId={roomId}
+            settings={roomSettings}
+            requireApproval={requireApproval}
+            shareUrl={shareUrl}
+            hasInvite={inviteForLink != null}
+            onCopy={copyText}
+          />
         </section>
       </div>
     </div>
@@ -1216,6 +1287,8 @@ export default function App() {
           joinRequests={joinRequests}
           onSetRequireApproval={setApprovalPolicy}
           onDecide={decideJoin}
+          onRotateInvite={rotateInvite}
+          onRevokeMember={revokeMember}
         />
       );
       break;
@@ -1248,7 +1321,14 @@ export default function App() {
       <MobileNav view={view} onNavigate={navigateTo} conflictCount={conflicts.length + held.length} />
       <CommandMenu open={commandOpen} getCommands={getCommands} onClose={() => setCommandOpen(false)} />
       <InviteSheet open={inviteOpen} onClose={() => setInviteOpen(false)}>
-        <InviteContent roomId={roomId} settings={roomSettings} requireApproval={requireApproval} onCopy={copyText} />
+        <InviteContent
+          roomId={roomId}
+          settings={roomSettings}
+          requireApproval={requireApproval}
+          shareUrl={shareUrl}
+          hasInvite={inviteForLink != null}
+          onCopy={copyText}
+        />
       </InviteSheet>
       <ShareCardDialog open={dash.shareOpen} stats={dash.stats} onClose={() => dash.setShareOpen(false)} onNotice={showToast} />
       <ShortcutHelp open={dash.helpOpen} onClose={() => dash.setHelpOpen(false)} />

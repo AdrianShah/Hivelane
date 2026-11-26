@@ -241,6 +241,7 @@ export default function DashboardView({ model }: { model: V3Model }) {
             anyAgent={false}
             e2e={model.settings?.e2e ?? false}
             actions={actions}
+            shareUrl={model.shareUrl}
           />
         ) : (
           <section className="v3-section" aria-labelledby="lanes-title">

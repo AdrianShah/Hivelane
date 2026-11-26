@@ -141,13 +141,21 @@ export function InviteContent({
   roomId,
   settings,
   requireApproval,
+  shareUrl,
+  hasInvite = false,
   onCopy,
 }: {
   roomId: string;
   settings: RoomSettingsUpdate | null;
   requireApproval: boolean | null;
+  /** The link to send (relayUrl.ts shareLink); defaults to the room link. */
+  shareUrl?: string;
+  /** True when shareUrl carries the room's invite secret. */
+  hasInvite?: boolean;
   onCopy: (label: string, value: string) => void;
 }) {
+  const link = shareUrl ?? roomLink(roomId);
+  const linkLabel = hasInvite ? 'Invite link' : 'Room link';
   return (
     <div className="grid gap-6 grid-cols-[minmax(0,1fr)]">
       <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -155,19 +163,21 @@ export function InviteContent({
           <span className="v3-label">Room code</span>
           <div className="v3-code-big">{roomId || '-'}</div>
         </div>
-        <button type="button" className="v3-btn v3-btn--primary" onClick={() => onCopy('Room link', roomLink(roomId))}>
+        <button type="button" className="v3-btn v3-btn--primary" onClick={() => onCopy(linkLabel, link)}>
           <Icon name="link" size={15} /> Copy link
         </button>
       </div>
       <p className="v3-sub m-0">
         {requireApproval
-          ? 'People with the code can ask to join; an owner approves each request.'
-          : 'Anyone with the code can join, so share it with your team only.'}
+          ? 'People with the code or link can ask to join; an owner approves each request.'
+          : hasInvite
+            ? 'Whoever opens the invite link comes straight in, so share it with your team only. The room code alone only asks an owner to let them in.'
+            : 'Anyone with the code can join, so share it with your team only.'}
         {settings?.e2e
           ? ` This room is end-to-end encrypted: send the room key separately (hivelane key show prints it); teammates run hivelane key set ${roomId}.`
           : ''}
       </p>
-      <CopyRow label="Room link" value={roomLink(roomId)} onCopy={onCopy} />
+      <CopyRow label={linkLabel} value={link} onCopy={onCopy} />
       <CopyRow label="One-line setup (run in their repo)" value={setupCommand(roomId)} onCopy={onCopy} />
       <div className="grid gap-3 grid-cols-[minmax(0,1fr)]">
         <span className="v3-title">Or step by step</span>
