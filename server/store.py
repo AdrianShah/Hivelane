@@ -96,7 +96,8 @@ class RoomStore(Protocol):
         room_id: str,
         created_at: float,
         settings: Optional[StoredSettings] = None,
-    ) -> None: ...
+    ) -> None:
+        """Record a new code created at `created_at`, with its settings if any."""
 
     def exists(self, room_id: str) -> bool:
         """True if the code is known and not older than ROOM_TTL_SECONDS."""
@@ -134,7 +135,8 @@ class RoomStore(Protocol):
         or None if the code is unknown or expired. Raises StoreReadError when
         the store cannot answer (never "unknown" for "could not read")."""
 
-    def remove(self, room_id: str) -> None: ...
+    def remove(self, room_id: str) -> None:
+        """Forget the code and everything stored with it."""
 
     def count(self) -> int:
         """Number of unexpired codes."""
