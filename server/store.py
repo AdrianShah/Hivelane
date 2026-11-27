@@ -50,6 +50,13 @@ def _loggable(value: str) -> str:
     return printable.replace("\r", "").replace("\n", "")
 
 
+def _code_for_log(room_id: str) -> str:
+    """A room code is the join credential: logs carry a short, cleaned prefix
+    only (as the relay's redact_code)."""
+    prefix = _loggable(room_id[:3]) if room_id else ""
+    return f"{prefix}…" if prefix else "?"
+
+
 # A room code stops being valid after this long, so the table cannot grow
 # forever. This is an upper bound: RoomManager also removes a code once its
 # room has been empty for the eviction grace period, so a code stays valid
@@ -93,31 +100,24 @@ class RoomStore(Protocol):
 
     def exists(self, room_id: str) -> bool:
         """True if the code is known and not older than ROOM_TTL_SECONDS."""
-        ...
 
     def get_settings(self, room_id: str) -> Optional[StoredSettings]:
         """The room's stored settings, or None if it has none (or is unknown)."""
-        ...
 
     def set_settings(self, room_id: str, settings: StoredSettings) -> None:
         """Replace a known room's settings; a no-op for an unknown code."""
-        ...
 
     def get_access(self, room_id: str) -> Optional[StoredAccess]:
         """The room's owner-token hash and join policy, or None if unset."""
-        ...
 
     def set_access(self, room_id: str, access: StoredAccess) -> None:
         """Replace a known room's access record; a no-op for an unknown code."""
-        ...
 
     def get_webhooks(self, room_id: str) -> Optional[StoredWebhooks]:
         """The room's webhooks record, or None if it has none."""
-        ...
 
     def set_webhooks(self, room_id: str, webhooks: StoredWebhooks) -> None:
         """Replace a known room's webhooks record; a no-op for an unknown code."""
-        ...
 
     def get_repo_key(self, room_id: str) -> Optional[str]:
         """The repo lookup key bound to room_id, or None if unbound."""
@@ -133,17 +133,14 @@ class RoomStore(Protocol):
         """The code's creation time, settings and access record in one read,
         or None if the code is unknown or expired. Raises StoreReadError when
         the store cannot answer (never "unknown" for "could not read")."""
-        ...
 
     def remove(self, room_id: str) -> None: ...
 
     def count(self) -> int:
         """Number of unexpired codes."""
-        ...
 
     def purge_expired(self, now: float) -> int:
         """Drop codes older than the TTL. Returns how many were dropped."""
-        ...
 
 
 class MemoryRoomStore:
@@ -348,7 +345,7 @@ class SqliteRoomStore:
                 (room_id, time.time() - ROOM_TTL_SECONDS),
             ).fetchone()
         except sqlite3.Error:
-            log.exception("Could not read room %s from %s", room_id, self._path)
+            log.exception("Could not read room %s from %s", _code_for_log(room_id), self._path)
             return False
         return row is not None
 
@@ -367,7 +364,7 @@ class SqliteRoomStore:
         try:
             decoded = json.loads(row[0])
         except (TypeError, ValueError):
-            log.warning("Ignoring unreadable settings stored for room %s", room_id)
+            log.warning("Ignoring unreadable settings stored for room %s", _code_for_log(room_id))
             return None
         return decoded if isinstance(decoded, dict) else None
 
@@ -401,7 +398,7 @@ class SqliteRoomStore:
         try:
             decoded = json.loads(row[0])
         except (TypeError, ValueError):
-            log.warning("Ignoring unreadable access record stored for room %s", room_id)
+            log.warning("Ignoring unreadable access record stored for room %s", _code_for_log(room_id))
             return None
         return decoded if isinstance(decoded, dict) else None
 
@@ -451,7 +448,7 @@ class SqliteRoomStore:
                 "SELECT repo_key FROM rooms WHERE room_id = ?", (room_id,)
             ).fetchone()
         except sqlite3.Error:
-            log.exception("Could not read repo_key for room %s from %s", _loggable(room_id), self._path)
+            log.exception("Could not read repo_key for room %s from %s", _code_for_log(room_id), self._path)
             return None
         if row is None or not isinstance(row[0], str) or not row[0]:
             return None
@@ -480,7 +477,7 @@ class SqliteRoomStore:
                 return cursor.rowcount > 0
         except sqlite3.Error:
             log.exception(
-                "Could not persist repo_key for room %s at %s", _loggable(room_id), self._path
+                "Could not persist repo_key for room %s at %s", _code_for_log(room_id), self._path
             )
             return False
 
@@ -504,7 +501,7 @@ class SqliteRoomStore:
                 (room_id, time.time() - ROOM_TTL_SECONDS),
             ).fetchone()
         except sqlite3.Error as exc:
-            log.exception("Could not read room %s from %s", room_id, self._path)
+            log.exception("Could not read room %s from %s", _code_for_log(room_id), self._path)
             raise StoreReadError(f"room registry unreadable: {type(exc).__name__}") from exc
         if row is None:
             return None
@@ -520,7 +517,7 @@ class SqliteRoomStore:
             self._conn.execute("DELETE FROM rooms WHERE room_id = ?", (room_id,))
             self._conn.commit()
         except sqlite3.Error:
-            log.exception("Could not remove room %s from %s", room_id, self._path)
+            log.exception("Could not remove room %s from %s", _code_for_log(room_id), self._path)
 
     def count(self) -> int:
         try:
@@ -592,7 +589,7 @@ def _decode_record(raw: Any, kind: str, room_id: str) -> Optional[dict[str, Any]
     try:
         decoded = json.loads(raw)
     except (TypeError, ValueError):
-        log.warning("Ignoring unreadable %s stored for room %s", kind, room_id)
+        log.warning("Ignoring unreadable %s stored for room %s", kind, _code_for_log(room_id))
         return None
     return decoded if isinstance(decoded, dict) else None
 
