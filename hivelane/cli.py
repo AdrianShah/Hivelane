@@ -2036,6 +2036,8 @@ def cmd_status(args: argparse.Namespace) -> int:
                 if isinstance(current, str) and current:
                     cwd = Path(current)
             except (ValueError, AttributeError, OSError):
+                # No usable session JSON on stdin: the status line falls back
+                # to this process's own directory rather than failing the bar.
                 pass
         say(format_status_line(status, cwd, color=not args.plain))
         return 0
