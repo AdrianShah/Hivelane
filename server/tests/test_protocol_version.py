@@ -59,3 +59,42 @@ def test_spectator_is_exempt(room_id: str) -> None:
 
     assert frame["type"] == "room_settings"
 
+
+
+def _join(protocol: int, e2e: bool) -> dict:
+    frame: dict = {"type": "join", "name": "adrian", "agent": "claude-code", "protocol_version": protocol}
+    if e2e:
+        frame["settings"] = {"e2e": True}
+    return frame
+
+
+def test_pre_v3_member_is_refused_from_an_e2e_room(room_id: str) -> None:
+    """A protocol-2 daemon hashes names with a v2 key, which never match a v3
+    member's: in an e2e room its edits would go unchecked, so it is refused."""
+    client = TestClient(app)
+    with client.websocket_connect(f"/ws/{room_id}") as ws:
+        ws.send_json(_join(2, e2e=True))
+        frame = ws.receive_json()
+    assert frame["type"] == "version_rejected"
+    assert "encrypted" in frame["reason"]
+
+
+def test_pre_v3_member_is_refused_once_the_room_is_e2e(room_id: str) -> None:
+    client = TestClient(app)
+    with client.websocket_connect(f"/ws/{room_id}") as ws:
+        ws.send_json(_join(PROTOCOL_VERSION, e2e=True))
+        ws.receive_json()
+        with client.websocket_connect(f"/ws/{room_id}") as old:
+            old.send_json({**_join(2, e2e=False), "name": "bob"})
+            assert old.receive_json()["type"] == "version_rejected"
+
+
+def test_pre_v3_member_still_joins_a_cleartext_room(room_id: str) -> None:
+    client = TestClient(app)
+    with client.websocket_connect(f"/ws/{room_id}") as ws:
+        ws.send_json(_join(2, e2e=False))
+        ws.send_json({"type": "edit_check", "request_id": "r1", "file_path": "a.py"})
+        frame = ws.receive_json()
+        while frame["type"] != "edit_check_response":
+            frame = ws.receive_json()
+    assert frame["decision"] == "allow"

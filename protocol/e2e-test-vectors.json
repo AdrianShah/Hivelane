@@ -1,159 +1,61 @@
 {
-  "description": "Hivelane e2e test vectors. `vectors` = v1 (read-only legacy): HKDF-SHA256(ikm=passphrase UTF-8, salt='synergo-e2e-v1:'+ROOM.strip().upper(), info='enc'|'mac', L=32); blob = base64url_nopad(nonce(12) || AES-256-GCM ciphertext || tag(16)), AD = message type. `vectors_v2` = what current clients write: ROOM = room with every whitespace/'-' removed, upper case (the relay's normalize_room_code); salt='synergo-e2e-v2:'+ROOM; stretched = PBKDF2-HMAC-SHA256(NFC(passphrase) UTF-8, salt, 600000, 32); enc/mac = HKDF-SHA256(stretched, salt, 'enc'|'mac', 32); blob = '2.' + base64url_nopad(nonce || ct || tag) of the plaintext padded with spaces to padded_length (256 B, powers of two to 16 KiB, then 16 KiB multiples); repo token = hash('repo:'+repo_id). Hash (both): 'h:' + first 32 hex of HMAC-SHA256(mac_key, value UTF-8). Checked by hivelane/tests/test_crypto.py and frontend/tests/e2e-crypto.test.ts; regenerate only on a deliberate format change.",
-  "version": 2,
+  "description": "Hivelane e2e test vectors (key version 3). ROOM = room with every whitespace/'-' removed, upper case (the relay's normalize_room_code); salt='hivelane-e2e-v3:'+ROOM; stretched = PBKDF2-HMAC-SHA256(NFC(passphrase) UTF-8, salt, 600000, 32); enc/mac = HKDF-SHA256(stretched, salt, 'enc'|'mac', 32); blob = '3.' + base64url_nopad(nonce(12) || AES-256-GCM ciphertext || tag(16)), AD = message type, of the plaintext padded with spaces to padded_length (256 B, powers of two to 16 KiB, then 16 KiB multiples); hash = 'h:' + first 32 hex of HMAC-SHA256(mac_key, value UTF-8); repo token = hash('repo:'+repo_id). Checked by hivelane/tests/test_crypto.py and frontend/tests/e2e-crypto.test.ts; regenerate only on a deliberate format change.",
+  "version": 3,
   "vectors": [
     {
       "passphrase": "correct horse battery staple",
       "room": "K7Q2XM",
-      "salt": "synergo-e2e-v1:K7Q2XM",
-      "enc_key_hex": "0143510ef2fd601f0e752a6eae5c76a02b57642d03b2420970ba18002557fd1a",
-      "mac_key_hex": "98933ea434dbfb33f61ed46f94e21722425a274485f95bf9f934cf75e09d0eed",
-      "encryptions": [
-        {
-          "type": "activity",
-          "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
-          "nonce_hex": "000102030405060708090a0b",
-          "blob": "AAECAwQFBgcICQoLSSYwlz7HcKqSvY9n5immfEP7xnwhthgnno5OBTU13UNbQt-DEchrjkYjDfjLOahkj9siGn74MidnbryFK35H1Ay65IVzaOsfpE_1HokrbxpCDYKQ-mVDRgt1ZczUmShHYF0tbqGuqTtuO1jBCp-FGaCJpMGUjEaWyc0QtY0d3WiQ54MxZTIdzxe4ozqwnAPo_7HuOrEOBA"
-        },
-        {
-          "type": "intent",
-          "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
-          "nonce_hex": "0708090a0b0c0d0e0f101112",
-          "blob": "BwgJCgsMDQ4PEBES-zFS9s9bzBX-r9gWK837eoz2vl-NYZE9H-O03dyY0ANqD1S_4tsWB7vc4j23ZZ0L002f2x1jEj_RiZnha54w6Nb-hFE"
-        },
-        {
-          "type": "edit_check",
-          "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
-          "nonce_hex": "0e0f10111213141516171819",
-          "blob": "Dg8QERITFBUWFxgZFE5jgfUu1liBycYRkvQ7M6dUjrpScGJrYQ84KZeHJGMjtjk4oUU0cwFM2GI5Zl-jqnkCyzWYUK573SQRuHP2TBUk1ljOEHz59w"
-        }
-      ],
-      "hashes": [
-        {
-          "value": "server/room.py",
-          "token": "h:a310ae2683a4e35a2e8539485cac7ce7"
-        },
-        {
-          "value": "Room.join",
-          "token": "h:276a88c18029a27fa0403b73abd3252a"
-        },
-        {
-          "value": "main",
-          "token": "h:7974c821230650402444e12e65a5165c"
-        },
-        {
-          "value": "src/ünï.ts",
-          "token": "h:4a523b31fd357d226a530e38210efcfb"
-        }
-      ]
-    },
-    {
-      "passphrase": "pässwörd-ünïcode-🔑",
-      "room": "team-42",
-      "salt": "synergo-e2e-v1:TEAM-42",
-      "enc_key_hex": "489e2bd0ce810f3de85d36d98d1372b294cde64383137a000eb53ae12d55e55e",
-      "mac_key_hex": "8db8a0224dae938205d3e68846d09daebd585cbb3bc64ffdf3f930f9edeb84de",
-      "encryptions": [
-        {
-          "type": "activity",
-          "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
-          "nonce_hex": "101112131415161718191a1b",
-          "blob": "EBESExQVFhcYGRobgoJrsjCHrfLE4kJkOytvMrZ7GOoLpqitnwyqG1BciU-JWF7xsVWaUjoRf0JJjXFW5q0R_CCC7hy_ayg5LXCKb8VjbCPjUWj0x6O_Dw1X0BAyLjLCw7WhqA0tM70xxoWVUJsUyezOrQx5HUscVLrbpRU21S0M0OWXvDzDMkntyPXA-eYlyMtVuoCOg9l59BDjzN2z2x0gGQ"
-        },
-        {
-          "type": "intent",
-          "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
-          "nonce_hex": "1718191a1b1c1d1e1f202122",
-          "blob": "FxgZGhscHR4fICEi6pdku2CSY1u1iqaNpF3e5fVO6eBVJudUXX7wB6bborSlptzLprbedwNg2W7FvLX4BqsdOPj6qJmzHiaRWZ8wDKL1w8I"
-        },
-        {
-          "type": "edit_check",
-          "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
-          "nonce_hex": "1e1f20212223242526272829",
-          "blob": "Hh8gISIjJCUmJygpRDDmIHyIzLEUKE4xMJde3Hw9NriQwfLPmYaq8jqysD1ErOjwehnbmdClBhmgEkxk9SExCvu5wnWfZ53i6hS87T1lQeVxvZyoog"
-        }
-      ],
-      "hashes": [
-        {
-          "value": "server/room.py",
-          "token": "h:3874c335427748e7cd7e059506802eb1"
-        },
-        {
-          "value": "Room.join",
-          "token": "h:d795fea4bde4ac8902cb808a47c8ff3d"
-        },
-        {
-          "value": "main",
-          "token": "h:2903332d5b01771b38f7ca581800ea8c"
-        },
-        {
-          "value": "src/ünï.ts",
-          "token": "h:280d97f77db46e7fd553a6544feb4253"
-        }
-      ]
-    }
-  ],
-  "wrong_key": {
-    "passphrase": "not the room key",
-    "room": "K7Q2XM",
-    "blob_from_vector": 0,
-    "encryption": 0
-  },
-  "vectors_v2": [
-    {
-      "passphrase": "correct horse battery staple",
-      "room": "K7Q2XM",
       "canonical_room": "K7Q2XM",
-      "salt": "synergo-e2e-v2:K7Q2XM",
+      "salt": "hivelane-e2e-v3:K7Q2XM",
       "pbkdf2_iterations": 600000,
-      "stretched_hex": "57257b0be4cbb3e9a944c9af81b2ebd65bfe880c43bd0b79569d651224ec0f63",
-      "enc_key_hex": "6aa6e497bac2a61b263d084ec1abb5a19c33ef3e3b7d5392ab0223ad8743f2a7",
-      "mac_key_hex": "66a39e5f3c8304506aa8fd44b6b9b2328397d9a596d27222fcecea2d97078991",
+      "stretched_hex": "bc7e649d827fd9bd599cc99bc230694006264c50c15d74fccebc0116707a93e1",
+      "enc_key_hex": "8d5d11455441c1a99f0e6847510145a51e2e235a5d406baba5ba206d719a02be",
+      "mac_key_hex": "3838d6d646f8e51d4a1625b5d9af303028ec9882f0bd248a910c2157d6d5e84d",
       "encryptions": [
         {
           "type": "activity",
           "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
           "padded_length": 256,
           "nonce_hex": "202122232425262728292a2b",
-          "blob": "2.ICEiIyQlJicoKSorR3Qr62i5DWeI9RLYT73RIKZ1XHSIBfw5-2VbC2cB3C-ZlQBDK4orpHfITYir-rH1BKBH_KdUVtnS8uLVH2VE_yHJBDF1lw3JF7VGhGkCNE2w6Nc5QOkF3wZrYdvveqs50uWA33hFJsKq1nO_vUvaiDa4D7eaaY19wzteUEtOuZarPvENmVwclJzp-kYElnSrTUWmd27aqL_u4qpCtao5FZ0Rf1kC9R4K9Pjri3EgkejaEeRQZdBmIZJJP_mGXVKWv4juNR5Gn6FIoBhZD5BcryTvNfDxJk8ZjmasexuLJzSHV6NJ1bNPMvSOhJGJHmHeIZK9DA4Pyv8lautXi3eP9ff9UZggKy1VdRybSySwb3Q"
+          "blob": "3.ICEiIyQlJicoKSorqdfg3IRbqUo0DKnESTolz2nQe7GZZAQUaUdH14t1Pd-QbzX4dNN-KVs7OSrQnFY-YshzbeXPjZGkx5iLRpZJFJTtDFTIHim6ZWI3HqsP77ctyo74cMXbtlMAT8Wd8vFoPsUcZ3pXuBeGfmk77OHvrvE74TZBPGQafXeCFg9MMcFb7khUHudc7Vc1lK1ZVPBQdyIHz0tIKyvWxe5wOuqxrSdi2n4-0y7BRy1mCt-oa2H1HrDk9Hbu8JoW-VG69gt_bo8hRVISzTNzE95R9CNHJ7OsBL5BVGJ-R6RUm_wuVe182tOQ7ACt7Urks6-kZkiwTUVfnhTGpj0UaaXMrLMs9vtwdnfv5qq8q2OH5olZ8fo"
         },
         {
           "type": "intent",
           "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
           "padded_length": 256,
           "nonce_hex": "2728292a2b2c2d2e2f303132",
-          "blob": "2.JygpKissLS4vMDEyl3iOnaQU0LKL888K_keoSi4Al6bTVxkqf_EX-jwXddV38-9elFPpcR_R72y06z7weh1IgusVaJVXMzRFOoUvDmw5AXlUxVY3llf4L2l6Kw2COE97A9cBUaMoscuMTTa8qFv-JHI1fNMaIiOWcZjj46EPDlFy0sXM7JWotp5U2HYk6cccfGGU6z10qRFlzxf1IfLj8_A0DE3E7wKCpUMkhc3D0G7L-8eppU79y5LV03jKzsYqkxGobastfwJXtbZsgiR7FhgDlG7mDXOQFKEiLqOwGpitJi_oNnml1ciB_0GuB-7q5zDWdVI8WecoAC4Ur0pWQI4knV0d-T7hGGAU8fseJZxFXdJO7yPMRRaNj2w"
+          "blob": "3.JygpKissLS4vMDEyfYO_L7xJYOM__JqsC5879_EZ5D-PFmtlCWyYHrAPn-loKuPmMSiC8tJbiugtr8J9SvQVxjQK13mk3NITkGFGZd7hVAD6oBMfPdGi4LUsuZ9Haix1WuKn2RFDqPNfU4Q0WhHVtIstrPx20L42DvkHKxJlhILZ5irYwP5OEALxYGtT76kH0OmxJ4bxxm7916pl8CjT1he5cm6pzU4f1PQYjSty1i97HMT4TK-Tr3ENNODgmXv6iF2aYu9ediIE_FC96e1_GzkohSKiHd4YZlQ7JrK1ia99iQRPP0V1AFtqsvF_JIN3iFj_s8jyoBLf8PyRxKIEELTZNH8eduTQ51RJFdmyKxWQOHORlPa_l_yEXRE"
         },
         {
           "type": "edit_check",
           "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
           "padded_length": 256,
           "nonce_hex": "2e2f30313233343536373839",
-          "blob": "2.Li8wMTIzNDU2Nzg56csbvgFNOCJIMEXH6RlGR1iWcbqu_4wu7-v90aVsAQFW8BRoS62qVzeSmxgpI1Kbaao0nhHsN1-aM-FA_3n-cWlsooeBuwPmmVfB5PI21GIkyAnTdb49LwggAMyUUKNTEgAVrCvZfQsWRSdX4SMuSOW-AeKpgRUPpYEWDE3RAorBBMskP76OiNEzFYhOnIMnAe5L-NWcLq1JR-wtU5Ht32xPIoTKUmj2tae10_dE_ZaLzyzygegYWvgtOEsA5g2qvpQyrnsTLK18zxDpautNQUPlkNmOBYxrBI6JjYe35wRerwPFhw641dbo7adZ6vYCwuXfhP0UGaaD3jjnyvxW2XQ82Fikcj2z3Pz2a8-N87Y"
+          "blob": "3.Li8wMTIzNDU2Nzg5M3qEk35hcILuDT2YcePuZYvvmkX378khFYBXm-HZVuhZza1Pf7aEXNPc19ZiuLrH-cm2HwbWx9AQndKkwGCsjL0y6nqTORaAp962MFTcSYVV_gQ_Tq1Le8FQ6I79kfhhxcR-xBw7KhBIznQXl4jhxcopzFeSZVnD_63KO-5R6nBcKR3Yn7YQC0JgBV2q5Zk2s5bmKnzP7LexpBfh92yNszOVd-sBrSRZTKXCVNX7zVUg1OmXv6Ln0WX0ex6gYw8x4aC3Nw-glvyFZGSNdEOpAJhppZpa59ujwbPx0K_408AA0pk8bdMSR4MOB7o8al3z3isqna9Ld7SQrCcmJd_3UyXlCufzOrGCSEyqsfpVmw4"
         }
       ],
       "hashes": [
         {
           "value": "server/room.py",
-          "token": "h:803a0dcf66a7238200f746f02ae303eb"
+          "token": "h:dd93f8b48bea16fde99a59fd2b70f2a3"
         },
         {
           "value": "Room.join",
-          "token": "h:3fd72172daf0041b26a37207eff21459"
+          "token": "h:d93a65e14bd3e9c33f55f20460b1fcfe"
         },
         {
           "value": "main",
-          "token": "h:a0d311e2271baae0869d38f1a799db5c"
+          "token": "h:c8407e7d909224aae8d156761eaf113b"
         },
         {
           "value": "src/ünï.ts",
-          "token": "h:6e6fe5500bfb7e908957fae2805d3521"
+          "token": "h:9fdb6aed4099f35952ea5cbb92ae1779"
         }
       ],
       "repo_tokens": [
         {
           "repo_id": "3f1c2a9b8d7e6f50",
-          "token": "h:6c608690b15e93538bd5801904283ce0"
+          "token": "h:bf1c79edf578bcc8dee3ac93409dc380"
         },
         {
           "repo_id": "",
@@ -165,56 +67,56 @@
       "passphrase": "correct horse battery staple",
       "room": "k7q2-xm9p",
       "canonical_room": "K7Q2XM9P",
-      "salt": "synergo-e2e-v2:K7Q2XM9P",
+      "salt": "hivelane-e2e-v3:K7Q2XM9P",
       "pbkdf2_iterations": 600000,
-      "stretched_hex": "8c22310e97116d13ecbd7ed008eb6591349dd3a893c902134f7fc2435331d87e",
-      "enc_key_hex": "038654b5c7f79da3270fc1b06caee9fba0972c86f083830c292faee75d489ac6",
-      "mac_key_hex": "9da258b8d11ade3f22ad8a2bce4212bddb66fcbbbd9f4a7bbc32dddce0135e81",
+      "stretched_hex": "4115ba85fb297e9fcab6bb7ca76f243d582fa2a6120ff82c2505d9541a1e87d3",
+      "enc_key_hex": "54af3db6c30961c81fba4c8f2fc1408d022e5c3a495fb19a963ced373e9c24a1",
+      "mac_key_hex": "314e45d663feebde247dba6da5a03a4ad2f2d6517bf8328895c876751c925aa2",
       "encryptions": [
         {
           "type": "activity",
           "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
           "padded_length": 256,
           "nonce_hex": "303132333435363738393a3b",
-          "blob": "2.MDEyMzQ1Njc4OTo7oag_SMt7sF7FBqp5uOf70Cc_P0ynuhcGuThYKtg4EaqRT43RrGyjvIcl53j9JFtfskIH-URhm3khVe2liYm2jzJpv4SBnRZX_aln4cnhOgZdEHtf1_BmwvVHkTOZWLX4pImaw5Y2rn-WEsqT9jmpY1Ww67asR0E9PhhoFtttf6Aow3Sq5cePTPfbTRFN2cEDI6zxAVQxcwAn9hpKjttmlwYNO_Zkg9O_4pVGau_L90nDqm9bdZ6P5-gAlAiI3ZYGeNDUIIiMYdyL6FKWWanqpc2hqAQ1dTCLfNipxBNulKxzZJr2Pke1vzZaKicnVJuzYXEbR92yLlcolXN308uZ4x1ZBfylOoPXWACUCdgEvAs"
+          "blob": "3.MDEyMzQ1Njc4OTo7jMrwaLU4grfzXBgH8XG0sTLrRkUfaPNpuIf-9Tb0LdqGEucnH9WShc-_dt6XZ4PgkbET2OvI4To9UBa3zifvuExoYtB7-z4FCv8jBE-wkMFoOIMWGQyZxSDmUYn2HACALxkqP5hZiMAJ5qEcJU90OPv6KA20roMCWZU8G02eoyu548NXtDiGyn3R_YgG1C1Aww3wsSPRcBD_3zCrXxj__fPCutfmJb7Bwnoa63hDxURRRVr7ZGiMHWdmjXThzLMovUQ_jJar0cedWQ7MSH8JN6wejgjrjB87hNB6X1gODf_5Ens64sCWy2URWhDamin8mJ16KTAWwgdHgtseK-X0KA1lZGKEs-3lX5zC_WMUJYY"
         },
         {
           "type": "intent",
           "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
           "padded_length": 256,
           "nonce_hex": "3738393a3b3c3d3e3f404142",
-          "blob": "2.Nzg5Ojs8PT4_QEFCJ_nBkB0BP9E2yNaoA7nESZx6zJAB6VZ1bn0E5Zl-NgXpAY-0epJyTrYHHBOyx20nfEEgIUK5wfIFQY6CSLbjzXqYxJtVXQ3qrIVD9iLBgyEM5VfZ4pYoSo81LT2_m0EZK4i8zNoTLatBfI5NelmuKdHWXyUcnl_xSE4J5M7W3mzpg_3ddEOdiyz6hXmw7f3548IfJlPaAvdSq6VNr3JI2fGb4LG3abihcIWGEhwQNQZ-ueB1tcw-DMeNnhoUk39uod5-p0t1udST17sucREgVDEzZesnrxpu60TZ0KBaO-rBmmcx81jtuHSTCGLXYZPGV_BSWHNG-2CBJYiAyxJwY-hHQv2ngtygca99-IoLYjA"
+          "blob": "3.Nzg5Ojs8PT4_QEFC9zvQlHfLxcnFqzHZC1ndN2K3qxEWRlxjsjr8ST_c4XMxVP_qGkmtMVPCj1qA2xJ2hp8jxr9emSeUmivt4lWETHLTEGCjTJwg-3YqH_t8W2I1QZ9exxgZ43Qoa0Yk0ddBsrXffjfs364XXm7sHydLD-7K4wqtJjhtHEof47SZl8recOBjZfkzYORN19qQMGY54LtmWxasBQVVwLIQFhdpTm3shGtSNLCJKAPT6BoTVM7a5usjgkxw9B2aEbpn6kSXHOeJfSae3HuuzvOpNq7cayS0k6o3P45CWltMkzh4GRje41QLCphyidbydByGBd5bg7aMwLuXKhKiWXMqbiU1K-a6cIQSkaYniceSqMTGVxU"
         },
         {
           "type": "edit_check",
           "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
           "padded_length": 256,
           "nonce_hex": "3e3f40414243444546474849",
-          "blob": "2.Pj9AQUJDREVGR0hJUKSWGjmPYt_7hwJ-34XziCFeH4nlqVjDg50r_mDOUlDiIZozMLpp6qbsy7ByXRordMWX1YLeLPRSyeMEDfpeOiv0X2C9C-a-H7TmFUweS4f8iDVXU7bk7WHUfQWi-EshmLz0spDCJaWSqVvorQK4685VZ9KMfh_VBgbZn2kKluiupq73juuQmgmMf3BonnGMByrAiTuZ13Ln3Ntt38CHcX1dyAj9xUM6TpjejfNcQ2--s2dHOkLoqhT5t7SmUr9qIGVUF6iaqmqZymSOQY5VnzWsyVB8oZZbl5TMveVPzydOQT4QmVfNxqttHb38wndXCaaapqAbN9hbK9YrFpb3AaEsDfrb2Dkl8CVrFqvmwYc"
+          "blob": "3.Pj9AQUJDREVGR0hJrzggSbVhq7BKIeDWFW4YHKPJCSf-2MhQuThqTMSFpvba_Mxi75nSNx7xqTRmux2K7LPim5GkeCaDUcjskEkQOgUHMGJR4TMsB19Ve2FbJOyG2FDB3GfT3Kvpbmy86D0-u_i9d6_0YFNYLe7wX-61acEC8vyClU0Zlzbh8_v-JD_JOfV-xH2ycNA8EfzZSMmDuH687gMbTyTyHNXGSe4LIF5Kq1RJTJBhrGar_6F1HdltuD576jigwlb9qTB0HlrcS5dm3m5Lhku35nhwVD8oehYK24Ryl8_DC2_Hw2k0v2_aW2Q0E-ox-HWTrYyPYr44xBvBT8ZApmhMaLJiYIEoAgH38v2uCifgokgmIF5hbps"
         }
       ],
       "hashes": [
         {
           "value": "server/room.py",
-          "token": "h:f1d27a183ee42d516c7956a39c87a754"
+          "token": "h:8f1ee95dd882520be3c08cc28e8f6240"
         },
         {
           "value": "Room.join",
-          "token": "h:73aee214bb52ae02c858f936b3e837bd"
+          "token": "h:6c7265ec7ddd9d9aefa8a93117355a74"
         },
         {
           "value": "main",
-          "token": "h:004c2b72ffba1f3d34fd99e6f606fd70"
+          "token": "h:563fc567994992deb3dfd551cb622e92"
         },
         {
           "value": "src/ünï.ts",
-          "token": "h:1c29817d6f70e8f9821f176e455842f9"
+          "token": "h:7ebf0653cab49705f4b77e1293a29917"
         }
       ],
       "repo_tokens": [
         {
           "repo_id": "3f1c2a9b8d7e6f50",
-          "token": "h:2625699c959723c1275cd3a989f0dd61"
+          "token": "h:2638591a7de8675958cb2bdfd99e471a"
         },
         {
           "repo_id": "",
@@ -226,56 +128,56 @@
       "passphrase": "pässwörd-ünïcode-🔑",
       "room": " team 42 ",
       "canonical_room": "TEAM42",
-      "salt": "synergo-e2e-v2:TEAM42",
+      "salt": "hivelane-e2e-v3:TEAM42",
       "pbkdf2_iterations": 600000,
-      "stretched_hex": "5a37e5a85cedffe08748368cfcadc1a260e5cdb3ceb3457546691aa63a588f78",
-      "enc_key_hex": "e410888fee0a778b32e7415ef3c1962002babfa468d07104d145cabde863e14b",
-      "mac_key_hex": "0384ae1482d73f67f84aa90b013a7c249616bacabdaabeace1bc80dbf4617266",
+      "stretched_hex": "c41b005715a738c09b842162307aa491c062cae9d25c2150c689deef31094246",
+      "enc_key_hex": "dcc469a0bfdf67bc1573e37156a1c80a0b0bf256811cffcd34a96b263e8a3eda",
+      "mac_key_hex": "23686fbf0597afe423d323abe78c7b2a503c0e372b6ce8c8329a1f69aba3371c",
       "encryptions": [
         {
           "type": "activity",
           "plaintext": "{\"v\":1,\"prompt\":\"fix the login bug\",\"branch\":\"main\",\"changes\":[{\"file_path\":\"server/room.py\",\"diff\":\"-a\\n+b\",\"symbols\":[\"Room.join\"]}]}",
           "padded_length": 256,
           "nonce_hex": "404142434445464748494a4b",
-          "blob": "2.QEFCQ0RFRkdISUpLhIl3DzwaLlRnxfQX8lwjrTCd4WOwKN9q1VPMFCiKJd4qNe3vdXWpdT6cE732qxvB9JEh0Xj9BP_RJYRee3z6HGcC8exWrJphoHUtMdflDq_eBcunc9ksc1z8qV84c3vUhcEE_sc0QPyatE6yUZ4qUUFRbTfxMeGWf3FpsOIy-L-cbkJMMp0eV6ucdAI_Cdtk-FzeKDvX2H-FfEPCCZwpcyKHK0aTX4TKOjfxu8kh1WNhYGjrKPpWRl0fQOSUZFlqSI2gNmisHx6zFIVr8ZrtMHRUit4qNTUpxwKE77w2YXk3Ynhj6uz53APCuRMbAkdLwbTnvJKBVclTpGW6KRiZ8-5YIwTgI2JvZO3Ko-Hjj0E"
+          "blob": "3.QEFCQ0RFRkdISUpLIWueoxjh3B-znWh8Icvdg0dZ_pBGOGV8iYhFlirm5OYS6OMHYrVHWEdHo9g_CVJIQorapOunrF_bsxiUrSzjV0OLc70MnWyYxhx-a9BMuM0yPksPhhSXYOvyJSDanzFwqZzDRPRRBynxwm2rber1p3PfEwROOptFOyfePzeXYxQoFNgud3DJe8Tn8ClYABL79WkWZLf7RFHb84Fwi1gFdiSwkEv2IWd-C8NTtjBreTb4KK51wgcxLpsfjTtCKpo5Bz9ktD9ysYlJzsmAaB5ssoFCuFucHA8_Dv1QSwGTnuGwJTyshRkV5Q5qJjLojpnHtjodkPjb3HHUExSUiD2LwdUmCODn6Zqn-eHGut5xNwU"
         },
         {
           "type": "intent",
           "plaintext": "{\"v\":1,\"prompt\":\"refactor auth (naïve → robust)\"}",
           "padded_length": 256,
           "nonce_hex": "4748494a4b4c4d4e4f505152",
-          "blob": "2.R0hJSktMTU5PUFFSAja3BAXjbyqVeGdI87zD8C2S2m_A5Q5L8Wq9a5zff9h0VqKWQ1X4nSTa1q3IUaBhfE0TaUrgbL3C-IW8oBi2sui2BKBw0s09YWShgW_UeCmbXWsCxcza0R1-Ja-oEKqC4k3aiITFhOar8Cr-BSxZ_wIBqTCDkohUe-nxz46yCUtdEaYGGO0kHZnfuTY6RpybGQCePrL1nF0Vh0utJ2zo6vNCan9v7mDlmcJ06a5RVUnUXzT-Uaem-AF_KDOpso4Pcpp5_luGcV1DymgMR0569G3dh8HL44o8BbnNo4TsOnGV5Ig4twpsPWd0E6fkHpEmUobWkjKqPBhAZ5bWyde_AQNFH7ZNaTbYFCX9CV24Ky4"
+          "blob": "3.R0hJSktMTU5PUFFS3opLNLpQPACXofDyDwaGGjQYPdsaeZ_OAhNO_C0mZ_e18Ar8lJNaTGCOo6M3fwIku6ur8AOEdvMQ73fDvOIRnfIw2LMhHvE7C3wsrNlThdPsyrmLjqx2rtHOrVPN3qzFeyqqftApiZ7AjtPApEib2UTx4lrkVV_0GbHi6wSWd9HZVZpsPJJc3CI7_TcSkwXJrDAVpctdVUo9wLD-zZF3p_uJwrTw9h63A3Uu1XmAT7aqXclV1xXfNBueBS-RotA7t9LVBF_tZ-t54bUA7h7n5D49sVKTPPSi-Zn85idQgAPU98Pv393kS5HdWONj6cZ5ogKWPtGf5W2V3iWVz2MzY5kMjmFp5kqxNZYrU61qkiI"
         },
         {
           "type": "edit_check",
           "plaintext": "{\"v\":1,\"file_path\":\"src/app.ts\",\"symbols\":[],\"branch\":\"\"}",
           "padded_length": 256,
           "nonce_hex": "4e4f50515253545556575859",
-          "blob": "2.Tk9QUVJTVFVWV1hZqGTHGDHkwObjwBm-dIxdAZEarmgz8ec681djmvp0TX79P4snO6AgV-GDoiHkfC2wVe96FUI_B4rzuxX0opkrwGg4VA9A8qX_8yxQGdtjrZOSEXuHekrgqr55WQKy9JPqylXrftTxMji3X0xsm-eF0TEmLoOTv2V1FjASp7ZOGM7LriCAUemK6TOCNFpCNE-QtBHzR8e9Ip5tcly-OWwYI6_wngSlLRh1FKpfVU5Pi85U9FcPT82wNzKdE1d40zUATXPEC6wTPbGTb30QAi01nsDoEGcwP7_QuXVdpH7iRI1LW-mi-p1_VnuRSM1RUW6Gijyiq4HjFKnO1k3WRQSksoXfuFxMMctII_q1ht8oolU"
+          "blob": "3.Tk9QUVJTVFVWV1hZ8GO8hZumMvarFwx6TXWgFkuh5KKaVqeuWCqn74rOzXt2cG-GkWauFUJ8IsVr9MwDqB15h2y2Hdu5tjb-7VfgghA31qIIM9hqFxJehIOy-94TmQQOeWODtHEkCZzBr6q9IkQGZqcJSsMQhp-czpAhkdMclghKfZry_FdQinOr8SFFTjDciAP3hqpfDSM5vmqy-xBMf1cF5z64jLnVqR_vyhiXKBojacEPBTRdThqI5CwnBRaRRhW0sUdYzm7pLATkVqoheQWNJnMD0_JdDlWH4QiL8ndyX298PHt4m73iGIrmWjAqfWReKqQGDdzlYSRu7XwOxmExwhOuyVmoKmdY0cC9io9spvdkPPLgATN32hM"
         }
       ],
       "hashes": [
         {
           "value": "server/room.py",
-          "token": "h:aeddc1f9742bec7e8dadd45ea75297fa"
+          "token": "h:cdafce926839577bfc0828a664fe8ee7"
         },
         {
           "value": "Room.join",
-          "token": "h:77e6fe0c9e5a2953926de00b61be89f8"
+          "token": "h:3d6af4e8d9075a43fbae4f30197263b5"
         },
         {
           "value": "main",
-          "token": "h:28f589fdc0fba85e55c201bf5985b7fa"
+          "token": "h:015fc0859b5d60f49ca36cfd34730714"
         },
         {
           "value": "src/ünï.ts",
-          "token": "h:291f7aed09f529fbb101a3ce35d255ae"
+          "token": "h:d9e4c138c6be5b56fc6c10781ef36e8c"
         }
       ],
       "repo_tokens": [
         {
           "repo_id": "3f1c2a9b8d7e6f50",
-          "token": "h:cb5a65c5985dd36f80be07f0aadee3d0"
+          "token": "h:a53067b7fdfd5bcbf9de4c6702ded878"
         },
         {
           "repo_id": "",
@@ -284,7 +186,7 @@
       ]
     }
   ],
-  "wrong_key_v2": {
+  "wrong_key": {
     "passphrase": "not the room key",
     "room": "K7Q2XM",
     "blob_from_vector": 0,

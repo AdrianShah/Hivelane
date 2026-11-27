@@ -21,8 +21,12 @@ Verdict = Literal["overlapping", "related", "unrelated"]
 # clients cannot satisfy. A daemon that predates edit_check would connect happily
 # and simply never ask permission, so conflict prevention would be silently off;
 # the handshake rejects it instead.
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 MIN_SUPPORTED_PROTOCOL = 1
+# Protocol 3 brought v3 e2e room keys (hivelane/crypto.py). An older member's
+# hashes never match a v3 member's, so in an e2e room it would edit unchecked:
+# the relay refuses it there instead (cleartext rooms still accept it).
+MIN_E2E_PROTOCOL = 3
 
 # Answer to "may I edit this file right now?", an agent's PreToolUse hook maps
 # "block" to a denied tool call.

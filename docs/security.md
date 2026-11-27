@@ -711,11 +711,11 @@ not from a particular one.
 ```
 ROOM    = room code with every space and "-" removed, upper case
           (the relay's own normalisation: k7q2-xm9p and K7Q2XM9P are one room, one key)
-salt    = "synergo-e2e-v2:" + ROOM
+salt    = "hivelane-e2e-v3:" + ROOM
 ikm     = PBKDF2-HMAC-SHA256(NFC(passphrase) (UTF-8), salt, 600000 iterations, 32 bytes)
 enc_key = HKDF-SHA256(ikm, salt, info = "enc", length = 32)
 mac_key = the same with info = "mac"
-blob    = "2." + base64url_nopad(nonce (12 random bytes) || AES-256-GCM ciphertext || tag)
+blob    = "3." + base64url_nopad(nonce (12 random bytes) || AES-256-GCM ciphertext || tag)
           associated data = the client message type ("activity", "intent", "plan", "edit_check")
           plaintext = compact JSON padded with trailing spaces to a size bucket
 ```
@@ -730,13 +730,13 @@ dictionary passphrase: use a generated key (256 random bits). `hivelane key
 set` and a `HIVELANE_ROOM_KEY` that is shorter than 16 characters or looks
 guessable get a warning (`crypto.passphrase_problem`).
 
-Version 1 (no PBKDF2, salt `"synergo-e2e-v1:" + code.strip().upper()`, no
-`2.` prefix) is still read, so stored history stays readable, but no longer
-written. v1 and v2 clients do not match each other's hashes: upgrade every
-teammate and the dashboard together.
+This is key version 3, the only one read or written. Blobs and hashes from
+versions 1 and 2 (other labels) do not open or match under a v3 key, so a
+room moves to v3 all at once: the relay refuses members below protocol 3
+from an e2e room (`MIN_E2E_PROTOCOL`), and events stored before the upgrade
+(at most a day of history) show as unreadable.
 
-`protocol/e2e-test-vectors.json` pins both versions (`vectors` and
-`vectors_v2`); the daemon (`hivelane/crypto.py`) and the dashboard
+`protocol/e2e-test-vectors.json` pins the schedule; the daemon (`hivelane/crypto.py`) and the dashboard
 (`frontend/src/e2e.ts`, WebCrypto) are both tested against it. AES-GCM needs the optional extra: `pipx install 'hivelane[e2e]'` (or
 `pipx inject hivelane cryptography`); without it an e2e repo refuses to connect
 with that instruction rather than falling back to cleartext.

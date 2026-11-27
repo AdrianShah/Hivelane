@@ -27,23 +27,6 @@ def test_hkdf_matches_rfc5869_case_1() -> None:
     )
 
 
-@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["room"])
-def test_vectors(vector: dict) -> None:
-    key = crypto.derive(vector["passphrase"], vector["room"], version=1)
-    assert key.enc_key.hex() == vector["enc_key_hex"]
-    assert key.mac_key.hex() == vector["mac_key_hex"]
-    for case in vector["encryptions"]:
-        nonce = bytes.fromhex(case["nonce_hex"])
-        assert key.encrypt(case["type"], case["plaintext"].encode("utf-8"), nonce=nonce) == case["blob"]
-        assert key.decrypt(case["type"], case["blob"]).decode("utf-8") == case["plaintext"]
-        kind, envelope = key.open(case["blob"])
-        assert kind == case["type"]
-        assert envelope == json.loads(case["plaintext"])
-    for case in vector["hashes"]:
-        assert key.hash(case["value"]) == case["token"]
-        assert crypto.is_hashed(case["token"])
-
-
 def test_room_code_case_does_not_matter() -> None:
     a = crypto.derive("pw", "k7q2xm")
     b = crypto.derive("pw", " K7Q2XM ")
@@ -69,10 +52,10 @@ def test_round_trip_random_nonces_and_associated_data() -> None:
 def test_wrong_key_and_tampering_are_refused() -> None:
     vector = VECTORS["vectors"][0]
     blob = vector["encryptions"][0]["blob"]
-    wrong = crypto.derive(VECTORS["wrong_key"]["passphrase"], vector["room"], version=1)
+    wrong = crypto.derive(VECTORS["wrong_key"]["passphrase"], vector["room"])
     with pytest.raises(crypto.DecryptError, match="wrong room key"):
         wrong.open(blob)
-    right = crypto.derive(vector["passphrase"], vector["room"], version=1)
+    right = crypto.derive(vector["passphrase"], vector["room"])
     tampered = blob[:-2] + ("A" if blob[-2] != "A" else "B") + blob[-1]
     with pytest.raises(crypto.DecryptError):
         right.open(tampered)
@@ -114,17 +97,17 @@ def test_missing_extra_is_a_clear_error(monkeypatch: pytest.MonkeyPatch) -> None
         key.seal("intent", {"prompt": "x"})
 
 
-# --- v2: canonical room codes, PBKDF2, NFC, "2." blobs, padding ----------------
+# --- the vectors: canonical room codes, PBKDF2, NFC, "3." blobs, padding -------
 
 
-@pytest.mark.parametrize("vector", VECTORS["vectors_v2"], ids=lambda v: v["canonical_room"] + "/" + v["room"].strip())
-def test_v2_vectors(vector: dict) -> None:
+@pytest.mark.parametrize("vector", VECTORS["vectors"], ids=lambda v: v["canonical_room"] + "/" + v["room"].strip())
+def test_vectors(vector: dict) -> None:
     assert crypto.normalize_room(vector["room"]) == vector["canonical_room"]
     assert vector["salt"] == crypto.SALT_PREFIX + vector["canonical_room"]
     assert vector["pbkdf2_iterations"] == crypto.PBKDF2_ITERATIONS
-    assert crypto.stretch_v2(vector["passphrase"], vector["room"]).hex() == vector["stretched_hex"]
+    assert crypto.stretch(vector["passphrase"], vector["room"]).hex() == vector["stretched_hex"]
     key = crypto.derive(vector["passphrase"], vector["room"])
-    assert key.version == 2
+    assert key.version == crypto.CURRENT_VERSION == 3
     assert key.enc_key.hex() == vector["enc_key_hex"]
     assert key.mac_key.hex() == vector["mac_key_hex"]
     for case in vector["encryptions"]:
@@ -132,7 +115,7 @@ def test_v2_vectors(vector: dict) -> None:
         assert len(padded) == case["padded_length"]
         nonce = bytes.fromhex(case["nonce_hex"])
         assert key.encrypt(case["type"], padded, nonce=nonce) == case["blob"]
-        assert case["blob"].startswith("2.")
+        assert case["blob"].startswith("3.")
         assert key.open(case["blob"]) == (case["type"], json.loads(case["plaintext"]))
     for case in vector["hashes"]:
         assert key.hash(case["value"]) == case["token"]
@@ -164,29 +147,21 @@ def test_nfd_and_nfc_passphrases_are_one_key() -> None:
     assert nfc.enc_key == nfd.enc_key
 
 
-def test_v2_key_reads_v1_blobs_but_writes_v2() -> None:
+def test_blobs_from_older_key_versions_are_refused_clearly() -> None:
     vector = VECTORS["vectors"][0]
     key = crypto.derive(vector["passphrase"], vector["room"])
-    case = vector["encryptions"][0]
-    assert key.open(case["blob"]) == (case["type"], json.loads(case["plaintext"]))
-    fresh = key.seal("intent", {"prompt": "x"})
-    assert fresh.startswith("2.")
-    old = crypto.derive(vector["passphrase"], vector["room"], version=1)
-    with pytest.raises(crypto.DecryptError, match="v2"):
-        old.open(fresh)
+    body = vector["encryptions"][0]["blob"][len(crypto.BLOB_PREFIX):]
+    for older in (body, "2." + body):  # what v1 and v2 daemons wrote
+        with pytest.raises(crypto.DecryptError, match="older room key version"):
+            key.open(older)
+    assert key.seal("intent", {"prompt": "x"}).startswith("3.")
 
 
-def test_v2_wrong_key_is_refused() -> None:
-    vector = VECTORS["vectors_v2"][0]
-    wrong = crypto.derive(VECTORS["wrong_key_v2"]["passphrase"], vector["room"])
-    with pytest.raises(crypto.DecryptError, match="wrong room key"):
-        wrong.open(vector["encryptions"][0]["blob"])
-
-
-def test_v2_is_stretched_not_bare_hkdf() -> None:
-    v1 = crypto.derive("correct horse battery staple", "K7Q2XM", version=1)
-    v2 = crypto.derive("correct horse battery staple", "K7Q2XM")
-    assert v1.enc_key != v2.enc_key and v1.mac_key != v2.mac_key
+def test_keys_are_stretched_not_bare_hkdf() -> None:
+    key = crypto.derive("correct horse battery staple", "K7Q2XM")
+    salt = (crypto.SALT_PREFIX + "K7Q2XM").encode()
+    bare = crypto.hkdf_sha256(b"correct horse battery staple", salt, b"enc")
+    assert key.enc_key != bare
     assert crypto.PBKDF2_ITERATIONS >= 600_000
 
 
@@ -201,7 +176,7 @@ def test_padding_hides_exact_lengths() -> None:
 def test_strict_base64_rejects_junk() -> None:
     """Regression (finding 13): `$$\\n` inside a blob used to be skipped."""
     vector = VECTORS["vectors"][0]
-    key = crypto.derive(vector["passphrase"], vector["room"], version=1)
+    key = crypto.derive(vector["passphrase"], vector["room"])
     blob = vector["encryptions"][0]["blob"]
     with pytest.raises(crypto.DecryptError):
         key.open(blob[:10] + "$$\n" + blob[10:])

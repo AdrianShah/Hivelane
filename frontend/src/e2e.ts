@@ -7,20 +7,18 @@
  * empty diffs and prompts, and an opaque `e2e` blob per message. With the
  * room passphrase this module opens the blobs and puts the real values back:
  *
- * Version 2 (what current daemons write):
+ * Key version 3 (the only one read or written):
  *   ROOM        = room code with every whitespace and "-" removed, upper case
  *                 (the relay's normalize_room_code)
- *   salt        = "synergo-e2e-v2:" + ROOM
+ *   salt        = "hivelane-e2e-v3:" + ROOM
  *   stretched   = PBKDF2-HMAC-SHA256(NFC(passphrase), salt, 600000, 32 bytes)
  *   enc/mac key = HKDF-SHA256(stretched, salt, info "enc"/"mac")
- *   blob        = "2." + base64url(nonce(12) || AES-256-GCM(ciphertext || tag)),
+ *   blob        = "3." + base64url(nonce(12) || AES-256-GCM(ciphertext || tag)),
  *                 AD = message type, plaintext padded with spaces to a size bucket
  *   hash        = "h:" + first 32 hex of HMAC-SHA256(mac key, name)
  *
- * Version 1 (read only, so stored blobs stay readable): ikm = the raw
- * passphrase (no PBKDF2, no NFC), salt "synergo-e2e-v1:" + code.trim().upper(),
- * no "2." prefix. A v2 key carries the v1 keys of the same passphrase, so
- * a v1 blob opens and names hashed by a v1 daemon are learned too.
+ * Blobs and hashes from key versions 1 and 2 (other labels) are not read:
+ * a room moves to v3 all at once, and the relay keeps at most a day of history.
  *
  * The passphrase arrives in the URL fragment (`#k=...`, which browsers never
  * send to a server), is stripped from the address bar at once and kept in
@@ -30,12 +28,12 @@
  * shared vectors against this exact file (npm run test:e2e-crypto).
  */
 
-// Fixed key-derivation labels (the project's original name); changing them
-// would change every key. Must match hivelane/crypto.py.
-export const SALT_PREFIX_V1 = 'synergo-e2e-v1:';
-export const SALT_PREFIX = 'synergo-e2e-v2:';
+// The key-derivation label: changing it changes every key, so it moves only
+// with a new KEY_VERSION and BLOB_PREFIX. Must match hivelane/crypto.py.
+export const SALT_PREFIX = 'hivelane-e2e-v3:';
+export const KEY_VERSION = 3;
 export const PBKDF2_ITERATIONS = 600_000;
-export const BLOB_V2_PREFIX = '2.';
+export const BLOB_PREFIX = '3.';
 const PAD_MIN = 256;
 const PAD_LINEAR_STEP = 16 * 1024;
 export const ENVELOPE_TYPES = ['activity', 'intent', 'plan', 'edit_check', 'task', 'pending'] as const;
@@ -77,11 +75,6 @@ function subtle(): SubtleCrypto {
  *  whitespace and "-" removed, then upper case). */
 export function normalizeRoom(room: string): string {
   return (room ?? '').replace(/[\s-]+/g, '').toUpperCase();
-}
-
-/** v1's room rule (trim and upper case only), kept to open v1 blobs. */
-export function legacyRoom(room: string): string {
-  return (room ?? '').trim().toUpperCase();
 }
 
 /** Trailing spaces up to the next size bucket (as hivelane/crypto.py
@@ -137,7 +130,7 @@ export function fromHex(hex: string): Uint8Array<ArrayBuffer> {
 
 // --- keys, blobs, hashes ---------------------------------------------------------
 
-export type KeyVersion = 1 | 2;
+export type KeyVersion = typeof KEY_VERSION;
 
 export interface RoomKey {
   room: string;
@@ -147,11 +140,8 @@ export interface RoomKey {
   /** Raw key bytes, kept for the test vectors; never displayed. */
   encRaw: Uint8Array<ArrayBuffer>;
   macRaw: Uint8Array<ArrayBuffer>;
-  /** PBKDF2 output (v2 only), kept for the test vectors. */
-  stretchedRaw?: Uint8Array<ArrayBuffer>;
-  /** The v1 keys of the same passphrase and room (on a v2 key): open
-   *  pre-v2 blobs and learn names a v1 daemon hashed. */
-  legacy?: { encKey: CryptoKey; macKey: CryptoKey };
+  /** PBKDF2 output, kept for the test vectors. */
+  stretchedRaw: Uint8Array<ArrayBuffer>;
 }
 
 async function hkdfPair(
@@ -174,8 +164,8 @@ async function hkdfPair(
   };
 }
 
-/** The PBKDF2 step of v2 (exported for the test vectors). */
-export async function stretchV2(passphrase: string, room: string): Promise<Uint8Array<ArrayBuffer>> {
+/** The PBKDF2 step (exported for the test vectors). */
+export async function stretch(passphrase: string, room: string): Promise<Uint8Array<ArrayBuffer>> {
   const api = subtle();
   const pw = await api.importKey('raw', encoder.encode(passphrase.normalize('NFC')), 'PBKDF2', false, [
     'deriveBits',
@@ -186,26 +176,13 @@ export async function stretchV2(passphrase: string, room: string): Promise<Uint8
   );
 }
 
-/** The room key: v2 (with the v1 keys alongside) unless asked otherwise.
- *  PBKDF2 at 600k iterations takes a few hundred ms; derive it once per room. */
-export async function deriveRoomKey(passphrase: string, room: string, version: KeyVersion = 2): Promise<RoomKey> {
+/** The room key. PBKDF2 at 600k iterations takes a few hundred ms; derive
+ *  it once per room. */
+export async function deriveRoomKey(passphrase: string, room: string): Promise<RoomKey> {
   if (!passphrase) throw new DecryptError('an empty passphrase is not a room key');
-  const v1 = await hkdfPair(encoder.encode(passphrase), encoder.encode(SALT_PREFIX_V1 + legacyRoom(room)));
-  if (version === 1) {
-    return { room: normalizeRoom(room), version: 1, encKey: v1.encKey, macKey: v1.macKey, encRaw: v1.encRaw, macRaw: v1.macRaw };
-  }
-  const stretchedRaw = await stretchV2(passphrase, room);
-  const v2 = await hkdfPair(stretchedRaw, encoder.encode(SALT_PREFIX + normalizeRoom(room)));
-  return {
-    room: normalizeRoom(room),
-    version: 2,
-    encKey: v2.encKey,
-    macKey: v2.macKey,
-    encRaw: v2.encRaw,
-    macRaw: v2.macRaw,
-    stretchedRaw,
-    legacy: { encKey: v1.encKey, macKey: v1.macKey },
-  };
+  const stretchedRaw = await stretch(passphrase, room);
+  const keys = await hkdfPair(stretchedRaw, encoder.encode(SALT_PREFIX + normalizeRoom(room)));
+  return { room: normalizeRoom(room), version: KEY_VERSION, ...keys, stretchedRaw };
 }
 
 async function hmacToken(macKey: CryptoKey, value: string): Promise<string> {
@@ -219,13 +196,10 @@ export async function hashName(key: RoomKey, value: string): Promise<string> {
   return hmacToken(key.macKey, value);
 }
 
-/** Every token `value` may appear as on the relay: the v2 hash and, on a v2
- *  key, the v1 hash a not-yet-upgraded daemon would send. */
+/** Every token `value` may appear as on the relay (one per key version the
+ *  dashboard reads; today only v3). */
 export async function hashNames(key: RoomKey, value: string): Promise<string[]> {
-  if (!value) return [];
-  const tokens = [await hmacToken(key.macKey, value)];
-  if (key.legacy) tokens.push(await hmacToken(key.legacy.macKey, value));
-  return tokens;
+  return value ? [await hmacToken(key.macKey, value)] : [];
 }
 
 /** What a daemon sends as `repo_id` in an e2e room; "" stays "". */
@@ -233,7 +207,7 @@ export async function repoToken(key: RoomKey, repoId: string): Promise<string> {
   return repoId ? hashName(key, 'repo:' + repoId) : repoId;
 }
 
-/** [`2.`] base64url(nonce || ciphertext || tag), `type` as associated data.
+/** `3.` + base64url(nonce || ciphertext || tag), `type` as associated data.
  *  No padding here (sealEnvelope pads); `nonce` is for test vectors only. */
 export async function encryptBlob(
   key: RoomKey,
@@ -252,34 +226,29 @@ export async function encryptBlob(
   const out = new Uint8Array(iv.length + sealed.length);
   out.set(iv, 0);
   out.set(sealed, iv.length);
-  return (key.version >= 2 ? BLOB_V2_PREFIX : '') + b64urlEncode(out);
+  return BLOB_PREFIX + b64urlEncode(out);
 }
 
-/** encryptBlob() of an envelope's compact JSON, padded (v2) to a size bucket. */
+/** encryptBlob() of an envelope's compact JSON, padded to a size bucket. */
 export async function sealEnvelope(key: RoomKey, type: string, envelope: Envelope): Promise<string> {
   const text = JSON.stringify(envelope);
-  return encryptBlob(key, type, key.version >= 2 ? padPlaintext(text) : text);
+  return encryptBlob(key, type, padPlaintext(text));
 }
 
 export async function decryptBlob(key: RoomKey, type: string, blob: string): Promise<string> {
   if (typeof blob !== 'string') throw new DecryptError('not a blob');
   let body = blob.trim();
-  let encKey = key.encKey;
-  if (body.startsWith(BLOB_V2_PREFIX)) {
-    if (key.version < 2) throw new DecryptError('a v2 blob needs a v2 key');
-    body = body.slice(BLOB_V2_PREFIX.length);
-  } else if (key.version >= 2) {
-    // A v1 blob (stored before the upgrade) under a v2 key.
-    if (!key.legacy) throw new DecryptError('a v1 blob and no v1 key to open it');
-    encKey = key.legacy.encKey;
+  if (!body.startsWith(BLOB_PREFIX)) {
+    throw new DecryptError('made with an older room key version (every member must run a current hivelane)');
   }
+  body = body.slice(BLOB_PREFIX.length);
   const raw = b64urlDecode(body);
   if (raw.length < NONCE_BYTES + 16) throw new DecryptError('blob too short');
   let plain: ArrayBuffer;
   try {
     plain = await subtle().decrypt(
       { name: 'AES-GCM', iv: raw.slice(0, NONCE_BYTES), additionalData: encoder.encode(type) },
-      encKey,
+      key.encKey,
       raw.slice(NONCE_BYTES),
     );
   } catch (err) {
