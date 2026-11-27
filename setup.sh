@@ -21,13 +21,6 @@ VENV_PY=".venv/bin/python"
 "$VENV_PY" -m pip install --upgrade pip
 "$VENV_PY" -m pip install -e .
 
-# Graph auto-refresh on commit + conflict-free graph.json merges (see .githooks/)
-git config core.hooksPath .githooks
-git config merge.graphify.name "graphify union merge"
-git config merge.graphify.driver "graphify merge-driver %O %A %B"
-if ! command -v graphify >/dev/null && [[ ! -x "$HOME/.local/bin/graphify" ]]; then
-  echo "Tip: install graphify for the code graph:  uv tool install 'graphifyy[mcp]'"
-fi
 
 echo
 echo "Setup complete."

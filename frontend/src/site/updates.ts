@@ -88,7 +88,7 @@ export const UPDATES: Update[] = [
     kind: 'post',
     title: 'Hivelane is in alpha',
     summary:
-      'Hivelane started as Synergo: a way to stop two AI agents from rewriting the same file on the same afternoon. It is now ready for a small group of teams to try. Here is what to expect.',
+      'Hivelane started as a way to stop two AI agents from rewriting the same file on the same afternoon. It is now ready for a small group of teams to try. Here is what to expect.',
     items: [
       'The dashboard is hosted; the relay can be your own or the alpha relay.',
       'Install from GitHub for now. PyPI, Homebrew, Scoop and npm follow the first tagged release.',
@@ -97,12 +97,12 @@ export const UPDATES: Update[] = [
     prs: [35, 40],
   },
   {
-    slug: 'rename',
+    slug: 'foundations',
     date: '2026-10-20',
     kind: 'changelog',
-    title: 'Synergo is now Hivelane',
+    title: 'Pre-edit checks, lanes and conflict radar',
     summary:
-      'Six roadmap phases landed together: pre-edit checks, per-agent lanes, conflict radar, heat map and timeline views, notifications and replay, CI/CD, GitHub Pages, and the new name.',
+      'Six roadmap phases landed together: pre-edit checks, per-agent lanes, conflict radar, heat map and timeline views, notifications and replay, CI/CD and GitHub Pages.',
     prs: [1, 2, 3, 4, 5, 6, 13],
   },
 ];

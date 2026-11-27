@@ -49,8 +49,7 @@ the CLI in editable mode, so `hivelane` on your PATH runs your working tree.
 Add `-e ".[dev,symbols]"` to work on tree-sitter symbol extraction.
 
 `./setup.sh` (or `setup.ps1` on Windows) creates the venv and installs the CLI
-in one step, and also points `core.hooksPath` at `.githooks/`, whose
-pre-commit hook refreshes the optional code graph in `graphify-out/`.
+in one step.
 
 To run the whole stack locally (relay, dashboard, CLI against a test repo),
 follow [Develop locally](README.md#develop-locally) in the README.

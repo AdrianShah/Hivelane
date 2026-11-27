@@ -48,10 +48,6 @@ brag-output/
 *.njsproj
 *.sln
 
-# graphify local cache (graph.json/report/html are committed)
-graphify-out/cache/
-# dated snapshots graphify writes on update; only the live graph is tracked
-graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
 
 # Coverage output (pytest --cov, locally and in CI)
 .coverage
@@ -60,5 +56,14 @@ coverage.xml
 # Pages build (scripts/build_pages.sh)
 _site/
 
-# Local AI-assistant tooling (skills, launch configs)
+# Local-only files: maintainer tooling and this checkout's own Hivelane room.
+# They stay on disk but are never published.
 .claude/
+.codex/
+.cursor/
+.gemini/
+.mcp.json
+.githooks/
+graphify-out/
+.hivelane.toml
+frontend/DASHBOARD_V3_PLAN.md

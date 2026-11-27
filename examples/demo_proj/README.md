@@ -6,7 +6,7 @@ the Hivelane daemon:
 
 ```bash
 hivelane hook install claude-code
-hivelane join <ROOM> --name hossein --server wss://<your-relay>/ws
+hivelane join <ROOM> --name alice --server wss://<your-relay>/ws
 ```
 
 Then have both agents edit `src/hello.py` or `src/utils.py`: the second agent to

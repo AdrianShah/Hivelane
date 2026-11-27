@@ -119,7 +119,7 @@ exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError", "if __name__ =
 # handful of long strings and URLs exceed it on purpose).
 target-version = "py312"
 line-length = 120
-extend-exclude = ["graphify-out", "brag-output", "frontend", "docs-site", "editors", "packaging"]
+extend-exclude = ["frontend", "docs-site", "editors", "packaging"]
 
 [tool.ruff.lint]
 # Pyflakes + the pycodestyle error classes + bugbear: the rules that find bugs

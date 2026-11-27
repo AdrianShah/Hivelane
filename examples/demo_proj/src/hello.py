@@ -15,7 +15,7 @@ def greet(name: str = "hacker") -> str:
     return f"[{PROJECT}] hey {name}, live @ {stamp}Z"
 
 
-def lane_status(agent: str = "hossein", files: int = 1) -> dict[str, Any]:
+def lane_status(agent: str = "alice", files: int = 1) -> dict[str, Any]:
     """Conflict radar sketch, agents × overlapping files."""
     score = abs(len(agent)) * max(1, files) * 7
     return {
@@ -55,8 +55,8 @@ def shout(msg: str) -> str:
 
 
 if __name__ == "__main__":
-    print(greet("hackday"))
-    print(lane_status("hossein", files=3))
+    print(greet("demo"))
+    print(lane_status("alice", files=3))
     print("fib(12) =", fib(12))
     print("theme =", glass_theme())
     print(shout("hivelane lanes online"))

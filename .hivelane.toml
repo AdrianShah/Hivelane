@@ -1,3 +1,0 @@
-# Hivelane project settings, commit this file so teammates join the same room.
-relay = "wss://hivelane.onrender.com/ws"
-room = "5S22BFYC"
