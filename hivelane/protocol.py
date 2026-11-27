@@ -86,7 +86,7 @@ class FileChange(BaseModel):
 
 # Must match server/models.py PROTOCOL_VERSION. Bump both together when the
 # message contract changes in a way an older peer cannot satisfy.
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 # Oldest client protocol the relay accepts. The daemon never enforces it; it is
 # mirrored so VersionRejected's default, and therefore its schema, matches.
 MIN_SUPPORTED_PROTOCOL = 1

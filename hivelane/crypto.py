@@ -15,16 +15,16 @@ path, a symbol, a diff or a prompt. In an e2e room the daemon sends it:
 
 Key schedule (all of it reproducible in browser WebCrypto; see
 protocol/e2e-test-vectors.json, checked by both the Python and the dashboard
-tests). Version 2, what this module writes:
+tests). Version 3, the only one this module reads or writes:
 
     ROOM    = normalize_room(code): every run of whitespace and "-" removed,
               then upper case (the relay's normalize_room_code, so every
               spelling the relay maps to one room derives one key)
-    salt    = "synergo-e2e-v2:" + ROOM            (UTF-8)
+    salt    = "hivelane-e2e-v3:" + ROOM           (UTF-8)
     stretch = PBKDF2-HMAC-SHA256(NFC(passphrase) UTF-8, salt, 600000 iterations, 32 bytes)
     enc_key = HKDF-SHA256(ikm=stretch, salt=salt, info="enc", length=32)
     mac_key = the same with info="mac"
-    blob    = "2." + base64url_nopad(nonce(12 random bytes) || ciphertext || tag(16))
+    blob    = "3." + base64url_nopad(nonce(12 random bytes) || ciphertext || tag(16))
               with AES-256-GCM associated data = the client message type the
               blob was made for ("activity", "intent", "plan", "edit_check",
               "task", "pending").
@@ -39,10 +39,10 @@ same key with nothing but WebCrypto, which offers PBKDF2 and HKDF only;
 offline guess by a relay cost ~1.2 million SHA-256 compressions instead of
 ~10. It does not rescue a dictionary word: `passphrase_problem` flags those.
 
-Version 1 (read only, so stored blobs stay readable): no PBKDF2 (ikm is the
-raw passphrase), salt "synergo-e2e-v1:" + code.strip().upper() (separators
-kept), no NFC, no "2." prefix. A v2 key opens v1 blobs, but v1 and v2
-daemons do not match each other's hashes: a room upgrades all at once.
+Earlier versions (1 and 2) used other labels and are no longer read: a
+blob or hash they made does not match a v3 key. The relay keeps a room's
+history for at most a day, and it refuses members whose protocol predates v3
+keys from an e2e room, so a room cannot silently mix key versions.
 
 The passphrase comes from HIVELANE_ROOM_KEY or the personal config's
 `room_keys` table, never from the committed project file.
@@ -65,14 +65,13 @@ import unicodedata
 from functools import lru_cache
 from typing import Any, Optional
 
-# The salts keep the project's original name on purpose: they are part of the
-# key derivation, so changing them would change every key (and the shared
-# vectors in protocol/e2e-test-vectors.json).
-SALT_PREFIX_V1 = "synergo-e2e-v1:"
-SALT_PREFIX = "synergo-e2e-v2:"
-CURRENT_VERSION = 2
+# Part of the key derivation: changing the salt changes every key (and the
+# shared vectors in protocol/e2e-test-vectors.json), so it moves only with a
+# new CURRENT_VERSION and BLOB_PREFIX.
+SALT_PREFIX = "hivelane-e2e-v3:"
+CURRENT_VERSION = 3
 PBKDF2_ITERATIONS = 600_000
-BLOB_V2_PREFIX = "2."
+BLOB_PREFIX = "3."
 HASH_PREFIX = "h:"
 HASH_HEX_CHARS = 32
 NONCE_BYTES = 12
@@ -155,14 +154,9 @@ def normalize_room(room: str) -> str:
     return _ROOM_SEPARATORS.sub("", room or "").upper()
 
 
-def _legacy_room(room: str) -> str:
-    """v1's room rule (strip and upper case only), kept to open v1 blobs."""
-    return (room or "").strip().upper()
-
-
 def normalize_passphrase(passphrase: str) -> str:
     """NFC, so a keyboard that sends a precomposed `é` and one that sends
-    `e` + U+0301 give the same key (v2 only; v1 used the raw string)."""
+    `e` + U+0301 give the same key."""
     return unicodedata.normalize("NFC", passphrase)
 
 
@@ -252,31 +246,21 @@ def _utf8(text: str) -> bytes:
 class RoomKey:
     """The keys derived from a room's passphrase, and what they do."""
 
-    __slots__ = ("room", "version", "enc_key", "mac_key", "legacy_enc_key", "_aead", "_legacy_aead")
+    __slots__ = ("room", "version", "enc_key", "mac_key", "_aead")
 
-    def __init__(
-        self,
-        room: str,
-        enc_key: bytes,
-        mac_key: bytes,
-        version: int = CURRENT_VERSION,
-        legacy_enc_key: Optional[bytes] = None,
-    ) -> None:
+    def __init__(self, room: str, enc_key: bytes, mac_key: bytes) -> None:
         self.room = normalize_room(room)
-        self.version = version
+        self.version = CURRENT_VERSION
         self.enc_key = enc_key
         self.mac_key = mac_key
-        # v1 enc key of the same passphrase and room: opens pre-v2 blobs.
-        self.legacy_enc_key = legacy_enc_key
         self._aead: Any = None
-        self._legacy_aead: Any = None
 
     def __repr__(self) -> str:  # never print key material
         return f"RoomKey(room={self.room!r}, v{self.version})"
 
     @classmethod
-    def derive(cls, passphrase: str, room: str, version: int = CURRENT_VERSION) -> "RoomKey":
-        return derive(passphrase, room, version)
+    def derive(cls, passphrase: str, room: str) -> "RoomKey":
+        return derive(passphrase, room)
 
     # --- names ------------------------------------------------------------------
 
@@ -304,13 +288,8 @@ class RoomKey:
             self._aead = _aesgcm(self.enc_key)
         return self._aead
 
-    def _legacy_cipher(self) -> Any:
-        if self._legacy_aead is None:
-            self._legacy_aead = _aesgcm(self.legacy_enc_key or self.enc_key)
-        return self._legacy_aead
-
     def encrypt(self, message_type: str, plaintext: bytes, nonce: Optional[bytes] = None) -> str:
-        """[`2.`] base64url(nonce || ciphertext || tag), message_type as
+        """`3.` + base64url(nonce || ciphertext || tag), message_type as
         associated data. `nonce` is for test vectors only: reusing one under
         a key breaks GCM, so real callers always let it be random."""
         if nonce is None:
@@ -318,24 +297,17 @@ class RoomKey:
         if len(nonce) != NONCE_BYTES:
             raise ValueError("AES-GCM nonces here are 96 bits")
         sealed = self._cipher().encrypt(nonce, plaintext, message_type.encode("utf-8"))
-        prefix = BLOB_V2_PREFIX if self.version >= 2 else ""
-        return prefix + b64url_encode(nonce + sealed)
+        return BLOB_PREFIX + b64url_encode(nonce + sealed)
 
     def decrypt(self, message_type: str, blob: str) -> bytes:
         if not isinstance(blob, str):
             raise DecryptError("not a blob")
         blob = blob.strip()
-        if blob.startswith(BLOB_V2_PREFIX):
-            if self.version < 2:
-                raise DecryptError("a v2 blob needs a v2 key (upgrade hivelane)")
-            body = blob[len(BLOB_V2_PREFIX):]
-            get_cipher = self._cipher
-        elif self.version < 2:
-            body, get_cipher = blob, self._cipher
-        else:  # a v1 blob (stored before the upgrade) under a v2 key
-            if self.legacy_enc_key is None:
-                raise DecryptError("a v1 blob and no v1 key to open it")
-            body, get_cipher = blob, self._legacy_cipher
+        if not blob.startswith(BLOB_PREFIX):
+            raise DecryptError(
+                "made with an older room key version (every member must run a current hivelane)"
+            )
+        body = blob[len(BLOB_PREFIX):]
         try:
             raw = b64url_decode(body)
         except (ValueError, TypeError) as exc:
@@ -346,20 +318,17 @@ class RoomKey:
             from cryptography.exceptions import InvalidTag
         except ImportError:  # pragma: no cover - _cipher() raises first
             InvalidTag = ValueError  # noqa: N806
-        cipher = get_cipher()
+        cipher = self._cipher()
         try:
             return cipher.decrypt(raw[:NONCE_BYTES], raw[NONCE_BYTES:], message_type.encode("utf-8"))
         except InvalidTag:
             raise DecryptError("wrong room key (or a tampered message)") from None
 
     def seal(self, message_type: str, envelope: dict[str, Any]) -> str:
-        """encrypt() of the envelope's compact JSON, padded (v2) with trailing
+        """encrypt() of the envelope's compact JSON, padded with trailing
         spaces, which every JSON parser ignores, to a size bucket."""
         text = json.dumps(envelope, separators=(",", ":"), ensure_ascii=False)
-        data = _utf8(text)
-        if self.version >= 2:
-            data = pad_plaintext(data)
-        return self.encrypt(message_type, data)
+        return self.encrypt(message_type, pad_plaintext(_utf8(text)))
 
     def open(self, blob: str, types: tuple[str, ...] = ENVELOPE_TYPES) -> tuple[str, dict[str, Any]]:
         """(message type, envelope) of a blob made for any of `types`. The relay
@@ -387,8 +356,8 @@ def _salt(prefix: str, room: str) -> bytes:
     return (prefix + room).encode("utf-8")
 
 
-def stretch_v2(passphrase: str, room: str) -> bytes:
-    """The PBKDF2 step of v2 (exposed for the test vectors)."""
+def stretch(passphrase: str, room: str) -> bytes:
+    """The PBKDF2 step (exposed for the test vectors)."""
     pw = _utf8(normalize_passphrase(passphrase))
     return hashlib.pbkdf2_hmac(
         "sha256", pw, _salt(SALT_PREFIX, normalize_room(room)), PBKDF2_ITERATIONS, KEY_BYTES
@@ -396,30 +365,17 @@ def stretch_v2(passphrase: str, room: str) -> bytes:
 
 
 @lru_cache(maxsize=64)
-def _derive_cached(passphrase: str, room: str, version: int) -> RoomKey:
+def _derive_cached(passphrase: str, room: str) -> RoomKey:
     # PBKDF2 at 600k iterations costs ~0.5 s; a daemon re-derives the same
     # room's key on every (re)register, so remember it.
     if not passphrase:
         raise ValueError("an empty passphrase is not a room key")
-    ikm1 = _utf8(passphrase)
-    salt1 = _salt(SALT_PREFIX_V1, _legacy_room(room))
-    v1_enc = hkdf_sha256(ikm1, salt1, b"enc")
-    if version == 1:
-        return RoomKey(room, v1_enc, hkdf_sha256(ikm1, salt1, b"mac"), version=1)
-    if version != 2:
-        raise ValueError(f"unknown e2e key version {version}")
-    salt2 = _salt(SALT_PREFIX, normalize_room(room))
-    ikm2 = stretch_v2(passphrase, room)
-    return RoomKey(
-        room,
-        hkdf_sha256(ikm2, salt2, b"enc"),
-        hkdf_sha256(ikm2, salt2, b"mac"),
-        version=2,
-        legacy_enc_key=v1_enc,
-    )
+    salt = _salt(SALT_PREFIX, normalize_room(room))
+    ikm = stretch(passphrase, room)
+    return RoomKey(room, hkdf_sha256(ikm, salt, b"enc"), hkdf_sha256(ikm, salt, b"mac"))
 
 
-def derive(passphrase: str, room: str, version: int = CURRENT_VERSION) -> RoomKey:
-    """The room key, v2 unless asked otherwise. Slow (~0.5 s) the first time
-    for a (passphrase, room): call it off the event loop where that matters."""
-    return _derive_cached(passphrase, room, version)
+def derive(passphrase: str, room: str) -> RoomKey:
+    """The room key. Slow (~0.5 s) the first time for a (passphrase, room):
+    call it off the event loop where that matters."""
+    return _derive_cached(passphrase, room)

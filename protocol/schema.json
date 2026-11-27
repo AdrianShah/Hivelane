@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Hivelane wire protocol",
   "description": "Every WebSocket frame between a Hivelane client and the relay. Generated from hivelane/protocol.py by protocol/generate.py; do not edit by hand.",
-  "x-protocol-version": 2,
+  "x-protocol-version": 3,
   "x-min-supported-protocol": 1,
   "x-client-to-relay": {
     "join": "#/$defs/JoinMessage",
@@ -1274,7 +1274,7 @@
           "type": "string"
         },
         "protocol_version": {
-          "default": 2,
+          "default": 3,
           "title": "Protocol Version",
           "type": "integer"
         },
@@ -2867,7 +2867,7 @@
           "type": "string"
         },
         "server_protocol": {
-          "default": 2,
+          "default": 3,
           "title": "Server Protocol",
           "type": "integer"
         },

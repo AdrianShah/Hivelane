@@ -85,7 +85,8 @@ client                                        relay
    - `name_rejected`: the socket stays open. Send another `join` with a
      different name.
    - `version_rejected`: this client speaks a protocol older than the relay's
-     `MIN_SUPPORTED_PROTOCOL`. The socket closes with 4426. Spectators are
+     `MIN_SUPPORTED_PROTOCOL`, or older than `MIN_E2E_PROTOCOL` (3) in an
+     end-to-end encrypted room. The socket closes with 4426. Spectators are
      never version-checked.
    - `join_pending`: this join needs an owner's approval: it presented no
      owner token, member token or (in a room with invite links) invite
@@ -176,7 +177,7 @@ The first frame on every connection.
 |-------|------|---------|-------------|
 | `name` | string or `null` | `null` | Display name. Omit or `null` to join as a spectator (a dashboard). See [Names](#names). |
 | `agent` | [agent kind](#agent-kinds) | `"unknown"` | The agent behind the member. Labelling only; never used for decisions. |
-| `protocol_version` | integer | `2` | Protocol the client speaks (2 adds the owner resolve actions below; the relay still accepts 1). The relay reads an omitted value as `0`; members below `MIN_SUPPORTED_PROTOCOL` are refused. |
+| `protocol_version` | integer | `3` | Protocol the client speaks (2 adds the owner resolve actions below; 3 brings v3 e2e room keys). The relay reads an omitted value as `0`; members below `MIN_SUPPORTED_PROTOCOL` are refused, and in an e2e room members below `MIN_E2E_PROTOCOL` (3) are too. The relay still accepts 1 in a cleartext room. |
 | `repo_id` | string (at most 64 chars) | `""` | Opaque id of the repository the member works in; see [step 6](#writing-a-client-in-another-language) for how the reference client computes it. |
 | `settings` | [RoomSettings](#roomsettings) or `null` | `null` | The team's committed conflict windows, applied room-wide when this member is admitted. Invalid settings are ignored, not fatal. |
 | `owner_token` | string or `null` | `null` | The `owner_token` returned by `POST /rooms`. A matching token makes this socket a room owner; a wrong one is treated as none. |
@@ -806,7 +807,7 @@ close 4426.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `reason` | string | required | What to do (upgrade). The socket closes with 4426. |
-| `server_protocol` | integer | `2` | The relay's `PROTOCOL_VERSION`. |
+| `server_protocol` | integer | `3` | The relay's `PROTOCOL_VERSION`. |
 | `min_supported` | integer | `1` | The relay's `MIN_SUPPORTED_PROTOCOL`. |
 
 ### room_rejected
@@ -1005,10 +1006,12 @@ close code itself is lost, so rely on the message.
 
 The relay and every client carry two numbers:
 
-- `PROTOCOL_VERSION` (now 1): what this build speaks. A
+- `PROTOCOL_VERSION` (now 3): what this build speaks. A
   member sends it in its `join`.
 - `MIN_SUPPORTED_PROTOCOL` (now 1): the oldest member
   protocol the relay accepts.
+- `MIN_E2E_PROTOCOL` (now 3, relay only): the oldest member protocol an
+  end-to-end encrypted room accepts, since protocol 3 changed the room key.
 
 Both are in `/readyz`, `version_rejected` and `protocol/schema.json`
 (`x-protocol-version`, `x-min-supported-protocol`).

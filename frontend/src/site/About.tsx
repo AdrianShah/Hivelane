@@ -42,8 +42,7 @@ export default function About() {
 
         <h2>Where we are</h2>
         <p>
-          Hivelane is in alpha, used by a small group of teams. It started life as Synergo and was renamed in October
-          2026. Follow along on the <Link to="/updates">updates</Link> page.
+          Hivelane is in alpha, used by a small group of teams. Follow along on the <Link to="/updates">updates</Link> page.
         </p>
 
         <h2 id="contact">Contact</h2>

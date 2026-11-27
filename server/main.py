@@ -39,6 +39,7 @@ try:
         client_ip,
     )
     from .models import (
+        MIN_E2E_PROTOCOL,
         MIN_SUPPORTED_PROTOCOL,
         PROTOCOL_VERSION,
         ActivityMessage,
@@ -140,6 +141,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         client_ip,
     )
     from models import (
+        MIN_E2E_PROTOCOL,
         MIN_SUPPORTED_PROTOCOL,
         PROTOCOL_VERSION,
         ActivityMessage,
@@ -1096,6 +1098,23 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
                     reason=(
                         "This hivelane build is too old for the relay and would "
                         "silently skip conflict checks. Upgrade with "
+                        "`uv tool install --force hivelane` (or `pip install -U hivelane`)."
+                    )
+                ),
+            )
+            raise VersionTooOld
+
+        if join.protocol_version < MIN_E2E_PROTOCOL and (
+            room.settings.e2e or (join.settings is not None and join.settings.e2e)
+        ):
+            log.info("Rejecting protocol %s in an e2e room", join.protocol_version)
+            metrics.ws_rejections_total.inc("version")
+            await room.send(
+                socket,
+                VersionRejected(
+                    reason=(
+                        "This room is end-to-end encrypted with v3 room keys, which this "
+                        "hivelane build predates: its edits would go unchecked. Upgrade with "
                         "`uv tool install --force hivelane` (or `pip install -U hivelane`)."
                     )
                 ),
