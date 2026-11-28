@@ -667,6 +667,15 @@ or `redact = false`: run `hivelane up` in it to accept the team's choice, or
 set the same key in your personal config. `hivelane doctor` fails a plaintext
 remote relay and warns about one you opted into.
 
+**Prompt blame.** The daemon keeps a provenance journal of agent edits in
+the repo's git directory (`.git/hivelane/provenance.jsonl`, mode `0600`). It
+holds prompt and plan excerpts, redacted even when `redact = false` and
+capped at `blame_excerpt_chars`; `blame_prompts = false` keeps none. Commits
+get that data as git notes under `refs/notes/hivelane`. Nothing here goes
+through the relay, in e2e rooms or otherwise, and `git push` does not send
+notes: they leave the machine only through `hivelane notes push`. See
+[Prompt blame](prompt-blame.md).
+
 **Room ownership.** `hivelane up` keeps the owner token `POST /rooms` returns
 when it creates a room in the personal config (`owner_tokens`, file mode
 `0600`) and presents it when it joins that room; it is never written to the

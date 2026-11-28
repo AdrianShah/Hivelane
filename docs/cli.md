@@ -25,7 +25,9 @@ managing the daemon, or for advanced and scripted use.
 | [`mcp`](#hivelane-mcp) | MCP server (stdio) for agents without native hooks. |
 | [`watch`](#hivelane-watch) | Observe-only file watcher for agents without hooks (e.g. Aider). |
 | [`run`](#hivelane-run) | Run a hookless agent (e.g. `hivelane run aider`) with the watcher. |
-| [`githook`](#hivelane-githook) | Git pre-commit check against teammates' recent edits. |
+| [`githook`](#hivelane-githook) | Git hooks: pre-commit check against teammates' recent edits, prompt-blame notes on commit. |
+| [`blame`](#hivelane-blame) | Which agent, prompt and task wrote these lines ([prompt blame](prompt-blame.md)). |
+| [`notes`](#hivelane-notes) | Prompt-blame notes: `status`, and an explicit `push` / `fetch`. |
 | [`task`](#hivelane-task) | The room's shared task list: add, claim, finish (a claimed task reserves its files). |
 
 Global options: `--version` prints `hivelane X.Y.Z`; `-h`/`--help` works on
@@ -450,6 +452,9 @@ warn_window_seconds = 60.0    # this recent warns
 ignore = ["*.lock", "dist/"]  # gitignore-style globs kept out of coordination entirely
 share_diffs = true            # false: send which files changed, keep the diffs local
 plan_tasks = true             # false: agents' step plans do not become room tasks
+blame = true                  # prompt blame: false records nothing (docs/prompt-blame.md)
+blame_prompts = true          # false: prompt blame keeps no prompt or plan text
+blame_excerpt_chars = 280     # prompt excerpt cap, 0-2000
 ```
 
 **`~/.hivelane/config.toml`** (personal; `HIVELANE_HOME` moves the directory)
@@ -494,7 +499,7 @@ hooks. Tools: `room_status(root?)` (is this repo connected, to which room, who i
 the [room task](tasks.md) tools `task_list(all?)`, `task_add(title, body?,
 files?, after?)`, `task_claim(task_id? | next?, lease_minutes?)`,
 `task_note(task_id, text)`, `task_done(task_id, result?)` and
-`task_release(task_id)`. If the daemon is down, tools return an error text and the server keeps running.
+`task_release(task_id)`, and `why_code(path, start_line?, end_line?)` ([prompt blame](prompt-blame.md): which agent, prompt and task wrote the lines; reads git, so it works with the daemon down). If the daemon is down, tools return an error text and the server keeps running.
 `--agent` sets the agent id sent to the room (default `unknown`).
 
 `--print-config` prints a JSON snippet for your MCP client's config.
@@ -533,13 +538,47 @@ is detected.
 ## hivelane githook
 
 ```text
-hivelane githook install|uninstall [--root PATH]
+hivelane githook install [--no-blame] [--root PATH]
+hivelane githook uninstall [--root PATH]
 hivelane githook run [--root PATH] [--port PORT] [--strict]
+hivelane githook post-commit | post-rewrite KIND
 ```
 
-`install` writes a `pre-commit` hook into the hooks directory (honouring
-`core.hooksPath`). An existing hook is moved unchanged to
-`pre-commit.hivelane-prev` and still runs after the check; `uninstall` puts it
-back. Re-running `install` is a no-op. `run` warns about staged files a
-teammate touched recently. It never fails the commit unless `--strict`, and
-exits 0 silently when the daemon is not running.
+`install` writes the `pre-commit`, `post-commit` and `post-rewrite` hooks into
+the hooks directory, honouring `core.hooksPath`. `--no-blame` writes only
+`pre-commit`. An existing hook is moved unchanged to
+`<hook>.hivelane-prev` and still runs after ours. `uninstall` puts it back.
+Re-running `install` is a no-op.
+
+`run` warns about staged files a teammate touched recently. It never fails
+the commit unless `--strict` is given, and it exits 0 silently when the
+daemon is not running.
+
+`post-commit` and `post-rewrite` attach and carry [prompt-blame](prompt-blame.md)
+notes. They always exit 0 and every git call they make is time-boxed.
+
+## hivelane blame
+
+```text
+hivelane blame FILE[:LINE[-LINE]] [--json] [--root PATH]
+```
+
+For each group of lines, shows the commit, the author and time, and the
+provenance recorded for the lines. The provenance is the agent (and
+subagent), the person, the task, the prompt excerpt and the symbols. Lines
+not committed yet are read from the local journal. See
+[Prompt blame](prompt-blame.md).
+
+## hivelane notes
+
+```text
+hivelane notes status [--json]
+hivelane notes push [REMOTE]
+hivelane notes fetch [REMOTE]
+```
+
+Prompt-blame notes live in `refs/notes/hivelane` and stay on this machine.
+`push` shares them with the remote (default `origin`), redacted prompt
+excerpts included. `fetch` merges the remote's notes into yours. `status`
+shows the settings in force, the number of edits not committed yet, the
+number of annotated commits, and any hooks that are missing.

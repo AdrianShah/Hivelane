@@ -2424,9 +2424,13 @@ def cmd_githook(args: argparse.Namespace) -> int:
     root = project_root(args.root)
     if args.githook_command == "run":
         return githook.run(root, resolve_port(args.port), strict=args.strict, say=lambda t: say(t, err=True))
+    if args.githook_command in ("post-commit", "post-rewrite"):
+        from hivelane import provenance_cli
+
+        return provenance_cli.run_githook(args.githook_command, list(getattr(args, "kind", None) or []), str(root))
     try:
         if args.githook_command == "install":
-            say(githook.install(root))
+            say(githook.install(root, (githook.PRE_COMMIT,) if args.no_blame else githook.HOOKS))
         else:
             say(githook.uninstall(root))
     except (RuntimeError, OSError, subprocess.CalledProcessError) as exc:
@@ -3055,17 +3059,31 @@ def build_parser() -> argparse.ArgumentParser:
     run_cmd.add_argument("cmd", nargs=argparse.REMAINDER, metavar="COMMAND [ARGS...]", help="command to run, e.g. aider -m 'fix the login bug'")
     run_cmd.set_defaults(func=cmd_run)
 
-    githook_cmd = sub.add_parser("githook", help="git pre-commit check against teammates' recent edits")
+    githook_cmd = sub.add_parser(
+        "githook", help="git hooks: pre-commit check against teammates' edits, prompt-blame notes on commit"
+    )
     githook_sub = githook_cmd.add_subparsers(dest="githook_command", required=True, metavar="ACTION")
-    for action, text in (("install", "install (chaining any existing hook)"),
-                         ("uninstall", "remove and restore any previous hook"),
-                         ("run", "check staged files (called by the hook)")):
+    for action, text in (("install", "install pre-commit, post-commit and post-rewrite (chaining any existing hooks)"),
+                         ("uninstall", "remove and restore any previous hooks"),
+                         ("run", "check staged files (called by the pre-commit hook)"),
+                         ("post-commit", "attach prompt-blame notes to HEAD (called by the hook)"),
+                         ("post-rewrite", "carry notes across amend/rebase (called by the hook)")):
         p = githook_sub.add_parser(action, help=text)
         p.add_argument("--root", default=None, metavar="PATH", help=root_help)
+        if action == "install":
+            p.add_argument("--no-blame", action="store_true", help="only the pre-commit check, no prompt-blame hooks")
         if action == "run":
             p.add_argument("--port", type=int, default=None, help=port_help)
             p.add_argument("--strict", action="store_true", help="fail the commit when a teammate touched a staged file")
+        if action == "post-rewrite":
+            p.add_argument("kind", nargs="*", help="amend or rebase (from git)")
         p.set_defaults(func=cmd_githook)
+
+    # `hivelane blame` / `hivelane notes` (hivelane/provenance_cli.py): no heavy
+    # imports at parse time, and it never imports this module back.
+    from hivelane import provenance_cli
+
+    provenance_cli.register(sub, root_help, project_root, CommandFailed)
 
     relay_cmd = sub.add_parser(
         "relay",
@@ -3095,6 +3113,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         routed = route_hook(argv[1:])
         if routed is not None:
             return routed
+    if argv[:1] == ["githook"] and argv[1:2] in (["post-commit"], ["post-rewrite"]):
+        # Run by git after every commit: straight to the work, no parser, and
+        # never a failure (hivelane/provenance_cli.py).
+        from hivelane import provenance_cli
+
+        return provenance_cli.run_githook(argv[1], argv[2:])
     args = build_parser().parse_args(argv)
 
     from hivelane.config import ConfigFileError

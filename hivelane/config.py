@@ -33,6 +33,8 @@ DEFAULT_WARN_WINDOW = 60.0
 # Hours of room events the relay keeps for the dashboard's replay view
 # (RoomSettings.history_hours has the same bound). 0 keeps none.
 MAX_HISTORY_HOURS = 24.0
+# Longest prompt excerpt prompt blame keeps per edit (blame_excerpt_chars).
+MAX_BLAME_EXCERPT_CHARS = 2000
 
 RELAY_ENV = "HIVELANE_RELAY"
 NAME_ENV = "HIVELANE_NAME"
@@ -110,6 +112,13 @@ class HivelaneConfig:
     redact_patterns: tuple[str, ...] = ()
     # Allow a plaintext ws:// relay on a non-loopback host.
     insecure: bool = False
+    # Prompt blame (hivelane.provenance), all local: record which agent,
+    # prompt and task wrote each edit and attach it to commits as git notes.
+    # blame_prompts = false keeps no prompt or plan text at all; excerpts are
+    # capped at blame_excerpt_chars. Off in either file means off.
+    blame: bool = True
+    blame_prompts: bool = True
+    blame_excerpt_chars: int = 280
     # Personal secrets by room code: ((ROOM, value), ...).
     room_keys: tuple[tuple[str, str], ...] = ()
     owner_tokens: tuple[tuple[str, str], ...] = ()
@@ -383,6 +392,19 @@ def _apply(base: dict[str, Any], data: dict[str, Any], path: Path, *, project: b
     e2e = _bool(data, "e2e", path)
     if e2e is not None and project:
         base["e2e"] = e2e  # the team's decision, like the room
+    for key in ("blame", "blame_prompts"):
+        value = _bool(data, key, path)
+        if value is not None:
+            # The more private setting wins whichever file it is in: the team
+            # can keep prompts out of notes, and so can each person.
+            base[key] = bool(base.get(key, True)) and value
+    if "blame_excerpt_chars" in data:
+        chars = data["blame_excerpt_chars"]
+        if isinstance(chars, bool) or not isinstance(chars, int) or not 0 <= chars <= MAX_BLAME_EXCERPT_CHARS:
+            raise ConfigFileError(
+                f"{path}: blame_excerpt_chars must be a whole number from 0 to {MAX_BLAME_EXCERPT_CHARS}"
+            )
+        base["blame_excerpt_chars"] = min(int(base.get("blame_excerpt_chars", chars)), chars)
     for key in ("redact", "insecure"):
         value = _bool(data, key, path)
         if value is not None:

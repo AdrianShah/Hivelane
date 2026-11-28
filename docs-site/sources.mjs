@@ -62,6 +62,7 @@ export const SIDEBAR = [
       },
       { slug: 'conflict-detection', file: 'docs/conflict-detection.md', label: 'Conflict detection' },
       { slug: 'tasks', file: 'docs/tasks.md', label: 'Room tasks' },
+      { slug: 'prompt-blame', file: 'docs/prompt-blame.md', label: 'Prompt blame' },
       { slug: 'comparison', file: 'docs/comparison.md', label: 'Approaches compared' },
     ],
   },
