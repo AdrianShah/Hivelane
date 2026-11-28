@@ -33,6 +33,9 @@ SUPPORTED_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 HTTP_TIMEOUT = 5.0
 TASK_TIMEOUT = 10.0
 MAX_CONTENT = 256 * 1024
+# why_code answers with at most this many line groups (a whole-file blame
+# of a big file would flood the agent's context).
+MAX_WHY_GROUPS = 40
 
 AGENTS_MD = """\
 ## Hivelane (team coordination)
@@ -49,6 +52,8 @@ tools tell you who is where:
   teammate is working there, tell the user and ask before editing.
 - After editing a file, call `report_edit` with its path.
 - Call `who_is_here` to see who else is in the room.
+- Before reworking code you did not write, call `why_code` with its path and
+  lines: it says which agent, prompt and task produced them.
 - The room has a shared task list. `task_list` shows it; `task_claim` (with
   `next: true` for the oldest ready task) claims one and reserves its files
   for you; post progress with `task_note` and finish with `task_done`. If an
@@ -290,6 +295,19 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "why_code",
+        "description": "Explains why code is the way it is (prompt blame): for lines of a file, which agent, prompt and task wrote them, when, and for whom, from the provenance notes Hivelane keeps in git. Call it before reworking code you did not write. Works offline; nothing leaves the machine.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "file path, relative to the repo or absolute"},
+                "start_line": {"type": "integer", "minimum": 1, "description": "first line (default: the whole file)"},
+                "end_line": {"type": "integer", "minimum": 1, "description": "last line (default: start_line)"},
+            },
+            "required": ["path"],
+        },
+    },
+    {
         "name": "task_release",
         "description": "Gives up your claim on a task without finishing it (it is open again).",
         "inputSchema": {
@@ -376,6 +394,7 @@ class McpServer:
             "task_note": self.task_note,
             "task_done": self.task_done,
             "task_release": self.task_release,
+            "why_code": self.why_code,
         }
 
     # --- tools ---------------------------------------------------------------
@@ -619,6 +638,35 @@ class McpServer:
         return f"Released {task_id.upper()}." if reply.get("ok") else self._task_refusal(reply, task_id)
 
     # --- JSON-RPC ------------------------------------------------------------
+
+    def why_code(self, args: dict[str, Any]) -> str:
+        """Prompt blame for a file's lines, read in this process: it needs only
+        git and the repo's notes, never the daemon."""
+        from hivelane import provenance
+
+        path = str(args["path"])
+        first = args.get("start_line")
+        last = args.get("end_line")
+        first = int(first) if first is not None else None
+        last = int(last) if last is not None else first
+        if first is not None and (first < 1 or (last is not None and last < first)):
+            return "start_line must be at least 1 and end_line at least start_line."
+        full = Path(self._abs(path))
+        root = _cli().find_git_root(full.parent if full.parent.exists() else Path(self.cwd))
+        if root is None:
+            return f"{path} is not inside a git repository."
+        try:
+            groups = provenance.blame(root, str(full), first, last)
+        except provenance.GitError as exc:
+            return f"No blame for {path}: {exc}"
+        if not any(g.get("provenance") for g in groups):
+            return (
+                f"No agent provenance recorded for {path}"
+                + (f" lines {first}-{last}" if first is not None else "")
+                + ". Those lines were written by a person, before prompt blame was set up, "
+                "or in a commit made without `hivelane githook install`."
+            )
+        return provenance.format_blame(groups, limit=MAX_WHY_GROUPS)
 
     def handle(self, msg: dict[str, Any]) -> Optional[dict[str, Any]]:
         method = msg.get("method")

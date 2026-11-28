@@ -179,7 +179,7 @@ npm run dev                        # http://localhost:5173
 **CLI**
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,e2e]"
 cd path/to/a/test-repo
 hivelane up                        # defaults to the local relay
 ```

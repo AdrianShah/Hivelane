@@ -116,7 +116,7 @@ def test_mcp_handshake(stub: StubDaemon, tmp_path: Path) -> None:
     assert {t["name"] for t in replies[1]["result"]["tools"]} == {
         "room_status", "join_room",
         "check_file", "declare_intent", "who_is_here", "report_edit",
-        "task_list", "task_add", "task_claim", "task_note", "task_done", "task_release",
+        "task_list", "task_add", "task_claim", "task_note", "task_done", "task_release", "why_code",
     }
     assert replies[2]["result"] == {}
     assert replies[3]["error"]["code"] == -32601

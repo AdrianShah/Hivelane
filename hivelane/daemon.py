@@ -47,6 +47,7 @@ from websockets.asyncio.client import connect as ws_connect
 
 from hivelane import __version__, auth, crypto, desktop, gitinfo, redact, symbols
 from hivelane import pending as pending_work
+from hivelane import provenance
 from hivelane.depgraph import DepTracker
 from hivelane.config import (
     PROJECT_FILE,
@@ -1174,6 +1175,10 @@ class RoomConnection:
         self._batch_deadline = 0.0
         self._batch_task: Optional[asyncio.Task[None]] = None
         self._last_prompt: Optional[str] = None
+        # Prompt blame's local journal (hivelane/provenance.py), shared by a
+        # repo's connections; `person` is the human a lane works for.
+        self.provenance: Optional[provenance.Recorder] = None
+        self.person: Optional[str] = None
         # Local signature-change memory for "you're editing a caller" notes.
         self.deps = DepTracker()
         # repo_id -> (branch, HEAD commit) seen at the last post_edit.
@@ -1995,6 +2000,11 @@ class RoomConnection:
         if previous is not None:
             # Two edits to one file inside a batch: report both edits' symbols.
             names = list(dict.fromkeys([*previous.symbols, *names]))[: symbols.MAX_SYMBOLS]
+        if self.provenance is not None:
+            self.provenance.note_change(
+                event, user=self.person or self.name, new=new, ranges=ranges, symbols=names,
+                known_old=known_old, redactor=redactor,
+            )
         self._batch[(repo_id, rel)] = FileChange(
             file_path=rel, diff=diff, symbols=names, line_ranges=ranges,
             # The version these line ranges are numbered in: the file now.
@@ -3267,6 +3277,8 @@ class Daemon:
         # outside a repo it is the only anchor teammates can share.
         self.root: Optional[Path] = Path(root).expanduser().resolve() if root else None
 
+        # Prompt blame: every connection journals its edits through this.
+        self.provenance = provenance.Recorder()
         self._default: Optional[RepoBinding] = None
         if room is not None and name is not None:
             room_settings = _room_settings(settings)
@@ -3282,6 +3294,7 @@ class Daemon:
                 owner_token=owner_token,
                 invite_secret=invite_secret,
             )
+            connection.provenance = self.provenance
             self._default = RepoBinding(
                 root=self.root,
                 connection=connection,
@@ -3972,6 +3985,7 @@ class Daemon:
             conn.repo_id = repo_id
             conn.repo_root = key
             conn.key_fingerprint = key_fingerprint
+            conn.provenance = self.provenance
             if self._running:
                 self._start_connection(conn)
         binding = RepoBinding(
@@ -4031,6 +4045,9 @@ class Daemon:
 
     async def handle_event(self, event: NormalizedEvent) -> EventAck:
         self._sweep_lanes()
+        # Before routing: a session's first prompt often comes before the
+        # event that reveals its repo, and prompt blame needs it then.
+        self.provenance.observe(event)
         binding = await self._route(event)
         if binding is None:
             # Nobody coordinates this repo (yet): fail open. An intent is
@@ -4349,6 +4366,8 @@ class Daemon:
         )
         conn.repo_id = primary.repo_id
         conn.repo_root = primary.repo_root
+        conn.provenance = primary.provenance
+        conn.person = primary.person or primary.name
         conn.key_fingerprint = primary.key_fingerprint
         conn.worktree = worktree
         if event.subagent_id:
