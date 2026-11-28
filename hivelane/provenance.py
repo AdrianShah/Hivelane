@@ -503,6 +503,8 @@ class Recorder:
                 if journal_path(git_dir).stat().st_size > JOURNAL_MAX_BYTES:
                     compact_journal(git_dir)
             except OSError:
+                # Compaction is housekeeping: the record above is already
+                # written, and the next COMPACT_EVERY append tries again.
                 pass
 
     @staticmethod
@@ -830,6 +832,8 @@ def parse_porcelain(out: str) -> list[BlameLine]:
             try:
                 current.author_time = int(value)
             except ValueError:
+                # A malformed timestamp leaves the line's time unknown (0);
+                # the rest of the porcelain entry is still usable.
                 pass
         elif key == "summary":
             current.summary = value

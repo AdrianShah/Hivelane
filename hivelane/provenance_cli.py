@@ -148,5 +148,8 @@ def run_githook(action: str, argv: list[str], root: Optional[str] = None) -> int
                 return 0
             return provenance.post_rewrite(start, sys.stdin.read())
     except Exception:
+        # Deliberately silent: this runs inside git's commit/rewrite hooks,
+        # and a provenance failure must never fail or hold the user's commit.
+        # The cost is a commit without a note, which blame reports as such.
         pass
     return 0
