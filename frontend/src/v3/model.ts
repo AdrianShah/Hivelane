@@ -50,6 +50,12 @@ export interface LaneView {
   /** A report was cut at its cap: there are more than pendingFiles shows. */
   pendingTruncated: boolean;
   branch: string;
+  /** Relay name of the lane this subagent belongs to; "" for a main session. */
+  parent: string;
+  /** The subagent's type (Explore, general-purpose, ...); "" for a main session. */
+  subagentType: string;
+  /** The linked git worktree this lane works in; "" for the main checkout. */
+  worktree: string;
   offlineSince: number | null;
   derived: LaneDerived;
   /** Relay timestamps (seconds) of this lane's edits this session. */

@@ -332,7 +332,7 @@ def test_status_prints_every_repo(machine: Machine, capsys: pytest.CaptureFixtur
     out = capsys.readouterr().out
     assert "Hivelane daemon 0.1.0 (pid 4242, port 4600)" in out
     assert f"✔ {machine.repo.resolve()}" in out
-    assert "room TEAM42 on ws://localhost:8000/ws as ada (claude-code)" in out
+    assert "room TEAM42 on ws://localhost:8000/ws as ada (no agent seen yet)" in out
     assert "connected since 2m ago; 1 teammate online: sam; 2 queued events; last relay contact" in out
     assert "✖ /elsewhere" in out
     assert "stopped: room OTHER1 does not exist" in out

@@ -669,6 +669,9 @@ class Room:
         self._settings_updated_at = time.time()
         self._members: dict[str, WebSocket] = {}
         self._member_agents: dict[str, AgentKind] = {}
+        # Display-only lane metadata per member (parent, subagent_type,
+        # worktree), as declared on join or member_update.
+        self._member_meta: dict[str, dict[str, str]] = {}
         self._spectators: set[WebSocket] = set()
         # file_path -> {(repo_id, user_id): FileTouch}, latest edit per user
         # per file per repo. Together the two keys make a touch's identity
@@ -825,14 +828,50 @@ class Room:
         )
 
     def add_member(
-        self, user_id: str, socket: WebSocket, agent: AgentKind = "unknown"
+        self,
+        user_id: str,
+        socket: WebSocket,
+        agent: AgentKind = "unknown",
+        meta: Optional[dict[str, str]] = None,
     ) -> None:
         self._members[user_id] = socket
         self._member_agents[user_id] = agent
+        self._member_meta[user_id] = {k: v for k, v in (meta or {}).items() if v}
         self.ever_joined = True
 
     def member_agent(self, user_id: str) -> AgentKind:
         return self._member_agents.get(user_id, "unknown")
+
+    def member_meta(self, user_id: str) -> dict[str, str]:
+        """parent / subagent_type / worktree as the member declared them."""
+        return dict(self._member_meta.get(user_id, {}))
+
+    def same_chat(self, a: str, b: str) -> bool:
+        """a is b's parent or b is a's, as the members declared on join: one
+        agent and the subagent it started. Siblings are not: two subagents of
+        one chat can still trip over each other."""
+        return (
+            self._member_meta.get(a, {}).get("parent", "") == b
+            or self._member_meta.get(b, {}).get("parent", "") == a
+        )
+
+    def update_member(self, user_id: str, agent: AgentKind, worktree: str) -> bool:
+        """Apply a member_update; True when anything a dashboard shows changed.
+        An unknown agent never overwrites a known one."""
+        if user_id not in self._members:
+            return False
+        changed = False
+        if agent != "unknown" and self._member_agents.get(user_id) != agent:
+            self._member_agents[user_id] = agent
+            changed = True
+        meta = self._member_meta.setdefault(user_id, {})
+        if meta.get("worktree", "") != worktree:
+            if worktree:
+                meta["worktree"] = worktree
+            else:
+                meta.pop("worktree", None)
+            changed = True
+        return changed
 
     def member_socket(self, user_id: str) -> Optional[WebSocket]:
         return self._members.get(user_id)
@@ -854,6 +893,7 @@ class Room:
             self._stalled.discard(current)
             self._catching_up.pop(current, None)
         self._member_agents.pop(user_id, None)
+        self._member_meta.pop(user_id, None)
         for store in (self._latest_updates, self._latest_intents, self._plans):
             for key in [k for k in store if k[0] == user_id]:
                 del store[key]
@@ -1639,6 +1679,9 @@ class Room:
                 message.timestamp,
                 repo_id=message.repo_id,
             )
+            # A chat and its own subagent touching one file is a hand-off,
+            # not a conflict (as edit_check's same_chat already treats it).
+            others = [t for t in others if not self.same_chat(message.user_id, t.user_id)]
             # Same file but provably different functions: not worth an
             # alert. Config files are always judged whole.
             if change.symbols and not is_always_warn_file(change.file_path):

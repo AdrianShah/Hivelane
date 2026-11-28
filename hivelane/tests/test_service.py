@@ -110,8 +110,9 @@ def test_background_daemon_lifecycle(port: int, home: Path, tmp_path: Path) -> N
     assert entry["ignore"] == ["*.lock"]
     assert [r["root"] for r in service.status(port)["repos"]] == [str(repo.resolve())]
 
-    with pytest.raises(service.ServiceError, match="agent"):
-        service.connect_repo(port, repo, HivelaneConfig(room="TEAM1", agent="vim", name="ada", root=repo))
+    # The configured agent is ignored: the daemon learns it from the hooks.
+    relabelled = service.connect_repo(port, repo, HivelaneConfig(room="TEAM1", agent="vim", name="ada", root=repo))
+    assert relabelled["agent"] == "unknown"
     with pytest.raises(service.ServiceError, match="no room"):
         service.connect_repo(port, repo, HivelaneConfig(name="ada"))
 

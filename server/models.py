@@ -55,6 +55,9 @@ AgentKind = Literal[
 # matches only empty, preserving the old behaviour between two old clients.
 # Bounded because the relay keys in-memory state on it.
 RepoId = Annotated[str, Field(max_length=64)]
+# Lane metadata (join, member_update, user_joined): short display labels.
+MemberName = Annotated[str, Field(max_length=64)]
+MemberLabel = Annotated[str, Field(max_length=48)]
 
 
 # Granularity at which an edit check (or its broadcast) found the conflict.
@@ -144,6 +147,15 @@ class JoinMessage(BaseModel):
     # admission (approved or by invite). Presenting it skips approval until
     # an owner revokes it. A wrong or revoked token counts as no token.
     member_token: Optional[str] = None
+    # Display-only lane metadata, so a dashboard can show which agents are
+    # subagents of which chat and which run in a separate git worktree. Never
+    # trusted for coordination: verdicts key on names and branches as before.
+    # parent: the relay name of the lane this subagent belongs to.
+    parent: MemberName = ""
+    subagent_type: MemberLabel = ""
+    # The linked git worktree's directory name ("" for the main checkout;
+    # never sent in an end-to-end encrypted room).
+    worktree: MemberLabel = ""
 
     @property
     def is_spectator(self) -> bool:
@@ -575,6 +587,22 @@ class UserJoined(BaseModel):
     type: Literal["user_joined"] = "user_joined"
     user_id: str
     agent: AgentKind = "unknown"
+    # Lane metadata as the member declared it (see JoinMessage). A member
+    # that updates it (member_update) is announced again with the new values.
+    parent: MemberName = ""
+    subagent_type: MemberLabel = ""
+    worktree: MemberLabel = ""
+
+
+class MemberUpdate(BaseModel):
+    """A member correcting what it joined as: the agent it turned out to be
+    (a daemon joins before any agent has used it, so it learns which one from
+    the first hook), and where it works. Relays that predate this message
+    ignore it, which leaves the label the member joined with."""
+
+    type: Literal["member_update"] = "member_update"
+    agent: AgentKind = "unknown"
+    worktree: MemberLabel = ""
 
 
 class UserLeft(BaseModel):

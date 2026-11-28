@@ -80,6 +80,7 @@ try:
         TaskUpdate,
         RoomRejected,
         RoomSettings,
+        MemberUpdate,
         UserJoined,
         UserLeft,
         VersionRejected,
@@ -182,6 +183,7 @@ except ImportError:  # Render runs with rootDir=server as a flat module tree
         TaskUpdate,
         RoomRejected,
         RoomSettings,
+        MemberUpdate,
         UserJoined,
         UserLeft,
         VersionRejected,
@@ -1148,7 +1150,7 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
 
         # Every check passed: take the name now, with no await since the
         # checks, so a concurrent join under the same name sees it taken.
-        room.add_member(user_id, socket, join.agent)
+        room.add_member(user_id, socket, join.agent, member_meta(join))
         room.begin_catch_up(socket)
         try:
             if approved is not None:
@@ -1159,6 +1161,35 @@ async def handshake(socket: WebSocket, room: Room) -> Admission:
             room.remove_member(user_id, socket)
             raise
         return Admission(user_id, join.agent, join.settings, is_owner)
+
+
+def member_meta(join: JoinMessage) -> dict[str, str]:
+    """The display-only lane metadata a join declares."""
+    return {"parent": join.parent, "subagent_type": join.subagent_type, "worktree": join.worktree}
+
+
+def user_joined(room: Room, user_id: str) -> UserJoined:
+    """How a member is announced: its agent plus its lane metadata."""
+    meta = room.member_meta(user_id)
+    return UserJoined(
+        user_id=user_id,
+        agent=room.member_agent(user_id),
+        parent=meta.get("parent", ""),
+        subagent_type=meta.get("subagent_type", ""),
+        worktree=meta.get("worktree", ""),
+    )
+
+
+async def handle_member_update(room: Room, user_id: str, raw: dict) -> None:
+    """A member saying which agent it turned out to be (or where it works):
+    re-announced to everyone so dashboards relabel its lane."""
+    try:
+        update = MemberUpdate.model_validate(raw)
+    except ValidationError as exc:
+        _drop_invalid("member_update", user_id, exc)
+        return
+    if room.update_member(user_id, update.agent, update.worktree):
+        await room.broadcast(user_joined(room, user_id))
 
 
 async def apply_member_settings(
@@ -2205,8 +2236,7 @@ async def serve_spectator(
     quota = limits.TokenBucket(SPECTATOR_MESSAGE_LIMIT) if SPECTATOR_MESSAGE_LIMIT > 0 else None
     catch_up: list[BaseModel] = [room.settings_update(), room.policy_update()]
     catch_up.extend(
-        UserJoined(user_id=existing, agent=room.member_agent(existing))
-        for existing in room.member_ids
+        user_joined(room, existing) for existing in room.member_ids
     )
     catch_up.extend(room.latest_intents())
     catch_up.extend(room.active_plans())
@@ -2283,9 +2313,7 @@ async def serve_member(
         # daemon that connects second still knows its peers. Feeds meanwhile
         # are held and follow the catch-up.
         for existing in [m for m in room.member_ids if m != user_id]:
-            await room.send(
-                socket, UserJoined(user_id=existing, agent=room.member_agent(existing))
-            )
+            await room.send(socket, user_joined(room, existing))
         await room.finish_catch_up(socket)
         log.info(
             "%s joined room %s as %s (%d in room%s)",
@@ -2295,7 +2323,7 @@ async def serve_member(
             room.member_count,
             ", owner" if admission.is_owner else "",
         )
-        await room.broadcast(UserJoined(user_id=user_id, agent=agent))
+        await room.broadcast(user_joined(room, user_id))
         if settings is not None:
             await apply_member_settings(room, room_id, user_id, settings)
         if admission.is_owner:
@@ -2354,6 +2382,8 @@ async def serve_member(
                 await handle_member_revoke(room, room_id, socket, raw)
             elif kind == "history_request":  # server/history.py
                 await history.handle_request(room, socket, raw)
+            elif kind == "member_update":
+                await handle_member_update(room, user_id, raw)
             else:
                 log.debug("Unhandled message type from %s: %.40r", user_id, kind)
     except FrameTooLarge:

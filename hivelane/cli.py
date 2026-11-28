@@ -989,6 +989,8 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
             say(f"  {mark('ok')} {spec.label} ({evidence}): added hooks to {where} ({', '.join(result.added)})")
         else:
             say(f"  {mark('ok')} {spec.label} ({evidence}): hooks already in {where}")
+    if not skip and primary_error is None and any(spec.id == detect.PRIMARY_AGENT for spec, _ in targets):
+        wrote_any = cover_worktrees(root, assume_yes=assume_yes) or wrote_any
     if wrote_any:
         from hivelane.adapters import base
 
@@ -1001,6 +1003,45 @@ def setup_hooks(root: Path, *, skip: bool, assume_yes: bool) -> None:
         if not agent.has_adapter:
             hint = agent.spec.note or "adapter coming soon"
             say(f"  {mark('info')} {agent.label} ({agent.evidence}): detected, {hint}")
+
+
+def cover_worktrees(root: Path, *, assume_yes: bool) -> bool:
+    """Claude Code reads project hooks from the checkout it runs in, so a
+    session in a linked git worktree (parallel agents, `claude --worktree`,
+    the desktop app's worktree sessions) only has them when the settings file
+    is committed. When it is not, offer the same hooks in the user's own
+    Claude Code settings: they then fire in every worktree, and the daemon
+    ignores a repo no room covers. True when that file was changed."""
+    from hivelane import detect, gitinfo
+
+    primary = detect.get_agent(detect.PRIMARY_AGENT)
+    project_file = primary.adapter.settings_path(detect.HookScope.project(root)) if primary.adapter else None
+    if project_file is None:
+        return False
+    try:
+        rel = project_file.relative_to(root).as_posix()
+    except ValueError:
+        return False
+    if gitinfo.is_tracked(root, rel) is not False:
+        return False  # committed (every worktree has it) or not a git repo
+    if not confirm(
+        f"{rel} is not committed, so agents in other git worktrees of this repo will not have "
+        f"Hivelane's hooks. Add them to your user-level {primary.label} settings too?",
+        assume_yes=assume_yes,
+    ):
+        say(f"  {mark('skip')} {primary.label}: worktrees of this repo are not covered ({rel} is not committed)")
+        return False
+    try:
+        result = primary.install(detect.HookScope.user())
+    except (ConfigError, OSError) as exc:
+        say(f"  {mark('warn')} {primary.label}: could not cover worktrees ({exc})")
+        return False
+    where = display_path(result.path, root)
+    if result.changed:
+        say(f"  {mark('ok')} {primary.label}: added hooks to {where} so worktrees and their subagents show up")
+    else:
+        say(f"  {mark('ok')} {primary.label}: hooks already in {where}, worktrees are covered")
+    return result.changed
 
 
 def setup_agent_docs(root: Path, *, skip: bool, assume_yes: bool) -> None:
@@ -1915,9 +1956,12 @@ def _format_repo(repo: dict[str, Any]) -> list[str]:
     else:
         state, kind = "connecting to the relay", "info"
     lines = [f"  {mark(kind)} {repo.get('root') or '(no root)'}"]
+    # The agent is learned from the first hook, so a fresh repo has none yet.
+    agent = repo.get("agent")
+    agent_text = agent if agent and agent != "unknown" else "no agent seen yet"
     lines.append(
         f"      room {repo.get('room', '?')} on {repo.get('relay', '?')} as "
-        f"{repo.get('name', '?')} ({repo.get('agent', '?')})"
+        f"{repo.get('name', '?')} ({agent_text})"
     )
     details = [state, _peers_text(repo.get("peers"))]
     queued = repo.get("queued_events")

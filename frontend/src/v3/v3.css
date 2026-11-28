@@ -923,6 +923,28 @@
   background: var(--v3-hover);
 }
 
+/* A subagent, drawn under the chat that started it. */
+.v3-lanes > li.v3-lanes__sub {
+  border-top: 0;
+}
+
+.v3-lane-row--sub {
+  padding-left: 30px;
+  position: relative;
+}
+
+.v3-lane-row--sub::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 50%;
+  width: 8px;
+  border-left: 1px solid var(--v3-hairline);
+  border-bottom: 1px solid var(--v3-hairline);
+  border-bottom-left-radius: 6px;
+}
+
 .v3-lane-row__who {
   min-width: 0;
   display: flex;

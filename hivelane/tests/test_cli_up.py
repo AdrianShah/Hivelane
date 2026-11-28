@@ -774,3 +774,43 @@ def test_room_resolution_precedence_room_file_remembered_lookup_create(
     # 1. --room beats .hivelane.toml.
     assert cli.main(["up", "--room", "FLAG8901", "--yes"]) == 0
     assert machine.service.called("connect_repo")[-1][3].room == "FLAG8901"
+
+
+# --- worktrees -----------------------------------------------------------------------
+
+
+def test_uncommitted_claude_settings_get_user_level_hooks_for_worktrees(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A session in a linked worktree reads the hooks of its own checkout:
+    when .claude/settings.json is not committed, only user-level hooks reach it."""
+    from hivelane import gitinfo
+
+    monkeypatch.setattr(gitinfo, "is_tracked", lambda root, rel: False)
+    assert cli.main(["up", "-y"]) == 0
+    user_settings = machine.home / ".claude" / "settings.json"
+    assert user_settings.is_file()
+    assert "PreToolUse" in json.loads(user_settings.read_text(encoding="utf-8"))["hooks"]
+    assert "worktrees and their subagents show up" in capsys.readouterr().out
+    # Idempotent: a second run reports them, it does not add them again.
+    assert cli.main(["up", "-y"]) == 0
+    assert "worktrees are covered" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("tracked", [True, None])
+def test_committed_or_unknown_settings_leave_user_settings_alone(
+    machine: Machine, monkeypatch: pytest.MonkeyPatch, tracked: bool | None
+) -> None:
+    from hivelane import gitinfo
+
+    monkeypatch.setattr(gitinfo, "is_tracked", lambda root, rel: tracked)
+    assert cli.main(["up", "-y"]) == 0
+    assert not (machine.home / ".claude" / "settings.json").exists()
+
+
+def test_no_hooks_never_touches_user_settings(machine: Machine, monkeypatch: pytest.MonkeyPatch) -> None:
+    from hivelane import gitinfo
+
+    monkeypatch.setattr(gitinfo, "is_tracked", lambda root, rel: False)
+    assert cli.main(["up", "-y", "--no-hooks"]) == 0
+    assert not (machine.home / ".claude" / "settings.json").exists()

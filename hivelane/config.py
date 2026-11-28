@@ -93,7 +93,9 @@ class HivelaneConfig:
     room: Optional[str] = None
     relay: str = DEFAULT_RELAY
     name: Optional[str] = None
-    agent: str = "claude-code"
+    # Deprecated and ignored for coordination: the daemon labels each lane
+    # with the agent its hooks report. Still parsed so older config files load.
+    agent: str = "unknown"
     block_window_seconds: float = DEFAULT_BLOCK_WINDOW
     warn_window_seconds: float = DEFAULT_WARN_WINDOW
     # Room history for replay (project file only). None: the file does not

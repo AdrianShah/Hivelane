@@ -82,7 +82,7 @@ class FakeService:
             "room": config.room,
             "relay": config.relay,
             "name": config.name,
-            "agent": config.agent,
+            "agent": "unknown",  # the daemon learns it from the first hook
             "connected": False,
             "last_relay_contact": None,
             "connected_since": None,

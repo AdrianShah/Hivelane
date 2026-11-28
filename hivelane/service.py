@@ -497,7 +497,7 @@ def registration(
         "room": config.room,
         "relay": config.relay,
         "name": config.name,
-        "agent": config.agent,
+        # No "agent": the daemon learns it from the hooks of whoever works here.
         "settings": settings,
         "ignore": list(config.ignore),
         "share_diffs": config.share_diffs,
