@@ -310,6 +310,12 @@ export interface UserJoined {
   type: 'user_joined';
   user_id: string;
   agent?: AgentKind;
+  /** Relay name of the lane this subagent belongs to ("" for a main session). */
+  parent?: string;
+  /** The subagent's type (Explore, general-purpose, ...), "" for a main session. */
+  subagent_type?: string;
+  /** The linked git worktree it works in ("" for the main checkout). */
+  worktree?: string;
 }
 
 export interface UserLeft {

@@ -1,3 +1,4 @@
+import { nestLanes } from './laneOrder';
 import { useMemo, useState } from 'react';
 import Icon from '../components/Icon';
 import { histogram } from '../dashboard/stats';
@@ -153,11 +154,7 @@ export default function DashboardView({ model }: { model: V3Model }) {
   const collisionTrend = model.stats.collisionHistogram;
   const rtt = rttLabel(model.rttMs);
   const seen = Object.keys(model.log.agents).length;
-  const ordered = [...model.lanes].sort((a, b) => {
-    const rank = (lane: LaneView) =>
-      ({ blocked: 0, waiting: 1, conflict: 2, editing: 3, idle: 4, offline: 5 })[lane.state];
-    return rank(a) - rank(b) || a.id.localeCompare(b.id);
-  });
+  const ordered = nestLanes(model.lanes, lanesById);
   const toneDot = { empty: 'is-idle', clear: 'is-live', warn: 'is-warn is-pulse', block: 'is-block is-pulse' }[line.tone];
 
   return (
@@ -252,9 +249,10 @@ export default function DashboardView({ model }: { model: V3Model }) {
               <span className="v3-label">last 30 min</span>
             </div>
             <ul className="v3-lanes">
-              {ordered.map((lane) => (
+              {ordered.map(({ lane, nested }) => (
                 <LaneRow
                   key={lane.id}
+                  nested={nested}
                   lane={lane}
                   log={model.log}
                   conflicts={model.conflicts}

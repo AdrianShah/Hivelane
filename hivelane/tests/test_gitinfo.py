@@ -111,3 +111,24 @@ def test_reftable_repo(tmp_path: Path) -> None:
     gitinfo.clear_cache()
     head = gitinfo.read_head(root)
     assert head is not None and head.branch == "feature"
+
+
+def test_is_tracked_tells_committed_from_ignored(tmp_path: Path) -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+
+    git("init", "-q")
+    (repo / "kept.txt").write_text("x", encoding="utf-8")
+    (repo / "loose.txt").write_text("x", encoding="utf-8")
+    git("add", "kept.txt")
+    assert gitinfo.is_tracked(repo, "kept.txt") is True
+    assert gitinfo.is_tracked(repo, "loose.txt") is False
+    assert gitinfo.is_tracked(tmp_path, "kept.txt") is None  # not a repository

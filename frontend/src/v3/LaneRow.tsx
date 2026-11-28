@@ -1,3 +1,4 @@
+import { laneWhere } from './laneOrder';
 import { memo } from 'react';
 import Bee from '../components/Bee';
 import Icon from '../components/Icon';
@@ -76,14 +77,17 @@ interface LaneRowProps {
   isOwner: boolean;
   nowSeconds: number;
   actions: V3Actions;
+  /** Drawn under its parent lane: a subagent of a chat shown above it. */
+  nested?: boolean;
 }
+
 
 /**
  * One lane: bee, name, app, current file, the last half hour as 24 bars,
  * a status dot and a chevron. Opening it shows the intent, where its edit
  * overlaps a teammate's (line ranges) and what can be done about it.
  */
-function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwner, nowSeconds, actions }: LaneRowProps) {
+function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwner, nowSeconds, actions, nested }: LaneRowProps) {
   const alert = conflicts.find((c) => c.users.includes(lane.id));
   const file = held?.file_path ?? alert?.file_path ?? lane.currentFile;
   const partner = overlapPartner(lane, lanes, file, conflicts);
@@ -95,10 +99,10 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
   const step = lane.planProgress && lane.planProgress.total > 0 ? lane.planProgress : null;
 
   return (
-    <li id={`lane-${lane.id}`}>
+    <li id={`lane-${lane.id}`} className={nested ? 'v3-lanes__sub' : undefined}>
       <button
         type="button"
-        className="v3-lane-row"
+        className={nested ? 'v3-lane-row v3-lane-row--sub' : 'v3-lane-row'}
         aria-expanded={open}
         aria-controls={detailId}
         onClick={() => onToggle(lane.id)}
@@ -108,7 +112,7 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
           <span className="v3-lane-row__name">{lane.id}</span>
           <span className="v3-lane-row__app" title={step?.current?.title || undefined}>
             {agentLabel(lane.agent)}
-            {lane.branch ? ` · ${lane.branch}` : ''}
+            {laneWhere(lane, nested && lane.parent ? lanes[lane.parent] : undefined)}
             {step ? ` · step ${Math.min(step.done + 1, step.total)}/${step.total}` : ''}
             {lane.pendingFiles.length > 0 ? (
               <span className="v3-lane-row__unpushed" title="Changed but not pushed yet">
@@ -140,6 +144,12 @@ function LaneRowImpl({ lane, log, conflicts, lanes, held, open, onToggle, isOwne
             <p className="v3-label">
               Plan: {step.done}/{step.total} steps done
               {step.current ? ` · now: ${step.current.title || 'encrypted step'}` : ''}
+            </p>
+          ) : null}
+          {lane.parent ? (
+            <p className="v3-label">
+              Subagent of <span className="v3-mono">{lane.parent}</span>
+              {lane.worktree ? ' · its own worktree: edits there meet the others at merge time' : ''}
             </p>
           ) : null}
           <p className="v3-label">

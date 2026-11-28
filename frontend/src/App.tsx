@@ -145,6 +145,10 @@ type LaneEntry = WireLaneState & {
   branch: string;
   /** Latest unpushed-work report per repo (pending_update). */
   pending?: PendingUpdate[];
+  /** Lane metadata from user_joined: the parent lane of a subagent, its type, its worktree. */
+  parent: string;
+  subagentType: string;
+  worktree: string;
 };
 
 const BLANK_ENTRY: LaneEntry = {
@@ -152,6 +156,9 @@ const BLANK_ENTRY: LaneEntry = {
   offlineSince: null,
   plan: null,
   branch: '',
+  parent: '',
+  subagentType: '',
+  worktree: '',
 };
 
 function isExpired(event: { timestamp: number }, nowSeconds: number): boolean {
@@ -720,13 +727,25 @@ export default function App() {
               if (live) addActivity('join', `${item.user_id} joined`, serverNowSeconds());
               setUsers((prev) => {
                 const prior = prev[item.user_id];
+                const meta = {
+                  parent: item.parent ?? '',
+                  subagentType: item.subagent_type ?? '',
+                  worktree: item.worktree ?? '',
+                };
                 if (prior) {
-                  // A rejoin restores the greyed-out lane, history intact.
+                  // A rejoin (or a member_update re-announce) restores the
+                  // greyed-out lane, history intact, and relabels it.
                   const agent = item.agent && item.agent !== prior.agent ? item.agent : prior.agent;
-                  if (agent === prior.agent && prior.offlineSince == null) return prev;
-                  return withEntry(prev, item.user_id, { ...prior, agent, offlineSince: null });
+                  const same =
+                    agent === prior.agent &&
+                    prior.offlineSince == null &&
+                    meta.parent === prior.parent &&
+                    meta.subagentType === prior.subagentType &&
+                    meta.worktree === prior.worktree;
+                  if (same) return prev;
+                  return withEntry(prev, item.user_id, { ...prior, ...meta, agent, offlineSince: null });
                 }
-                return withEntry(prev, item.user_id, { ...BLANK_ENTRY, agent: item.agent ?? 'unknown' });
+                return withEntry(prev, item.user_id, { ...BLANK_ENTRY, ...meta, agent: item.agent ?? 'unknown' });
               });
               break;
 
@@ -1125,6 +1144,9 @@ export default function App() {
         pendingFiles: pendingFiles(entry),
         pendingTruncated: pendingTruncated(entry),
         branch: entry.branch,
+        parent: entry.parent,
+        subagentType: entry.subagentType,
+        worktree: entry.worktree,
         offlineSince: entry.offlineSince,
         derived,
         editTimes: touchTimes.get(id) ?? [],

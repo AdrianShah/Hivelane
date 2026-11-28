@@ -21,7 +21,8 @@
     "nudge": "#/$defs/Nudge",
     "pending_changes": "#/$defs/PendingChanges",
     "invite_rotate": "#/$defs/InviteRotate",
-    "member_revoke": "#/$defs/MemberRevoke"
+    "member_revoke": "#/$defs/MemberRevoke",
+    "member_update": "#/$defs/MemberUpdate"
   },
   "x-relay-to-client": {
     "edit_check_response": "#/$defs/EditCheckResponse",
@@ -107,6 +108,9 @@
     },
     {
       "$ref": "#/$defs/MemberRevoke"
+    },
+    {
+      "$ref": "#/$defs/MemberUpdate"
     },
     {
       "$ref": "#/$defs/EditCheckResponse"
@@ -1335,6 +1339,24 @@
           ],
           "default": null,
           "title": "Member Token"
+        },
+        "parent": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Parent",
+          "type": "string"
+        },
+        "subagent_type": {
+          "default": "",
+          "maxLength": 48,
+          "title": "Subagent Type",
+          "type": "string"
+        },
+        "worktree": {
+          "default": "",
+          "maxLength": 48,
+          "title": "Worktree",
+          "type": "string"
         }
       },
       "title": "JoinMessage",
@@ -1486,6 +1508,42 @@
         "token"
       ],
       "title": "MemberToken",
+      "type": "object"
+    },
+    "MemberUpdate": {
+      "description": "A member correcting what it joined as: the agent it turned out to be\n(a daemon joins before any agent has used it, so it learns which one from\nthe first hook), and where it works. Relays that predate this message\nignore it, which leaves the label the member joined with.",
+      "properties": {
+        "type": {
+          "const": "member_update",
+          "default": "member_update",
+          "title": "Type",
+          "type": "string"
+        },
+        "agent": {
+          "default": "unknown",
+          "enum": [
+            "cursor",
+            "claude-code",
+            "codex",
+            "antigravity",
+            "gemini-cli",
+            "devin",
+            "grok",
+            "aider",
+            "human",
+            "unknown"
+          ],
+          "title": "Agent",
+          "type": "string"
+        },
+        "worktree": {
+          "default": "",
+          "maxLength": 48,
+          "title": "Worktree",
+          "type": "string"
+        }
+      },
+      "title": "MemberUpdate",
       "type": "object"
     },
     "NameRejected": {
@@ -2826,6 +2884,24 @@
             "unknown"
           ],
           "title": "Agent",
+          "type": "string"
+        },
+        "parent": {
+          "default": "",
+          "maxLength": 64,
+          "title": "Parent",
+          "type": "string"
+        },
+        "subagent_type": {
+          "default": "",
+          "maxLength": 48,
+          "title": "Subagent Type",
+          "type": "string"
+        },
+        "worktree": {
+          "default": "",
+          "maxLength": 48,
+          "title": "Worktree",
           "type": "string"
         }
       },

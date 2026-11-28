@@ -73,6 +73,7 @@ from hivelane.protocol import (
     IntentMessage,
     JoinDecision,
     JoinMessage,
+    MemberUpdate,
     PeerTouch,
     PendingChanges,
     PendingFile,
@@ -837,10 +838,17 @@ def fresh_alert(alert: Optional[dict[str, Any]], now: float) -> Optional[dict[st
     return alert
 
 
-def lane_suffix(agent: str, subagent_id: Optional[str], subagent_type: Optional[str]) -> str:
+def lane_suffix(
+    agent: str, subagent_id: Optional[str], subagent_type: Optional[str], worktree: str = ""
+) -> str:
     """The part after the person's name in a lane's relay name: the agent for
-    a main session (`cursor`), type plus a short id for a subagent
+    a main session (`cursor`), the worktree for a main session in a linked
+    git worktree (`ghost-merge`), type plus a short id for a subagent
     (`explore-3f2a`)."""
+    if not subagent_id and worktree:
+        tag = _RELAY_UNSAFE.sub("", worktree.lower())[:12].strip("-_")
+        if tag:
+            return tag
     if subagent_id:
         # Cut, then trimmed: "general-purpose"[:8] is "general-", and its
         # dash would double up with the separator below.
@@ -848,6 +856,21 @@ def lane_suffix(agent: str, subagent_id: Optional[str], subagent_type: Optional[
         tag = _RELAY_UNSAFE.sub("", subagent_id.lower().replace("agent-", "").replace("agent_", ""))
         return f"{kind}-{(tag or '0')[-4:]}"
     return _LANE_SHORT_NAMES.get(agent, _RELAY_UNSAFE.sub("", agent.lower())[:10] or "agent")
+
+
+def linked_worktree(root: Optional[Path]) -> str:
+    """The directory name of root when it is a linked git worktree (its .git
+    is a file pointing into the main repository), else "". A main checkout
+    and a path outside git are both "".
+
+    Display only: a worktree's edits are already judged per branch by the
+    relay (different branches warn of a merge conflict instead of blocking)."""
+    if root is None:
+        return ""
+    try:
+        return root.name if (root / ".git").is_file() else ""
+    except OSError:
+        return ""
 
 
 def lane_name(base: str, suffix: str) -> str:
@@ -1048,6 +1071,11 @@ class RoomConnection:
         self.room = room
         self.name = name
         self.agent: AgentKind = agent
+        # Display-only lane metadata sent on join (see JoinMessage): the lane
+        # this subagent belongs to, its type, and the linked worktree it is in.
+        self.parent = ""
+        self.subagent_type = ""
+        self.worktree = ""
         self.server = server
         self.batch_seconds = batch_seconds
         self.edit_check_timeout = edit_check_timeout
@@ -2050,7 +2078,8 @@ class RoomConnection:
         | JoinDecision
         | RoomPolicy
         | TaskRequest
-        | PendingChanges,
+        | PendingChanges
+        | MemberUpdate,
     ) -> bool:
         """Queue message for the relay; False when it cannot go (an e2e room
         without a key, or a message that cannot be encoded or made to fit a
@@ -2207,7 +2236,13 @@ class RoomConnection:
             via_repo_lookup=self.via_repo_lookup,
             invite_secret=self.invite_secret,
             member_token=self.member_token,
+            parent=self.parent[:64],
+            subagent_type=self.subagent_type[:48],
+            worktree=self._wire_worktree(),
         ).model_dump(mode="json")
+        for label in ("parent", "subagent_type", "worktree"):
+            if not payload.get(label):
+                payload.pop(label, None)
         settings = payload.get("settings")
         if isinstance(settings, dict) and not settings.get("e2e"):
             # Only ever switch e2e on. A teammate on an older .hivelane.toml
@@ -2228,6 +2263,27 @@ class RoomConnection:
         if not payload.get("via_repo_lookup"):
             payload.pop("via_repo_lookup", None)
         return json.dumps(payload, separators=(",", ":"))
+
+    def _wire_worktree(self) -> str:
+        """The worktree name as the relay may see it: never in an end-to-end
+        encrypted room, where a directory name can say what the work is."""
+        if self.e2e_required or self.e2e_key is not None:
+            return ""
+        return self.worktree[:48]
+
+    def describe_as(self, agent: str, worktree: str = "") -> None:
+        """Relabel this member: the agent that turned out to be using it (a
+        daemon joins before any hook has said which), and its worktree. The
+        next join carries the new values; a live connection tells the relay
+        now. Unknown never replaces a known agent."""
+        agent = agent if agent in AGENT_KINDS else "unknown"
+        new_agent = self.agent if agent == "unknown" else agent
+        if new_agent == self.agent and worktree == self.worktree:
+            return
+        self.agent = new_agent  # type: ignore[assignment]
+        self.worktree = worktree
+        if self.live:
+            self._send(MemberUpdate(agent=self.agent, worktree=self._wire_worktree()))
 
     # --- room ownership ------------------------------------------------------
 
@@ -2986,7 +3042,9 @@ class RepoRegistration(BaseModel):
     room: str
     relay: str = DEFAULT_SERVER
     name: Optional[str] = None
-    agent: AgentKind = "claude-code"
+    # Ignored by repos the daemon coordinates on its own; the hooks say which
+    # agent is at work (Daemon._open_lane).
+    agent: AgentKind = "unknown"
     settings: Optional[RoomSettings] = None
     ignore: list[str] = []
     share_diffs: bool = True
@@ -3722,7 +3780,9 @@ class Daemon:
                 settings = None
         elif config.e2e:
             settings = RoomSettings(e2e=True)
-        agent = config.agent if config.agent in AGENT_KINDS else "unknown"
+        # Which agent uses this repo is learned from its hooks (see
+        # Daemon._open_lane), never configured: a person may switch tools.
+        agent = "unknown"
         if transport_problem(config.relay, config.insecure):
             print(
                 f"hivelane: not coordinating {config.root}: {transport_problem(config.relay, config.insecure)}",
@@ -3767,7 +3827,6 @@ class Daemon:
             if (
                 conn.ws_url == ws_url
                 and conn.name == name
-                and conn.agent == agent
                 and conn.fatal is None
                 and not conn._closed
             ):
@@ -4251,19 +4310,27 @@ class Daemon:
             agent=agent, session_id=event.session_id, subagent_id=event.subagent_id or "",
             subagent_type=event.subagent_type or "", conn=primary, primary=primary,
         )
+        worktree = linked_worktree(binding.root)
         holder = self._primary_holder.get(id(primary))
-        if not event.subagent_id and (holder is None or now - holder.last_used > LANE_IDLE_SECONDS):
-            # The person's first main session is who the repo's own
-            # connection stands for, whichever tool it runs in: the `agent`
-            # in .hivelane.toml is the team's, not necessarily this person's.
+        if (
+            not event.subagent_id
+            and not worktree
+            and (holder is None or now - holder.last_used > LANE_IDLE_SECONDS)
+        ):
+            # The person's first main session in the main checkout is who the
+            # repo's own connection stands for, whichever tool it runs in: the
+            # connection takes that session's agent as its label. A session in
+            # a linked worktree always gets a lane of its own, named after the
+            # worktree, so parallel worktree agents stay apart on the board.
             self._primary_holder[id(primary)] = lane
+            primary.describe_as(agent)
             return lane
         owned = [other for other in self._lanes_of(primary) if other.owned]
         if not self._running or len(owned) >= MAX_LANES_PER_CONNECTION:
             lane.retry_at = now + LANE_RETRY_SECONDS
             return lane
         taken = {relay_user_id(primary.name)} | {relay_user_id(other.conn.name) for other in owned}
-        suffix = lane_suffix(agent, event.subagent_id, event.subagent_type)
+        suffix = lane_suffix(agent, event.subagent_id, event.subagent_type, worktree)
         name = lane_name(primary.name, suffix)
         number = 2
         while name in taken:
@@ -4283,6 +4350,10 @@ class Daemon:
         conn.repo_id = primary.repo_id
         conn.repo_root = primary.repo_root
         conn.key_fingerprint = primary.key_fingerprint
+        conn.worktree = worktree
+        if event.subagent_id:
+            conn.parent = self._parent_name(primary, agent, event.session_id)
+            conn.subagent_type = event.subagent_type or ""
         conn.start()
         deadline = time.monotonic() + LANE_JOIN_WAIT
         while (
@@ -4303,6 +4374,12 @@ class Daemon:
         lane.conn = conn
         lane.owned = True
         return lane
+
+    def _parent_name(self, primary: RoomConnection, agent: str, session_id: str) -> str:
+        """The relay name of the chat a subagent belongs to: its main
+        session's lane, else the repo's own connection."""
+        main = self._lanes.get((id(primary), (agent, session_id, "")))
+        return main.conn.name if main is not None else primary.name
 
     def _close_later(self, conn: RoomConnection) -> None:
         task = asyncio.get_running_loop().create_task(conn.close())

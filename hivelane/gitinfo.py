@@ -233,6 +233,22 @@ def _run_git(root: Path, *args: str) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
+def is_tracked(root: Path, rel: str) -> Optional[bool]:
+    """Whether git tracks root/rel, so every checkout and linked worktree of
+    the repo has it; None when git cannot say (not a repo, no git)."""
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--error-unmatch", "--", rel],
+            capture_output=True, text=True, timeout=3, check=False,
+            encoding="utf-8", errors="replace",
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if done.returncode == 0:
+        return True
+    return False if "did not match" in done.stderr else None
+
+
 def compute_repo_id(root: Path) -> str:
     """Identity of the repository at root, shared by every clone of it."""
     origin = normalize_remote_url(_run_git(root, "remote", "get-url", "origin"))
