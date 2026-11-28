@@ -55,7 +55,8 @@ def git_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, str]:
 
 
 def git(root: Path, *args: str, stdin: str | None = None) -> str:
-    done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True, input=stdin, check=False)
+    done = subprocess.run(["git", *args], cwd=root, capture_output=True, text=True,
+                          encoding="utf-8", input=stdin, check=False)
     assert done.returncode == 0, f"git {' '.join(args)}: {done.stderr}{done.stdout}"
     return done.stdout
 
@@ -115,7 +116,7 @@ def commit(root: Path, message: str, *paths: str) -> str:
 
 def note(root: Path, rev: str = "HEAD") -> list[dict[str, Any]]:
     done = subprocess.run(["git", "notes", f"--ref={provenance.NOTES_REF}", "show", rev], cwd=root,
-                          capture_output=True, text=True, check=False)
+                          capture_output=True, text=True, encoding="utf-8", check=False)
     return provenance.parse_note(done.stdout) if done.returncode == 0 else []
 
 
