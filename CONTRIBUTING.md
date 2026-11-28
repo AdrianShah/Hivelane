@@ -41,11 +41,14 @@ git clone https://github.com/AdrianShah/Hivelane.git
 cd Hivelane
 python -m venv .venv
 source .venv/bin/activate              # Windows: .venv\Scripts\activate
-pip install -r server/requirements-dev.txt -e ".[dev]"
+pip install -r server/requirements-dev.txt -e ".[dev,e2e]"
 ```
 
 That is the same install CI runs: the relay's pinned dependencies, pytest, and
 the CLI in editable mode, so `hivelane` on your PATH runs your working tree.
+`e2e` adds the crypto libraries the end-to-end encryption tests need. Tests
+that install git hooks run the `hivelane` on your PATH, so in a second
+worktree, give it its own venv or those tests run the other checkout's code.
 Add `-e ".[dev,symbols]"` to work on tree-sitter symbol extraction.
 
 `./setup.sh` (or `setup.ps1` on Windows) creates the venv and installs the CLI
